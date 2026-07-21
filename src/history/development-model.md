@@ -666,6 +666,46 @@ Standard tags used in the review process:
 | `Co-developed-by:` | Joint authorship |
 | `Assisted-by:` | Non-author assistance |
 
+## The Kernel Development Process (from docs.kernel.org)
+
+The kernel documentation at `docs.kernel.org/process/development-process.html` provides the authoritative guide to how kernel development works in practice. Key points from the official documentation:
+
+### The Development Lifecycle
+
+The kernel development process follows a well-defined pattern:
+
+1. **Early-stage planning**: Before writing code, developers should specify the problem clearly, discuss it on the appropriate mailing list, and get buy-in from relevant maintainers. Getting early feedback saves significant rework later.
+
+2. **Getting the code right**: The kernel has strict requirements for code quality. Developers must use code checking tools (`checkpatch.pl`, `sparse`, `smatch`, Coccinelle). All code must be documented, and internal API changes must be coordinated across subsystems.
+
+3. **Posting patches**: Patches should be posted at the right time (not too early, not too late in the cycle), prepared with proper formatting and changelogs, and sent to the correct mailing lists and maintainers using `git send-email`.
+
+4. **Followthrough**: After posting, developers must work with reviewers, respond to feedback, and resend updated versions. Ignoring review feedback is one of the most common reasons patches are rejected.
+
+5. **Advanced topics**: Managing patch series with `git`, reviewing others' patches, and understanding the merge window dynamics.
+
+### The Importance of Getting Code into Mainline
+
+The documentation stresses that getting code merged into the mainline kernel is critical:
+- **Maintenance burden**: Out-of-tree code requires constant rebasing against new kernel releases
+- **Code quality**: The review process improves code quality significantly
+- **Community support**: Mainline code gets testing and bug fixes from the community
+- **Legal clarity**: The DCO process ensures clear provenance
+
+### Tools of the Trade
+
+The development process relies on several key tools:
+- **Git**: Version control (torvalds/linux for mainline)
+- **git send-email**: Patch submission (not GitHub PRs)
+- **checkpatch.pl**: Coding style enforcement
+- **get_maintainer.pl**: Finding the right recipients for patches
+- **sparse**: Static analysis for kernel-specific annotations
+- **Coccinelle**: Semantic code matching and transformation
+
+### Mailing Lists
+
+The kernel communicates primarily through mailing lists hosted on `vger.kernel.org`. The `linux-kernel@vger.kernel.org` list is the general discussion list, but most development happens on subsystem-specific lists (e.g., `netdev@vger.kernel.org` for networking).
+
 ## References and Further Reading
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
@@ -688,6 +728,7 @@ Standard tags used in the review process:
 - linux-next tree: https://git.kernel.org/pub/scm/linux/kernel/git/next/linux-next.git/
 - Patchwork: https://patchwork.kernel.org/
 - The Linux Kernel Documentation — Development Process: https://www.kernel.org/doc/html/latest/process/development-process.html
+- [A Guide to the Kernel Development Process](https://docs.kernel.org/process/development-process.html) — Official kernel documentation
 
 ## Related Topics
 

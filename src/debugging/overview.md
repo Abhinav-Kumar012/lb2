@@ -422,6 +422,55 @@ lldb ./myapp
 
 * `ptrace` YAMA scope may require `CAP_SYS_PTRACE`
 
+## Kernel Development Tools (from docs.kernel.org)
+
+The kernel documentation at `docs.kernel.org/dev-tools/index.html` provides a comprehensive index of development tools specifically for kernel development. These tools span static analysis, dynamic analysis, code coverage, and testing frameworks.
+
+### Static Analysis Tools
+
+| Tool | Purpose |
+|------|--------|
+| **Sparse** | Type checking for kernel-specific annotations (`__user`, `__kernel`, `__iomem`) |
+| **Coccinelle** | Semantic code matching and transformation ("semantic patches") |
+| **Checkpatch** | Coding style and formatting checker |
+| **clang-format** | Automatic code formatting according to kernel style |
+| **UAPI Checker** | Validates userspace API header consistency |
+
+### Dynamic Analysis / Sanitizers
+
+| Tool | Detects |
+|------|--------|
+| **KASAN** (Kernel Address Sanitizer) | Use-after-free, buffer overflows, out-of-bounds access |
+| **KMSAN** (Kernel Memory Sanitizer) | Uninitialized memory reads |
+| **UBSAN** (Undefined Behavior Sanitizer) | Integer overflow, null deref, alignment issues |
+| **KCSAN** (Kernel Concurrency Sanitizer) | Data races between concurrent threads |
+| **KFENCE** (Kernel Electric-Fence) | Low-overhead use-after-free and out-of-bounds detection |
+| **kmemleak** | Kernel memory leaks |
+
+### Testing Frameworks
+
+| Framework | Description |
+|-----------|-------------|
+| **KUnit** | In-kernel unit testing framework (runs tests in a lightweight UML or real kernel) |
+| **kselftest** | Self-test suite for kernel features, runs from user space |
+| **KTAP** | Kernel Test Any Protocol — standardized test output format |
+| **Lock Torture** | Stress tests for locking primitives |
+
+### Code Coverage
+
+- **KCOV**: Code coverage collection for fuzzing (used by syzkaller)
+- **gcov**: GCC-based code coverage for the kernel
+
+### Profiling and Optimization
+
+- **AutoFDO**: Automatic Feedback-Directed Optimization using profiling data
+- **Propeller**: Profile-guided binary optimization
+- **GPIO Sloppy Logic Analyzer**: DIY logic analyzer using GPIO pins
+
+### Containerized Builds
+
+The kernel supports building inside containers for reproducible build environments, with configuration for user ID mapping and environment variables.
+
 ## References
 
 - [GDB Manual](https://sourceware.org/gdb/documentation/) — official docs
@@ -433,6 +482,7 @@ lldb ./myapp
 - [Brendan Gregg's Linux Performance](https://www.brendangregg.com/linuxperf.html) — comprehensive tools map
 - [LWN: Tracing the kernel](https://lwn.net/Articles/tracing/) — overview articles
 - [kernel.org: Debugging](https://www.kernel.org/doc/html/latest/dev-tools/gdb-kernel-debugging.html) — kernel debugging with GDB
+- [Kernel Development Tools](https://docs.kernel.org/dev-tools/index.html) — Official index of kernel dev tools
 
 ## Related Topics
 

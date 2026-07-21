@@ -14,7 +14,13 @@ the workhorse filesystem for desktops, servers, and embedded systems alike.
 ## On-Disk Layout
 
 An ext4 filesystem is divided into block groups, each containing a chunk of data blocks plus
-metadata to manage them:
+metadata to manage them. The block allocator tries very hard to keep each file's blocks within the same group, reducing seek times.
+
+**Block group sizing**:
+- Size specified by `sb.s_blocks_per_group` blocks, or calculated as `8 * block_size_in_bytes`
+- With the default 4 KiB block size: **32,768 blocks per group = 128 MiB**
+- Number of block groups = device size / block group size
+- All ext4 fields are written in **little-endian**; JBD2 journal fields are written in **big-endian**
 
 ```
 ┌─────────┬──────────┬──────────┬─────────┬──────────────────┬──────────┐
@@ -558,7 +564,8 @@ File size of /path/to/file is 1073741824 (262144 blocks of 4096 bytes)
 - [ext4 Dynamic Structures](https://docs.kernel.org/filesystems/ext4/dynamic.html) — Inodes, extents, directories
 - [Linux kernel: fs/ext4/](https://elixir.bootlin.com/linux/latest/source/fs/ext4) — ext4 source code
 - [Theodore Ts'o's blog](https://thunk.org/tytso/) — ext4 maintainer's writings
-- [LWN: ext4 and delayed allocation](https://lwn.net/Articles/273912/) — Delalloc discussion
+- [LWN: ext4 and delayed allocation](https://lwn.net/Articles/273912/)
+- [ext4 High Level Design (kernel docs)](https://docs.kernel.org/filesystems/ext4/overview.html) — Delalloc discussion
 
 ## Related Topics
 

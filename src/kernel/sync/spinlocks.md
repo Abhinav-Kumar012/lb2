@@ -472,6 +472,75 @@ static u32 my_device_read_reg(struct my_hw_device *dev, u32 reg)
 }
 ```
 
+## PREEMPT_RT Lock Semantics
+
+The `PREEMPT_RT` patch fundamentally changes how many lock types behave. Understanding these changes is critical for writing correct code on both RT and non-RT kernels.
+
+### Lock Categories
+
+The kernel divides locks into three categories:
+
+| Category | Lock Types | Behavior on PREEMPT_RT |
+|----------|-----------|----------------------|
+| **Sleeping locks** | `mutex`, `rt_mutex`, `semaphore`, `rw_semaphore`, `ww_mutex` | Unchanged — always sleeping |
+| **CPU local locks** | `local_lock` | Becomes a per-CPU `spinlock_t` (real lock) |
+| **Spinning locks** | `raw_spinlock_t`, bit spinlocks | Unchanged — always spinning |
+| **Hybrid** | `spinlock_t`, `rwlock_t` | **Becomes sleeping lock** (rt_mutex-based) |
+
+### spinlock_t on PREEMPT_RT
+
+On a `PREEMPT_RT` kernel, `spinlock_t` is mapped to an `rt_mutex`:
+
+- **Preemption is NOT disabled** — the critical section runs in preemptible task context.
+- **`_irq` / `_irqsave` suffixes** do NOT affect the CPU's interrupt state — interrupts remain enabled.
+- **`_bh()` suffix** still disables softirq handlers, but uses a per-CPU lock instead of disabling preemption.
+- **Migration is disabled** — pointers to per-CPU variables remain valid even if the task is preempted.
+- **Task state is preserved** across lock acquisition — if the task blocks, its state is saved and restored on lock wakeup.
+
+### Task State Preservation Detail
+
+When a task blocks on a `spinlock_t` under PREEMPT_RT:
+
+```text
+1. task->state = TASK_INTERRUPTIBLE
+2. lock() → block()
+3. task->saved_state = task->state  (save INTERRUPTIBLE)
+4. task->state = TASK_UNINTERRUPTIBLE  (for lock wakeup)
+5. schedule()
+6. Lock available → lock wakeup restores: task->state = task->saved_state
+```
+
+Non-lock wakeups (e.g., signal) set `saved_state = TASK_RUNNING` instead of waking the task directly, ensuring the task stays blocked until the lock is acquired.
+
+### rw_semaphore on PREEMPT_RT
+
+`rw_semaphore` is mapped to an rt_mutex-based implementation with asymmetric priority inheritance:
+
+- **Writers** can receive priority inheritance from readers (preempted low-priority writer gets boosted).
+- **Readers** cannot receive priority inheritance from writers (a preempted low-priority reader can starve high-priority writers).
+
+### rwlock_t on PREEMPT_RT
+
+Same changes as `spinlock_t` plus the same asymmetric PI behavior as `rw_semaphore`.
+
+### local_lock on PREEMPT_RT
+
+`local_lock` maps to a per-CPU `spinlock_t`, which becomes a real sleeping lock. This means:
+
+- `local_lock_irq(&lock); raw_spin_lock(&lock);` works on non-RT but **breaks on PREEMPT_RT** because `local_lock` now takes a sleeping lock, and `raw_spin_lock` is a true spinning lock (sleeping inside spinning = deadlock).
+- Use `local_lock_nested_bh()` for per-CPU variables accessed in softirq context — on RT, it serializes access instead of relying on implicit context protection.
+
+### When to Use raw_spinlock_t
+
+Use `raw_spinlock_t` (always spinning, even on RT) only for:
+
+- Hardware register access
+- Low-level interrupt handling
+- Critical core code where disabling preemption/interrupts is required
+- Tiny critical sections where rt_mutex overhead is unwarranted
+
+**Rule of thumb**: Use `spinlock_t` by default. Only use `raw_spinlock_t` when you have a specific reason.
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
@@ -486,6 +555,7 @@ static u32 my_device_read_reg(struct my_hw_device *dev, u32 reg)
 - [qspinlock: MCS-based queued spinlock — Waiman Long's patches](https://lwn.net/Articles/590243/)
 - [PREEMPT_RT and spinlocks](https://wiki.linuxfoundation.org/realtime/documentation/technical_details/start)
 - [Understanding the Linux Kernel, 3rd Edition — Chapter 5: Spinlocks](https://www.oreilly.com/library/view/understanding-the-linux/0596005652/)
+- [Lock types and their rules (kernel docs)](https://docs.kernel.org/locking/locktypes.html)
 
 ## Related Topics
 

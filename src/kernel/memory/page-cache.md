@@ -306,6 +306,213 @@ while (read(fd, buf, sizeof(buf)) > 0) {
 posix_fadvise(fd, 0, 1024*1024, POSIX_FADV_DONTNEED);
 ```
 
+## Readahead Internals
+
+### The Readahead Algorithm
+
+The readahead algorithm uses a sliding window that adapts based on access patterns. The kernel tracks the readahead state per-file in `struct file_ra_state`:
+
+```c
+/* include/linux/fs.h */
+struct file_ra_state {
+    pgoff_t start;          /* Where the readahead window starts */
+    unsigned int size;       /* Current readahead window size (pages) */
+    unsigned int async_size; /* Start of async readahead */
+    unsigned int ra_pages;   /* Maximum readahead size */
+    unsigned int mmap_miss;  /* Cache misses during mmap access */
+    loff_t prev_pos;         /* Previous read position */
+};
+```
+
+### Readahead Window States
+
+The algorithm has three distinct modes:
+
+```mermaid
+stateDiagram-v2
+    [*] --> Initial: First read
+    Initial --> SyncReadahead: Sequential detected
+    SyncReadahead --> AsyncReadahead: Window growing
+    AsyncReadahead --> SyncReadahead: Window fully consumed
+    Initial --> NoReadahead: Random access
+    NoReadahead --> SyncReadahead: Sequential re-detected
+```
+
+```c
+/* mm/readahead.c - simplified algorithm */
+static void ondemand_readahead(struct file *file,
+                               struct file_ra_state *ra,
+                               struct readahead_control *rac,
+                               pgoff_t offset)
+{
+    pgoff_t start, end;
+    unsigned int max_pages = ra->ra_pages;
+
+    /* Case 1: Cache hit within readahead window → async readahead */
+    if (offset >= ra->start && offset < ra->start + ra->size) {
+        /* Hit in current window */
+        if (offset == ra->start + ra->size - ra->async_size) {
+            /* Hit the async trigger point → read ahead more */
+            start = ra->start + ra->size;
+            end = start + ra->size;
+            goto readit;
+        }
+        return;  /* Still in window, no action needed */
+    }
+
+    /* Case 2: Hit beyond current window → sync readahead */
+    if (offset >= ra->start + ra->size) {
+        /* Sequential access — double the window */
+        start = offset;
+        ra->size = min(ra->size * 2, max_pages);
+        end = start + ra->size;
+    }
+
+    /* Case 3: Miss — start fresh */
+    start = offset;
+    ra->size = get_init_ra_size(max_pages);
+    end = start + ra->size;
+
+readit:
+    ra->start = start;
+    /* Submit readahead I/O */
+    page_cache_ra_order(rac, &rac->ra->ra_pages, 0);
+}
+```
+
+### Sync vs Async Readahead
+
+The kernel distinguishes between synchronous and asynchronous readahead:
+
+- **Synchronous**: Blocks the reader until pages are in cache. Used for initial sequential reads.
+- **Asynchronous**: Pages are fetched in the background. Used when the readahead window is large enough.
+
+The `async_size` field determines the trigger point. When the reader reaches `start + size - async_size`, the kernel fires off the next readahead asynchronously:
+
+```
+Window: [start ... start+size-async_size ... start+size]
+                          ^
+                    async trigger point
+                    (kernel fires next window here)
+```
+
+```bash
+# View readahead per-file with fincore
+$ vmtouch -v largefile.bin
+# Tracks:  131072/131072  512M/512M  100%
+# (all pages in cache due to readahead)
+
+# Monitor readahead activity
+$ sudo perf stat -e 'mm_filemap:add_to_page_cache_lru' -a sleep 5
+# Shows pages being added to page cache (including readahead)
+```
+
+### Readahead for mmap
+
+For memory-mapped files, readahead uses a different mechanism — **fault-around**:
+
+```c
+/* mm/memory.c - fault around */
+static vm_fault_t do_fault_around(struct vm_fault *vmf)
+{
+    /* On a page fault, map surrounding pages too */
+    /* Reduces fault overhead for sequential mmap access */
+    unsigned long start = max(vmf->address - 256*1024, vma->vm_start);
+    unsigned long end = min(vmf->address + 256*1024, vma->vm_end);
+    /* Map pages in [start, end) range */
+}
+```
+
+```bash
+# Control mmap readahead
+$ cat /proc/sys/vm/max_map_count
+65530
+
+# For sequential mmap, use madvise:
+madvise(addr, len, MADV_SEQUENTIAL)  # Double readahead
+madvise(addr, len, MADV_WILLNEED)    # Trigger readahead now
+madvise(addr, len, MADV_RANDOM)      # Disable readahead
+```
+
+## POSIX_FADVISE Internals
+
+The `posix_fadvise()` system call lets applications hint the kernel about access patterns:
+
+```c
+/* mm/fadvise.c */
+int ksys_fadvise64_64(int fd, loff_t offset, loff_t len, int advice)
+{
+    struct fd f = fdget(fd);
+    struct address_space *mapping = f.file->f_mapping;
+
+    switch (advice) {
+    case POSIX_FADV_SEQUENTIAL:
+        /* Double the readahead window */
+        mapping->backing_dev_info->ra_pages *= 2;
+        break;
+
+    case POSIX_FADV_RANDOM:
+        /* Disable readahead */
+        mapping->backing_dev_info->ra_pages = 0;
+        break;
+
+    case POSIX_FADV_WILLNEED:
+        /* Trigger immediate readahead for the range */
+        force_page_cache_readahead(mapping, f.file,
+                                    offset >> PAGE_SHIFT,
+                                    len >> PAGE_SHIFT);
+        break;
+
+    case POSIX_FADV_DONTNEED:
+        /* Drop pages from cache for the range */
+        invalidate_mapping_pages(mapping,
+                                  offset >> PAGE_SHIFT,
+                                  (offset + len) >> PAGE_SHIFT);
+        break;
+
+    case POSIX_FADV_NOREUSE:
+        /* Page will be used only once (no long-term caching) */
+        /* Currently a no-op in most kernels */
+        break;
+
+    case POSIX_FADV_DONTNEED:
+        /* Also handle dirty pages: write them back */
+        if (mapping->nrpages) {
+            filemap_write_and_wait_range(mapping, offset, offset+len);
+            invalidate_mapping_pages(mapping, start, end);
+        }
+        break;
+    }
+}
+```
+
+### fadvise Usage Examples
+
+```c
+#include <fcntl.h>
+
+/* Streaming read: optimize for sequential access */
+posix_fadvise(fd, 0, 0, POSIX_FADV_SEQUENTIAL);
+
+/* Pre-warm cache for a specific range */
+posix_fadvise(fd, 0, 100*1024*1024, POSIX_FADV_WILLNEED);
+
+/* Drop processed data from cache */
+for (off_t pos = 0; pos < file_size; pos += chunk) {
+    read(fd, buf, chunk);
+    process(buf);
+    posix_fadvise(fd, pos, chunk, POSIX_FADV_DONTNEED);
+}
+
+/* Database: hint that pages will be reused */
+posix_fadvise(fd, db_offset, db_size, POSIX_FADV_RANDOM);
+```
+
+```bash
+# Monitor fadvise effects with perf
+$ sudo perf trace -e 'syscalls:sys_enter_fadvise64' -a sleep 5
+```
+
 ## Dirty Pages and Writeback
 
 ### What Are Dirty Pages?
@@ -677,6 +884,103 @@ static long wb_check_background_flush(struct bdi_writeback *wb)
 
     return 0;
 }
+```
+
+### Writeback Dirty Pages: The Complete Path
+
+When dirty pages need to be written back, the kernel follows this path:
+
+```mermaid
+flowchart TD
+    A["Writeback triggered"] --> B["wb_writeback()\nMain writeback function"]
+    B --> C{Reason for writeback?}
+    C -->|Background| D["wb_check_background_flush()\ndirty_background_ratio exceeded"]
+    C -->|Periodic| E["wb_check_old_data_flush()\ndirty_expire_centisecs exceeded"]
+    C -->|Sync| F["sync_inodes_sb()\nfsync/sync syscall"]
+    C -->|Memory pressure| G["balance_dirty_pages()\nkswapd or direct reclaim"]
+    D --> H["writeback_sb_inodes()\nSelect dirty inodes"]
+    E --> H
+    F --> H
+    G --> H
+    H --> I["__writeback_single_inode()\nWrite dirty pages of one inode"]
+    I --> J["do_writepages()\nCall filesystem ->writepages()"]
+    J --> K["Block I/O submission"]
+```
+
+### Dirty Throttling
+
+When too many pages are dirty, the kernel **throttles** writers to prevent dirty page explosion:
+
+```c
+/* mm/page-writeback.c */
+static void balance_dirty_pages(struct bdi_writeback *wb,
+                                unsigned long pages_dirtied)
+{
+    struct dirty_throttle_control *dom = ...;
+    unsigned long nr_reclaimable;
+    unsigned long dirty_thresh;
+
+    nr_reclaimable = global_node_page_state(NR_FILE_DIRTY);
+    dirty_thresh = global_dirty_limit(dom);
+
+    if (nr_reclaimable > dirty_thresh) {
+        /* Too many dirty pages! Throttle the writer */
+        /* Calculate pause time based on how far over threshold */
+        pause = msecs_to_jiffies(dirty_poll_interval()) *
+                nr_reclaimable / dirty_thresh;
+
+        /* Writer sleeps here until writeback catches up */
+        schedule_timeout_interruptible(pause);
+    }
+}
+```
+
+```bash
+# Monitor writeback throttling
+$ cat /proc/vmstat | grep throttled
+nr_dirty_threshold 131072
+nr_dirty_background_threshold 65536
+
+# Watch for throttling in real-time
+$ sudo perf trace -e 'balance_dirty_pages:*' -a sleep 5
+
+# See how many tasks are waiting for writeback
+$ cat /proc/pressure/io
+some avg10=0.50 avg60=0.25 avg300=0.10 total=123456
+full avg10=0.10 avg60=0.05 avg300=0.02 total=12345
+```
+
+### Per-Backin-Device Writeback
+
+Each backing device (disk, filesystem) has its own writeback context with independent limits:
+
+```c
+/* include/linux/backing-dev-def.h */
+struct bdi_writeback {
+    struct backing_dev_info *bdi;
+    unsigned long state;
+    unsigned long last_old_flush;
+    struct list_head b_dirty;       /* Dirty inodes */
+    struct list_head b_io;          /* Inodes being written */
+    struct list_head b_more_io;     /* More I/O pending */
+    struct list_head b_dirty_time;  /* Dirty-time tracked inodes */
+    spinlock_t list_lock;
+    struct list_head work_list;
+    struct delayed_work dwork;
+    struct folio_batch fbatch;
+    unsigned long dirty_sleep;      /* When last throttled */
+    /* ... */
+};
+```
+
+```bash
+# View per-device writeback stats
+$ cat /sys/devices/virtual/block/loop0/bdi/writeback
+# Shows dirty pages, writeback pages, etc.
+
+# View writeback bandwidth
+$ cat /sys/devices/virtual/block/sda/bdi/write_bandwidth
+# 131072  (pages per second)
 ```
 
 ### fsync and fdatasync

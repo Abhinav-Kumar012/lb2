@@ -517,6 +517,85 @@ $ cat /proc/schedstat
 cpu0 0 0 0 0 0 0 12345 67890
 ```
 
+## Scheduler Domains Configuration
+
+### Domain Flags
+
+Each scheduling domain has flags that control its behavior:
+
+```c
+/* include/linux/sched/topology.h */
+#define SD_SHARE_CPUCAPACITY   0x0001  /* SMT: share CPU core */
+#define SD_SHARE_PKG_RESOURCES 0x0002  /* MC: share package resources */
+#define SD_NUMA                0x0004  /* NUMA domain */
+#define SD_SHARE_POWERDOMAIN   0x0008  /* Share power domain */
+#define SD_ASYM_PACKING        0x0010  /* Asymmetric packing */
+#define SD_SHARE_LL            0x0020  /* Share last-level cache */
+#define SD_SERIALIZE           0x0040  /* Serialize balancing */
+#define SD_ASYM_CPUCAPACITY    0x0080  /* Asymmetric CPU capacity */
+```
+
+### Domain Construction
+
+Domains are built during boot from topology information:
+
+```c
+/* kernel/sched/topology.c */
+static void build_sched_domains(const struct cpumask *cpu_map)
+{
+    /* 1. Detect CPU topology (SMT, MC, DIE, NUMA) */
+    /* 2. Build domain hierarchy bottom-up */
+    /* 3. Set domain flags and balance intervals */
+    /* 4. Attach to each CPU's rq->sd */
+}
+```
+
+```bash
+# View complete domain hierarchy for CPU 0
+$ cat /sys/kernel/debug/domains/cpu0/domain0/flags
+00000041  (SD_SHARE_CPUCAPACITY | SD_SHARE_LL)
+
+$ cat /sys/kernel/debug/domains/cpu0/domain0/min_interval
+4
+$ cat /sys/kernel/debug/domains/cpu0/domain0/max_interval
+4096
+$ cat /sys/kernel/debug/domains/cpu0/domain0/imbalance_pct
+117  # Balance when imbalance > 17%
+
+# View domain balance intervals
+$ for d in /sys/kernel/debug/domains/cpu0/domain*/; do
+    echo "$(basename $d): min=$(cat $d/min_interval) max=$(cat $d/max_interval)"
+done
+# domain0: min=4 max=4096
+# domain1: min=8 max=8192
+# domain2: min=16 max=16384
+```
+
+### NUMA Distance and Balancing
+
+The NUMA distance table affects balancing decisions — the kernel prefers local memory:
+
+```bash
+# View NUMA distances
+$ numactl --hardware
+available: 2 nodes (0-1)
+node 0 cpus: 0 1 2 3
+node 1 cpus: 4 5 6 7
+node 0 size: 16384 MB
+node 1 size: 16384 MB
+node distances:
+node   0   1
+  0:  10  21
+  1:  21  10
+# Distance 10 = local, 21 = remote (2.1x slower)
+
+# NUMA balancing tunables
+$ cat /proc/sys/kernel/numa_balancing
+1
+$ cat /proc/sys/kernel/numa_balancing_promote_rate_limit_MBps
+65536
+```
+
 ## Practical Examples
 
 ### Setting Scheduling Policy
@@ -563,6 +642,208 @@ $ sudo perf sched latency
 
 # Trace scheduler events
 $ sudo perf trace -e 'sched:*' -- sleep 5
+```
+
+## CFS vruntime Calculation in Detail
+
+The Completely Fair Scheduler (CFS) uses **virtual runtime (vruntime)** to track how much CPU time each task has received. The key insight is that vruntime advances faster for lower-priority tasks and slower for higher-priority tasks, ensuring fairness across nice levels.
+
+### The Fairness Equation
+
+```
+vruntime += actual_runtime * NICE_0_WEIGHT / task_weight
+```
+
+Where:
+- `actual_runtime` is the wall-clock time the task ran
+- `NICE_0_WEIGHT` is the weight for nice level 0 (1024)
+- `task_weight` is the weight for the task's nice level
+
+### Nice-to-Weight Mapping
+
+The kernel uses a precomputed weight table. Each step of nice difference corresponds to a ~25% change in CPU share:
+
+```c
+/* kernel/sched/core.c */
+const int sched_prio_to_weight[40] = {
+ /* -20 */     88761,     71755,     56483,     46273,     36291,
+ /* -15 */     29154,     23254,     18705,     14949,     11916,
+ /* -10 */      9548,      7620,      6100,      4904,      3906,
+ /*  -5 */      3121,      2501,      1991,      1586,      1277,
+ /*   0 */      1024,       820,       655,       526,       423,
+ /*   5 */       335,       272,       215,       172,       137,
+ /*  10 */       110,        87,        70,        56,        45,
+ /*  15 */        36,        29,        23,        18,        15,
+};
+```
+
+### vruntime Calculation Example
+
+```
+Task A: nice 0,  weight 1024
+Task B: nice 5,  weight  335
+Task C: nice -5, weight 3121
+
+Both run for 10ms of real time:
+
+Task A: vruntime += 10ms * 1024/1024 = 10.00ms
+Task B: vruntime += 10ms * 1024/335  = 30.57ms  (advances 3x faster)
+Task C: vruntime += 10ms * 1024/3121 =  3.28ms  (advances 3x slower)
+
+CFS always picks the task with the LOWEST vruntime.
+Over time, this ensures proportional fairness:
+  Task C gets ~3x more CPU than Task A
+  Task A gets ~3x more CPU than Task B
+```
+
+### Minimum Granularity and Scheduling Latency
+
+CFS enforces a minimum time slice to avoid excessive context switches:
+
+```c
+/* kernel/sched/fair.c */
+unsigned int sysctl_sched_min_granularity = 750000;  /* 0.75ms */
+unsigned int sysctl_sched_latency = 6000000;         /* 6ms */
+
+/* Time slice per task = max(latency / nr_running, min_granularity) */
+```
+
+```bash
+# View CFS tunables
+$ cat /proc/sys/kernel/sched_min_granularity_ns
+750000
+$ cat /proc/sys/kernel/sched_latency_ns
+6000000
+$ cat /proc/sys/kernel/sched_wakeup_granularity_ns
+1000000
+
+# For latency-sensitive workloads, reduce latency:
+$ echo 4000000 > /proc/sys/kernel/sched_latency_ns
+
+# For throughput workloads, increase min granularity:
+$ echo 1000000 > /proc/sys/kernel/sched_min_granularity_ns
+```
+
+### The CFS Run Queue (Red-Black Tree)
+
+CFS uses a red-black tree keyed by vruntime. The leftmost node is always the next task to run:
+
+```c
+/* kernel/sched/sched.h */
+struct cfs_rq {
+    struct load_weight load;
+    unsigned int nr_running;
+    u64 exec_clock;          /* Total execution time */
+    u64 min_vruntime;        /* Minimum vruntime (monotonic) */
+    struct rb_root_cached tasks_timeline;  /* Red-black tree */
+    struct sched_entity *curr;  /* Currently running entity */
+    struct sched_entity *next;  /* Next to run (picked) */
+    struct sched_entity *last;  /* Last to run */
+    /* ... */
+};
+```
+
+```mermaid
+graph TD
+    subgraph "CFS Red-Black Tree (keyed by vruntime)"
+        ROOT["Root"]
+        N1["Task A<br/>vruntime=50"]
+        N2["Task B<br/>vruntime=120"]
+        N3["Task C<br/>vruntime=80"]
+        N4["Task D<br/>vruntime=200"]
+        N5["Task E<br/>vruntime=150"]
+        ROOT --> N2
+        N2 --> N1
+        N2 --> N3
+        N2 --> N5
+        N5 --> N4
+    end
+    LEFT["Leftmost = Next to run<br/>(Task A, vruntime=50)"] -.-> N1
+```
+
+### Updating vruntime on Wakeup
+
+When a task wakes up after sleeping, its vruntime is adjusted to prevent it from monopolizing the CPU:
+
+```c
+/* kernel/sched/fair.c - simplified */
+static void place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
+{
+    u64 vruntime = cfs_rq->min_vruntime;
+
+    if (se->vruntime < vruntime) {
+        /* Task was sleeping — give it a bonus */
+        /* SCHED_WAKEUP_PREEMPTION: place at min_vruntime */
+        se->vruntime = vruntime;
+    }
+}
+```
+
+## Load Balancing Deep Dive
+
+### Load Balancing Algorithm
+
+The load balancer runs periodically and on idle transitions. The algorithm has three phases:
+
+```mermaid
+flowchart TD
+    A["load_balance() called"] --> B["find_busiest_group()<br/>Find group with highest load"]
+    B --> C["find_busiest_queue()<br/>Find CPU with highest load in group"]
+    C --> D["detach_tasks()<br/>Detach tasks from busiest queue"]
+    D --> E["attach_tasks()<br/>Attach tasks to this queue"]
+    E --> F["Update load statistics"]
+```
+
+### Load Metrics
+
+CFS uses multiple load metrics for balancing decisions:
+
+```c
+/* kernel/sched/fair.c */
+struct sched_avg {
+    u64 last_update_time;   /* Last update */
+    u64 load_sum;           /* Time weighted by load */
+    u64 runnable_sum;       /* Time weighted by runnable */
+    u64 util_sum;           /* Time weighted by utilization */
+    unsigned long load_avg; /* Load contribution */
+    unsigned long runnable_avg; /* Runnable contribution */
+    unsigned long util_avg; /* Utilization (0-1024 per CPU) */
+};
+```
+
+The **PELT (Per-Entity Load Tracking)** mechanism exponentially decays old load samples:
+
+```
+new_avg = old_avg * decay_factor + new_sample
+
+Decay factor for 1 second: 0.3499  (retains ~35% of old value)
+Decay factor for 10 seconds: ~0.00003 (essentially zero)
+```
+
+### Balancer Invocation Points
+
+```c
+/* 1. Timer tick (every 1-4ms) */
+scheduler_tick() → trigger_load_balance()
+
+/* 2. CPU goes idle */
+idle_balance() → run_rebalance_domains()
+
+/* 3. Task wakes up */
+select_task_rq_fair() → find_idlest_group()
+
+/* 4. Fork */
+task_fork_fair() → select_task_rq_fair()
+```
+
+### Migration Cost
+
+Migrating a task has costs: cache warmth is lost, and the task must reload its working set. The kernel tracks per-task migration cost:
+
+```c
+/* Avoid migrating tasks that recently ran on current CPU */
+if (task_cpu(p) == this_cpu && time_since_last_run < migration_threshold)
+    /* Don't migrate — cache is still warm */
 ```
 
 ## sched_ext: Extensible Scheduler Class
@@ -763,6 +1044,7 @@ A task enters "BPF scheduler custody" when dispatched to a user DSQ or stored in
 - [sched_ext Kernel Documentation](https://docs.kernel.org/scheduler/sched-ext.html)
 - [sched_ext GitHub Repository](https://sched-ext.github.io/)
 - [BPF and sched_ext (LWN)](https://lwn.net/Articles/922405/)
+- [sched_ext dispatch queues and scheduling cycle](https://docs.kernel.org/scheduler/sched-ext.html)
 
 ---
 

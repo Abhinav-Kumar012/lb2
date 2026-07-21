@@ -419,6 +419,88 @@ void __iomem *base = devm_ioremap_resource(dev, res);
 
 devres simplifies error handling in `probe()` — you don't need to unwind allocations on failure.
 
+## Driver Subsystem APIs (from docs.kernel.org)
+
+The kernel driver API documentation at `docs.kernel.org/driver-api/index.html` reveals the full scope of driver development interfaces. The driver API is organized into several categories:
+
+### General Information for Driver Authors
+
+- **Driver Basics**: Module entry/exit, reference counting, `try_module_get()`/`module_put()`
+- **Driver Model**: The kobject/device/bus/driver framework described above
+- **Device Links**: Dependencies between devices for ordering probe/remove
+- **Device Drivers Infrastructure**: Common patterns and helpers
+- **ioctl Based Interfaces**: Implementing device control interfaces
+- **CPU and Device Power Management**: Suspend/resume, runtime PM
+
+### Useful Support Libraries
+
+The kernel provides several libraries for driver development:
+
+| Library | Purpose |
+|---------|--------|
+| **Bus-Independent Device Accesses** | `ioread32()`, `iowrite32()`, `readb()`, `writeb()` |
+| **dma-buf** | Buffer sharing and synchronization between devices |
+| **Device Frequency Scaling (devfreq)** | Dynamic frequency adjustment |
+| **Component Helper** | Aggregate drivers from multiple components |
+| **VFIO** | Virtual Function I/O for user-space device drivers |
+| **Userspace I/O (UIO)** | Map device memory to user space |
+
+### Bus-Level Documentation
+
+| Bus | Description |
+|-----|-------------|
+| **PCI** | PCI/PCIe device driver API |
+| **USB** | Universal Serial Bus driver API |
+| **I2C/SMBus** | Inter-IC bus for low-speed peripherals |
+| **SPI** | Serial Peripheral Interface |
+| **I3C** | Improved Inter-Integrated Circuit |
+| **Virtio** | Paravirtualized device driver API |
+| **Auxiliary Bus** | For sub-devices that don't have their own bus |
+| **CXL** | Compute Express Link |
+| **Firewire** | IEEE 1394 driver interface |
+| **W1** | Dallas 1-wire bus |
+
+### Subsystem-Specific APIs
+
+The kernel includes driver APIs for many specialized subsystems:
+
+- **GPIO**: General Purpose Input/Output control
+- **Regulator**: Voltage and current regulator framework
+- **Clock**: Common clock framework
+- **Thermal**: Temperature monitoring and cooling
+- **PWM**: Pulse-Width Modulation interface
+- **PHY**: Generic PHY framework for physical layer devices
+- **Pinctrl**: Pin control and multiplexing
+- **FPGA**: FPGA manager, bridge, and region interfaces
+- **NVMEM**: Non-Volatile Memory device framework
+- **Media**: V4L2, DVB, and CEC subsystem APIs
+- **Input**: Input subsystem (keyboards, mice, touchscreens)
+- **SCSI**: SCSI subsystem driver interface
+- **MMC/SD/SDIO**: Memory card support
+- **InfiniBand/RDMA**: Remote DMA interfaces
+
+### Module Entry and Exit Points
+
+From `docs.kernel.org/driver-api/basics.html`:
+
+```c
+module_init(x)  /* driver initialization entry point */
+module_exit(x)  /* driver exit entry point */
+```
+
+`module_init()` is called during `do_initcalls()` (if builtin) or at module insertion time (if a module). `module_exit()` wraps clean-up code with `cleanup_module()` when used with `rmmod`.
+
+### Module Reference Counting
+
+```c
+bool try_module_get(struct module *module);
+void module_put(struct module *module);
+```
+
+`try_module_get()` increments a module's reference count but fails if the module is being removed. Two forms of protection exist:
+- **Direct protection**: Another entity has incremented the module reference
+- **Implied protection**: Through sysfs/kernfs active references
+
 ## Further Reading
 
 - [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
@@ -429,6 +511,7 @@ devres simplifies error handling in `probe()` — you don't need to unwind alloc
 
 - [Linux kernel docs — Driver Model](https://docs.kernel.org/driver-api/driver-model/index.html)
 - [Linux kernel docs — Driver Basics](https://docs.kernel.org/driver-api/basics.html)
+- [Linux kernel docs — Driver API Index](https://docs.kernel.org/driver-api/index.html) — Complete driver API reference
 - [LWN: The Linux device model](https://lwn.net/Articles/23953/)
 - [LWN: kobjects and sysfs](https://lwn.net/Articles/23953/)
 - [kernel.org — drivers/base/](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/drivers/base)

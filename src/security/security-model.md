@@ -571,6 +571,77 @@ The traditional Unix model has been extended over time:
 | Namespaces | Process isolation | [Overview](./overview.md) |
 | User Namespaces | Per-namespace UID mapping | Container security |
 
+## Linux Kernel Credentials (from docs.kernel.org)
+
+The kernel documentation at `docs.kernel.org/security/credentials.html` provides the authoritative description of how credentials work internally in the Linux kernel. Written by David Howells, it covers the complete credential model used by the kernel for access control.
+
+### The Security Check Model
+
+When one object acts upon another, Linux performs a security check involving several components:
+
+- **Objects**: Tasks, files/inodes, sockets, message queues, shared memory segments, semaphores, and keys all carry credentials
+- **Object ownership**: A subset of credentials indicating ownership, used for resource accounting (disk quotas, rlimits)
+- **Objective context**: Used in security calculations when an object is acted upon (e.g., UID/GID on an inode)
+- **Subjects**: Objects that act upon other objects (primarily processes/tasks)
+- **Subjective context**: The credentials a subject uses when acting (e.g., FSUID/FSGID for file access)
+- **Actions**: Reading, writing, creating, deleting files; forking, signalling, tracing tasks
+- **Rules**: DAC (file permissions, POSIX ACLs) and MAC (SELinux, Smack) policies
+
+### Credential Types in the Kernel
+
+The kernel supports these credential types:
+
+| Credential | Description |
+|-----------|-------------|
+| **Traditional UNIX** | Real UID/GID, Effective UID/GID, Saved UID/GID, FSUID/FSGID, supplementary groups |
+| **Capabilities** | Permitted, inheritable, effective capability sets + bounding set |
+| **Securebits** | Flags governing how credentials are manipulated over `execve()` |
+| **Keys/Keyrings** | Security tokens for network filesystem keys, per-thread/process/session keyrings |
+| **LSM** | Linux Security Module labels (SELinux, Smack, AppArmor) |
+
+### The `struct cred` Architecture
+
+All task credentials are held in a refcounted `struct cred` structure, pointed to by `task_struct->cred`. Key design principles:
+
+- **Immutable once committed**: After `commit_creds()`, a credential set cannot be modified (except reference counts and keyring contents)
+- **Copy-and-replace**: To alter credentials, the kernel makes a copy, modifies it, then uses RCU to swap the pointer
+- **Self-only modification**: A task can only alter its own credentials — it cannot modify another task's credentials
+- **RCU-protected access**: Accessing another task's credentials requires `rcu_read_lock()` and `__task_cred()`
+
+### Accessing Credentials
+
+The kernel provides convenience functions for reading credentials:
+
+```c
+/* Current process's credentials (no locking needed) */
+const struct cred *current_cred();
+uid_t current_uid(void);      /* Real UID */
+uid_t current_euid(void);     /* Effective UID */
+uid_t current_fsuid(void);    /* Filesystem UID */
+gid_t current_fsgid(void);    /* Filesystem GID */
+kernel_cap_t current_cap(void); /* Effective capabilities */
+
+/* Another task's credentials (requires RCU read lock) */
+const struct cred *__task_cred(struct task_struct *task);
+uid_t task_uid(task);         /* Task's real UID */
+uid_t task_euid(task);        /* Task's effective UID */
+```
+
+### File Credentials
+
+When a file is opened, the opening task's subjective context is recorded in the `struct file`. This allows operations on that file to use the opener's credentials rather than the current operator's credentials — critical for network filesystems where the opened file's credentials should be presented to the server.
+
+### File Security Markings
+
+Files on disk carry security annotations:
+- UNIX UID, GID, and mode bits
+- POSIX ACLs
+- LSM security labels (SELinux, Smack)
+- SUID/SGID privilege escalation bits
+- File capabilities for privilege escalation
+
+These annotations form the file's objective security context, compared against the task's subjective context during access checks.
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
@@ -591,6 +662,7 @@ The traditional Unix model has been extended over time:
 - The Linux Programming Interface by Michael Kerrisk, Chapters 9-15: https://man7.org/tlpi/
 - W. Richard Stevens, Advanced Programming in the UNIX Environment, Chapter 4
 - POSIX.1-2017, Base Definitions, Section 3.150 "File Permission Bits": https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap03.html
+- [Credentials in Linux](https://docs.kernel.org/security/credentials.html) — Official kernel documentation by David Howells
 
 ## Related Topics
 

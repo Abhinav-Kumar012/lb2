@@ -824,6 +824,56 @@ $ sudo perf trace -e 'net:*' -- sleep 5
 $ sudo bpftool prog list
 ```
 
+## Networking Subsystem Components (from docs.kernel.org)
+
+The kernel networking documentation at `docs.kernel.org/networking/index.html` reveals the full breadth of the networking subsystem, which extends far beyond TCP/IP.
+
+### AF_XDP (Express Data Path)
+
+AF_XDP is an address family optimized for high-performance packet processing. It provides a zero-copy path between the NIC and user space, bypassing the kernel networking stack entirely:
+
+- Frames are transferred via shared memory **UMEM** regions
+- Four ring buffers: RX, TX, Fill, and Completion
+- Can operate in **zero-copy mode** (with NIC driver support) or **copy mode**
+- Ideal for high-frequency packet processing, NFV, and load balancers
+
+### SocketCAN
+
+SocketCAN provides a socket-based interface for CAN (Controller Area Network) bus communication, used extensively in automotive and industrial systems. It uses the standard socket API with protocols like `CAN_RAW`, `CAN_BCM` (Broadcast Manager), and `CAN_ISOTP` (ISO-TP).
+
+### Distributed Switch Architecture (DSA)
+
+DSA is a framework for managing hardware network switches (typically embedded in routers). It presents each switch port as a separate Linux network interface and supports VLAN, bridging, and routing offload.
+
+### Devlink
+
+Devlink is a generic framework for configuring network device resources that don't fit into other APIs (ethtool, iproute2). It handles device-level resource management, firmware flash, health reporting, and shared buffer configuration.
+
+### Kernel TLS
+
+The kernel supports TLS encryption directly in the kernel, with optional hardware offload via NICs:
+- `kTLS` operates after the TLS handshake (done in user space)
+- Supports sendfile() zero-copy with encryption
+- NIC offload for TX and RX encryption/decryption
+
+### Network Scaling Technologies
+
+The kernel provides multiple layers of packet distribution:
+
+- **RSS (Receive Side Scaling)**: Hardware-based flow hashing across queues
+- **RPS (Receive Packet Steering)**: Software-based flow hashing to CPUs
+- **RFS (Receive Flow Steering)**: Flow-aware steering to the CPU running the application
+- **XPS (Transmit Packet Steering)**: Maps TX queues to CPUs
+
+### Checksum and Segmentation Offloads
+
+The kernel supports extensive hardware offload capabilities:
+- **TSO (TCP Segmentation Offload)**: NIC segments large TCP buffers
+- **GSO (Generic Segmentation Offload)**: Deferred segmentation in software
+- **GRO (Generic Receive Offload)**: Merges small packets into larger ones
+- **UFO (UDP Fragmentation Offload)**: Fragment large UDP datagrams
+- **Checksum offload**: TX and RX checksum computation in hardware
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
@@ -839,6 +889,7 @@ $ sudo bpftool prog list
 3. *Linux Kernel Networking: Implementation and Theory* by Rami Rosen (Apress)
 4. **Linux Foundation Networking Training** — [training.linuxfoundation.org](https://training.linuxfoundation.org/)
 5. **kernel.org Documentation** — [www.kernel.org/doc/html/latest/networking/](https://www.kernel.org/doc/html/latest/networking/)
+6. [Linux Kernel Networking Documentation](https://docs.kernel.org/networking/index.html) — Official kernel networking subsystem index
 
 ## Related Topics
 

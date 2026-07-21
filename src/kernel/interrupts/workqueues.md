@@ -401,6 +401,14 @@ struct workqueue_struct *wq = alloc_workqueue("my_crypto",
 
 The `WQ_CPU_INTENSIVE` flag tells the CMWQ framework that this work is CPU-intensive, so it shouldn't count toward the concurrency limit for other work items on the same CPU.
 
+### max_active
+
+@max_active determines the maximum number of execution contexts per CPU which can be assigned to the work items of a wq. For example, with @max_active of 16, at most 16 work items of the wq can be executing at the same time per CPU. This is always a per-CPU attribute, even for unbound workqueues.
+
+- **Maximum limit**: 2048
+- **Default value** (when 0 is specified): 1024
+- Use `alloc_ordered_workqueue()` for strict one-at-a-time execution (replaces the old `max_active=1` + `WQ_UNBOUND` combination).
+
 ## Managed Workqueues (devm_alloc_workqueue)
 
 ```c
@@ -565,6 +573,7 @@ BH workqueues are a convenience interface to softirq. They are always per-CPU an
 - [LWN: "Concurrency-managed workqueues"](https://lwn.net/Articles/385586/)
 - [Tejun Heo: Workqueue design overview](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/kernel/workqueue.c)
 - [Kernel Workqueue API reference](https://docs.kernel.org/driver-api/basics.html#workqueues)
+- [Workqueue documentation (kernel docs)](https://docs.kernel.org/core-api/workqueue.html)
 
 ## Related Topics
 

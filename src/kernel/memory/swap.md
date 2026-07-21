@@ -770,6 +770,83 @@ $ sysctl vm.zone_reclaim_mode=7
 
 > **Note**: Setting `zone_reclaim_mode` to non-zero can significantly hurt performance for workloads that benefit from using all available memory across NUMA nodes. Only enable it if you understand your NUMA topology and workload characteristics.
 
+## /proc/sys/vm/ Tunables (from kernel docs)
+
+From the kernel documentation at `docs.kernel.org/admin-guide/sysctl/vm.html`. Default values and initialization routines for most of these files can be found in `mm/swap.c`.
+
+### Complete VM Tunables Reference
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `admin_reserve_kbytes` | min(3% free, 8MB) | Free memory reserved for `cap_sys_admin` processes. Ensures admin can log in and kill processes under memory pressure. |
+| `compact_memory` | 0 | Writing `1` compacts all zones for contiguous free blocks (important for huge page allocation). |
+| `compaction_proactiveness` | 20 | Range [0,100]. How aggressively background compaction runs. 0 disables. Values >80 make compaction more sensitive to fragmentation. |
+| `compact_unevictable_allowed` | 1 (0 on RT) | Allow compaction of mlocked pages. On `PREEMPT_RT`, defaults to 0 to avoid page faults blocking task activation. |
+| `defrag_mode` | 0 | When 1, page allocator tries harder to avoid fragmentation. Enable right after boot. |
+| `dirty_background_bytes` | 0 | Absolute byte threshold for background writeback (alternative to `dirty_background_ratio`). |
+| `dirty_background_ratio` | 10 | Percentage of available memory before background flusher starts writeback. |
+| `dirty_bytes` | 0 | Absolute byte threshold for process writeback (alternative to `dirty_ratio`). Min = 2 pages. |
+| `dirty_expire_centisecs` | 3000 | Dirty data older than this (30s) is eligible for writeback. |
+| `dirty_ratio` | 20 | Percentage of available memory a process can dirty before forced synchronous writeback. |
+| `dirty_writeback_centisecs` | 500 | Interval (5s) at which flusher threads wake up. 0 disables periodic writeback. |
+| `dirtytime_expire_seconds` | 0 | For lazytime inodes: when dirty inode is eligible for writeback. 0 disables. |
+| `drop_caches` | 0 | 1=pagecache, 2=dentries/inodes, 3=both. Only drops clean caches. Run `sync` first to maximize freed objects. |
+| `enable_soft_offline` | 1 | Control soft-offlining of pages with corrected memory errors. |
+| `extfrag_threshold` | - | Controls when the kernel prefers reclaim over compaction for fragmentation. |
+| `hugetlb_shm_group` | 0 | GID allowed to create SysV shared memory with huge pages. |
+| `legacy_va_layout` | 0 | Use legacy mmap layout (top-down by default). |
+| `lowmem_reserve_ratio` | - | Reserve ratios for DMA/DMA32 zones. |
+| `max_map_count` | 65530 | Maximum VMAs per process. Increase for mmap-heavy workloads. |
+| `memory_failure_early_kill` | 0 | Aggressively kill processes on memory failure. |
+| `memory_failure_recovery` | 1 | Attempt recovery from memory failures. |
+| `min_free_kbytes` | ~67584 | Minimum free memory (KiB) the kernel maintains. Sets watermark levels for all zones. |
+| `min_slab_ratio` | 5 | Minimum percentage of free pages for slab reclaim. |
+| `min_unmapped_ratio` | 1 | Minimum percentage of unmapped pages for file cache reclaim. |
+| `mmap_min_addr` | 65536 | Minimum virtual address for `mmap()`. NULL pointer protection. |
+| `mmap_rnd_bits` | 28 (x86_64) | Random bits for mmap ASLR. |
+| `nr_hugepages` | 0 | Number of static huge pages to allocate. |
+| `nr_overcommit_hugepages` | 0 | Huge pages beyond `nr_hugepages` (overcommit pool). |
+| `numa_zonelist_order` | - | NUMA zonelist ordering. |
+| `oom_dump_tasks` | 1 | Dump task list on OOM. |
+| `oom_kill_allocating_task` | 0 | Kill allocating task instead of worst offender. |
+| `overcommit_kbytes` | 0 | Absolute byte limit for overcommit (mode 2). |
+| `overcommit_memory` | 0 | 0=heuristic, 1=always, 2=strict. |
+| `overcommit_ratio` | 50 | % of RAM for committed memory in mode 2. |
+| `page-cluster` | 3 | Pages to read ahead during swap-in (2^N). 0 disables readahead. |
+| `page_lock_unfairness` | 5 | Unfairness of page lock. |
+| `panic_on_oom` | 0 | 0=OOM killer, 1=panic, 2=panic for non-mempolicy. |
+| `percpu_pagelist_high_fraction` | 0 | Divisor for per-CPU page list high watermark. |
+| `stat_interval` | 1 | Seconds between VM statistics updates. |
+| `stat_refresh` | 0 | Writing `1` forces immediate VM stat refresh. |
+| `swappiness` | 60 | 0-200. Balance between reclaiming file vs anonymous pages. |
+| `unprivileged_userfaultfd` | 0 | Allow unprivileged userfaultfd. |
+| `user_reserve_kbytes` | min(3% free, 128MB) | Free memory reserved for user processes. |
+| `vfs_cache_pressure` | 100 | Tendency to reclaim dentry/inode cache. Higher = more aggressive. |
+| `vfs_cache_pressure_denom` | 100 | Denominator for vfs_cache_pressure calculation. |
+| `watermark_boost_factor` | 15000 | Temporary watermark boost on fragmentation. 0 disables. |
+| `watermark_scale_factor` | 10 | Gap between min/low/high watermarks (÷10000 of total memory). |
+| `zone_reclaim_mode` | 0 | NUMA reclaim policy: 0=disabled, 1=local reclaim, 2=write dirty, 4=swap. Bitmask. |
+
+### Dirty Page Writeback Hierarchy
+
+```text
+1. Process writes dirty pages to page cache
+2. dirty_ratio/dirty_bytes hit → process blocks (sync writeback)
+3. Background flusher wakes every dirty_writeback_centisecs (5s)
+4. Pages older than dirty_expire_centisecs (30s) written back
+5. dirty_background_ratio/dirty_background_bytes hit → background writeback starts
+```
+
+### Drop Caches Detail
+
+Writing to `drop_caches` is a **non-destructive** operation — it will not free dirty objects. Run `sync` first to maximize the number of objects freed. Informational messages in the kernel log (e.g., `cat (1234): drop_caches: 3`) are normal. To suppress them, write `4` (bit 2).
+
+> **Warning**: Dropping caches causes significant I/O and CPU to recreate the dropped objects. Not recommended outside testing/debugging.
+
+### Compaction Proactiveness
+
+The `compaction_proactiveness` tunable (range 0–100, default 20) controls background compaction aggressiveness. Writing a non-zero value immediately triggers proactive compaction. The kernel uses heuristics to avoid wasting CPU if proactive compaction isn't effective. Values above 80 make compaction more sensitive to fragmentation increases but reduce fragmentation less per run. Values like 100 can cause excessive background compaction.
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
@@ -787,6 +864,7 @@ $ sysctl vm.zone_reclaim_mode=7
 - [Kernel documentation: Swap](https://www.kernel.org/doc/html/latest/admin-guide/mm/concepts.html)
 - [LWN: Zram](https://lwn.net/Articles/545216/)
 - [LWN: THP swap](https://lwn.net/Articles/703927/)
+- [Documentation for /proc/sys/vm/ (kernel docs)](https://docs.kernel.org/admin-guide/sysctl/vm.html)
 
 ## Related Topics
 

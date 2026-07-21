@@ -1,44 +1,27 @@
-name: CI
+name: Deploy Encyclopedia
 
 on:
-  push:
-    branches: [dev]
   workflow_dispatch:
 
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
 jobs:
-  build:
+  build-and-deploy:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install mdBook
-        run: |
-          curl -sSL https://github.com/rust-lang/mdBook/releases/download/v0.4.40/mdbook-v0.4.40-x86_64-unknown-linux-gnu.tar.gz | tar xz
-          sudo mv mdbook /usr/local/bin/
-
-      - name: Build book
-        run: mdbook build
-
-      - name: Count pages
-        run: |
-          echo "Pages: $(find src -name '*.md' -not -name 'SUMMARY.md' -size +1k | wc -l)"
-          echo "Lines: $(find src -name '*.md' -not -name 'SUMMARY.md' -size +1k -exec cat {} + | wc -l)"
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pages: write
-      id-token: write
     steps:
       - uses: actions/checkout@v4
         with:
           ref: main
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Sync main with dev
+      - name: Merge dev into main
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"

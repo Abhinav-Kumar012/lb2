@@ -801,6 +801,60 @@ kfuncs provide:
 - Easier addition of new functionality
 - Scoped availability (only certain program types can call certain kfuncs)
 
+## BPF Design Decisions (from kernel docs)
+
+From the kernel documentation at `docs.kernel.org/bpf/bpf_design_QA.html`:
+
+### BPF Is NOT a Generic VM or Instruction Set
+
+BPF is **not** a generic instruction set like x64 or arm64. It is **not** a generic virtual machine. BPF is a **generic instruction set with a C calling convention**, designed specifically to run in the Linux kernel (written in C). The instruction set is compatible with x64 and arm64 calling conventions and accounts for quirks of other architectures.
+
+### C Calling Convention Constraints
+
+- **Single return value**: Only register R0 is used for return values.
+- **Maximum 5 arguments**: Registers R1–R5 for function arguments.
+- **No access to instruction pointer or return address**.
+- **No access to stack pointer** — only the frame pointer (R10) is accessible. LLVM defines R11 as the stack pointer internally but ensures generated code never uses it.
+
+### Why C Calling Convention?
+
+Because BPF programs run in the Linux kernel (written in C), using C calling convention enables:
+- Zero-overhead calls between kernel and BPF programs
+- JIT-compiled BPF programs are indistinguishable from native kernel C code
+- Seamless interoperability with kernel helper functions and BPF maps
+
+### Verifier Limits
+
+| Limit | Value | Description |
+|-------|-------|-------------|
+| `BPF_MAXINSNS` | 4096 | Max instructions for unprivileged BPF programs |
+| Complexity limit | 1,000,000 | Max instructions explored during analysis |
+| Stack depth | 512 bytes | Maximum stack usage |
+| Nested calls | ~8 | Max bpf-to-bpf call depth |
+
+The verifier recognizes `pointer + bounded_register` expressions (not just `pointer + constant`). The development process guarantees future kernels accept all programs accepted by earlier versions.
+
+### Instruction Design Philosophy
+
+- **No flags register**: BPF avoided introducing a flags register (impossible to make generic across CPU architectures). Compare-and-jump instructions are used instead.
+- **BPF_DIV doesn't map 1:1 to x64 div**: To avoid x64-specific complexity, plus it needs a div-by-zero runtime check.
+- **Implicit prologue/epilogue**: Required because architectures like SPARC have register windows, and BPF needs safe division-by-zero handling.
+- **New instructions must map to hardware**: `BPF_JLT` and `BPF_JLE` were added because they had native CPU equivalents. Instructions without HW mapping will not be accepted.
+
+### BPF Safety Guarantees
+
+- **Cannot call arbitrary kernel functions**: Only registered helpers and kfuncs.
+- **Cannot overwrite arbitrary kernel memory**: Verifier prevents it.
+- **Cannot overwrite arbitrary user memory**: Only properly validated pointers.
+- **No stable ABI for kprobe attachment points**: Internal kernel functions can change.
+- **Tracepoints are NOT part of the stable ABI**: They can change between kernel versions.
+
+### BPF Stack and 32-bit Subregisters
+
+- BPF 32-bit subregisters must zero the upper 32 bits of BPF registers.
+- This makes BPF somewhat inefficient for 32-bit CPU architectures.\- True 32-bit registers will NOT be added to BPF.
+- Some optimizations exist for JIT performance on 32-bit architectures.
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
@@ -818,6 +872,7 @@ kfuncs provide:
 - [libbpf](https://github.com/libbpf/libbpf)
 - [Cilium BPF Documentation](https://docs.cilium.io/en/latest/bpf/)
 - [XDP Project](https://www.iovisor.org/technology/xdp)
+- [BPF Design Q&A (kernel docs)](https://docs.kernel.org/bpf/bpf_design_QA.html)
 
 ## Related Topics
 

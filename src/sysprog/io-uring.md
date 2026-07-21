@@ -505,6 +505,45 @@ $ gcc -o myio myio.c -luring
 - **fio**: Storage benchmark tool with io_uring engine
 - **SPDK**: Storage performance development kit
 
+### Setup Flags
+
+From the man page at `man7.org/linux/man-pages/man2/io_uring_setup.2.html`:
+
+| Flag | Description |
+|------|-------------|
+| `IORING_SETUP_IOPOLL` | Busy-wait for I/O completion (lower latency, more CPU). Requires `O_DIRECT` and device support. For NVMe, use `poll_queues` module parameter. |
+| `IORING_SETUP_HYBRID_IOPOLL` | Must be used with `IOPOLL`. Delays slightly before polling to reduce CPU waste. |
+| `IORING_SETUP_SQPOLL` | Kernel thread polls the SQ — application never context-switches into kernel. If idle > `sq_thread_idle` ms, sets `IORING_SQ_NEED_WAKEUP`. Since 5.11, no file registration required. Since 5.13, no special privileges needed. |
+| `IORING_SETUP_SQ_AFF` | Pin SQ polling thread to `sq_thread_cpu`. Only meaningful with `SQPOLL`. |
+| `IORING_SETUP_CQSIZE` | Create CQ with `params->cq_entries` entries (rounded to power-of-two). |
+| `IORING_SETUP_CLAMP` | Clamp entries to `IORING_MAX_ENTRIES` instead of returning error. |
+| `IORING_SETUP_ATTACH_WQ` | Share async worker thread backend with another io_uring instance via `wq_fd`. |
+| `IORING_SETUP_R_DISABLED` | Start ring in disabled state — can register restrictions before enabling. Since 5.10. |
+| `IORING_SETUP_SUBMIT_ALL` | Continue submitting batch even if one SQE errors. Since 5.18. |
+| `IORING_SETUP_COOP_TASKRUN` | Don't interrupt userspace on completion — process at kernel/user transition. Improves performance. Since 5.19. |
+| `IORING_SETUP_TASKRUN_FLAG` | Set `IORING_SQ_TASKRUN` in SQ ring flags when completions are pending. Since 5.19. |
+| `IORING_SETUP_SQE128` | Use 128-byte SQEs (needed for `IORING_OP_URING_CMD`). Since 5.19. |
+| `IORING_SETUP_CQE32` | Use 32-byte CQEs (needed for `IORING_OP_URING_CMD`). Since 5.19. |
+| `IORING_SETUP_SINGLE_ISSUER` | Only one task submits requests (optimization hint). Enforced by kernel. Since 6.0. |
+| `IORING_SETUP_DEFER_TASKRUN` | Defer work until `io_uring_enter(IORING_ENTER_GETEVENTS)`. Requires `SINGLE_ISSUER`. Since 6.1. |
+| `IORING_SETUP_NO_MMAP` | Use caller-allocated buffers instead of kernel memory. `cq_off.user_addr` must point to ring memory. Since 6.5. |
+| `IORING_SETUP_REGISTERED_FD_ONLY` | Register ring fd and return registered descriptor index. Requires `NO_MMAP`. Since 6.5. |
+| `IORING_SETUP_NO_SQARRAY` | Direct SQ indexing (no indirection via array). Since 6.6. |
+| `IORING_SETUP_CQE_MIXED` | Support both 16-byte and 32-byte CQEs on the same ring. Since 6.7. |
+
+### SQ Polling Mode Wakeup Protocol
+
+When using `IORING_SETUP_SQPOLL`, the application must check the wakeup flag:
+
+```c
+/* Memory load acquire: ensure flag read after tail pointer write */
+unsigned flags = atomic_load_relaxed(sq_ring->flags);
+if (flags & IORING_SQ_NEED_WAKEUP)
+    io_uring_enter(fd, 0, 0, IORING_ENTER_SQ_WAKEUP);
+```
+
+liburing's `io_uring_submit(3)` automatically handles this.
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
@@ -521,6 +560,7 @@ $ gcc -o myio myio.c -luring
 - [Shrinking the I/O gap with io_uring (LWN)](https://lwn.net/Articles/810414/)
 - [io_uring and networking (LWN)](https://lwn.net/Articles/853724/)
 - [Efficient IO with io_uring (kernel.dk)](https://kernel.dk/io_uring-whatsnew.pdf)
+- [io_uring_setup(2) man page](https://man7.org/linux/man-pages/man2/io_uring_setup.2.html)
 
 ## Related Topics
 

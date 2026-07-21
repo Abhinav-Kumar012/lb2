@@ -564,6 +564,72 @@ int main(void)
 | **Thread safety** | No | No | Yes (with EPOLLEXCLUSIVE) |
 | **Portability** | All Unix | All Unix | Linux only |
 
+## Level-Triggered vs Edge-Triggered (from man page)
+
+From the man page at `man7.org/linux/man-pages/man7/epoll.7.html`:
+
+### The Core Difference
+
+Consider this scenario:
+
+1. Read side of a pipe (`rfd`) is registered on the epoll instance.
+2. Writer writes 2 kB of data.
+3. `epoll_wait()` returns `rfd` as ready.
+4. Reader reads **1 kB** (not all data).
+5. `epoll_wait()` is called again.
+
+**With `EPOLLET` (edge-triggered)**: Step 5 will probably **hang** — the edge-triggered event was consumed in step 3. The remaining 1 kB in the buffer won't generate a new event because no new data arrived.
+
+**Without `EPOLLET` (level-triggered)**: Step 5 returns immediately — the fd is still readable.
+
+### Edge-Triggered Best Practices
+
+When using `EPOLLET`:
+
+1. **Always use nonblocking file descriptors** — avoid blocking reads/writes starving other fds.
+2. **Read/write until `EAGAIN`** — after receiving an event, drain the fd completely:
+   - For **packet-oriented** files (datagram sockets, terminals in canonical mode): read until `EAGAIN`.
+   - For **stream-oriented** files (pipes, FIFOs, stream sockets): can also detect exhaustion by checking if `read()` returned fewer bytes than requested.
+
+### EPOLLONESHOT
+
+For multithreaded servers, `EPOLLONESHOT` ensures exactly one thread handles each event:
+
+```c
+ev.events = EPOLLIN | EPOLLET | EPOLLONESHOT;
+epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &ev);
+
+/* After handling, re-arm: */
+ev.events = EPOLLIN | EPOLLET | EPOLLONESHOT;
+epoll_ctl(epfd, EPOLL_CTL_MOD, fd, &ev);
+```
+
+### EPOLLEXCLUSIVE
+
+Avoids thundering herd: when multiple epoll fds wait on the same fd, only **one** thread is woken:
+
+```c
+ev.events = EPOLLIN | EPOLLEXCLUSIVE;
+epoll_ctl(epfd, EPOLL_CTL_ADD, listenfd, &ev);
+```
+
+Without `EPOLLEXCLUSIVE`, all threads wake up but only one succeeds on `accept()` — the rest waste CPU.
+
+### Edge-Triggered + Multiple Events
+
+Even with edge-triggered mode, multiple events can be generated for multiple data chunks. The caller can combine `EPOLLET` with `EPOLLONESHOT` to disable the fd after one event, requiring explicit re-arming.
+
+### /proc Interface
+
+`/proc/sys/fs/epoll/max_user_watches` (since Linux 2.6.28): Limits total file descriptors a user can register across all epoll instances. Per real UID. Each registered fd costs ~90 bytes on 32-bit, ~160 bytes on 64-bit. Default = 1/25 (4%) of available low memory divided by registration cost.
+
+### Key Behavior Notes
+
+- **Closing an fd** removes it from all epoll interest lists — but only after ALL fds referring to the same open file description are closed (due to `dup()`, `fork()`, etc.).
+- **Events are combined**: If multiple events occur between `epoll_wait()` calls, they are reported together.
+- **Two epoll instances** can wait on the same fd — events are reported to both.
+- An **epoll fd is itself pollable** — if it has events waiting, it indicates as readable.
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
@@ -580,6 +646,7 @@ int main(void)
 - [epoll_wait(2)](https://man7.org/linux/man-pages/man2/epoll_wait.2.html)
 - [The C10K problem](http://www.kegel.com/c10k.html)
 - [epoll scalability for large numbers of connections](https://copyconstruct.medium.com/the-method-to-epolls-madness-d9d2d6305b4e)
+- [epoll(7) man page](https://man7.org/linux/man-pages/man7/epoll.7.html)
 
 ## Related Topics
 
