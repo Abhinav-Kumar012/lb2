@@ -366,6 +366,14 @@ graph TD
 
 ## References and Further Reading
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [LWN.net - Linux and free software news](https://lwn.net/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - Ritchie, D.M. & Thompson, K. "The UNIX Time-Sharing System." *Communications of the ACM*, Vol. 17, No. 7, 1974. https://www.bell-labs.com/unix-project-history/unix-cacm1974.pdf
 - Salus, Peter H. *A Quarter Century of UNIX*. Addison-Wesley, 1994. ISBN 978-0201547771
 - McKusick, Marshall Kirk. "Twenty Years of Berkeley Unix." *Open Sources: Voices from the Open Source Revolution*, O'Reilly, 1999. https://www.oreilly.com/openbook/opensources/book/kirkmck.html

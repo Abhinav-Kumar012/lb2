@@ -515,6 +515,13 @@ $ fio --name=xfs-meta --filename=/data/fio-meta \
 
 ## Further Reading
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [XFS documentation (kernel.org)](https://www.kernel.org/doc/html/latest/filesystems/xfs.html) — Official docs
 - [XFS wiki (xfs.org)](https://xfs.org/) — Community wiki
 - [xfs.org: Architecture and Design](https://xfs.org/index.php/Architecture_and_Design) — Design documents

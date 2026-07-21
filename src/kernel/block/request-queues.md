@@ -433,6 +433,12 @@ Freezing is used during device removal, suspend, and reset paths.
 
 ## Further Reading
 
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [Linux kernel docs — blk-mq](https://docs.kernel.org/block/blk-mq.html)
 - [Linux kernel docs — request_queue API](https://docs.kernel.org/block/request.html)
 - [LWN: The multiqueue block layer](https://lwn.net/Articles/552904/)

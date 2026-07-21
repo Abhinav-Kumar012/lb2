@@ -403,6 +403,12 @@ must handle the device disappearing at any time:
 
 ## Further Reading
 
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [Linux kernel docs — Block devices](https://docs.kernel.org/block/index.html)
 - [Linux kernel docs — gendisk API](https://docs.kernel.org/block/blk-mq.html)
 - [LWN: The gendisk interface](https://lwn.net/Articles/339021/)

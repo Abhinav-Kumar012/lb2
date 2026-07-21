@@ -680,6 +680,12 @@ cat /sys/kernel/debug/tracing/trace_pipe
 
 ## References
 
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [Kernel DMA Engine Documentation](https://docs.kernel.org/driver-api/dmaengine/)
 - [LWN: The DMAEngine subsystem](https://lwn.net/Articles/369981/)
 - [DMA mapping guide](https://docs.kernel.org/core-api/dma-api.html)

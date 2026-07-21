@@ -716,6 +716,13 @@ $ echo mem | sudo tee /sys/power/state
 
 ## Further Reading
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [sysfs documentation (kernel.org)](https://www.kernel.org/doc/html/latest/filesystems/sysfs.html) — Official docs
 - [Linux kernel: fs/sysfs/](https://elixir.bootlin.com/linux/latest/source/fs/sysfs) — sysfs source
 - [Linux kernel: Documentation/driver-api/driver-model/](https://www.kernel.org/doc/html/latest/driver-api/driver-model/) — Driver model docs

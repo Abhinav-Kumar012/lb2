@@ -839,6 +839,14 @@ journalctl -u backup.service
 
 ## Further Reading
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [LWN.net - Linux and free software news](https://lwn.net/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [crontab(5) Man Page](https://man7.org/linux/man-pages/man5/crontab.5.html) — Crontab syntax reference
 - [systemd.timer(5) Man Page](https://www.freedesktop.org/software/systemd/man/latest/systemd.timer.html) — Timer unit reference
 - [at(1) Man Page](https://man7.org/linux/man-pages/man1/at.1.html) — at command reference

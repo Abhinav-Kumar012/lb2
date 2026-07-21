@@ -379,6 +379,12 @@ stateDiagram-v2
 
 ## Further Reading
 
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [Linux kernel docs — Driver Model](https://docs.kernel.org/driver-api/driver-model/index.html)
 - [Linux kernel docs — kobject](https://docs.kernel.org/driver-api/basics.html)
 - [LWN: The Linux device model](https://lwn.net/Articles/23953/)

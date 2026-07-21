@@ -724,6 +724,12 @@ cat /sys/bus/spi/devices/spi0.0/of_node/spi-max-frequency
 
 ## References
 
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [Kernel I2C Documentation](https://docs.kernel.org/driver-api/i2c/)
 - [Kernel SPI Documentation](https://docs.kernel.org/driver-api/spi.html)
 - [I2C specification (NXP)](https://www.nxp.com/docs/en/user-guide/UM10204.pdf)

@@ -568,6 +568,12 @@ cat /sys/kernel/debug/gpio | grep -A5 "gpio-15"
 
 ## References
 
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [Kernel GPIO Documentation](https://docs.kernel.org/driver-api/gpio/)
 - [gpiod API reference](https://git.kernel.org/pub/scm/libs/libgpiod/libgpiod.git)
 - [Device Tree GPIO bindings](https://www.kernel.org/doc/Documentation/devicetree/bindings/gpio/)

@@ -553,6 +553,12 @@ static int __init my_init(void)
 
 ## References
 
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [ACPI Specification 6.4](https://uefi.org/specifications/ACPI/6.4/)
 - [ACPICA Project](https://acpica.org/)
 - [Kernel ACPI Documentation](https://docs.kernel.org/firmware-guide/acpi/)

@@ -526,6 +526,13 @@ $ sudo zpool import mypool
 
 ## Further Reading
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [OpenZFS documentation](https://openzfs.github.io/openzfs-docs/) — Official docs
 - [ZFS on Linux (GitHub)](https://github.com/openzfs/zfs) — Source code
 - [Oracle ZFS documentation](https://docs.oracle.com/cd/E19253-01/819-5461/) — Original design docs

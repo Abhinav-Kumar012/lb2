@@ -424,6 +424,13 @@ struct mount {
 
 ## Further Reading
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - https://man7.org/linux/man-pages/man2/mount.2.html
 - https://man7.org/linux/man-pages/man7/mount_namespaces.7.html
 - https://man7.org/linux/man-pages/man2/pivot_root.2.html

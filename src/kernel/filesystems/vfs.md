@@ -544,6 +544,13 @@ Recent kernel optimizations include:
 
 ## Further Reading
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [Linux VFS documentation](https://www.kernel.org/doc/html/latest/filesystems/vfs.html) — Official kernel documentation
 - [Understanding the Linux Kernel, 3rd Edition](https://www.oreilly.com/library/view/understanding-the-linux/0596005652/) — Bovet & Cesati
 - [Linux Kernel Source: include/linux/fs.h](https://elixir.bootlin.com/linux/latest/source/include/linux/fs.h) — VFS structure definitions

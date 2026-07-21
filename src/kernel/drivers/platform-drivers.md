@@ -480,6 +480,12 @@ hexdump -C /sys/firmware/devicetree/base/serial@10010000/reg
 
 ## References
 
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - *Linux Device Drivers, 3rd Edition* — Chapter 10: The Linux Device Model
 - [Kernel documentation: Platform Devices](https://docs.kernel.org/driver-api/driver-model/platform.html)
 - [Device Tree Usage](https://elinux.org/Device_Tree_Usage)

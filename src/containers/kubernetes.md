@@ -630,6 +630,14 @@ bpftrace -e 'tracepoint:seccomp:seccomp_filter { printf("%s: %d\n", comm, args->
 
 ## Further Reading
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [LWN.net - Linux and free software news](https://lwn.net/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [Kubernetes Documentation](https://kubernetes.io/docs/)
 - [CNI Specification](https://github.com/containernetworking/cni/blob/main/SPEC.md)
 - [containerd CRI Plugin](https://github.com/containerd/containerd/tree/main/pkg/cri)

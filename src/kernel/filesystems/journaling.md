@@ -470,6 +470,13 @@ average:
 
 ## Further Reading
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [Linux kernel: fs/jbd2/](https://elixir.bootlin.com/linux/latest/source/fs/jbd2) — JBD2 source code
 - [ext4 wiki: Journaling](https://ext4.wiki.kernel.org/index.php/Ext4_Disk_Layout#Journal) — ext4 journal format
 - [Robert Love: Linux Kernel Development, Ch. 12](https://www.oreilly.com/library/view/linux-kernel-development/9780768696974/) — VFS and journaling

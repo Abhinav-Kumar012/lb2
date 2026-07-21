@@ -520,6 +520,14 @@ sudo nsenter -t $PID -m -u -i -n -p -- strace -p 1
 
 ## References
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [LWN.net - Linux and free software news](https://lwn.net/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [strace(1) man page](https://man7.org/linux/man-pages/man1/strace.1.html)
 - [ltrace(1) man page](https://man7.org/linux/man-pages/man1/ltrace.1.html)
 - [strace GitHub](https://github.com/strace/strace)

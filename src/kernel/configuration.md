@@ -631,6 +631,14 @@ $ scripts/config --enable CONFIG_MODULES
 
 ## Further Reading
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [LWN.net - Linux and free software news](https://lwn.net/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [Kernel configuration documentation](https://www.kernel.org/doc/html/latest/kbuild/kconfig.html)
 - [Kconfig language reference](https://www.kernel.org/doc/html/latest/kbuild/kconfig-language.html)
 - [Linux Kernel in a Nutshell — Configuration](http://www.kroah.com/lkn/)

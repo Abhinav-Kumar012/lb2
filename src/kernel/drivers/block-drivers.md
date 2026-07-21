@@ -685,6 +685,12 @@ blk_queue_max_open_zones(mydev->queue, max_open);
 
 ## References
 
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - *Linux Device Drivers, 3rd Edition* — Chapter 16: Block Drivers (Corbet, Rubini, Kroah-Hartman)
 - [LWN: The multi-queue block layer](https://lwn.net/Articles/552904/)
 - [LWN: A block layer introduction](https://lwn.net/Articles/736534/)

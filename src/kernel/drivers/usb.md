@@ -481,6 +481,12 @@ manufacturer  product  serial  version  bNumInterfaces
 
 ## Further Reading
 
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [Linux kernel docs — USB](https://docs.kernel.org/driver-api/usb/index.html)
 - [Linux kernel docs — USB Gadget](https://docs.kernel.org/usb/gadget_configfs.html)
 - [LWN: Writing USB drivers](https://lwn.net/Articles/339021/)

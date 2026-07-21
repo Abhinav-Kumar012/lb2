@@ -478,6 +478,12 @@ static int nvme_probe(struct pci_dev *pdev,
 
 ## Further Reading
 
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [Linux kernel docs — PCI](https://docs.kernel.org/driver-api/pci.html)
 - [PCI-SIG — PCI Express Base Specification](https://pcisig.com/specifications)
 - [LWN: PCI driver programming](https://lwn.net/Articles/339021/)

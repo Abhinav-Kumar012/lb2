@@ -708,6 +708,14 @@ perf diff old.data new.data
 
 ## References
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [LWN.net - Linux and free software news](https://lwn.net/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [perf Wiki](https://perf.wiki.kernel.org/index.php/Main_Page)
 - [Brendan Gregg's perf page](https://www.brendangregg.com/perf.html)
 - [perf Examples](https://www.brendangregg.com/perf.html)

@@ -642,6 +642,13 @@ $ cat /sys/kernel/tracing/trace_pipe
 
 ## Further Reading
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [Linux kernel: fs/dcache.c](https://elixir.bootlin.com/linux/latest/source/fs/dcache.c) — Dcache implementation
 - [Linux kernel: include/linux/dcache.h](https://elixir.bootlin.com/linux/latest/source/include/linux/dcache.h) — Dentry structure definitions
 - [LWN: RCU-walk for faster pathname lookup](https://lwn.net/Articles/360199/) — RCU path walk design

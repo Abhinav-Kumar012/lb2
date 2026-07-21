@@ -557,6 +557,13 @@ Based on various surveys and server data (2024):
 
 ## References and Further Reading
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [DistroWatch](https://distrowatch.com/) — Comprehensive distribution tracker and news
 - [The Arch Wiki](https://wiki.archlinux.org/) — The best Linux documentation, applicable to all distros
 - [Debian Policy Manual](https://www.debian.org/doc/debian-policy/) — How Debian works internally

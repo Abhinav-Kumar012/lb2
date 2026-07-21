@@ -558,6 +558,14 @@ dtc -@ -I dts -O dtb -o overlay.dtbo overlay.dts
 
 ## Further Reading
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [LWN.net - Linux and free software news](https://lwn.net/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [Device Tree Specification](https://devicetree.org/specifications/)
 - [Linux Device Tree Usage Model](https://www.kernel.org/doc/html/latest/devicetree/usage-model.html)
 - [Device Tree Compiler (dtc)](https://git.kernel.org/pub/scm/utils/dtc/dtc.git/)

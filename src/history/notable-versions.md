@@ -584,6 +584,13 @@ Patches per release:
 
 ## References and Further Reading
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - kernel.org release history: https://kernel.org/
 - LWN.net "What's new in Linux X.Y" articles: https://lwn.net/
 - Linux Kernel Newbies — Release notes: https://kernelnewbies.org/LinuxChanges

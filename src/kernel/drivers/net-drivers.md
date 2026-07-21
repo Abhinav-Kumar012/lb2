@@ -694,6 +694,12 @@ watch -n1 'cat /proc/net/dev | grep eth0'
 
 ## References
 
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - *Understanding Linux Network Internals* — Christian Benvenuti (O'Reilly)
 - *Linux Device Drivers, 3rd Edition* — Chapter 17: Network Drivers
 - [Linux kernel networking documentation](https://docs.kernel.org/networking/)

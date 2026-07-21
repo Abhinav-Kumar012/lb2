@@ -764,6 +764,14 @@ chmod 750 /home/username    # Owner full, group read/execute
 
 ## Further Reading
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [LWN.net - Linux and free software news](https://lwn.net/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [Linux man pages: chmod(1)](https://man7.org/linux/man-pages/man1/chmod.1.html) — chmod reference
 - [Linux man pages: acl(5)](https://man7.org/linux/man-pages/man5/acl.5.html) — ACL specification
 - [Linux man pages: capabilities(7)](https://man7.org/linux/man-pages/man7/capabilities.7.html) — Capabilities reference

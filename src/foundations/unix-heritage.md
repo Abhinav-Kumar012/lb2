@@ -517,6 +517,14 @@ esac
 
 ## References and Further Reading
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [LWN.net - Linux and free software news](https://lwn.net/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [The Art of Unix Programming](http://www.catb.org/esr/writings/taoup/html/) — Eric Raymond's comprehensive study of Unix philosophy (free online)
 - [The Unix Heritage Society](http://www.tuhs.org/) — Archive of historic Unix source code
 - [Unix Programmer's Manual, First Edition (1971)](https://www.bell-labs.com/unix-first-edition/) — The original man pages

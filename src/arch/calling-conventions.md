@@ -489,6 +489,14 @@ void foo(int count, ...) {
 
 ## References and Further Reading
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [LWN.net - Linux and free software news](https://lwn.net/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - x86_64 System V ABI: https://gitlab.com/x86-psABIs/x86-64-ABI
 - ARM AAPCS64: https://github.com/ARM-software/abi-aa/blob/main/aapcs64/aapcs64.rst
 - RISC-V Calling Convention: https://github.com/riscv-non-isa/riscv-elf-psabi-doc

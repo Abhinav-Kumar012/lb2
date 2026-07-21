@@ -495,6 +495,12 @@ dtc -I dts -O dtb my.dts 2>&1 | grep -i warn
 
 ## Further Reading
 
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [Linux kernel docs — Device Tree](https://docs.kernel.org/devicetree/usage-model.html)
 - [devicetree.org — DTSpec](https://www.devicetree.org/specifications/)
 - [LWN: Device tree wars](https://lwn.net/Articles/573386/)

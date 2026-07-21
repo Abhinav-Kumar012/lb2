@@ -443,6 +443,12 @@ real-world example.
 
 ## Further Reading
 
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [Linux kernel docs — Device Mapper](https://docs.kernel.org/admin-guide/device-mapper/index.html)
 - [kernel.org — drivers/md/dm.c](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/drivers/md/dm.c)
 - [LWN: The device mapper](https://lwn.net/Articles/135208/)

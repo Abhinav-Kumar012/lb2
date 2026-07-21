@@ -521,6 +521,12 @@ This creates `/sys/class/mydev_class/mydev/my_status`.
 
 ## Further Reading
 
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [Linux kernel docs — Character devices](https://docs.kernel.org/driver-api/basics.html)
 - [Linux kernel docs — file_operations](https://docs.kernel.org/filesystems/vfs.html)
 - [LWN: Character device drivers](https://lwn.net/Articles/339021/)

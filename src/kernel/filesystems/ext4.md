@@ -511,6 +511,13 @@ File size of /path/to/file is 1073741824 (262144 blocks of 4096 bytes)
 
 ## Further Reading
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [ext4 wiki (kernel.org)](https://ext4.wiki.kernel.org/) — Official ext4 documentation
 - [ext4 Disk Layout](https://ext4.wiki.kernel.org/index.php/Ext4_Disk_Layout) — On-disk format specification
 - [ext4 Howto](https://ext4.wiki.kernel.org/index.php/Ext4_Howto) — Usage guide

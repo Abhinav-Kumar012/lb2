@@ -502,6 +502,13 @@ $ sudo btrfs filesystem resize max /mnt/data   # Grow to fill device
 
 ## Further Reading
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [Btrfs wiki](https://btrfs.wiki.kernel.org/) — Official Btrfs documentation
 - [Btrfs documentation (kernel.org)](https://www.kernel.org/doc/html/latest/filesystems/btrfs.html) — Kernel docs
 - [Linux kernel: fs/btrfs/](https://elixir.bootlin.com/linux/latest/source/fs/btrfs) — Btrfs source code

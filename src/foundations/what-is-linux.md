@@ -327,6 +327,13 @@ ffffffff8a000a80 R ia32_sys_call_table
 
 ## References and Further Reading
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [The Linux Kernel documentation](https://www.kernel.org/doc/html/latest/) — Official kernel documentation
 - [Linux kernel source code](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git) — Torvalds' mainline tree
 - [The Linux Kernel Module Programming Guide](https://sysprog21.github.io/lkmpg/) — Excellent guide to writing kernel modules

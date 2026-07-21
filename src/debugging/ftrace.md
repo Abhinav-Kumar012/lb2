@@ -664,6 +664,13 @@ KernelShark provides:
 
 ## References
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [ftrace Documentation](https://www.kernel.org/doc/html/latest/trace/ftrace.html)
 - [trace-cmd man page](https://man7.org/linux/man-pages/man1/trace-cmd.1.html)
 - [KernelShark](https://kernelshark.org/)

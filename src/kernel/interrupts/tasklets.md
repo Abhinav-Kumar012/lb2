@@ -376,6 +376,13 @@ $ echo function > /sys/kernel/debug/tracing/current_tracer
 
 ## References
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [Linux Kernel Source: include/linux/interrupt.h](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/include/linux/interrupt.h)
 - [Linux Kernel Documentation: Bottom Half Mechanisms](https://www.kernel.org/doc/html/latest/kernel-hacking/hacking.html#bottom-halves)
 - [LWN: "The ongoing search for tasklet alternatives"](https://lwn.net/Articles/830965/)

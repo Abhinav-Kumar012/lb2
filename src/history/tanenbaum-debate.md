@@ -581,6 +581,14 @@ https://groups.google.com/g/comp.os.minix/c/dlNtH7RRrGA/m/SwRav4RyEVEJ
 
 ## References and Further Reading
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [LWN.net - Linux and free software news](https://lwn.net/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - Tanenbaum, Andrew S. "LINUX is obsolete." Usenet post, comp.os.minix, January 29, 1992.
 - Torvalds, Linus. "Re: LINUX is obsolete." Usenet post, comp.os.minix, January 29, 1992.
 - Tanenbaum, Andrew S. & Woodhull, Albert S. *Operating Systems: Design and Implementation* (3rd Edition). Prentice Hall, 2006. ISBN 978-0131429383

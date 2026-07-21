@@ -387,6 +387,12 @@ __rq_for_each_bio(bio, rq) {
 
 ## Further Reading
 
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [Linux kernel docs — bio API](https://docs.kernel.org/block/biovecs.html)
 - [Linux kernel docs — bio allocation](https://docs.kernel.org/block/bio-pool.html)
 - [LWN: The bio structure](https://lwn.net/Articles/737543/)

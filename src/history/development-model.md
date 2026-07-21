@@ -574,6 +574,13 @@ graph TB
 
 ## References and Further Reading
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - Kroah-Hartman, Greg. "How the Linux Kernel is Developed." https://www.kernel.org/doc/html/latest/process/howto.html
 - Torvalds, Linus. "Linux Kernel Management Style." https://www.kernel.org/doc/html/latest/process/management-style.html
 - "Submitting Patches: The Essential Guide." https://www.kernel.org/doc/html/latest/process/submitting-patches.html

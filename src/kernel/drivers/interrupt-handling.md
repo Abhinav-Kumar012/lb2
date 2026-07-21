@@ -578,6 +578,12 @@ ps -eo pid,comm | grep irq
 
 ## References
 
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - *Linux Device Drivers, 3rd Edition* — Chapter 10: Interrupt Handling
 - [Kernel IRQ documentation](https://docs.kernel.org/core-api/genericirq.html)
 - [Kernel IRQ domain documentation](https://docs.kernel.org/core-api/irq/irq-domain.html)

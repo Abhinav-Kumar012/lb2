@@ -339,6 +339,13 @@ $ echo 1 > /proc/sys/kernel/nmi_watchdog
 
 ## References
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [Linux Kernel Documentation: IRQs](https://www.kernel.org/doc/html/latest/core-api/irq/index.html)
 - [Understanding the Linux Kernel, 3rd Edition — Chapter 4: Interrupts and Exceptions](https://www.oreilly.com/library/view/understanding-the-linux/0596005652/)
 - [Linux Device Drivers, 3rd Edition — Chapter 10: Interrupt Handling](https://lwn.net/Kernel/LDD3/)

@@ -476,6 +476,13 @@ last_unhandled 0
 
 ## References
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [Linux Kernel Documentation: Generic IRQ Handling](https://www.kernel.org/doc/html/latest/core-api/genericirq.html)
 - [Linux Device Drivers, 3rd Edition — Chapter 10](https://lwn.net/Kernel/LDD3/)
 - [IRQ management for Linux — Thomas Gleixner's LPC talk](https://lpc.events/event/7/contributions/729/)
