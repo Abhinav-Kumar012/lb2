@@ -358,11 +358,9 @@ struct ksm_stable_node {
 - [Planet GNU](https://planet.gnu.org/)
 - [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
 
-- https://www.kernel.org/doc/html/latest/admin-guide/mm/ksm.html
-- https://man7.org/linux/man-pages/man2/madvise.2.html — MADV_MERGEABLE
-- https://lwn.net/Articles/306704/ — "KSM: sharing memory between virtual machines"
-- https://lwn.net/Articles/576826/ — "KSM and security"
-- https://www.kernel.org/doc/html/latest/mm/ksm.html
+- [Kernel documentation: KSM](https://docs.kernel.org/mm/ksm.html)
+- [LWN: KSM: sharing memory between virtual machines](https://lwn.net/Articles/306704/)
+- [LWN: KSM part 2](https://lwn.net/Articles/330589/)
 
 ## Related Topics
 

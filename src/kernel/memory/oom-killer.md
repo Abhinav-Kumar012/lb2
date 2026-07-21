@@ -580,7 +580,7 @@ MODULE_LICENSE("GPL");
 
 - **Understanding the Linux Kernel, 3rd Edition** — Chapter 17: Page Frame Reclaiming
 - [Kernel source: mm/oom_kill.c](https://elixir.bootlin.com/linux/latest/source/mm/oom_kill.c)
-- [Kernel documentation: OOM killer](https://www.kernel.org/doc/html/latest/admin-guide/mm/oom.html)
+- [Kernel documentation: OOM killer](https://docs.kernel.org/mm/oom.html)
 - [Kernel documentation: Memory cgroup](https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html#memory)
 - [LWN: Better OOM killing](https://lwn.net/Articles/689898/)
 - [LWN: Toward more-precise OOM killing](https://lwn.net/Articles/743680/)

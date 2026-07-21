@@ -680,7 +680,8 @@ MODULE_LICENSE("GPL");
 - **Understanding the Linux Kernel, 3rd Edition** — Chapter 8: Memory Management
 - [Kernel source: mm/slub.c](https://elixir.bootlin.com/linux/latest/source/mm/slub.c)
 - [Kernel source: mm/slab_common.c](https://elixir.bootlin.com/linux/latest/source/mm/slab_common.c)
-- [Kernel documentation: Slab Allocator](https://www.kernel.org/doc/html/latest/mm/slub.html)
+- [Kernel documentation: Slab Allocator](https://docs.kernel.org/mm/slab.html)
+- [Kernel documentation: Memory Allocation Guide](https://docs.kernel.org/core-api/memory-allocation.html)
 - [LWN: SLUB allocator](https://lwn.net/Articles/229984/)
 - [Christoph Lameter: SLUB — The Unqueued Slab Allocator](https://www.kernel.org/doc/gorman/html/understand/understand011.html)
 

@@ -548,7 +548,8 @@ For rwlocks, lockdep tracks:
 - [Planet GNU](https://planet.gnu.org/)
 - [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
 
-- [Linux Kernel Documentation: Lockdep Design](https://www.kernel.org/doc/html/latest/locking/lockdep-design.html)
+- [Kernel documentation: Runtime locking correctness validator](https://docs.kernel.org/locking/lockdep-design.html)
+- [Kernel documentation: Lockdep](https://docs.kernel.org/locking/lockdep.html)
 - [Ingo Molnár: "Runtime lock dependency validator" (original patch)](https://lwn.net/Articles/185500/)
 - [LWN: "Lockdep: the Linux lock validator"](https://lwn.net/Articles/185500/)
 - [Linux Kernel Source: kernel/locking/lockdep.c](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/kernel/locking/lockdep.c)

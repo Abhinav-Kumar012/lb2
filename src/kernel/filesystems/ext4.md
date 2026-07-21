@@ -554,6 +554,8 @@ File size of /path/to/file is 1073741824 (262144 blocks of 4096 bytes)
 - [ext4 wiki (kernel.org)](https://ext4.wiki.kernel.org/) — Official ext4 documentation
 - [ext4 Disk Layout](https://ext4.wiki.kernel.org/index.php/Ext4_Disk_Layout) — On-disk format specification
 - [ext4 Howto](https://ext4.wiki.kernel.org/index.php/Ext4_Howto) — Usage guide
+- [ext4 Block Allocation Policy](https://docs.kernel.org/filesystems/ext4/allocators.html) — Allocator documentation
+- [ext4 Dynamic Structures](https://docs.kernel.org/filesystems/ext4/dynamic.html) — Inodes, extents, directories
 - [Linux kernel: fs/ext4/](https://elixir.bootlin.com/linux/latest/source/fs/ext4) — ext4 source code
 - [Theodore Ts'o's blog](https://thunk.org/tytso/) — ext4 maintainer's writings
 - [LWN: ext4 and delayed allocation](https://lwn.net/Articles/273912/) — Delalloc discussion

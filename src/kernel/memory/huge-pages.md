@@ -707,7 +707,7 @@ always within_size advise [never] deny force
 - [Kernel source: mm/huge_memory.c](https://elixir.bootlin.com/linux/latest/source/mm/huge_memory.c)
 - [Kernel source: mm/khugepaged.c](https://elixir.bootlin.com/linux/latest/source/mm/khugepaged.c)
 - [Kernel documentation: Huge Pages](https://www.kernel.org/doc/html/latest/admin-guide/mm/hugetlbpage.html)
-- [Kernel documentation: THP](https://www.kernel.org/doc/html/latest/admin-guide/mm/transhuge.html)
+- [Kernel documentation: THP](https://docs.kernel.org/mm/transhuge.html)
 - [LWN: Transparent huge pages in 2.6.38](https://lwn.net/Articles/423584/)
 - [LWN: Two new madvise flags](https://lwn.net/Articles/717293/)
 - [Andrea Arcangeli: Transparent Hugepage Support](https://www.kernel.org/doc/html/latest/mm/transhuge.html)
