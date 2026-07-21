@@ -88,7 +88,8 @@ int setup_supervisor(pid_t child_pid)
     int listener;
 
     /* Get the notification FD from the seccomp filter */
-    /* (The FD is obtained via the new SECCOMP_IOCTL_NOTIF_RECV) */
+    /* (The FD is obtained via prctl(PR_GET_SECCOMP_LISTENER) or */
+    /*  inherited/received from the process that installed the filter) */
     struct seccomp_notif_req *req;
     struct seccomp_notif_resp *resp;
 
