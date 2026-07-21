@@ -1,6 +1,7 @@
 #!/bin/bash
 # Auto-commit and push script for Linux Encyclopedia
 # Commits changes every 2 minutes, pushes every 15 minutes
+# Runs in a loop, auto-restarts on failure
 
 REPO_DIR="/home/work/.openclaw/workspace/lb2"
 COMMIT_INTERVAL=120    # 2 minutes
@@ -19,13 +20,18 @@ while true; do
     
     # Check for changes
     if git diff --quiet HEAD 2>/dev/null && git diff --cached --quiet 2>/dev/null; then
-        continue
+        # Also check for untracked files
+        if [ -z "$(git ls-files --others --exclude-standard)" ]; then
+            continue
+        fi
     fi
     
     # Count changed files
-    CHANGED=$(git diff --name-only HEAD | wc -l)
+    CHANGED=$(git diff --name-only HEAD 2>/dev/null | wc -l)
+    UNTRACKED=$(git ls-files --others --exclude-standard | wc -l)
+    TOTAL=$((CHANGED + UNTRACKED))
     
-    if [ "$CHANGED" -gt 0 ]; then
+    if [ "$TOTAL" -gt 0 ]; then
         # Stage all changes
         git add -A
         
@@ -34,12 +40,12 @@ while true; do
         PAGES=$(find src -name '*.md' -not -name 'SUMMARY.md' -size +1k | wc -l)
         TOTAL_LINES=$(find src -name '*.md' -not -name 'SUMMARY.md' -size +1k -exec cat {} + | wc -l)
         
-        git commit -m "Auto-commit: ${PAGES} pages, ${TOTAL_LINES} lines (${CHANGED} files changed)
+        git commit -m "Auto-commit: ${PAGES} pages, ${TOTAL_LINES} lines (${TOTAL} files changed)
 
 Timestamp: ${TIMESTAMP}" --quiet
         
         COMMIT_COUNT=$((COMMIT_COUNT + 1))
-        echo "[$(date)] Committed #${COMMIT_COUNT}: ${CHANGED} files, ${PAGES} pages total"
+        echo "[$(date)] Committed #${COMMIT_COUNT}: ${TOTAL} files, ${PAGES} pages total"
     fi
     
     # Push if interval elapsed
