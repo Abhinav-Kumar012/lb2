@@ -542,6 +542,49 @@ Committed_AS:   25165824 kB    # Total committed virtual memory
 CommitLimit:    24772608 kB    # Maximum allowed commit
 ```
 
+## DAMON: Data Access MONitoring
+
+Linux includes DAMON (Data Access MONitoring), a kernel subsystem for efficient data access monitoring and access-aware system operations. DAMON is designed to be accurate (for DRAM-level memory management), light-weight (for production online usage), scalable (in terms of memory size), tunable, and automated.
+
+### How DAMON Works
+
+DAMON monitors memory access patterns by periodically sampling which memory regions are being accessed. It uses a region-based approach: instead of tracking every page, it groups adjacent pages with similar access patterns into regions, then monitors regions at configurable granularity.
+
+Key characteristics:
+- **Regions**: DAMON groups memory into regions and tracks access frequency per region
+- **Sampling**: Periodically checks access bits in page tables to determine which regions are hot (frequently accessed) or cold (rarely accessed)
+- **Adaptive**: Automatically adjusts region boundaries as access patterns change
+- **Low overhead**: Designed for production use with minimal performance impact (< 1%)
+
+### DAMOS (DAMON-based Operation Schemes)
+
+DAMON can not only monitor but also take automated actions based on access patterns:
+- **Page demotion**: Automatically move cold pages from fast memory (DRAM) to slow memory (CXL, PMEM)
+- **Proactive reclaim**: Reclaim cold pages before memory pressure occurs
+- **Memory tiering**: Place hot pages on fast nodes and cold pages on slow nodes
+
+### User-Space Interface
+
+DAMON exposes its interface through:
+- **DAMON sysfs interface** (`/sys/kernel/mm/damon/`): Configure monitoring targets, parameters, and operation schemes
+- **DAMON debugfs interface** (legacy): Older interface for configuration
+- **`damo` userspace tool**: Python-based CLI for easy DAMON management
+
+```bash
+# Check if DAMON is available
+ls /sys/kernel/mm/damon/
+# admin  nr_kdamonds
+
+# Configure and run DAMON via sysfs
+# (see admin-guide/mm/damon/ for full details)
+```
+
+### Use Cases
+- **Memory tiering**: Automatically promote hot pages to fast DRAM and demote cold pages to CXL/PMEM
+- **Proactive reclaim**: Reclaim cold memory before the OOM killer activates
+- **Workload characterization**: Understand which parts of an application's memory are actively used
+- **Energy efficiency**: Reduce power by moving cold memory to low-power DIMMs
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)

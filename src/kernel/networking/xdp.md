@@ -752,6 +752,64 @@ All rings are SPSC (single-producer, single-consumer) for performance. Ring size
 
 A BPF map of type `BPF_MAP_TYPE_XSKMAP` distributes packets to XSKs. The XDP program redirects packets to specific map indices, and XDP validates the XSK is bound to the correct device and ring number.
 
+## AF_XDP Socket Deep Dive
+
+AF_XDP (Address Family XDP) is an address family optimized for high-performance packet processing. It enables XDP programs to redirect frames directly to a memory buffer in a user-space application, bypassing the entire kernel networking stack.
+
+### Socket Creation and Binding
+
+An AF_XDP socket (XSK) is created with the normal `socket()` syscall using `AF_XDP`. Each XSK has two rings (RX and TX) registered via `setsockopt(XDP_RX_RING)` and `setsockopt(XDP_TX_RING)`. At least one ring is mandatory. The socket is bound to a specific device and queue ID via `bind()` — traffic only flows after binding completes.
+
+### UMEM Architecture Details
+
+UMEM is a region of virtual contiguous memory divided into equal-sized chunks:
+- Created and configured via `setsockopt(XDP_UMEM_REG)` (chunk size, headroom, start address, size)
+- An AF_XDP socket is linked to a single UMEM, but one UMEM can serve multiple sockets
+- UMEM has two SPSC rings: **FILL** (user→kernel) and **COMPLETION** (kernel→user)
+- Frame addresses are offsets within the UMEM region
+
+### Ring Semantics
+
+| Ring | Direction | Producer | Consumer | Purpose |
+|------|-----------|----------|----------|--------|
+| **FILL** | User→Kernel | User | Kernel | Supply empty UMEM frames for RX |
+| **RX** | Kernel→User | Kernel | User | Received packet descriptors (addr + len) |
+| **TX** | User→Kernel | User | Kernel | Packet descriptors to transmit |
+| **COMPLETION** | Kernel→User | Kernel | User | Sent frames returned for reuse |
+
+All rings are **single-producer/single-consumer (SPSC)** for maximum performance. Ring sizes must be powers of two. Multiple processes/threads accessing the same ring require explicit synchronization.
+
+### Operating Modes
+
+- **`XDP_SKB` mode**: Uses SKBs with generic XDP support, copies data to userspace. Works with all drivers (fallback mode).
+- **`XDP_DRV` mode**: Uses native driver XDP support for better performance, still copies to userspace.
+- **Zero-copy mode** (`XDP_ZEROCOPY` bind flag): The NIC DMAs directly into UMEM frames, eliminating copies entirely. Requires driver support.
+- **Copy mode** (`XDP_COPY` bind flag): Forces copy mode even if zero-copy is available.
+
+### XSKMAP Packet Distribution
+
+A BPF map of type `BPF_MAP_TYPE_XSKMAP` distributes packets to XSKs. The XDP program uses `bpf_redirect_map()` to send packets to a specific index in the map. XDP validates that the target XSK is bound to the correct device and queue — otherwise the packet is dropped.
+
+```c
+/* XDP program redirecting to AF_XDP socket */
+struct {
+    __uint(type, BPF_MAP_TYPE_XSKMAP);
+    __uint(max_entries, 64);
+    __type(key, __u32);
+    __type(value, __u32);
+} xsks_map SEC(".maps");
+
+SEC("xdp")
+int xdp_sock_prog(struct xdp_md *ctx) {
+    /* Redirect packet to AF_XDP socket */
+    return bpf_redirect_map(&xsks_map, ctx->rx_queue_index, 0);
+}
+```
+
+### Shared UMEM
+
+To share a UMEM between sockets, set `XDP_SHARED_UMEM` in `bind()` and pass the file descriptor of the existing socket via `sxdp_shared_umem_fd`. This works across different queue IDs and even different netdevs. Each socket has its own RX/TX rings, but FILL/COMPLETION rings are per unique (netdev, queue_id) tuple.
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)

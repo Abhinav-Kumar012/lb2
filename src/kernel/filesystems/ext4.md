@@ -723,6 +723,82 @@ File size of /path/to/file is 1073741824 (262144 blocks of 4096 bytes)
    0:        0..   262143:      500000..    762143: 262144:
 ```
 
+## Encryption Support (fscrypt)
+
+ext4 supports filesystem-level encryption through the **fscrypt** framework (formerly "ext4 encryption"). Unlike dm-crypt (block-level encryption), fscrypt operates at the filesystem level, allowing different files to use different keys and unencrypted files to coexist on the same filesystem.
+
+### How fscrypt Works
+
+fscrypt integrates directly into ext4 (and F2FS, UBIFS, CephFS). When a directory is marked as encrypted, all regular files, directories, and symbolic links created within are transparently encrypted. Userspace must provide the encryption key before accessing encrypted content.
+
+Key properties:
+- **Per-file keys**: Each file gets a unique encryption key derived from a master key
+- **Transparent encryption/decryption**: Happens in the page cache, no double-caching
+- **Metadata**: File contents and filenames are encrypted; file sizes, permissions, timestamps, and xattrs are NOT encrypted
+- **No in-place encryption**: Only empty directories can be marked encrypted
+
+### Encryption Modes
+
+fscrypt supports multiple encryption algorithms:
+
+| Mode | Content Encryption | Filename Encryption | Key Size |
+|------|-------------------|--------------------|----|
+| AES-256-XTS | AES-256 in XTS mode | AES-256-CTS-CBC | 64 bytes |
+| AES-256-CTS-CBC | AES-256 in CBC-CTS | AES-256-CTS-CBC | 32 bytes |
+| Adiantum | HPolyC+ChaCha12 | Adiantum | 32 bytes |
+
+### Key Hierarchy
+
+```
+Master Key (provided by userspace)
+    │
+    ├── Per-file Content Encryption Key (derived per inode)
+    │
+    └── Per-directory Filename Encryption Key (derived per directory)
+```
+
+The master key is never used directly for encryption. A KDF (Key Derivation Function) derives per-file keys:
+- **v1 policies**: AES-128-ECB with the file's 16-byte nonce
+- **v2 policies**: HKDF-SHA512 (recommended, more secure)
+
+### Setting Up Encryption
+
+```bash
+# Using the fscrypt userspace tool
+sudo fscrypt setup
+fscrypt encrypt /path/to/directory
+# Enter passphrase when prompted
+
+# Files created in the directory are now encrypted
+# When the key is provided, files appear transparently decrypted
+
+# View encryption policy
+fscrypt status /path/to/directory
+
+# Lock (remove key from kernel)
+fscrypt lock /path/to/directory
+```
+
+### ioctls
+
+| ioctl | Purpose |
+|-------|--------|
+| `FS_IOC_SET_ENCRYPTION_POLICY` | Set encryption policy on an empty directory (v1 or v2) |
+| `FS_IOC_GET_ENCRYPTION_POLICY` | Read the encryption policy |
+| `FS_IOC_ADD_ENCRYPTION_KEY` | Add a master key to the filesystem |
+| `FS_IOC_REMOVE_ENCRYPTION_KEY` | Remove a master key, locking files |
+| `FS_IOC_GET_ENCRYPTION_KEY_STATUS` | Check key status |
+| `FS_IOC_GET_ENCRYPTION_POLICY_EX` | Get extended policy info |
+
+### Hardware-Wrapped Keys
+
+Modern kernels support hardware-wrapped keys where the master key never enters kernel memory in plaintext. The key is wrapped by a hardware key (e.g., from a TPM or secure enclave), providing protection against kernel memory compromise and cold-boot attacks.
+
+### v1 vs v2 Policies
+
+- **v1** (legacy): Weaker — no key verification, per-file key compromise exposes master key, non-root users cannot securely remove keys
+- **v2** (recommended): Uses HKDF-SHA512, key verification via key identifier, secure key removal for all users, no cross-compromise between per-file and master keys
+
 ## Further Reading
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)

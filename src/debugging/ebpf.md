@@ -868,6 +868,125 @@ The verifier recognizes `pointer + bounded_register` expressions (not just `poin
 - This makes BPF somewhat inefficient for 32-bit CPU architectures.\- True 32-bit registers will NOT be added to BPF.
 - Some optimizations exist for JIT performance on 32-bit architectures.
 
+## BPF Verifier Internals
+
+The eBPF verifier is the safety gate that ensures BPF programs cannot crash or compromise the kernel. Understanding its internals is essential for writing complex BPF programs that pass verification.
+
+### Two-Phase Verification
+
+1. **DAG check**: Disallows loops and validates the control flow graph (CFG). Detects unreachable instructions.
+2. **Path exploration**: Starting from the first instruction, the verifier simulates execution along all possible paths, tracking register and stack state changes.
+
+### Register State Tracking
+
+The verifier tracks every register's state using `struct bpf_reg_state`:
+
+| Type | Meaning |
+|------|--------|
+| `NOT_INIT` | Register has not been written to (unreadable) |
+| `SCALAR_VALUE` | A numeric value, not usable as a pointer |
+| `PTR_TO_CTX` | Pointer to `bpf_context` (function argument R1) |
+| `PTR_TO_MAP_VALUE` | Pointer to a map element value |
+| `PTR_TO_MAP_VALUE_OR_NULL` | Map lookup result (becomes `PTR_TO_MAP_VALUE` after NULL check) |
+| `PTR_TO_STACK` | Pointer to the BPF stack (R10 frame pointer) |
+| `PTR_TO_PACKET` | Pointer to `skb->data` |
+| `PTR_TO_PACKET_END` | Pointer to `skb->data + headlen` |
+| `PTR_TO_SOCKET` | Pointer to `struct bpf_sock_ops` (refcounted) |
+
+### Value Tracking (tnum)
+
+The verifier tracks known/unknown bits using a **tnum** (tracked number): a pair of `(value, mask)`:
+- Bits with `1` in the mask are unknown
+- Bits with `1` in the value are known to be `1`
+- Bits with `0` in both are known to be `0`
+
+For example, reading a byte from memory sets the top 56 bits to known-zero and low 8 bits to unknown: `tnum = (0x0, 0xff)`.
+
+### Bounds Tracking
+
+The verifier tracks both signed and unsigned min/max values for each register:
+
+```c
+struct tnum {
+    u64 value;
+    u64 mask;
+};
+
+struct bpf_reg_state {
+    /* Fixed offset from base */
+    s32 off;
+    /* Variable offset tracking */
+    struct tnum var_off;
+    s64 smin_value, smax_value;  /* Signed bounds */
+    u64 umin_value, umax_value;  /* Unsigned bounds */
+    /* ... */
+};
+```
+
+Conditional branches update bounds. For example, `if (R2 > 8)` sets `umin_value = 9` on the true branch and `umax_value = 8` on the false branch.
+
+### Bounded Loop Support (Linux 5.3+)
+
+The verifier supports bounded loops where the loop counter has a provable upper bound:
+
+```c
+for (int i = 0; i < MAX_ITERATIONS; i++) {
+    /* Verifier checks that loop terminates */
+}
+```
+
+The verifier rejects loops where it cannot prove termination within `BPF_COMPLEXITY_LIMIT_INSNS` (1 million) instruction explorations.
+
+### Pointer Arithmetic Rules
+
+- Adding a scalar to a pointer is allowed (produces a new pointer with adjusted offset)
+- Adding two pointers is forbidden (result is `SCALAR_VALUE`)
+- Subtracting two pointers of the same type yields a scalar
+- Pointer arithmetic must stay within bounds of the referenced object
+
+### Direct Packet Access
+
+For XDP and TC programs, the verifier allows direct access to packet data without `bpf_probe_read()`:
+
+```c
+void *data = (void *)(long)ctx->data;
+void *data_end = (void *)(long)ctx->data_end;
+
+struct ethhdr *eth = data;
+if ((void *)(eth + 1) > data_end)
+    return XDP_DROP;  /* Bounds check required */
+
+/* After bounds check, verifier knows eth is safe to access */
+```
+
+The verifier tracks packet pointer ranges with `id`, `off`, and `r` (range) fields. After a bounds check, all copies of the pointer with the same `id` inherit the proven safe range.
+
+### Verification Limits
+
+| Limit | Default | Description |
+|-------|---------|-------------|
+| `BPF_COMPLEXITY_LIMIT_INSNS` | 1,000,000 | Max instructions explored |
+| `BPF_MAXINSNS` | 4096 | Max instructions per program (unprivileged) |
+| `MAX_BPF_STACK` | 512 bytes | Max stack usage |
+| `MAX_CALL_FRAMES` | 8 | Max nested BPF-to-BPF calls |
+| `MAX_TAIL_CALL_CNT` | 33 | Max tail call depth |
+
+### Debugging Verifier Failures
+
+```bash
+# Get verbose verifier output
+sudo bpftool prog load prog.o /sys/fs/bpf/prog 2>&1 | head -50
+
+# Or with bpf() syscall (BPF_LOG_BUF_SIZE)
+# The verifier writes its analysis to a log buffer
+
+# Common failure patterns:
+# - "R1 unbounded memory access" → missing bounds check
+# - "invalid mem access 'scalar'" → pointer used as scalar
+# - "math between map_value pointer and unbounded value" → unbounded pointer arithmetic
+# - "back-edge from insn X to Y" → loop without provable bound
+```
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)

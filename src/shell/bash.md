@@ -431,8 +431,8 @@ echo "${str,}"             # hELLO WORLD (first char lowercase)
 echo "${str,,}"            # hello world (all lowercase)
 
 # Toggle case (Bash 4.4+)
-echo "${str~}"             # hELLO WORLD
-echo "${str~~}"            # hello world
+echo "${str~}"             # hELLO WORLD (toggle first char case)
+echo "${str~~}"            # hello world (toggle all chars case)
 ```
 
 ### Indirect Reference

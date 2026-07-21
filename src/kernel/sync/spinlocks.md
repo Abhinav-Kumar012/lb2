@@ -541,6 +541,85 @@ Use `raw_spinlock_t` (always spinning, even on RT) only for:
 
 **Rule of thumb**: Use `spinlock_t` by default. Only use `raw_spinlock_t` when you have a specific reason.
 
+## qspinlock Internals
+
+The kernel's queued spinlock (qspinlock) is an MCS-based lock that eliminates cache-line bouncing under contention. Understanding its internals is important for lock optimization.
+
+### qspinlock Structure
+
+A qspinlock is a 32-bit word with three fields packed together:
+
+```c
+/* kernel/locking/qspinlock.c */
+struct qspinlock {
+    union {
+        atomic_t val;
+        struct {
+            u8 locked;      /* Lock byte: 0 = unlocked, 1 = locked */
+            u8 pending;     /* Pending byte: 1 = waiter spinning on lock word */
+            struct {
+                u16 locked_pending; /* locked + pending combined */
+                u16 tail;           /* Tail of MCS queue (node index + CPU #) */
+            };
+        };
+    };
+};
+```
+
+### Lock Acquisition Path
+
+The qspinlock uses a three-stage fastpath:
+
+1. **Uncontended fastpath**: Single atomic `xchg()` on the lock byte. If the lock was free, acquired in ~10 ns.
+2. **Pending bit fastpath**: If lock is held but no queue exists, set the pending bit and spin on the lock byte directly. Avoids MCS node allocation.
+3. **MCS queue**: If both lock and pending are set, allocate a per-CPU MCS node, enqueue, and spin on the local node's locked flag.
+
+```mermaid
+sequenceDiagram
+    participant CPU_A as CPU A
+    participant CPU_B as CPU B
+    participant CPU_C as CPU C
+    participant Lock as qspinlock
+
+    CPU_A->>Lock: xchg(locked) → success (fastpath)
+    CPU_B->>Lock: xchg(locked) → fail, set pending, spin on locked
+    CPU_C->>Lock: locked+pending both set → enqueue in MCS queue
+    Lock-->>CPU_A: unlock: clear locked
+    Lock-->>CPU_B: locked cleared → acquire (pending path)
+    CPU_B->>Lock: unlock: clear locked+pending
+    Lock-->>CPU_C: MCS queue drain → acquire
+```
+
+### Per-CPU MCS Nodes
+
+Each CPU has a small array of MCS nodes (typically 4) allocated in the per-CPU data area. The nodes are used to form the queue without any dynamic allocation:
+
+```c
+/* kernel/locking/mcs_spinlock.h */
+struct mcs_spinlock {
+    struct mcs_spinlock *next;
+    int locked;       /* 1 = lock acquired by this node's CPU */
+    int pending;      /* Used by pvqspinlock */
+};
+```
+
+### pvqspinlock (ParaVirtualized)
+
+For virtualized environments, `pvqspinlock` adds paravirtualization awareness:
+- When a vCPU is preempted while holding a lock, other spinning vCPUs waste CPU time
+- `pvqspinlock` allows a spinning vCPU to kick the lock holder's vCPU to schedule
+- Uses `__pv_queued_spin_steal_lock()` to allow a halted vCPU's lock to be stolen
+
+```bash
+# Check if pvqspinlock is active
+dmesg | grep -i pvqspinlock
+# kvm: pvqspinlock: enabled
+```
+
+### Lock Handoff
+
+When a lock is heavily contended (> 100 spins), the qspinlock may enter "handoff" mode where the current holder directly passes ownership to the next waiter, preventing starvation and reducing unnecessary spinning.
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)

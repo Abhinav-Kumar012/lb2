@@ -104,7 +104,7 @@ nf_register_net_hook(&init_net, &my_hook);
 | 1 | `NF_ACCEPT` | Accept and continue processing |
 | 2 | `NF_STOLEN` | Packet taken by hook, don't continue |
 | 3 | `NF_QUEUE` | Queue packet to userspace |
-| 4 | `NF_REPEAT` | Call this hook again |
+| 4 | `NF_REPEAT` | Call this hook again (re-evaluate same hook) |
 | 5 | `NF_STOP` | Accept, but don't continue with other hooks |
 
 ## Tables and Chains (iptables)

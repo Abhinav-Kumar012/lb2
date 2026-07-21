@@ -694,23 +694,6 @@ Splitting immediately is not possible due to locking constraints and is often co
 
 With `CONFIG_PAGE_MAPCOUNT`, partial mappings are reliably detected via `folio->_nr_pages_mapped`. Without it, detection uses average per-page mapcount heuristics.
 
-## THP Shmem (tmpfs)
-
-THP can also be used for shared memory (tmpfs/shmem):
-
-```bash
-$ cat /sys/kernel/mm/transparent_hugepage/shmem_enabled
-always within_size advise [never] deny force
-```
-
-| Mode | Behavior |
-|------|----------|
-| **always** | Use huge pages for all shmem/tmpfs |
-| **within_size** | Only if the region is naturally huge-page-aligned |
-| **advise** | Only when `MADV_HUGEPAGE` is set |
-| **never** | Disable THP for shmem |
-| **force** | Force huge pages even when not appropriate (testing) |
-
 ## HugeTLB Boot Parameters (from Kernel Documentation)
 
 The kernel provides several boot-time parameters for controlling HugeTLB allocation:
