@@ -1,0 +1,27 @@
+[book]
+title = "The Linux Encyclopedia"
+authors = ["Community"]
+description = "A comprehensive, continuously growing reference for Linux, Unix internals, kernel development, system programming, administration, networking, security, and beyond."
+language = "en"
+src = "src"
+
+[build]
+build-dir = "book"
+create-missing = true
+
+[output.html]
+default-theme = "light"
+preferred-dark-theme = "navy"
+git-repository-url = "https://github.com/Abhinav-Kumar012/lb2"
+edit-url-template = "https://github.com/Abhinav-Kumar012/lb2/edit/dev/{path}"
+additional-css = ["custom.css"]
+additional-js = ["custom.js"]
+no-section-label = false
+
+[output.html.search]
+enable = true
+limit-results = 30
+use-hierarchical-pages = true
+
+[output.html.playground]
+editable = true
