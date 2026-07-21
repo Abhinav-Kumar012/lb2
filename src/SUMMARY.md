@@ -76,6 +76,7 @@
 - [Podman](./containers/podman.md)
 - [Primitives](./containers/primitives.md)
 - [Rootless](./containers/rootless.md)
+- [Seccomp Notify](./containers/seccomp-notify.md)
 - [Security](./containers/security.md)
 
 ---
@@ -87,6 +88,7 @@
 - [Ftrace](./debugging/ftrace.md)
 - [Gdb](./debugging/gdb.md)
 - [Kernel Debugging](./debugging/kernel-debugging.md)
+- [Kfence](./debugging/kfence.md)
 - [Overview](./debugging/overview.md)
 - [Perf](./debugging/perf.md)
 - [Sanitizers](./debugging/sanitizers.md)
@@ -144,6 +146,7 @@
 - [Device Mapper](./kernel/block/device-mapper.md)
 - [Devices](./kernel/block/devices.md)
 - [Io Schedulers](./kernel/block/io-schedulers.md)
+- [Io Uring Block](./kernel/block/io-uring-block.md)
 - [Overview](./kernel/block/overview.md)
 - [Request Queues](./kernel/block/request-queues.md)
 - [Boot Process](./kernel/boot-process.md)
@@ -173,9 +176,11 @@
 - [Cephfs](./kernel/filesystems/cephfs.md)
 - [Dentry](./kernel/filesystems/dentry.md)
 - [Devtmpfs](./kernel/filesystems/devtmpfs.md)
+- [Erofs](./kernel/filesystems/erofs.md)
 - [Ext4](./kernel/filesystems/ext4.md)
 - [F2fs](./kernel/filesystems/f2fs.md)
 - [File Ops](./kernel/filesystems/file-ops.md)
+- [Fscrypt](./kernel/filesystems/fscrypt.md)
 - [Fuse](./kernel/filesystems/fuse.md)
 - [Inode](./kernel/filesystems/inode.md)
 - [Journaling](./kernel/filesystems/journaling.md)
@@ -203,8 +208,10 @@
 - [Barriers](./kernel/memory/barriers.md)
 - [Buffer Cache](./kernel/memory/buffer-cache.md)
 - [Compaction](./kernel/memory/compaction.md)
+- [Damon](./kernel/memory/damon.md)
 - [Huge Pages](./kernel/memory/huge-pages.md)
 - [Ksm](./kernel/memory/ksm.md)
+- [Memfd](./kernel/memory/memfd.md)
 - [Mmap](./kernel/memory/mmap.md)
 - [Numa](./kernel/memory/numa.md)
 - [Oom Killer](./kernel/memory/oom-killer.md)
@@ -227,9 +234,11 @@
 - [Netfilter](./kernel/networking/netfilter.md)
 - [Netlink](./kernel/networking/netlink.md)
 - [Overview](./kernel/networking/overview.md)
+- [Segment Routing](./kernel/networking/segment-routing.md)
 - [Sockets](./kernel/networking/sockets.md)
 - [Tc](./kernel/networking/tc.md)
 - [Tcpip](./kernel/networking/tcpip.md)
+- [Tls Offload](./kernel/networking/tls-offload.md)
 - [Vlans](./kernel/networking/vlans.md)
 - [Wireless](./kernel/networking/wireless.md)
 - [Xdp](./kernel/networking/xdp.md)
@@ -239,6 +248,7 @@
 - [Context Switching](./kernel/processes/context-switching.md)
 - [Deadline Scheduling](./kernel/processes/deadline-scheduling.md)
 - [Eevdf](./kernel/processes/eevdf.md)
+- [Fork](./kernel/processes/fork.md)
 - [Namespaces](./kernel/processes/namespaces.md)
 - [Numa Scheduling](./kernel/processes/numa-scheduling.md)
 - [Priorities](./kernel/processes/priorities.md)
@@ -253,6 +263,7 @@
 - [Task Struct](./kernel/processes/task-struct.md)
 - [Atomic Ops](./kernel/sync/atomic-ops.md)
 - [Completions](./kernel/sync/completions.md)
+- [Lock Contention](./kernel/sync/lock-contention.md)
 - [Lock Ordering](./kernel/sync/lock-ordering.md)
 - [Lockdep](./kernel/sync/lockdep.md)
 - [Mutexes](./kernel/sync/mutexes.md)
@@ -263,6 +274,7 @@
 - [Semaphores](./kernel/sync/semaphores.md)
 - [Seqlocks](./kernel/sync/seqlocks.md)
 - [Spinlocks](./kernel/sync/spinlocks.md)
+- [Ww Mutex](./kernel/sync/ww-mutex.md)
 
 ---
 
@@ -302,6 +314,7 @@
 # Performance
 
 - [Benchmarking](./performance/benchmarking.md)
+- [Bpf Co Re](./performance/bpf-co-re.md)
 - [Cpu](./performance/cpu.md)
 - [Io](./performance/io.md)
 - [Kernel Params](./performance/kernel-params.md)
@@ -331,6 +344,7 @@
 - [Cryptography](./security/cryptography.md)
 - [Hardening](./security/hardening.md)
 - [Keyring](./security/keyring.md)
+- [Landlock](./security/landlock.md)
 - [Mac](./security/mac.md)
 - [Overview](./security/overview.md)
 - [Pam](./security/pam.md)
@@ -411,4 +425,3 @@
 
 ---
 
-# Force rebuild Tue Jul 21 18:37:30 CST 2026
