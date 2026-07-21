@@ -972,6 +972,174 @@ The kernel supports extensive hardware offload capabilities:
 - **UFO (UDP Fragmentation Offload)**: Fragment large UDP datagrams
 - **Checksum offload**: TX and RX checksum computation in hardware
 
+## IP Routing (from kernel docs)
+
+The following details are drawn from the kernel networking documentation and the routing subsystem implementation.
+
+### Routing Table Management
+
+The Linux kernel maintains routing tables that determine how to forward packets. The main routing table is table 254 (`RT_TABLE_MAIN`), but custom tables can be created for policy routing.
+
+```bash
+# View the main routing table
+ip route show
+# default via 192.168.1.1 dev eth0
+# 192.168.1.0/24 dev eth0 proto kernel scope link src 192.168.1.100
+# 10.0.0.0/8 via 192.168.1.254 dev eth0
+
+# View a specific table
+ip route show table 100
+
+# Add a route
+ip route add 10.0.0.0/8 via 192.168.1.254 dev eth0
+
+# Delete a route
+ip route del 10.0.0.0/8
+
+# Add a default route
+ip route add default via 192.168.1.1
+
+# Replace a route (add or update)
+ip route replace 10.0.0.0/8 via 192.168.1.254
+```
+
+### Routing Cache (Removed)
+
+Historically, Linux used a routing cache that stored recently used routes. This was **removed in Linux 3.6** because it was vulnerable to denial-of-service attacks (cache flooding) and provided diminishing returns with modern FIB (Forwarding Information Base) algorithms.
+
+### FIB (Forwarding Information Base)
+
+The kernel's FIB is the primary routing data structure. It uses a **LC-trie** (Level Compressed trie) for efficient longest-prefix matching:
+
+- **Lookup complexity**: O(W) where W is the address width (32 for IPv4, 128 for IPv6)
+- **Memory efficient**: Uses path compression to reduce memory usage
+- **Supports millions of routes**: Suitable for routers with full BGP tables
+
+### Policy Routing
+
+Linux supports policy routing — routing decisions based on criteria beyond just the destination address:
+
+```bash
+# Create a routing rule
+ip rule add from 192.168.1.0/24 table 100
+ip rule add fwmark 1 table 200
+ip rule add tos 0x10 table 300
+
+# View rules
+ip rule show
+# 0: from all lookup local
+# 32764: from 192.168.1.0/24 lookup 100
+# 32765: from all fwmark 0x1 lookup 200
+# 32766: from all lookup main
+# 32767: from all lookup default
+
+# Add routes to custom table
+ip route add default via 10.0.0.1 table 100
+```
+
+### Multipath Routing
+
+Linux supports multipath routing for load balancing and redundancy:
+
+```bash
+# Equal-cost multipath (ECMP)
+ip route add default \
+    nexthop via 192.168.1.1 weight 1 \
+    nexthop via 192.168.2.1 weight 1
+
+# Weighted multipath
+ip route add default \
+    nexthop via 192.168.1.1 weight 3 \
+    nexthop via 192.168.2.1 weight 1
+```
+
+### Route Metrics
+
+Routes have metrics that affect selection when multiple routes to the same destination exist:
+
+```bash
+# Lower metric = higher priority
+ip route add 10.0.0.0/8 via 192.168.1.1 metric 100
+ip route add 10.0.0.0/8 via 192.168.2.1 metric 200
+```
+
+### IPv6 Routing
+
+IPv6 routing follows the same framework:
+
+```bash
+ip -6 route add 2001:db8::/32 via fe80::1 dev eth0
+ip -6 route show
+```
+
+### Route Attributes
+
+Each route has attributes:
+
+| Attribute | Description |
+|-----------|-------------|
+| `via` | Next hop gateway |
+| `dev` | Output interface |
+| `proto` | Route protocol (`kernel`, `static`, `boot`, `dhcp`, `zebra`, etc.) |
+| `scope` | Address scope (`host`, `link`, `global`, `site`) |
+| `metric` | Route preference (lower = preferred) |
+| `table` | Routing table number |
+| `mtu` | Path MTU |
+| `advmss` | Advertised MSS |
+| `hoplimit` | Hop limit (IPv6) |
+| `rto_min` | Minimum retransmission timeout (TCP) |
+
+### Route Protocol Values
+
+| Value | Protocol |
+|-------|----------|
+| `kernel` | Routes installed by the kernel (interface addresses) |
+| `static` | Routes added by the administrator |
+| `boot` | Routes added at boot time |
+| `dhcp` | Routes from DHCP |
+| `redirect` | Routes from ICMP redirects |
+| `mrouted` | Multicast routing daemon |
+| `zebra` | Routes from FRR/Zebra routing daemon |
+| `bird` | Routes from BIRD routing daemon |
+
+### ICMP Redirect Handling
+
+The kernel processes ICMP redirects to update routing:
+
+```bash
+# View redirect settings
+sysctl net.ipv4.conf.all.accept_redirects    # 1 (default)
+sysctl net.ipv4.conf.all.send_redirects      # 1 (default)
+sysctl net.ipv4.conf.all.secure_redirects    # 1 (default)
+
+# Disable redirects on a router
+sysctl -w net.ipv4.conf.all.accept_redirects=0
+sysctl -w net.ipv4.conf.all.send_redirects=0
+```
+
+### Routing-Related sysctl Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `net.ipv4.ip_forward` | 0 | Enable IP forwarding (1 for routers) |
+| `net.ipv4.conf.all.accept_redirects` | 1 | Accept ICMP redirects |
+| `net.ipv4.conf.all.send_redirects` | 1 | Send ICMP redirects |
+| `net.ipv4.conf.all.accept_source_route` | 0 | Accept source-routed packets |
+| `net.ipv4.conf.all.rp_filter` | 0/1 | Reverse path filtering (anti-spoofing) |
+| `net.ipv4.tcp_mtu_probing` | 0 | Path MTU discovery via TCP |
+| `net.ipv4.ip_forward_use_pmtu` | 0 | Use PMTU for forwarded packets |
+
+### Routing with Netlink
+
+The kernel communicates routing table changes to userspace via **Netlink** sockets (protocol `NETLINK_ROUTE`). The `ip` command uses this interface. Monitoring tools can subscribe to route change notifications:
+
+```bash
+# Monitor routing changes
+ip monitor route
+# [Route] 10.0.0.0/8 via 192.168.1.254 dev eth0
+# [Route] del 10.0.0.0/8 via 192.168.1.254 dev eth0
+```
+
 ## TIPC (Transparent Inter Process Communication)
 
 TIPC is a protocol specifically designed for **intra-cluster communication**. Unlike TCP/IP, which is designed for wide-area networking, TIPC is optimized for communication between nodes in a tightly-coupled cluster.
@@ -1037,13 +1205,14 @@ The TIPC implementation lives in `net/tipc/` and uses these key data structures:
 4. **Linux Foundation Networking Training** — [training.linuxfoundation.org](https://training.linuxfoundation.org/)
 5. **kernel.org Documentation** — [www.kernel.org/doc/html/latest/networking/](https://www.kernel.org/doc/html/latest/networking/)
 6. [Linux Kernel Networking Documentation](https://docs.kernel.org/networking/index.html) — Official kernel networking subsystem index
-7. [TIPC Protocol Documentation — docs.kernel.org](https://docs.kernel.org/networking/tipc.html) — Official TIPC kernel documentation
-8. [TIPC Getting Started](http://tipc.io/getting_started.html) — TIPC setup guide
-9. [TIPC Programming Guide](http://tipc.io/programming.html) — TIPC API reference
-10. [TIPC Protocol Specification](http://tipc.io/protocol.html) — Protocol details
-11. [Identifier Locator Addressing (ILA) — docs.kernel.org](https://docs.kernel.org/networking/ila.html)
-12. [VXLAN documentation — docs.kernel.org](https://docs.kernel.org/networking/vxlan.html)
-13. [MPLS Sysfs variables — docs.kernel.org](https://docs.kernel.org/networking/mpls-sysctl.html)
+7. [Routing in the Linux kernel — docs.kernel.org](https://docs.kernel.org/networking/route.html) — Official routing documentation
+8. [TIPC Protocol Documentation — docs.kernel.org](https://docs.kernel.org/networking/tipc.html) — Official TIPC kernel documentation
+9. [TIPC Getting Started](http://tipc.io/getting_started.html) — TIPC setup guide
+10. [TIPC Programming Guide](http://tipc.io/programming.html) — TIPC API reference
+11. [TIPC Protocol Specification](http://tipc.io/protocol.html) — Protocol details
+12. [Identifier Locator Addressing (ILA) — docs.kernel.org](https://docs.kernel.org/networking/ila.html)
+13. [VXLAN documentation — docs.kernel.org](https://docs.kernel.org/networking/vxlan.html)
+14. [MPLS Sysfs variables — docs.kernel.org](https://docs.kernel.org/networking/mpls-sysctl.html)
 
 ## ILA — Identifier Locator Addressing
 

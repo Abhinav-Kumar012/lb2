@@ -706,6 +706,76 @@ $ sudo e4defrag /path/to/file
 $ sudo e4defrag /mount/point
 ```
 
+## Online Resize
+
+ext4 supports **online resize** — growing the filesystem while it's mounted. This is a critical feature for cloud and virtual machine environments where disk capacity is expanded dynamically.
+
+### How Online Resize Works
+
+The online resize operation extends the filesystem to use additional space on the block device:
+
+```bash
+# Resize to fill the entire partition (must be mounted)
+sudo resize2fs /dev/sda1
+
+# Resize to a specific size
+sudo resize2fs /dev/sda1 50G
+
+# Resize with progress
+sudo resize2fs -f /dev/sda1
+```
+
+### resize2fs Internals
+
+The `resize2fs` tool works in two phases:
+
+1. **Offline phase** (if needed): If the filesystem has the `resize_inode` feature, a reserved area exists for online growth metadata. Without it, `resize2fs` must be run offline (unmounted).
+2. **Online phase**: The kernel's ext4 code adds new block groups, initializes their metadata (bitmaps, inode tables), and extends the group descriptor table.
+
+### Key Requirements
+
+- The block device must be larger than the current filesystem
+- The filesystem must have the `resize_inode` feature for true online growth (or be unmounted)
+- The new size must be ≥ the current size (shrinking requires offline `resize2fs`)
+
+### Procedure
+
+```bash
+# 1. Expand the underlying block device (LVM, cloud disk, etc.)
+sudo lvextend -L +10G /dev/vg0/lv_data
+
+# 2. Resize the filesystem online
+sudo resize2fs /dev/vg0/lv_data
+
+# 3. Verify
+df -h /mount/point
+```
+
+For cloud VMs:
+```bash
+# After expanding the virtual disk in the cloud console:
+# 1. Rescan the SCSI bus (if needed)
+echo 1 | sudo tee /sys/class/block/sda/device/rescan
+
+# 2. If using partitions, grow the partition
+sudo growpart /dev/sda 1
+
+# 3. Resize the filesystem
+sudo resize2fs /dev/sda1
+```
+
+### Metadata Expansion
+
+When the filesystem grows, ext4 must:
+
+1. Add new block group descriptors to the descriptor table
+2. Allocate new block bitmaps and inode bitmaps for new groups
+3. Allocate inode tables for new groups
+4. Update the superblock with the new block count
+5. If `flex_bg` is enabled, metadata for multiple new groups is co-located
+
+The `resize_inode` feature reserves space in the filesystem for a growth-reserved GDT (Group Descriptor Table), which allows the online resize to proceed without moving existing metadata.
+
 ## Snapshot Support (via LVM)
 
 ext4 itself does not support snapshots, but they can be achieved through LVM:
@@ -836,11 +906,11 @@ Modern kernels support hardware-wrapped keys where the master key never enters k
 - [ext4 Disk Layout](https://ext4.wiki.kernel.org/index.php/Ext4_Disk_Layout) — On-disk format specification
 - [ext4 Howto](https://ext4.wiki.kernel.org/index.php/Ext4_Howto) — Usage guide
 - [ext4 Block Allocation Policy](https://docs.kernel.org/filesystems/ext4/allocators.html) — Allocator documentation
-- [ext4 Dynamic Structures](https://docs.kernel.org/filesystems/ext4/dynamic.html) — Inodes, extents, directories
+- [ext4 Dynamic Structures — docs.kernel.org](https://docs.kernel.org/filesystems/ext4/dynamic.html) — Inodes, extents, directories
+- [ext4 High Level Design — docs.kernel.org](https://docs.kernel.org/filesystems/ext4/overview.html) — Block groups, layout, features
 - [Linux kernel: fs/ext4/](https://elixir.bootlin.com/linux/latest/source/fs/ext4) — ext4 source code
 - [Theodore Ts'o's blog](https://thunk.org/tytso/) — ext4 maintainer's writings
 - [LWN: ext4 and delayed allocation](https://lwn.net/Articles/273912/)
-- [ext4 High Level Design (kernel docs)](https://docs.kernel.org/filesystems/ext4/overview.html) — Delalloc discussion
 - [fscrypt Documentation](https://docs.kernel.org/filesystems/fscrypt.html) — Filesystem-level encryption (kernel API and design)
 - [fscrypt Userspace Tool](https://github.com/google/fscrypt) — Recommended CLI for managing fscrypt
 
