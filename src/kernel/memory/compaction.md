@@ -1,361 +1,304 @@
 # Memory Compaction
 
-## Introduction
+## Overview
 
-Memory compaction is a kernel mechanism that rearranges physical pages to create larger contiguous blocks of free memory. It addresses the problem of physical memory fragmentation: over time, as processes allocate and free pages, memory becomes scattered with a mix of used and free pages, making it impossible to satisfy high-order allocations (e.g., for huge pages, DMA buffers, or kernel stacks).
+Memory compaction is a kernel mechanism that reclaims physically contiguous blocks of memory by relocating movable pages within a zone, creating larger free regions without requiring expensive reclaim operations. Introduced in Linux 2.6.35 by Mel Gorman, compaction is a critical component of the kernel's anti-fragmentation strategy and is the primary path through which high-order allocations (those larger than a single page) succeed under memory pressure.
 
-Compaction works by migrating movable pages from one end of a memory zone toward the other, consolidating free pages into contiguous blocks. It was introduced in Linux 2.6.35 (2010) and significantly improved huge page allocation success rates without requiring an aggressive reclaim of pages.
+Unlike memory defragmentation approaches that work at the filesystem level, memory compaction operates on physical page frames themselves, shuffling live pages to consolidate free space.
 
 ## The Fragmentation Problem
 
-### Before Compaction
+Physical memory fragmentation occurs when free pages exist in sufficient quantity but are scattered across many non-contiguous locations. A system might have hundreds of megabytes of free memory yet fail a 2MB (order-9) allocation because no contiguous 512 free pages exist.
 
-```mermaid
-graph LR
-    subgraph "Physical Memory Pages (M = used, . = free)"
-        P["M . M . M . M . M . M . M . M . M ."]
-    end
-    Note["No 4 contiguous free pages<br/>→ huge page allocation fails"]
+### Types of Fragmentation
+
+- **External fragmentation**: Free pages are interspersed with allocated pages, preventing large contiguous allocations
+- **Internal fragmentation**: Allocated blocks are larger than needed, wasting space within the allocation
+
+### Why Compaction Over Reclaim
+
+Traditional reclaim (page eviction to swap or filesystem writeback) frees individual pages but does not consolidate them. Reclaim may free scattered pages throughout a zone, leaving fragmented free space. Compaction physically moves pages to create contiguous free regions, which is fundamentally different from simply increasing the free page count.
+
+## Anti-Fragmentation Framework
+
+The kernel classifies pages into migratetype categories to reduce fragmentation proactively:
+
+### Migratetypes
+
+| Migratetype | Description | Examples |
+|---|---|---|
+| `MIGRATE_UNMOVABLE` | Cannot be relocated | Kernel allocations, slab objects |
+| `MIGRATE_MOVABLE` | Can be relocated freely | Userspace pages, page cache |
+| `MIGRATE_RECLAIMABLE` | Can be freed under pressure | Dentries, inodes, some kernel caches |
+| `MIGRATE_HIGHMOVABLE** | Movable pages with special treatment | (rare, experimental) |
+
+### Pageblock Granularity
+
+The kernel groups pages into **pageblocks** (typically 2^MAX_ORDER pages, often 512 pages or 2MB on x86). Each pageblock has an associated migratetype. When a page is first allocated, it is placed in a pageblock matching its migratetype. This heuristic keeps movable and unmovable pages in separate regions, making compaction more effective.
+
+The migratetype of a pageblock is determined by the first allocation to it and can be changed (fallback) when an emergency allocation of a different type is needed.
+
+### Free Page Lists
+
+Each zone maintains per-migratetype free lists:
+
+```
+zone->free_area[order].free_list[migratetype]
 ```
 
-### After Compaction
+This design ensures that when the kernel needs a movable page, it draws from movable pageblocks, preserving unmovable regions intact.
 
-```mermaid
-graph LR
-    subgraph "Physical Memory Pages (after migration)"
-        P["M M M M M M M M M . . . . . . . . ."]
-    end
-    Note["18 contiguous free pages<br/>→ huge page allocation succeeds"]
-```
+## Compaction Algorithm
 
-### Impact on Huge Pages
+Compaction uses a two-pass scanner approach operating within a single memory zone:
 
-```bash
-# Check huge page allocation before compaction
-$ cat /proc/sys/vm/nr_hugepages
-0
+### 1. Migration Scanner (Bottom-Up)
 
-# Try to allocate huge pages
-$ echo 64 | sudo tee /proc/sys/vm/nr_hugepages
-# May fail if memory is fragmented
+Starting from the lowest PFN in the zone, the migration scanner searches for **movable** pages that can be relocated. It identifies pages that:
+- Have a valid mapping (or no mapping but are swap-backed)
+- Are not pinned (no elevated reference count, not under DMA)
+- Are not locked by another subsystem
+- Belong to the movable migratetype pageblock
 
-# Trigger compaction first
-$ echo 1 | sudo tee /proc/sys/vm/compact_memory
+### 2. Free Scanner (Top-Down)
 
-# Now try again
-$ echo 64 | sudo tee /proc/sys/vm/nr_hugepages
-# More likely to succeed
+Starting from the highest PFN in the zone, the free scanner searches for **free** pages. It identifies contiguous free blocks that can serve as migration destinations.
 
-# Check compaction statistics
-$ grep -E "compact|compact_stall|compact_success" /proc/vmstat
-compact_stall 1234
-compact_success 1200
-compact_fail 34
-compact_migrate_scanned 567890
-compact_free_scanned 123456
-```
+### 3. Migration
 
-## How Compaction Works
+When both scanners find suitable candidates, pages are migrated from the migration scanner's position to the free scanner's position. This creates a gap that grows as migration proceeds, effectively compacting all movable pages toward one end of the zone.
 
-### Compaction Algorithm
+### Convergence
 
-```mermaid
-flowchart TD
-    A[Compaction triggered] --> B[Initialize scanner]
-    B --> C["Migrate scanner: start at bottom of zone<br/>Free scanner: start at top of zone"]
-    C --> D{Migrate scanner<br/>finds movable page?}
-    D -->|Yes| E{Free scanner<br/>finds free page?}
-    E -->|Yes| F[Move page from migrate<br/>to free position]
-    F --> G[Update page tables<br/>TLB flush]
-    G --> D
-    E -->|No| H[Compaction complete<br/>or insufficient free memory]
-    D -->|No| I[Advance migrate scanner]
-    I --> J{Scanners met?}
-    J -->|No| D
-    J -->|Yes| K[Compaction done]
-    H --> K
-```
+The two scanners move toward each other. Compaction terminates when:
+- The scanners meet (no more movable pages before free pages)
+- A sufficient number of free pages have been gathered
+- The process is making insufficient progress
 
-### Two Scanners
+## Compaction Entry Points
 
-Compaction uses two scanners that move toward each other:
+### Synchronous Compaction
 
-1. **Migrate scanner** (bottom → top): Scans for movable pages that are blocking contiguity
-2. **Free scanner** (top → bottom): Scans for free pages that can receive migrated data
-
-When the scanners meet, compaction is complete. The result is that movable pages are pushed toward one end, leaving a contiguous free region at the other.
-
-### Page Migration
-
-The core of compaction is page migration — moving a page from one physical location to another:
+Triggered during allocation when direct reclaim fails to produce enough contiguous pages:
 
 ```c
-/* Simplified migration flow */
-int migrate_page(struct page *newpage, struct page *page,
-                 enum migrate_mode mode) {
-    /* 1. Allocate new page */
-    /* 2. Copy data from old page to new page */
-    /* 3. Update all page table entries pointing to old page */
-    /* 4. Update mapping structures (address_space, rmap) */
-    /* 5. Flush TLB on all CPUs that mapped the old page */
-    /* 6. Free old page (or mark as movable) */
+/* mm/page_alloc.c */
+static struct page *
+__alloc_pages_direct_compact(gfp_t gfp_mask, unsigned int order,
+                             unsigned int alloc_flags,
+                             const struct alloc_context *ac,
+                             enum compact_priority prio,
+                             enum compact_result *compact_result)
+```
 
-    int rc;
-    struct page *old_page = page;
+The caller blocks until compaction completes. This is the most expensive path but provides the highest chance of success.
 
-    /* Copy contents */
-    copy_page(page_address(newpage), page_address(old_page));
+### Asynchronous Compaction
 
-    /* Remap: update all PTEs pointing to old page */
-    try_to_unmap(old_page, TTU_MIGRATION);
-    /* This walks the reverse mapping (rmap) and replaces
-       PTE entries with migration entries */
+Triggered proactively or in background:
 
-    /* Move mapping */
-    newpage->mapping = old_page->mapping;
-    newpage->index = old_page->index;
+```c
+/* mm/compaction.c */
+static enum compact_result compact_zone_order(struct zone *zone,
+                                              int order, gfp_t gfp_mask,
+                                              enum compact_priority prio,
+                                              unsigned int alloc_flags,
+                                              struct page **page)
+```
 
-    /* Remove migration entries and point to new page */
-    remove_migration_ptes(new_page, old_page);
+Asynchronous compaction does not migrate pages that are currently locked or have elevated reference counts, trading effectiveness for lower latency.
 
-    return 0;
+### Proactive Compaction
+
+Introduced in Linux 5.9, proactive compaction triggers compaction periodically based on a sysctl threshold rather than waiting for allocation failures:
+
+```bash
+# Set proactive compaction to compact when fragmentation score exceeds 50%
+echo 50 > /proc/sys/vm/compaction_proactiveness
+```
+
+Range: 0 (disabled) to 100 (aggressive). Default: 20.
+
+## Tuning and Interfaces
+
+### Sysctl Parameters
+
+```bash
+# /proc/sys/vm/compaction_proactiveness
+# Controls background proactive compaction aggressiveness (0-100)
+echo 20 > /proc/sys/vm/compaction_proactiveness
+
+# /proc/sys/vm/compact_unevictable_allowed
+# Allow compaction to examine unevictable (mlocked) pages
+# 0 = never, 1 = only in direct compaction, 2 = always
+echo 1 > /proc/sys/vm/compact_unevictable_allowed
+```
+
+### Manual Trigger via compact_memory
+
+Writing to `/proc/sys/vm/compact_memory` triggers synchronous compaction across all zones:
+
+```bash
+echo 1 > /proc/sys/vm/compact_memory
+```
+
+This is useful for:
+- Testing whether compaction can recover contiguous memory
+- Pre-compacting before a known large allocation
+- Debugging fragmentation issues
+
+### Per-Node Compaction
+
+On NUMA systems, compaction can be triggered per-node:
+
+```bash
+echo 1 > /proc/sys/vm/compact_memory_node
+# Or for specific node:
+echo 1 > /sys/devices/system/node/node0/compact
+```
+
+### Compaction Statistics
+
+```bash
+# Per-zone compaction statistics
+cat /proc/vmstat | grep compact
+# compact_daemon_wake    - Number of times kcompactd woke
+# compact_daemon_migrate - Pages migrated by kcompactd
+# compact_daemon_free    - Free pages found by kcompactd
+# compact_stall          - Direct compaction stalls
+# compact_fail           - Failed compaction attempts
+# compact_success        - Successful compaction attempts
+
+# Zone info
+cat /proc/zoneinfo | grep -A20 "Node"
+```
+
+## kcompactd: The Compaction Daemon
+
+Each NUMA node runs a `kcompactd` kernel thread that performs background compaction. It wakes when:
+- A zone's fragmentation score exceeds a threshold
+- Proactive compaction is enabled and the score exceeds `compaction_proactiveness`
+- A direct compaction request is made
+
+### kcompactd Behavior
+
+```c
+/* mm/compaction.c */
+static int kcompactd(void *p)
+{
+    // Sleep until woken by zone watermark or proactive trigger
+    // Perform asynchronous compaction on the node's zones
+    // Target order based on highest failed allocation
 }
 ```
 
-### Movable Page Types
+kcompactd works asynchronously and does not block allocation paths. It aims to pre-create contiguous regions so that future allocations succeed without triggering direct compaction.
 
-Not all pages can be migrated:
+## Compaction and THP (Transparent Huge Pages)
 
-```mermaid
-graph TD
-    PAGE_TYPES["Page Types"] --> MOVABLE["Movable<br/>Can be migrated"]
-    PAGE_TYPES --> RECLAIMABLE["Reclaimable<br/>Can be freed under pressure"]
-    PAGE_TYPES --> UNMOVABLE["Unmovable<br/>Cannot be moved"]
+Compaction is particularly important for THP allocations. When a process touches memory and the kernel attempts to back it with a huge page:
 
-    MOVABLE --> M1["User pages (anonymous/file)"]
-    MOVABLE --> M2["Page cache pages"]
-    MOVABLE --> M3["Pages with movable pageblock"]
+1. The kernel checks for a free huge page
+2. If none exists, it attempts compaction
+3. If compaction succeeds, the huge page is allocated
+4. If compaction fails, the kernel falls back to regular pages
 
-    RECLAIMABLE --> R1["Slab caches (dentry, inode)"]
-    RECLAIMABLE --> R2["Kernel stacks"]
-    RECLAIMABLE --> R3["Reclaimable kernel allocations"]
-
-    UNMOVABLE --> U1["DMA buffers"]
-    UNMOVABLE --> U2["Kernel text"]
-    UNMOVABLE --> U3["Per-CPU data"]
-    UNMOVABLE --> U4["Interrupt stacks"]
-```
-
-## Compaction Triggers
-
-### Automatic Compaction
-
-The kernel triggers compaction automatically when:
-
-1. **Direct compaction**: During a failed high-order allocation (synchronous, in the allocation path)
-2. **kcompactd**: Background daemon that compacts memory during idle periods
-3. **THP fault**: When a transparent huge page allocation fails
-
-```mermaid
-graph TD
-    A[High-order allocation request] --> B{Allocation succeeds?}
-    B -->|Yes| C[Return page]
-    B -->|No| D{Direct reclaim?}
-    D -->|Yes| E[Reclaim pages, retry]
-    D -->|No| F{Direct compaction}
-    F --> G[Run compaction synchronously]
-    G --> H{Allocation succeeds?}
-    H -->|Yes| C
-    H -->|No| I[Allocation fails]
-```
-
-### kcompactd
+THP allocation failures often indicate fragmentation that compaction could not resolve. Monitoring:
 
 ```bash
-# kcompactd runs per-NUMA node
-$ ps aux | grep kcompactd
-root        28  0.0  0.0      0     0 ?    SN   Jul21   0:00 [kcompactd0]
-root        29  0.0  0.0      0     0 ?    SN   Jul21   0:00 [kcompactd1]
-
-# kcompactd wakes up when:
-# 1. Watermark for high-order allocation is reached
-# 2. Background compaction is requested
+# THP compaction events
+cat /proc/vmstat | grep thp_compact
+# thp_compact_alloc    - Huge pages allocated after compaction
+# thp_compact_failed   - Compaction failed for huge pages
+# thp_compact_scanned  - Pages scanned during compaction
 ```
 
-### Manual Compaction
+## Compaction vs. Reclaim vs. OOM
+
+When an allocation fails, the kernel follows a hierarchy:
+
+1. **Direct reclaim**: Evict pages to free memory (no spatial consolidation)
+2. **Direct compaction**: Relocate movable pages to consolidate free space
+3. **OOM killer**: Kill a process to reclaim large amounts of memory
+
+The order depends on the allocation context and `gfp` flags. For order-0 allocations, reclaim is usually sufficient. For high-order allocations, compaction is the critical step between reclaim and OOM.
+
+## Debugging Compaction Issues
+
+### Monitoring Fragmentation
 
 ```bash
-# Trigger compaction on all zones
-$ echo 1 | sudo tee /proc/sys/vm/compact_memory
+# Show fragmentation score per zone (0 = no fragmentation, 1000 = severe)
+cat /sys/kernel/debug/extfrag/extfrag_index
 
-# Check compaction activity
-$ grep compact /proc/vmstat
-compact_stall 156          # Direct compaction attempts
-compact_success 142        # Successful direct compactions
-compact_fail 14            # Failed direct compactions
-compact_migrate_scanned 891234  # Pages scanned for migration
-compact_free_scanned 567890     # Pages scanned for free
-compact_isolated 23456     # Pages isolated for migration
+# Show which allocation orders are likely to fail
+cat /sys/kernel/debug/extfrag/unusable_index
 
-# Check per-zone compaction status
-$ cat /proc/sys/vm/compaction_proactiveness
-20
-# 0 = disabled, 100 = very aggressive, 20 = default
+# Detailed zone information
+cat /proc/zoneinfo
 ```
 
-## Anti-Fragmentation Strategies
-
-### Pageblock Types
-
-The kernel groups pages into pageblocks (typically 2MB = 512 pages) and assigns types:
-
-```c
-enum migratetype {
-    MIGRATE_UNMOVABLE,   /* Cannot be moved */
-    MIGRATE_MOVABLE,     /* Can be migrated */
-    MIGRATE_RECLAIMABLE, /* Can be reclaimed */
-    MIGRATE_PCPTYPES,    /* Number of per-cpu lists */
-    MIGRATE_HIGHATOMIC,  /* High-order atomic reserves */
-    MIGRATE_CMA,         /* Contiguous Memory Allocator */
-    MIGRATE_ISOLATE,     /* Isolated (offline) */
-    MIGRATE_TYPES        /* Sentinel */
-};
-```
-
-### Buddy Allocator Integration
+### Tracepoints
 
 ```bash
-# The buddy allocator tries to keep pages of the same type together
-# This makes compaction more effective
+# Enable compaction tracepoints
+echo 1 > /sys/kernel/debug/tracing/events/compaction/mm_compaction_begin/enable
+echo 1 > /sys/kernel/debug/tracing/events/compaction/mm_compaction_end/enable
+echo 1 > /sys/kernel/debug/tracing/events/compaction/mm_compaction_migratepages/enable
 
-# View per-type free page counts
-$ cat /proc/buddyinfo
-Node 0, zone      DMA      1      0      0      1      1      1      0      0      1      1      3
-Node 0, zone    DMA32    892    456    234    112     56     28     14      7      3      1      0
-Node 0, zone   Normal  34567  17234   8612   4306   2153   1076    538    269    134     67     12
-
-# Each column represents an order (0=4KB, 1=8KB, 2=16KB, ..., 10=4MB)
+# View traces
+cat /sys/kernel/debug/tracing/trace_pipe
 ```
 
-### CMA (Contiguous Memory Allocator)
+### Common Issues
 
-CMA reserves a region for guaranteed contiguous allocations (e.g., for DMA):
+- **Persistent fragmentation**: Often caused by long-lived unmovable allocations pinning pages in movable zones. Check slab usage and kernel allocations.
+- **Compaction storms**: Excessive compaction can cause latency spikes. Monitor `compact_stall` in `/proc/vmstat`.
+- **THP allocation failures**: Check if compaction is being attempted but failing, indicating severe fragmentation.
 
-```bash
-# CMA regions
-$ dmesg | grep cma
-[    0.000000] cma: Reserved 256 MiB at 0x0000000100000000
+## Performance Considerations
 
-# CMA allocation statistics
-$ cat /proc/meminfo | grep Cma
-CmaTotal:         262144 kB
-CmaFree:          196608 kB
-```
-
-## /proc/sys/vm Compaction Tunables
-
-```bash
-# Proactiveness level (0-100)
-# How aggressively kcompactd compacts proactively
-$ sysctl vm.compaction_proactiveness
-vm.compaction_proactiveness = 20
-
-# Extfrag threshold
-# Below this: direct reclaim preferred
-# Above this: direct compaction preferred
-$ sysctl vm.extfrag_threshold
-vm.extfrag_threshold = 500
-
-# Watermark boost factor
-# Boosts watermarks to encourage more proactive compaction
-$ sysctl vm.watermark_boost_factor
-vm.watermark_boost_factor = 15000
-
-# Watermark scale factor
-$ sysctl vm.watermark_scale_factor
-vm.watermark_scale_factor = 10
-```
-
-## Compaction vs Reclaim
-
-```mermaid
-graph TD
-    ALLOC[High-order allocation fails] --> DECIDE{Decision}
-    DECIDE -->|"Fragmentation score low"| RECLAIM[Reclaim pages]
-    DECIDE -->|"Fragmentation score high"| COMPACT[Compact memory]
-    RECLAIM --> RESULT1[Free pages, but scattered]
-    COMPACT --> RESULT2[Contiguous free pages]
-    RESULT1 --> RETRY[Retry allocation]
-    RESULT2 --> RETRY
-```
-
-| Aspect | Reclaim | Compaction |
-|--------|---------|------------|
-| **Goal** | Free pages | Create contiguous free pages |
-| **Mechanism** | Drop page cache, swap out | Migrate pages |
-| **Latency** | I/O (if swapping) | CPU (page migration) |
-| **When preferred** | Low fragmentation | High fragmentation |
-| **Side effects** | Data loss (swap), cache miss | TLB shootdowns, CPU cost |
+- Compaction involves page migration, which requires copying page contents and updating page tables
+- Synchronous compaction can cause significant latency (milliseconds to tens of milliseconds)
+- Asynchronous compaction has lower impact but may not produce enough free regions
+- On large-memory systems, compaction scanning can be expensive due to the search space
+- Proactive compaction trades background CPU for reduced allocation latency
 
 ## Implementation Details
 
-### Key Source Files
-
-- **`mm/compaction.c`** — Compaction implementation (~3000 lines)
-- **`mm/migrate.c`** — Page migration
-- **`mm/page_alloc.c`** — Buddy allocator and direct compaction
-- **`include/linux/compaction.h`** — Compaction interfaces
-
-### Compaction Control Structure
+### Key Data Structures
 
 ```c
+/* mm/compaction.c */
 struct compact_control {
-    struct list_head freepages;     /* List of free pages found */
+    struct list_head freepages;     /* List of free pages to migrate to */
     struct list_head migratepages;  /* Pages to migrate */
-    unsigned int nr_freepages;      /* Number of free pages */
-    unsigned int nr_migratepages;   /* Number of pages to migrate */
-
-    /* Scanners */
-    unsigned long migrate_pfn;      /* Migrate scanner position */
+    unsigned long nr_freepages;     /* Number of free pages found */
+    unsigned long nr_migratepages;  /* Number of pages to migrate */
     unsigned long free_pfn;         /* Free scanner position */
+    unsigned long migrate_pfn;      /* Migration scanner position */
     unsigned long fast_start_pfn;   /* Fast search start */
-
-    /* Zone being compacted */
-    struct zone *zone;
-    int order;                      /* Target allocation order */
-    int migratetype;                /* Migrate type for free pages */
-
-    /* Mode */
-    enum compact_mode mode;         /* SYNC, ASYNC, or PARTIAL */
+    struct zone *zone;              /* Zone being compacted */
+    int order;                      /* Allocation order being targeted */
+    int migratetype;                /* Migratetype of target pages */
+    enum compact_mode mode;         /* Sync or async */
     bool contended;                 /* Lock contention detected */
-    bool rescan;                    /* Need to rescan */
 };
 ```
 
-## References
+### Zone Watermarks and Compaction
 
-- [Compaction kernel documentation](https://www.kernel.org/doc/html/latest/mm/compaction.html)
-- [mm/compaction.c source](https://github.com/torvalds/linux/blob/master/mm/compaction.c)
-- [Mel Gorman's compaction design notes](https://lwn.net/Articles/368869/)
+Zone watermarks interact with compaction. When free memory falls below the low watermark, `kcompactd` is woken. If it falls below the minimum watermark, direct compaction and reclaim are forced.
 
 ## Further Reading
 
-- [The Linux Kernel Documentation](https://docs.kernel.org/)
-- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
-- [GNU Manuals](https://www.gnu.org/manual/manual.html)
-- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
-- [Planet GNU](https://planet.gnu.org/)
-- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
-
-- https://www.kernel.org/doc/html/latest/mm/compaction.html
-- https://www.kernel.org/doc/html/latest/admin-guide/sysctl/vm.html
-- https://lwn.net/Articles/368869/ — "Memory compaction"
-- https://lwn.net/Articles/486858/ — "Making compaction more aggressive"
-- https://lwn.net/Articles/712460/ — "Folios and compaction"
-
-## Related Topics
-
-- [zones](./zones.md) — Compaction operates within memory zones
-- [numa](./numa.md) — Per-NUMA node compaction
-- [ksm](./ksm.md) — KSM pages are movable during compaction
-- [buffer-cache](./buffer-cache.md) — Page cache pages are movable
+- **Kernel documentation**: `Documentation/admin-guide/sysctl/vm.rst` — compaction-related sysctls
+- **Mel Gorman's talk**: "Memory Compaction" at LinuxCon Europe 2012
+- **LWN article**: ["Memory compaction"](https://lwn.net/Articles/368869/) — original design overview
+- **LWN article**: ["Proactive compaction"](https://lwn.net/Articles/816890/) — Linux 5.9 feature
+- **Source**: `mm/compaction.c` — core compaction implementation
+- **Source**: `mm/page_alloc.c` — allocation paths invoking compaction
+- **Related**: [Transparent Huge Pages](./huge-pages.md) — THP and compaction interaction
+- **Related**: [Memory Zones](./zones.md) — zone-based memory management
+- **Related**: [OOM Killer](../mm/oom-killer.md) — last-resort memory recovery
+- **Related**: [Memory Reclaim](./reclaim.md) — page reclaim mechanism
