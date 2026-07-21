@@ -677,6 +677,131 @@ enum {
 };
 ```
 
+## vCPU Run Loop (from kernel docs)
+
+The following details are drawn from the official [KVM API Documentation](https://docs.kernel.org/virt/kvm/api.html).
+
+### KVM_RUN ioctl
+
+The `KVM_RUN` ioctl is the core of the vCPU execution model. When userspace calls `ioctl(vcpu_fd, KVM_RUN, 0)`, the kernel enters guest mode and the vCPU executes guest code until a VM exit occurs. The exit reason and details are communicated through the shared `kvm_run` structure.
+
+### kvm_run Structure
+
+The `kvm_run` structure is mmap'd from the vCPU file descriptor (size returned by `KVM_GET_VCPU_MMAP_SIZE`):
+
+```c
+struct kvm_run {
+    /* in */
+    __u8 request_interrupt_window;
+    __u8 immediate_exit;
+    __u8 padding1[6];
+
+    /* out */
+    __u32 exit_reason;
+    __u8 ready_for_interrupt_injection;
+    __u8 if_flag;
+    __u16 flags;
+
+    /* in (pre_kvm_run), out (post_kvm_run) */
+    __u64 cr8;
+    __u64 apic_base;
+
+    union {
+        struct { __u64 hardware_exit_reason; } hw;
+        struct {
+            __u8 direction;  /* 0=out, 1=in */
+            __u8 size;       /* bytes */
+            __u16 port;
+            __u32 count;
+            __u64 data_offset;
+        } io;
+        struct {
+            __u64 phys_addr;
+            __u8 data[8];
+            __u32 len;
+            __u8 is_write;
+        } mmio;
+        struct { __u32 suberror; __u32 ndata; __u64 data[16]; } internal;
+        /* ... more exit types ... */
+    };
+};
+```
+
+### Common Exit Reasons
+
+| Exit Reason | Code | Description |
+|-------------|------|-------------|
+| `KVM_EXIT_IO` | 2 | Port I/O instruction |
+| `KVM_EXIT_MMIO` | 6 | Memory-mapped I/O |
+| `KVM_EXIT_HLT` | 5 | Guest executed HLT |
+| `KVM_EXIT_IRQ_WINDOW_OPEN` | 7 | Interrupt window opened |
+| `KVM_EXIT_SHUTDOWN` | 8 | Guest triple-faulted |
+| `KVM_EXIT_FAIL_ENTRY` | 9 | Hardware entry failed |
+| `KVM_EXIT_INTR` | 10 | Host interrupt (not a real exit) |
+| `KVM_EXIT_NMI` | 16 | NMI delivered |
+| `KVM_EXIT_INTERNAL_ERROR` | 17 | KVM internal error |
+| `KVM_EXIT_SYSTEM_EVENT` | 24 | System event (reset, shutdown) |
+| `KVM_EXIT_X86_RDMSR` | 29 | MSR read (filtered) |
+| `KVM_EXIT_X86_WRMSR` | 30 | MSR write (filtered) |
+| `KVM_EXIT_HYPERCALL` | 3 | Hypercall instruction |
+| `KVM_EXIT_DEBUG` | 4 | Debug event |
+
+### The vCPU Run Loop Pattern
+
+The canonical userspace vCPU run loop:
+
+```c
+while (1) {
+    ioctl(vcpu_fd, KVM_RUN, 0);
+
+    switch (run->exit_reason) {
+    case KVM_EXIT_IO:
+        /* Handle port I/O */
+        if (run->io.direction == KVM_EXIT_IO_OUT)
+            handle_io_out(run->io.port, (char *)run + run->io.data_offset, run->io.size);
+        else
+            handle_io_in(run->io.port, (char *)run + run->io.data_offset, run->io.size);
+        break;
+    case KVM_EXIT_MMIO:
+        /* Handle memory-mapped I/O */
+        handle_mmio(run->mmio.phys_addr, run->mmio.data, run->mmio.len, run->mmio.is_write);
+        break;
+    case KVM_EXIT_HLT:
+        /* Guest halted */
+        return 0;
+    case KVM_EXIT_IRQ_WINDOW_OPEN:
+        /* Inject pending interrupt */
+        inject_interrupt(vcpu_fd);
+        break;
+    case KVM_EXIT_INTERNAL_ERROR:
+        fprintf(stderr, "Internal error: suberror=%u\n", run->internal.suberror);
+        return 1;
+    case KVM_EXIT_SYSTEM_EVENT:
+        /* Guest requested shutdown/reset */
+        return 0;
+    default:
+        fprintf(stderr, "Unexpected exit: %u\n", run->exit_reason);
+        return 1;
+    }
+}
+```
+
+### Interrupt Injection
+
+To inject an interrupt into the guest:
+
+1. Set `run->request_interrupt_window = 1` before `KVM_RUN`
+2. When `KVM_EXIT_IRQ_WINDOW_OPEN` occurs, use `KVM_INTERRUPT` ioctl
+3. Or use `KVM_SET_VCPU_EVENTS` for more control (NMI, exceptions, etc.)
+
+### Coalesced MMIO
+
+When `KVM_CAP_COALESCED_MMIO` is available, KVM batches multiple MMIO writes into a shared memory ring at `KVM_COALESCED_MMIO_PAGE_OFFSET * PAGE_SIZE`, reducing VM exits for device emulation.
+
+### Dirty Page Tracking
+
+For live migration, `KVM_GET_DIRTY_LOG` or `KVM_CAP_DIRTY_LOG_RING` (Linux 5.9+) tracks dirty pages. The dirty log ring is a per-VM shared memory region that records dirty pages without requiring a separate ioctl.
+
 ## QEMU Integration
 
 QEMU is the primary userspace component that works with KVM. It provides:
