@@ -49,8 +49,7 @@ flowchart TD
 
 ### CPU Topology
 
-```mermaid
-bash
+```bash
 # View CPU topology
 lscpu
 # Architecture:        x86_64
@@ -196,8 +195,7 @@ flowchart TD
 
 ### Cache Misses
 
-```mermaid
-bash
+```bash
 # Count cache misses
 perf stat -e L1-dcache-loads,L1-dcache-load-misses,\
 LLC-loads,LLC-load-misses -- sleep 5
@@ -631,8 +629,7 @@ Each idle state is characterized by:
 
 ### C-State Hierarchy
 
-```mermaid
-bash
+```bash
 # List available idle states
 cat /sys/devices/system/cpu/cpu0/cpuidle/state0/name  # POLL (not a real C-state)
 cat /sys/devices/system/cpu/cpu0/cpuidle/state1/name  # C1

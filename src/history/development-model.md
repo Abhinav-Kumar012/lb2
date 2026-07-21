@@ -55,8 +55,7 @@ flowchart TD
 ```
 ### The Role of Each Level
 
-```mermaid
-Level 0: Contributors
+```Level 0: Contributors
 ─────────────────────
 • Write code, test, report bugs
 • Submit patches via email to appropriate mailing list
@@ -156,8 +155,7 @@ sequenceDiagram
 
 #### Step 1: Write the Patch
 
-```mermaid
-bash
+```bash
 # Make your changes
 $ git add -p
 $ git commit -s    # -s adds Signed-off-by (DCO)
@@ -243,8 +241,7 @@ The **merge window** is the first ~2 weeks after a release:
 - Thousands of patches can be merged in this period
 - Linus is **very selective** — incomplete or buggy pull requests are rejected
 
-```mermaid
-bash
+```bash
 # Example: Linus pulling from a subsystem
 # (from Linus's perspective)
 $ git pull https://git.kernel.org/pub/scm/linux/kernel/git/davem/net.git net-next
@@ -318,8 +315,7 @@ flowchart TD
 
 To nominate a patch for stable, include these tags:
 
-```mermaid
-c
+```c
 /*
  * Fix null pointer dereference in widget driver
  *
@@ -590,8 +586,7 @@ Based on the kernel documentation at `docs.kernel.org/process/submitting-patches
 
 When referencing a specific commit, include both the SHA-1 ID (at least 12 characters) and the one-line summary:
 
-```mermaid
-Commit e21d2170f36602ae2708 ("video: remove unnecessary
+```Commit e21d2170f36602ae2708 ("video: remove unnecessary
 platform_set_drvdata()") removed the unnecessary
 platform_set_drvdata(), but left the variable "dev" unused,
 delete it.

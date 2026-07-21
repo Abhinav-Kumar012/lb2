@@ -35,8 +35,7 @@ flowchart LR
 
 ### Practical Implications
 
-```mermaid
-bash
+```bash
 # AppArmor: a profile restricting /usr/sbin/myapp
 #   /etc/myapp.conf r,
 #   /var/lib/myapp/** rw,
@@ -184,8 +183,7 @@ flowchart LR
     style EA fill:#90EE90
     style CA fill:#90EE90
 ```
-```mermaid
-bash
+```bash
 # Check profile status
 sudo aa-status
 # apparmor module is loaded.

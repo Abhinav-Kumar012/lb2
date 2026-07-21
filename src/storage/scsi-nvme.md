@@ -129,8 +129,7 @@ flowchart TD
 
 Each NVMe command is a 64-byte structure:
 
-```mermaid
-c
+```c
 struct nvme_command {
     union {
         struct nvme_common_command common;
@@ -261,8 +260,7 @@ flowchart LR
 ```
 ### Benchmarking SCSI vs NVMe
 
-```mermaid
-bash
+```bash
 # Quick sequential read benchmark
 # SCSI/SATA SSD
 fio --name=seqread --filename=/dev/sda --rw=read --bs=1M \
@@ -408,8 +406,7 @@ flowchart TB
 ```
 ## Kernel Module Information
 
-```mermaid
-bash
+```bash
 # SCSI modules
 modinfo sd_mod
 # filename:    /lib/modules/.../kernel/drivers/scsi/sd_mod.ko

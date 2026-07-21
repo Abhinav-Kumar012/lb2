@@ -35,8 +35,7 @@ flowchart TD
 
 ## io_uring_setup()
 
-```mermaid
-c
+```c
 #include <linux/io_uring.h>
 
 int io_uring_setup(unsigned entries, struct io_uring_params *params);
@@ -332,8 +331,7 @@ sequenceDiagram
 
 Avoid repeated buffer registration with `io_uring_register_buffers()`:
 
-```mermaid
-c
+```c
 /* Register buffers upfront */
 struct iovec iovecs[4];
 for (int i = 0; i < 4; i++) {
@@ -553,8 +551,7 @@ flowchart LR
 ```
 ## Polling for Events
 
-```mermaid
-c
+```c
 /* Poll for readability */
 sqe = io_uring_get_sqe(&ring);
 io_uring_prep_poll_add(sqe, fd, POLLIN);

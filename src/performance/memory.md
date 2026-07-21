@@ -76,8 +76,7 @@ flowchart TD
 ```
 ### Transparent Huge Pages (THP)
 
-```mermaid
-bash
+```bash
 # Check THP status
 cat /sys/kernel/mm/transparent_hugepage/enabled
 # [always] madvise never

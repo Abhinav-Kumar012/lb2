@@ -73,8 +73,7 @@ flowchart TB
 
 When a process executes a new program, the new capability sets are calculated:
 
-```mermaid
-P'(permitted)   = (P(inheritable) & F(inheritable)) |
+```P'(permitted)   = (P(inheritable) & F(inheritable)) |
                   (F(permitted) & P(bounding)) |
                   P'(ambient)
 
@@ -520,8 +519,7 @@ flowchart TD
     style DENY3 fill:#FF6347
     style GRANT fill:#90EE90
 ```
-```mermaid
-bash
+```bash
 # Example: a process has CAP_SYS_MODULE but seccomp blocks init_module()
 # → The capability check passes, but seccomp denies it
 # Defense in depth: both must allow the action

@@ -75,8 +75,7 @@ Debian has three main branches:
 
 Debian's release cycle is driven by quality, not time — a new stable release happens when it's ready (typically every 2-3 years). Each stable release gets approximately 3 years of official support, with additional LTS support via the Debian LTS team.
 
-```mermaid
-bash
+```bash
 # Debian package management
 $ sudo apt update                          # Update package lists
 $ sudo apt upgrade                         # Upgrade all packages
@@ -501,8 +500,7 @@ Tools like **SUSE Studio**, **Ubuntu Customization Kit**, and **live-build** (fo
 
 For embedded systems, **Buildroot** and **Yocto** are build systems that create minimal, customized Linux distributions:
 
-```mermaid
-bash
+```bash
 # Buildroot example — build a minimal Linux system
 $ git clone https://github.com/buildroot/buildroot.git
 $ cd buildroot

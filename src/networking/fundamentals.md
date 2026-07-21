@@ -213,8 +213,7 @@ flowchart TB
 
 Sending an HTTP request:
 
-```mermaid
-┌─────────────────────────────────────────────────────────────┐
+```┌─────────────────────────────────────────────────────────────┐
 │ Ethernet Header                                              │
 │  Dest MAC: 00:11:22:33:44:55                                │
 │  Src MAC:  AA:BB:CC:DD:EE:FF                                │
@@ -319,8 +318,7 @@ flowchart LR
 
 ### Private Address Spaces
 
-```mermaid
-10.0.0.0/8       — 10.0.0.0 to 10.255.255.255    (Class A)
+```10.0.0.0/8       — 10.0.0.0 to 10.255.255.255    (Class A)
 172.16.0.0/12    — 172.16.0.0 to 172.31.255.255   (Class B)
 192.168.0.0/16   — 192.168.0.0 to 192.168.255.255 (Class C)
 ```
@@ -392,8 +390,7 @@ sequenceDiagram
 ```
 ### ARP Cache
 
-```mermaid
-bash
+```bash
 # View ARP cache
 $ ip neigh show
 192.168.1.1 dev eth0 lladdr 00:11:22:33:44:55 REACHABLE
@@ -454,8 +451,7 @@ ICMP is used for error reporting and diagnostics:
 
 ### Ping
 
-```mermaid
-bash
+```bash
 # Basic ping
 $ ping -c 4 8.8.8.8
 PING 8.8.8.8 (8.8.8.8) 56(84) bytes of data.

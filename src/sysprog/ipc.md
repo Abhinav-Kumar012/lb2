@@ -39,8 +39,7 @@ Linux supports two major IPC families, each providing semaphores, message queues
 
 Introduced in AT&T Unix System III (1980s). Available on virtually all Unix systems.
 
-```mermaid
-c
+```c
 #include <sys/ipc.h>
 #include <sys/shm.h>    /* Shared memory */
 #include <sys/sem.h>    /* Semaphores */
@@ -280,8 +279,7 @@ flowchart TD
 
 ### ipcs — View IPC Resources
 
-```mermaid
-bash
+```bash
 # Show all IPC resources
 $ ipcs
 

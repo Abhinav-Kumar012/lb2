@@ -42,8 +42,7 @@ flowchart LR
 
 ### epoll_create() / epoll_create1()
 
-```mermaid
-c
+```c
 #include <sys/epoll.h>
 
 int epoll_create(int size);     /* size is just a hint, ignored since 2.6.8 */
@@ -230,8 +229,7 @@ sequenceDiagram
 
 `epoll_wait()` reports a fd **only once** when the state changes (edge). You must read/write until `EAGAIN`.
 
-```mermaid
-c
+```c
 /* Edge-triggered: must drain completely */
 ev.events = EPOLLIN | EPOLLET;  /* Edge-triggered */
 ev.data.fd = connfd;
@@ -294,8 +292,7 @@ sequenceDiagram
 
 Useful for multithreaded servers where you want exactly one thread to handle each event:
 
-```mermaid
-c
+```c
 ev.events = EPOLLIN | EPOLLET | EPOLLONESHOT;
 epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &ev);
 
@@ -347,8 +344,7 @@ flowchart TD
 ```
 ### Thread Pool Pattern
 
-```mermaid
-c
+```c
 /* Main thread: accept connections */
 /* Worker threads: handle I/O */
 

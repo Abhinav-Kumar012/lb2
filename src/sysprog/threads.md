@@ -121,8 +121,7 @@ flowchart TD
         D3 --> D4["Resources freed automatically"]
     end
 ```
-```mermaid
-c
+```c
 /* Pattern: join all threads */
 #define NUM_THREADS 8
 pthread_t threads[NUM_THREADS];
@@ -227,8 +226,7 @@ flowchart LR
 ```
 **Prevention strategies:**
 
-```mermaid
-c
+```c
 /* Strategy 1: Consistent lock ordering */
 /* Always lock A before B */
 pthread_mutex_lock(&mutex_a);
@@ -482,8 +480,7 @@ On x86-64, TLS uses the `%fs` segment register. Each thread has a different `%fs
 
 ## Thread Cancellation
 
-```mermaid
-c
+```c
 #include <pthread.h>
 
 int pthread_cancel(pthread_t thread);
@@ -651,8 +648,7 @@ flowchart LR
 
 Wait for all threads to reach a synchronization point:
 
-```mermaid
-c
+```c
 #include <pthread.h>
 
 pthread_barrier_t barrier;

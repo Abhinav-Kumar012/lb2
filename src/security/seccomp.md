@@ -33,8 +33,7 @@ flowchart LR
     HANDLER -->|return value| LIBC
     LIBC --> APP
 ```
-```mermaid
-bash
+```bash
 # Linux x86_64 uses the syscall instruction
 # The syscall number goes in rax, arguments in rdi, rsi, rdx, r10, r8, r9
 
@@ -134,8 +133,7 @@ flowchart TD
 
 The `libseccomp` library provides a higher-level API for creating seccomp filters:
 
-```mermaid
-bash
+```bash
 # Install libseccomp development headers
 sudo apt install libseccomp-dev     # Debian/Ubuntu
 sudo dnf install libseccomp-devel   # RHEL/Fedora
@@ -280,8 +278,7 @@ This is used by container runtimes (like Docker with `runc`) and snap-confine fo
 
 Docker uses seccomp to restrict container syscalls. The default profile blocks ~44 of ~300+ syscalls:
 
-```mermaid
-bash
+```bash
 # View Docker's default seccomp profile
 cat /etc/docker/seccomp.json | python3 -m json.tool | head -30
 # {
@@ -622,8 +619,7 @@ Seccomp-BPF filters are classic BPF (cBPF) programs — the same bytecode format
 
 ### BPF Instruction Set for Seccomp
 
-```mermaid
-c
+```c
 struct sock_filter {
     __u16 code;   /* Opcode */
     __u8  jt;     /* Jump if true */

@@ -64,8 +64,7 @@ flowchart TB
 | **EL1** | OS Kernel | Linux kernel | Kernel mode |
 | **EL0** | Application | User-space processes | Applications, libraries |
 
-```mermaid
-bash
+```bash
 # Check current exception level (from kernel)
 # Reading CurrentEL register
 cat /proc/cpuinfo | head -20
@@ -221,8 +220,7 @@ flowchart TB
 ```
 ### Memory Types and Attributes
 
-```mermaid
-bash
+```bash
 # ARM memory types:
 # Normal memory: Cachable, used for code and data
 # Device memory: Non-cachable, for memory-mapped I/O
@@ -382,8 +380,7 @@ flowchart TB
 ```
 ### TrustZone Components
 
-```mermaid
-bash
+```bash
 # ARM Trusted Firmware (ATF/TF-A)
 # Runs at EL3, implements:
 # 1. PSCI (Power State Coordination Interface)
@@ -432,8 +429,7 @@ flowchart TB
 ```
 ### big.LITTLE Scheduling
 
-```mermaid
-bash
+```bash
 # Linux Energy-Aware Scheduler (EAS)
 # Considers CPU capacity and energy cost when placing tasks
 

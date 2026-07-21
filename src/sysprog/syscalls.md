@@ -36,8 +36,7 @@ flowchart LR
 
 The kernel maintains a **system call table**—an array of function pointers indexed by syscall number. On x86-64 Linux, this is defined in `arch/x86/entry/syscall_64.c`:
 
-```mermaid
-c
+```c
 /* Simplified from kernel source */
 asmlinkage const sys_call_ptr_t sys_call_table[] = {
     [0] = sys_read,
@@ -135,8 +134,7 @@ sequenceDiagram
 
 The oldest mechanism on x86. Uses a software interrupt:
 
-```mermaid
-asm
+```asm
 mov eax, 1        ; syscall number: sys_write
 mov ebx, 1        ; fd: stdout
 mov ecx, msg      ; buffer

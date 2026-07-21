@@ -112,8 +112,7 @@ sequenceDiagram
 
 ### File Locations
 
-```mermaid
-bash
+```bash
 # Main PAM configuration file (used as fallback)
 /etc/pam.conf          # Rarely used on modern systems
 
@@ -176,8 +175,7 @@ flowchart TD
 
 For fine-grained control, use the bracket syntax:
 
-```mermaid
-[default=value1 value2 ... action=value ...]
+```[default=value1 value2 ... action=value ...]
 ```
 
 ```

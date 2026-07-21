@@ -30,8 +30,7 @@ flowchart TD
 | 1 | stdout | Standard output |
 | 2 | stderr | Standard error |
 
-```mermaid
-bash
+```bash
 # View file descriptors for a process
 $ ls -la /proc/self/fd
 lrwx------ 1 user user 64 Jul 21 12:00 0 -> /dev/pts/0
@@ -60,8 +59,7 @@ flowchart TB
 
 ### Function Signatures
 
-```mermaid
-c
+```c
 #include <fcntl.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -408,8 +406,7 @@ flowchart LR
 | `O_DSYNC` | Data on disk | From page cache |
 | `O_SYNC\|O_RSYNC` | Data + metadata on disk | Synchronized |
 
-```mermaid
-bash
+```bash
 # Compare write performance
 $ dd if=/dev/zero of=/tmp/test_nosync bs=4k count=10000
 $ dd if=/dev/zero of=/tmp/test_sync bs=4k count=10000 oflag=sync
@@ -452,8 +449,7 @@ flowchart TD
 
 ## dup2() — Duplicating File Descriptors
 
-```mermaid
-c
+```c
 #include <unistd.h>
 
 int dup(int oldfd);              /* Lowest available fd */

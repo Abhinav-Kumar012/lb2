@@ -56,8 +56,7 @@ SiFive was the first company to produce RISC-V SoCs for Linux.
 
 **HiFive Unmatched Quick Start:**
 
-```mermaid
-bash
+```bash
 # Download prebuilt image
 wget https://github.com/sifive/freedom-u-sdk/releases/download/v2022.04.00/demo-coreip-cli-unmatched-2022.04.00.rootfs.wic.gz
 
@@ -140,8 +139,7 @@ OpenSBI is the standard M-mode firmware for RISC-V, analogous to ARM's TF-A.
 It provides the **Supervisor Binary Interface (SBI)** — the API between M-mode
 and S-mode.
 
-```mermaid
-bash
+```bash
 # Build OpenSBI
 git clone https://github.com/riscv-software-src/opensbi.git
 cd opensbi

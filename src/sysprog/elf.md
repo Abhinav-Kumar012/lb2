@@ -60,8 +60,7 @@ flowchart TD
 
 The ELF header is always at offset 0 and identifies the file:
 
-```mermaid
-c
+```c
 typedef struct {
     unsigned char e_ident[EI_NIDENT]; /* Magic number + class + data + version */
     uint16_t e_type;                  /* Object file type */
@@ -258,8 +257,7 @@ Symbols represent functions, variables, and other named entities.
 
 ### Symbol Entry
 
-```mermaid
-c
+```c
 typedef struct {
     uint32_t st_name;     /* Symbol name (index into string table) */
     uint8_t  st_info;     /* Type and binding */
@@ -456,8 +454,7 @@ sequenceDiagram
 ```
 ## Using objdump
 
-```mermaid
-bash
+```bash
 # Disassemble .text section
 $ objdump -d /bin/ls | head -30
 

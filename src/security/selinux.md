@@ -30,8 +30,7 @@ flowchart TB
 
 Consider this scenario:
 
-```mermaid
-bash
+```bash
 # A web server runs as root (bad practice, but common)
 # With DAC only:
 #   root can read /etc/shadow → web server vulnerability exposes shadow file
@@ -116,8 +115,7 @@ flowchart TD
     F --> H{Access Decision}
     G --> H
 ```
-```mermaid
-bash
+```bash
 # Files inherit context from parent directory by default
 mkdir /var/www/html/images
 ls -Zd /var/www/html/images
@@ -450,8 +448,7 @@ flowchart TD
 ```
 ### Generating Custom Policy Modules
 
-```mermaid
-bash
+```bash
 # From denial messages, generate a policy module
 sudo ausearch -m avc -ts recent | audit2allow -M myfix
 # ******************** IMPORTANT ***********************

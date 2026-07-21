@@ -75,8 +75,7 @@ flowchart LR
     DATA --> H2
     DATA --> H3
 ```
-```mermaid
-bash
+```bash
 # Check MTU of interface
 $ ip link show eth0 | grep mtu
 2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500
@@ -217,8 +216,7 @@ flowchart LR
 ```
 **Window scaling** allows windows larger than 65,535 bytes:
 
-```mermaid
-bash
+```bash
 # Check window scaling
 $ sysctl net.ipv4.tcp_window_scaling
 net.ipv4.tcp_window_scaling = 1
@@ -247,8 +245,7 @@ flowchart TB
 - **CUBIC**: Default in Linux, cubic growth function
 - **BBR**: Bottleneck bandwidth and RTT-based
 
-```mermaid
-bash
+```bash
 # Check current congestion control
 $ sysctl net.ipv4.tcp_congestion_control
 net.ipv4.tcp_congestion_control = cubic
@@ -275,8 +272,7 @@ sequenceDiagram
     C->>S: Retransmit (seq=100, 100 bytes)
     S->>C: ACK (ack=200)
 ```
-```mermaid
-bash
+```bash
 # Check retransmission statistics
 $ nstat | grep -i retrans
 TcpRetransSegs    123    0.0
@@ -396,8 +392,7 @@ sequenceDiagram
 ```
 ### ARP Cache Management
 
-```mermaid
-bash
+```bash
 # View ARP cache
 $ ip neigh show
 192.168.1.1 dev eth0 lladdr 00:11:22:33:44:55 REACHABLE
@@ -474,8 +469,7 @@ sequenceDiagram
 
 ### Capturing Specific Protocols
 
-```mermaid
-bash
+```bash
 # Capture TCP traffic
 $ sudo tcpdump -i eth0 tcp
 
