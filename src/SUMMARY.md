@@ -67,6 +67,7 @@
 
 # Containers
 
+- [Cgroup Namespace](./containers/cgroup-namespace.md)
 - [Cgroups V2](./containers/cgroups-v2.md)
 - [Containerd](./containers/containerd.md)
 - [Docker Internals](./containers/docker-internals.md)
@@ -78,11 +79,13 @@
 - [Rootless](./containers/rootless.md)
 - [Seccomp Notify](./containers/seccomp-notify.md)
 - [Security](./containers/security.md)
+- [User Namespace Security](./containers/user-namespace-security.md)
 
 ---
 
 # Debugging
 
+- [Bpf Type Format](./debugging/bpf-type-format.md)
 - [Crash Dump](./debugging/crash-dump.md)
 - [Ebpf](./debugging/ebpf.md)
 - [Ftrace](./debugging/ftrace.md)
@@ -91,6 +94,7 @@
 - [Kfence](./debugging/kfence.md)
 - [Overview](./debugging/overview.md)
 - [Perf](./debugging/perf.md)
+- [Ring Buffer](./debugging/ring-buffer.md)
 - [Sanitizers](./debugging/sanitizers.md)
 - [Strace Ltrace](./debugging/strace-ltrace.md)
 - [Systemtap](./debugging/systemtap.md)
@@ -105,9 +109,11 @@
 - [Buildroot](./embedded/buildroot.md)
 - [Cross Compilation](./embedded/cross-compilation.md)
 - [Device Tree](./embedded/device-tree.md)
+- [Flattened Device Tree](./embedded/flattened-device-tree.md)
 - [Overview](./embedded/overview.md)
 - [Realtime](./embedded/realtime.md)
 - [Riscv](./embedded/riscv.md)
+- [Tee](./embedded/tee.md)
 - [Uboot](./embedded/uboot.md)
 - [Yocto](./embedded/yocto.md)
 
@@ -166,12 +172,15 @@
 - [Gpio](./kernel/drivers/gpio.md)
 - [I2c Spi](./kernel/drivers/i2c-spi.md)
 - [Interrupt Handling](./kernel/drivers/interrupt-handling.md)
+- [Iommu](./kernel/drivers/iommu.md)
 - [Net Drivers](./kernel/drivers/net-drivers.md)
 - [Overview](./kernel/drivers/overview.md)
 - [Pci](./kernel/drivers/pci.md)
 - [Platform Drivers](./kernel/drivers/platform-drivers.md)
 - [Regulator](./kernel/drivers/regulator.md)
+- [Thermal](./kernel/drivers/thermal.md)
 - [Usb](./kernel/drivers/usb.md)
+- [Bcachefs](./kernel/filesystems/bcachefs.md)
 - [Btrfs](./kernel/filesystems/btrfs.md)
 - [Cephfs](./kernel/filesystems/cephfs.md)
 - [Dentry](./kernel/filesystems/dentry.md)
@@ -223,10 +232,12 @@
 - [Swap](./kernel/memory/swap.md)
 - [Virtual Memory](./kernel/memory/virtual-memory.md)
 - [Vmalloc Kmalloc](./kernel/memory/vmalloc-kmalloc.md)
+- [Vmpressure](./kernel/memory/vmpressure.md)
 - [Zones](./kernel/memory/zones.md)
 - [Numa](./kernel/mm/numa.md)
 - [Page Allocation](./kernel/mm/page-allocation.md)
 - [Modules](./kernel/modules.md)
+- [Af Packet](./kernel/networking/af-packet.md)
 - [Bonding](./kernel/networking/bonding.md)
 - [Bridging](./kernel/networking/bridging.md)
 - [Ebpf](./kernel/networking/ebpf.md)
@@ -263,6 +274,7 @@
 - [Task Struct](./kernel/processes/task-struct.md)
 - [Atomic Ops](./kernel/sync/atomic-ops.md)
 - [Completions](./kernel/sync/completions.md)
+- [Local Lock](./kernel/sync/local-lock.md)
 - [Lock Contention](./kernel/sync/lock-contention.md)
 - [Lock Ordering](./kernel/sync/lock-ordering.md)
 - [Lockdep](./kernel/sync/lockdep.md)
@@ -320,8 +332,10 @@
 - [Kernel Params](./performance/kernel-params.md)
 - [Memory](./performance/memory.md)
 - [Network](./performance/network.md)
+- [Numa Balancing](./performance/numa-balancing.md)
 - [Numa](./performance/numa.md)
 - [Overview](./performance/overview.md)
+- [Page Table Isolation](./performance/page-table-isolation.md)
 
 ---
 
@@ -343,8 +357,10 @@
 - [Capabilities](./security/capabilities.md)
 - [Cryptography](./security/cryptography.md)
 - [Hardening](./security/hardening.md)
+- [Integrity](./security/integrity.md)
 - [Keyring](./security/keyring.md)
 - [Landlock](./security/landlock.md)
+- [Lockdown](./security/lockdown.md)
 - [Mac](./security/mac.md)
 - [Overview](./security/overview.md)
 - [Pam](./security/pam.md)

@@ -1042,6 +1042,8 @@ The TIPC implementation lives in `net/tipc/` and uses these key data structures:
 9. [TIPC Programming Guide](http://tipc.io/programming.html) — TIPC API reference
 10. [TIPC Protocol Specification](http://tipc.io/protocol.html) — Protocol details
 11. [Identifier Locator Addressing (ILA) — docs.kernel.org](https://docs.kernel.org/networking/ila.html)
+12. [VXLAN documentation — docs.kernel.org](https://docs.kernel.org/networking/vxlan.html)
+13. [MPLS Sysfs variables — docs.kernel.org](https://docs.kernel.org/networking/mpls-sysctl.html)
 
 ## ILA — Identifier Locator Addressing
 
