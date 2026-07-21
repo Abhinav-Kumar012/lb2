@@ -646,6 +646,54 @@ $ echo madvise > /sys/kernel/mm/transparent_hugepage/enabled
 $ echo never > /sys/kernel/mm/transparent_hugepage/enabled
 ```
 
+## THP Design Principles
+
+The kernel documentation describes these core design principles for THP:
+
+1. **Graceful fallback**: MM components that don't understand transparent hugepages fall back to breaking huge PMD mappings into PTE tables, and if necessary, split a transparent hugepage. Components can continue working on regular pages without modification.
+
+2. **No failure on fragmentation**: If a hugepage allocation fails due to memory fragmentation, regular pages are allocated instead and mixed in the same VMA without any failure, significant delay, or userspace visibility.
+
+3. **Automatic promotion**: When tasks quit and hugepages become available (either in the buddy allocator or through the VM), guest physical memory backed by regular pages is relocated to hugepages automatically via `khugepaged`.
+
+4. **No memory reservation**: THP uses hugepages whenever possible without requiring reservation. The only reservation is `kernelcore=` to prevent unmovable pages from fragmenting all memory.
+
+### Refcounting on THP
+
+Refcounting on THP follows compound page conventions:
+
+- `get_page()`/`put_page()` and GUP operate on `folio->_refcount`
+- `->_refcount` in tail pages is always zero: `get_page_unless_zero()` never succeeds on tail pages
+- PMD mapping/unmapping increments/decrements `folio->_entire_mapcount` and `folio->_large_mapcount`
+- PTE mapping of individual pages increments/decrements `folio->_large_mapcount`
+
+`split_huge_page()` distributes refcounts from head to tail pages before clearing PG_head/tail bits. It can distribute refcounts from page table entries but cannot distribute additional pins from `get_user_pages()`. Therefore, `split_huge_page()` **fails on pinned huge pages** — it expects page count to equal the sum of mapcount of all sub-pages plus one.
+
+### Partial Unmap and Deferred Split
+
+Unmapping part of a THP (via `munmap()` or similar) does not immediately free memory. Instead, the kernel detects that a subpage is no longer in use in `folio_remove_rmap_*()` and queues the THP for splitting via `deferred_split_folio()`. The actual splitting happens under memory pressure through the shrinker interface.
+
+Splitting immediately is not possible due to locking constraints and is often counterproductive — partial unmapping commonly occurs during `exit(2)` when a THP crosses a VMA boundary.
+
+With `CONFIG_PAGE_MAPCOUNT`, partial mappings are reliably detected via `folio->_nr_pages_mapped`. Without it, detection uses average per-page mapcount heuristics.
+
+## THP Shmem (tmpfs)
+
+THP can also be used for shared memory (tmpfs/shmem):
+
+```bash
+$ cat /sys/kernel/mm/transparent_hugepage/shmem_enabled
+always within_size advise [never] deny force
+```
+
+| Mode | Behavior |
+|------|----------|
+| **always** | Use huge pages for all shmem/tmpfs |
+| **within_size** | Only if the region is naturally huge-page-aligned |
+| **advise** | Only when `MADV_HUGEPAGE` is set |
+| **never** | Disable THP for shmem |
+| **force** | Force huge pages even when not appropriate (testing) |
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)

@@ -460,10 +460,89 @@ $ echo 0 > /proc/sys/kernel/lock_stat
 $ echo 0 > /proc/lock_stat
 ```
 
+## Lockdep State Tracking Details
+
+Lockdep tracks lock usage across different IRQ contexts and maintains a detailed state machine for each lock class. The state annotation format in lockdep reports encodes this information compactly.
+
+### State Categories
+
+Lockdep divides lock usage into categories based on IRQ context:
+
+- **hardirq-safe**: Lock was ever acquired in hardirq context
+- **hardirq-unsafe**: Lock was ever acquired with hardirqs enabled
+- **softirq-safe**: Lock was ever acquired in softirq context
+- **softirq-unsafe**: Lock was ever acquired with softirqs enabled
+
+The following states must be mutually exclusive for any lock class:
+
+```
+<hardirq-safe> or <hardirq-unsafe>
+<softirq-safe> or <softirq-unsafe>
+```
+
+A softirq-unsafe lock is automatically hardirq-unsafe as well.
+
+### State Annotation Characters
+
+The `{+.+.}` notation in lockdep reports encodes IRQ state:
+
+| Character | Meaning |
+|-----------|--------|
+| `.` | Acquired with IRQs disabled, not in IRQ context |
+| `-` | Acquired in IRQ context |
+| `+` | Acquired with IRQs enabled |
+| `?` | Acquired in IRQ context with IRQs enabled (impossible state) |
+
+For a given lock, bit positions from left to right indicate:
+1. hardirq context (write-lock)
+2. hardirq context (read-lock)
+3. softirq context (write-lock)
+4. softirq context (read-lock)
+
+### Multi-Lock Dependency Rules
+
+In addition to single-lock state rules, lockdep enforces multi-lock dependencies:
+
+- **No lock recursion**: The same lock class must not be acquired twice
+- **No lock inversion**: If L1 → L2 exists, L2 → L1 is forbidden
+- **IRQ context mixing**: `<hardirq-safe> → <hardirq-unsafe>` is forbidden
+- **Softirq context mixing**: `<softirq-safe> → <softirq-unsafe>` is forbidden
+
+When a lock class changes state, lockdep retroactively checks:
+- If a new hardirq-safe lock was previously used with hardirq-unsafe locks
+- If a new softirq-safe lock was previously used with softirq-unsafe locks
+- If a new hardirq-unsafe lock was previously used by hardirq-safe locks
+- If a new softirq-unsafe lock was previously used by softirq-safe locks
+
+### Nested Lock Annotations
+
+When acquiring multiple instances of the same lock class, use subclasses to prevent false positives:
+
+```c
+/* Use lockdep_set_class() for dynamic structures */
+lockdep_set_class(&inode1->i_mutex, &inode1_lock_class);
+lockdep_set_class(&inode2->i_mutex, &inode2_lock_class);
+
+/* Or use nested annotations */
+mutex_lock_nested(&child->i_mutex, I_MUTEX_PARENT);
+```
+
+The subclass mechanism allows up to 8 nesting levels (MAX_LOCKDEP_SUBCLASSES).
+
+### Recursive Read Lock Detection
+
+Lockdep handles recursive read locks specially. A read-lock can be acquired multiple times without deadlock, but lockdep must still detect potential deadlocks between read and write locks.
+
+For rwlocks, lockdep tracks:
+- Read-side dependencies separately from write-side
+- Recursive read locks are allowed (no false positives)
+- But read → write ordering violations are still detected
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
 - [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [Kernel documentation: Runtime locking correctness validator](https://docs.kernel.org/locking/lockdep-design.html)
 - [GNU Manuals](https://www.gnu.org/manual/manual.html)
 - [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
 - [Planet GNU](https://planet.gnu.org/)

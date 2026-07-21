@@ -468,6 +468,39 @@ $ sudo mkfs.ext4 -t ext4 -b 4096 -i 4096 -L "data" -O \
 # -O            Feature flags to enable (^ prefix disables)
 ```
 
+## Block and Inode Allocation Policy
+
+ext4 recognizes that data locality is a desirable quality for a filesystem. On spinning disks, keeping related blocks near each reduces head movement and speeds up I/O. On SSDs, locality increases transfer size per request and reduces total request count, potentially concentrating writes on single erase blocks for faster rewrites.
+
+### Anti-Fragmentation Tricks
+
+ext4 employs five key strategies to combat fragmentation:
+
+1. **Multi-block allocator speculation**: When a file is first created, the block allocator speculatively allocates 8 KiB of disk space, assuming the space will be written soon. If correct (common for small files), the file data is written as a single multi-block extent.
+
+2. **Delayed allocation**: When a file needs more blocks, the filesystem defers deciding exact disk placement until dirty buffers are written out. By not committing to placement until necessary (commit timeout, `sync()`, or memory pressure), ext4 makes better location decisions.
+
+3. **Data-inode colocation**: ext4 tries to keep a file's data blocks in the same block group as its inode, reducing the seek penalty when reading the inode to find data blocks.
+
+4. **Directory colocation**: All inodes in a directory are placed in the same block group when feasible, since files in a directory may be related.
+
+5. **Block group spreading**: Directories created in the root directory are placed in the least heavily loaded block group, encouraging top-level directories to spread across the disk.
+
+### e4defrag
+
+If these mechanisms fail, `e4defrag` can defragment files:
+
+```bash
+# Check fragmentation
+$ sudo e4defrag -c /path/to/file
+
+# Defragment a single file
+$ sudo e4defrag /path/to/file
+
+# Defragment entire filesystem
+$ sudo e4defrag /mount/point
+```
+
 ## Snapshot Support (via LVM)
 
 ext4 itself does not support snapshots, but they can be achieved through LVM:

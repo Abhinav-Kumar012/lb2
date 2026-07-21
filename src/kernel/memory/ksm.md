@@ -312,11 +312,42 @@ graph TD
 2. On the next scan, if checksums still match, pages move to the **stable tree**
 3. In the stable tree, pages are actually merged (COW shared)
 
+## Reverse Mapping and max_page_sharing
+
+KSM maintains reverse mapping information for KSM pages in the stable tree. When a KSM page is shared between fewer than `max_page_sharing` VMAs, the stable tree node points to a linked list of `struct ksm_rmap_item` and the `page->mapping` of the KSM page points to the stable tree node.
+
+When sharing exceeds this threshold, KSM adds a second dimension to the stable tree. The tree node becomes a "chain" that links one or more "dups". Each "dup" keeps reverse mapping information for a KSM page copy of that content. This design ensures that:
+
+- Stable tree lookup complexity remains O(log N) regardless of sharing count
+- The rmap walk complexity is O(N) but N is capped by `max_page_sharing`
+- There cannot be KSM page content duplicates in the stable tree
+
+The `stable_node_dups`/`stable_node_chains` ratio is affected by `max_page_sharing`. High ratios may indicate fragmentation that could be addressed by reorganizing rmap_items between dups.
+
+The chain list is periodically scanned to prune stale stable_nodes, controlled by the `stable_node_chains_prune_millisecs` sysfs tunable.
+
+### Stable Tree Data Structures
+
+```c
+struct ksm_stable_node {
+    struct hlist_node hlist;          /* Hash list node */
+    struct list_head list;            /* Chain or dup list */
+    struct rb_node rb_node;           /* RB tree node */
+    unsigned long kpfn;               /* Physical frame number */
+    unsigned long chain_prune_time;   /* Next prune time */
+    struct list_head rmap_hlist;      /* Reverse mapping list */
+    int rmap_hlist_len;               /* Number of rmap entries */
+};
+```
+
 ## References
 
 - [KSM kernel documentation](https://www.kernel.org/doc/html/latest/admin-guide/mm/ksm.html)
 - [mm/ksm.c source](https://github.com/torvalds/linux/blob/master/mm/ksm.c)
 - [Original KSM RFC](https://lwn.net/Articles/306704/)
+- [Kernel documentation: Kernel Samepage Merging](https://docs.kernel.org/mm/ksm.html)
+- [LWN: KSM: sharing memory between virtual machines](https://lwn.net/Articles/306704/)
+- [LWN: KSM part 2](https://lwn.net/Articles/330589/)
 
 ## Further Reading
 

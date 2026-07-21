@@ -673,6 +673,43 @@ int xdp_mb_example(struct xdp_md *ctx)
 4. **Test with generic mode first**: Then switch to native mode for production
 5. **Monitor with bpftool**: Use `bpftool prog show` and `bpftool map dump` for debugging
 
+## AF_XDP Socket Details
+
+AF_XDP (Address Family XDP) is a socket type that allows applications to receive and send packets through XDP, bypassing the kernel networking stack entirely.
+
+### Socket Creation and Rings
+
+An AF_XDP socket (XSK) is created with the normal `socket()` syscall. Each XSK has two rings: the RX ring and the TX ring. These are registered and sized with `setsockopt(XDP_RX_RING)` and `setsockopt(XDP_TX_RING)`. At least one ring is mandatory per socket.
+
+### UMEM Architecture
+
+UMEM is a region of virtual contiguous memory divided into equal-sized frames. An UMEM is associated with a netdev and specific queue ID, created and configured via `XDP_UMEM_REG` setsockopt. Key properties:
+
+- An AF_XDP socket is linked to a single UMEM, but one UMEM can have multiple sockets
+- UMEM has two SPSC rings: FILL (user→kernel) and COMPLETION (kernel→user)
+- To share UMEM between processes, use `XDP_SHARED_UMEM` flag in `bind()`
+- Frames are referenced by offset (addr) within the UMEM region
+
+### Ring Operations
+
+| Ring | Direction | Purpose |
+|------|-----------|--------|
+| **FILL** | User→Kernel | Supply UMEM frames for RX |
+| **RX** | Kernel→User | Received packet descriptors |
+| **TX** | User→Kernel | Packet descriptors to send |
+| **COMPLETION** | Kernel→User | Sent frames returned to user |
+
+All rings are SPSC (single-producer, single-consumer) for performance. Ring sizes must be powers of two.
+
+### AF_XDP Operating Modes
+
+- **XDP_SKB mode**: Uses SKBs with generic XDP support, copies data to userspace. Works with all drivers.
+- **XDP_DRV mode**: Uses native driver XDP support for better performance, still copies data to userspace.
+
+### Packet Distribution with XSKMAP
+
+A BPF map of type `BPF_MAP_TYPE_XSKMAP` distributes packets to XSKs. The XDP program redirects packets to specific map indices, and XDP validates the XSK is bound to the correct device and ring number.
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
@@ -686,8 +723,9 @@ int xdp_mb_example(struct xdp_md *ctx)
 1. **XDP Project** — [xdp-project.net](https://xdp-project.net/)
 2. **Linux Kernel Source** — `net/core/xdp.c`, `include/net/xdp.h`
 3. **XDP Tutorial** — [github.com/xdp-project/xdp-tutorial](https://github.com/xdp-project/xdp-tutorial)
-4. **AF_XDP Documentation** — [www.kernel.org/doc/html/latest/networking/af_xdp.html](https://www.kernel.org/doc/html/latest/networking/af_xdp.html)
-5. *Linux Kernel Networking* by Rami Rosen (Apress)
+4. **AF_XDP Documentation** — [docs.kernel.org/networking/af_xdp.html](https://docs.kernel.org/networking/af_xdp.html)
+5. **LWN: Accelerating networking with AF_XDP** — [lwn.net/Articles/750845/](https://lwn.net/Articles/750845/)
+6. *Linux Kernel Networking* by Rami Rosen (Apress)
 
 ## Related Topics
 

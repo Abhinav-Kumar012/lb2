@@ -758,6 +758,49 @@ make -C examples/c minimal
 7. **Use `bpf_printk` for debugging** — output goes to `/sys/kernel/debug/tracing/trace_pipe`
 8. **Handle map errors** — always check return values from map operations
 
+## BPF Kernel Documentation Index
+
+The kernel documentation at docs.kernel.org/bpf/ covers these topics:
+
+- **eBPF Verifier** — The safety verifier that checks BPF programs before loading
+- **libbpf** — The recommended C library for BPF applications
+- **BPF Standardization** — Efforts to standardize BPF across platforms
+- **BTF (BPF Type Format)** — Type information for CO-RE and debugging
+- **Syscall API** — The `bpf()` system call interface
+- **Helper Functions** — Kernel functions callable from BPF programs
+- **kfuncs** — BPF kernel functions (newer, more flexible than helpers)
+- **Program Types** — All available BPF program attachment points
+- **BPF Maps** — Key-value data structures for BPF programs
+- **BPF Iterators** — Iterate over kernel data structures from BPF
+- **BPF Licensing** — GPL requirements for certain helper functions
+
+## BPF Standardization
+
+The BPF standardization effort aims to make BPF portable across different kernel versions and operating systems. Key components:
+
+- **CO-RE (Compile Once, Run Everywhere)**: Uses BTF to resolve kernel structure layouts at load time
+- **BPF Type Format (BTF)**: Compact type information embedded in the kernel and BPF programs
+- **Standardized helpers/kfuncs**: A stable API surface for BPF programs
+
+## kfuncs (BPF Kernel Functions)
+
+kfuncs are the modern replacement for BPF helper functions. They are regular kernel functions exposed to BPF programs through a registration mechanism:
+
+```c
+/* kfunc declaration in kernel code */
+__bpf_kfunc void bpf_task_acquire(struct task_struct *p);
+
+/* Usage in BPF program */
+struct task_struct *task = (struct task_struct *)bpf_get_current_task();
+bpf_task_acquire(task);  /* kfunc call */
+```
+
+kfuncs provide:
+- More flexibility than helpers (can access any kernel function)
+- Better type safety through BTF
+- Easier addition of new functionality
+- Scoped availability (only certain program types can call certain kfuncs)
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
@@ -769,7 +812,7 @@ make -C examples/c minimal
 - [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
 
 - [eBPF.io](https://ebpf.io/)
-- [BPF Documentation](https://www.kernel.org/doc/html/latest/bpf/)
+- [BPF Documentation](https://docs.kernel.org/bpf/index.html)
 - [BCC Project](https://github.com/iovisor/bcc)
 - [bpftrace](https://github.com/bpftrace/bpftrace)
 - [libbpf](https://github.com/libbpf/libbpf)
