@@ -595,6 +595,77 @@ module_exit(oom_monitor_exit);
 MODULE_LICENSE("GPL");
 ```
 
+## Memory Failure Handling
+
+The kernel includes a **memory failure** (HWPOISON) subsystem to handle hardware-detected memory errors (corrected and uncorrected). When the memory controller reports a failing page, the kernel can isolate it, notify affected processes, and optionally kill them.
+
+### How Memory Failure Works
+
+1. **Detection**: Hardware (memory controller via MCE/CMC) reports a page with uncorrectable errors
+2. **Isolation**: The kernel marks the page as "hwpoisoned" — no future allocations
+3. **Recovery**: If the page is clean (file-backed, not dirty), recovery is straightforward. If it's an anonymous page in use, the affected process must be killed
+4. **Notification**: Processes with the affected page mapped receive a `SIGBUS` with `BUS_MCEERR_AR` (async) or `BUS_MCEERR_AO` (sync)
+
+### Sysctls for Memory Failure
+
+```bash
+# Aggressively kill processes on memory failure (default: 0)
+$ cat /proc/sys/vm/memory_failure_early_kill
+0
+# 0 = collect all tasks sharing the page, then kill
+# 1 = kill immediately when a corrupted page is found
+
+# Enable/disable memory failure recovery (default: 1)
+$ cat /proc/sys/vm/memory_failure_recovery
+1
+# 0 = panic on uncorrectable memory errors
+# 1 = attempt recovery (isolate page, kill process if needed)
+
+# Soft-offline control (corrected errors)
+$ cat /proc/sys/vm/enable_soft_offline
+1
+# 1 = migrate pages with corrected errors to healthy pages
+```
+
+### Soft Offline vs Hard Offline
+
+| Type | Trigger | Action |
+|------|---------|--------|
+| **Soft offline** | Corrected error (CE) | Migrate page contents to healthy page, poison original |
+| **Hard offline** | Uncorrectable error (UCE) | Kill page immediately, kill process if in use |
+
+### HWPOISON Process Flow
+
+```mermaid
+graph TB
+    A[Memory controller reports error] --> B{Correctable?}
+    B -->|Yes| C[Soft offline: migrate page]
+    B -->|No| D[Hard offline: isolate page]
+    D --> E{Page in use?}
+    E -->|No| F[Page freed, marked poisoned]
+    E -->|Yes| G{Page type?}
+    G -->|Clean file page| H[Read from disk, recover]
+    G -->|Dirty page| I[Data loss — kill process]
+    G -->|Anonymous page| J[Kill process with SIGBUS]
+```
+
+### Viewing Memory Failure Events
+
+```bash
+# Check kernel logs for memory failures
+$ dmesg | grep -i "memory failure\|hwpoison\|mce"
+# [12345.678] Memory failure: 0x12345: Killing process java (pid 6789) due to hardware memory corruption
+# [12345.678] Memory failure: 0x12345: recovery action for dirty LRU page: Failed
+
+# Check for poisoned pages
+$ cat /proc/vmstat | grep -i poison
+poisoned_pages: 5
+
+# RAS (Reliability, Availability, Serviceability) subsystem
+$ dmesg | grep -i edac
+# EDAC MC0: 1 CE on mc#0csrow#0channel#0 (page:0x12345, offset:0x0)
+```
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
@@ -612,6 +683,7 @@ MODULE_LICENSE("GPL");
 - [LWN: Toward more-precise OOM killing](https://lwn.net/Articles/743680/)
 - [earlyoom: Early OOM Daemon](https://github.com/rfjakob/earlyoom)
 - [Overcommit Accounting — docs.kernel.org](https://docs.kernel.org/mm/overcommit-accounting.html)
+- [Kernel documentation: Memory Failure](https://docs.kernel.org/mm/memory-failure.html)
 
 ## Related Topics
 

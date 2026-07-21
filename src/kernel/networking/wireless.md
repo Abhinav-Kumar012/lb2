@@ -536,6 +536,62 @@ iw dev wlan0 link | grep signal
 # Check with: iw phy phy0 channels
 ```
 
+## mac80211 Packet Injection
+
+mac80211 supports **packet injection** through Monitor Mode interfaces, allowing userspace to send arbitrary 802.11 frames. This is used for security testing, protocol analysis, and custom wireless tools.
+
+### Injection Format
+
+Injected packets must follow this format:
+
+```
+[ Radiotap Header ] [ IEEE 802.11 Header ] [ Payload ]
+```
+
+### Radiotap Fields for Injection
+
+Most radiotap fields are for received packets, but these control injection:
+
+| Field | Flags | Effect |
+|-------|-------|--------|
+| `IEEE80211_RADIOTAP_FLAGS` | `F_FCS` | FCS will be removed and recalculated |
+| | `F_WEP` | Frame encrypted if key available |
+| | `F_FRAG` | Frame fragmented if above threshold |
+| `IEEE80211_RADIOTAP_TX_FLAGS` | `F_TX_NOACK` | Send without waiting for ACK |
+| `IEEE80211_RADIOTAP_RATE` | | Legacy rate (only if no own rate control) |
+| `IEEE80211_RADIOTAP_MCS` | | HT rate; flags: `SGI`, `BW_40` |
+| `IEEE80211_RADIOTAP_DATA_RETRIES` | | Retry count (with RATE or MCS) |
+| `IEEE80211_RADIOTAP_VHT` | | VHT MCS, streams; `SGI`, BW 40/80/160 |
+
+### Injection Example
+
+```c
+/* Radiotap header */
+uint8_t radiotap[] = {
+    0x00, 0x00,             /* version */
+    0x0b, 0x00,             /* header length */
+    0x04, 0x0c, 0x00, 0x00, /* bitmap: rate + tx power + antenna */
+    0x6c,                   /* rate: 54 Mbps */
+    0x0c,                   /* tx power */
+    0x01                    /* antenna */
+};
+
+/* IEEE 802.11 header */
+uint8_t ieee80211[] = {
+    0x08, 0x01, 0x00, 0x00,             /* Data frame */
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, /* Dest: broadcast */
+    0x13, 0x22, 0x33, 0x44, 0x55, 0x66, /* Src */
+    0x13, 0x22, 0x33, 0x44, 0x55, 0x66, /* BSSID */
+    0x10, 0x86                          /* Seq ctrl */
+};
+
+/* Send via Monitor mode interface using libpcap */
+pcap_t *ppcap = pcap_open_live("mon0", 800, 1, 20, errbuf);
+pcap_inject(ppcap, buffer, len);
+```
+
+The injection code can skip unknown radiotap fields, enabling replay of captured headers directly.
+
 ## References
 
 - [Linux Wireless Wiki](https://wireless.wiki.kernel.org/)
@@ -545,6 +601,7 @@ iw dev wlan0 link | grep signal
 - [IEEE 802.11 Standard](https://standards.ieee.org/standard/802_11-2020.html)
 - [hostapd documentation](https://w1.fi/hostapd/)
 - [LWN: The mac80211 subsystem](https://lwn.net/Articles/285416/)
+- [Kernel documentation: mac80211 packet injection](https://docs.kernel.org/networking/mac80211-injection.html)
 
 ## Related Topics
 

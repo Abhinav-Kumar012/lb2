@@ -280,6 +280,117 @@ perf stat -e cycles,instructions -- sleep 5  # With tracepoint enabled
 echo 0 > /sys/kernel/debug/tracing/events/sched/sched_switch/enable
 ```
 
+## Tracepoint API (Kernel Programming)
+
+For kernel developers, tracepoints are defined using macros and connected to probes at runtime.
+
+### Defining Tracepoints
+
+Tracepoints are defined in header files using `DECLARE_TRACE()` or the more powerful `TRACE_EVENT()` macro:
+
+```c
+/* include/trace/events/subsys.h */
+#undef TRACE_SYSTEM
+#define TRACE_SYSTEM subsys
+
+#if !defined(_TRACE_SUBSYS_H) || defined(TRACE_HEADER_MULTI_READ)
+#define _TRACE_SUBSYS_H
+
+#include <linux/tracepoint.h>
+
+DECLARE_TRACE(subsys_eventname,
+    TP_PROTO(int firstarg, struct task_struct *p),
+    TP_ARGS(firstarg, p));
+
+#endif
+
+/* Must be outside protection */
+#include <trace/define_trace.h>
+```
+
+### Using Tracepoints in Code
+
+```c
+/* subsys/file.c */
+#include <trace/events/subsys.h>
+
+#define CREATE_TRACE_POINTS
+DEFINE_TRACE(subsys_eventname);
+
+void somefct(void)
+{
+    /* ... */
+    trace_subsys_eventname_tp(arg, task);
+    /* ... */
+}
+```
+
+- `DECLARE_TRACE()` creates `trace_subsys_eventname_tp()` (note the `_tp` suffix)
+- `TRACE_EVENT()` creates `trace_subsys_eventname()` (no suffix) and exposes it in `/sys/kernel/tracing/events/`
+- `CREATE_TRACE_POINTS` should appear in exactly ONE source file
+
+### Connecting Probes (Runtime)
+
+```c
+/* Register a probe function */
+register_trace_subsys_eventname(my_probe_func, my_data);
+
+/* Unregister */
+unregister_trace_subsys_eventname(my_probe_func, my_data);
+
+/* Wait for all probe callers to finish (required before module unload) */
+tracepoint_synchronize_unregister();
+```
+
+### Conditional Tracepoint Calls
+
+For expensive parameter computation:
+
+```c
+if (trace_foo_bar_enabled()) {
+    int i, tot = 0;
+    for (i = 0; i < count; i++)
+        tot += calculate_nuggets();
+    trace_foo_bar_tp(tot);
+}
+```
+
+The `trace_<tracepoint>_enabled()` function uses **static keys** (jump labels) to avoid conditional branch overhead when the tracepoint is disabled.
+
+### Tracepoints in Header Files
+
+```c
+/* In header: use tracepoint_enabled() (lightweight) */
+#include <tracepoint-defs.h>
+
+DECLARE_TRACEPOINT(foo_bar);
+
+static inline void some_inline_function(void)
+{
+    if (tracepoint_enabled(foo_bar))
+        do_trace_foo_bar_wrapper(args);
+}
+
+/* In C file: actual trace call */
+void do_trace_foo_bar_wrapper(args)
+{
+    trace_foo_bar_tp(args);
+}
+```
+
+### Exporting Tracepoints for Modules
+
+```c
+/* For use in kernel modules */
+EXPORT_TRACEPOINT_SYMBOL_GPL(subsys_eventname);
+/* or */
+EXPORT_TRACEPOINT_SYMBOL(subsys_eventname);
+```
+
+### Naming Convention
+
+Tracepoint names are global to the kernel: `subsys_event` format (e.g., `sched_switch`, `block_rq_issue`, `tcp_retransmit_skb`). The naming scheme limits collisions between subsystems.
+
 ## References
 
 - [Linux Tracepoint Documentation](https://www.kernel.org/doc/html/latest/trace/tracepoints.html)
@@ -298,6 +409,9 @@ echo 0 > /sys/kernel/debug/tracing/events/sched/sched_switch/enable
 - <https://www.kernel.org/doc/html/latest/trace/tracepoints.html> - Tracepoint kernel documentation
 - <https://man7.org/linux/man-pages/man1/trace-cmd-record.1.html> - trace-cmd record
 - <https://lwn.net/Articles/379903/> - Tracepoints introduction
+- [Kernel documentation: Using Tracepoints](https://docs.kernel.org/trace/tracepoints.html) — Official kernel tracepoint API documentation
+- <https://lwn.net/Articles/381064/> - TRACE_EVENT macro details
+- <https://lwn.net/Articles/383362/> - Tracepoint design
 
 ## Related Topics
 

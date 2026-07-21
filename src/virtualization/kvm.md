@@ -1067,6 +1067,116 @@ vm_fd = ioctl(dev_fd, KVM_CREATE_VM, KVM_VM_TYPE_ARM_IPA_SIZE(48));
 
 The IPA size must be between 32 and the host's `Host_IPA_Limit`. This affects stage-2 (guest physical → host physical) address translation size, not the guest-visible `PARange`.
 
+## MSR (Model-Specific Register) Handling
+
+MSRs are processor-specific control and status registers. In KVM, MSR handling is critical for virtualizing processor features, power management, and security.
+
+### MSR Index Discovery
+
+KVM exposes the set of supported MSRs via ioctls:
+
+```c
+struct kvm_msr_list {
+    __u32 nmsrs;       /* number of MSRs in entries */
+    __u32 indices[0];  /* MSR indices */
+};
+
+/* Get guest-supported MSRs */
+struct kvm_msr_list *list = malloc(sizeof(*list) + 256 * sizeof(__u32));
+list->nmsrs = 256;
+ioctl(kvm_fd, KVM_GET_MSR_INDEX_LIST, list);
+
+/* Get MSRs that can be queried for host features */
+ioctl(kvm_fd, KVM_GET_MSR_FEATURE_INDEX_LIST, list);
+```
+
+- `KVM_GET_MSR_INDEX_LIST` — Returns MSRs the guest can use (varies by KVM version and host CPU)
+- `KVM_GET_MSR_FEATURE_INDEX_LIST` — Returns MSRs queryable via `KVM_GET_MSRS` (host capabilities like VMX)
+- MCE bank MSRs are NOT included (set separately via `KVM_X86_SETUP_MCE`)
+
+### MSR Read/Write
+
+```c
+struct kvm_msrs {
+    __u32 nmsrs;
+    struct kvm_msr_entry entries[0];
+};
+
+struct kvm_msr_entry {
+    __u32 index;    /* MSR number */
+    __u32 reserved;
+    __u64 data;     /* MSR value */
+};
+
+/* Read MSRs from vCPU */
+struct kvm_msrs *msrs = malloc(sizeof(*msrs) + sizeof(struct kvm_msr_entry));
+msrs->nmsrs = 1;
+msrs->entries[0].index = MSR_IA32_TSC;  /* Read TSC */
+ioctl(vcpu_fd, KVM_GET_MSRS, msrs);
+
+/* Write MSRs to vCPU */
+msrs->entries[0].data = 0x12345678;
+ioctl(vcpu_fd, KVM_SET_MSRS, msrs);
+```
+
+### MSR Filtering (Linux 5.2+)
+
+To avoid unnecessary VM exits for MSRs, KVM supports **MSR filtering** via `KVM_SET_MSR_FILTER`. This lets userspace define which MSRs cause exits and which are handled directly:
+
+```c
+struct kvm_msr_filter {
+    __u32 flags;  /* KVM_MSR_FILTER_DEFAULT_ALLOW or _DENY */
+    struct {
+        __u8 bitmap[512 / 8]; /* 512 MSR ranges × 8 = 4096 ranges */
+    } ranges[KVM_MSR_FILTER_MAX];
+};
+
+/* Filter: only intercept writes to specific MSRs */
+struct kvm_msr_filter filter = {
+    .flags = KVM_MSR_FILTER_DEFAULT_ALLOW,
+    .ranges[KVM_MSR_FILTER_WRITE] = {
+        .bitmap = { /* set bits for MSRs to intercept */ },
+    },
+};
+ioctl(vm_fd, KVM_SET_MSR_FILTER, &filter);
+```
+
+### Common MSRs in Virtualization
+
+| MSR | Purpose | VM Exit? |
+|-----|---------|----------|
+| `IA32_TSC` | Time Stamp Counter | Configurable |
+| `IA32_EFER` | Extended Feature Enable Register | On write |
+| `IA32_PAT` | Page Attribute Table | On write |
+| `IA32_STAR/LSTAR` | SYSCALL entry points | On write |
+| `IA32_SYSENTER_*` | SYSENTER entry | On write |
+| `IA32_MISC_ENABLE` | Misc CPU features | On read/write |
+| `IA32_PERF_*` | Performance counters | Configurable |
+| `IA32_TSC_ADJUST` | TSC adjustment | Per-vCPU |
+| `IA32_SPEC_CTRL` | Spectre mitigations | On write |
+
+### MSR Exit Reasons
+
+When a guest accesses a filtered MSR, KVM exits to userspace:
+
+```c
+/* KVM_EXIT_X86_RDMSR — guest read an MSR */
+struct {
+    __u32 error;   /* 0 = handled, non-zero = #GP injected */
+    __u32 reason;  /* Why KVM couldn't handle it */
+    __u32 index;   /* MSR number */
+    __u64 data;    /* Value to return (for RDMSR) */
+} msr;
+
+/* KVM_EXIT_X86_WRMSR — guest wrote an MSR */
+struct {
+    __u32 error;
+    __u32 reason;
+    __u32 index;
+    __u64 data;    /* Value guest tried to write */
+} msr;
+```
+
 ## CPUID Handling in KVM
 
 When a guest executes the `CPUID` instruction, the CPU does not cause a VM exit by default. Instead, KVM configures the VMCS/VMCB to control which CPUID results are presented to the guest. This is critical for feature negotiation between the hypervisor and guest OS.

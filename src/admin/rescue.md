@@ -498,6 +498,115 @@ graph TD
     style D fill:#3182ce,color:#fff
 ```
 
+## SysRq Keys (Magic System Request)
+
+The **SysRq** key is a "magical" key combo that the kernel responds to regardless of whatever else it is doing (unless completely locked up). It's invaluable for system rescue when the system is unresponsive.
+
+### Enabling SysRq
+
+```bash
+# Enable SysRq (requires CONFIG_MAGIC_SYSRQ)
+# /proc/sys/kernel/sysrq controls allowed functions:
+#   0 = disable completely
+#   1 = enable all functions
+#   >1 = bitmask of allowed functions:
+#     2 (0x2)   = console log level control
+#     4 (0x4)   = keyboard control (SAK, unraw)
+#     8 (0x8)   = process debugging dumps
+#    16 (0x10)  = sync command
+#    32 (0x20)  = remount read-only
+#    64 (0x40)  = signal processes (term, kill, oom-kill)
+#   128 (0x80)  = reboot/poweroff
+#   256 (0x100) = nicing RT tasks
+
+$ echo 1 > /proc/sys/kernel/sysrq
+```
+
+### SysRq Key Commands
+
+| Key | Function | Use Case |
+|-----|----------|----------|
+| **b** | Reboot immediately (no sync) | Last resort reboot |
+| **c** | Crash (trigger crashdump) | Get kdump for analysis |
+| **d** | Show all held locks | Debug deadlocks |
+| **e** | SIGTERM to all processes (except init) | Graceful shutdown attempt |
+| **f** | Call OOM killer | Trigger OOM manually |
+| **h** | Display help | Show available commands |
+| **i** | SIGKILL to all processes (except init) | Force-kill everything |
+| **j** | Thaw frozen filesystems | Unfreeze FIFREEZE'd FS |
+| **k** | SAK — kill all on current console | Security: kill trojans |
+| **l** | Stack backtrace for all CPUs | Debug hangs |
+| **m** | Dump memory info to console | Memory debugging |
+| **n** | Make RT tasks nice-able | Debug RT issues |
+| **o** | Power off the system | Clean shutdown |
+| **p** | Dump registers and flags | Debug crashes |
+| **q** | Dump hrtimers and clockevents | Timer debugging |
+| **r** | Turn off keyboard raw mode | Recover from X crashes |
+| **s** | Sync all filesystems | Flush data before reboot |
+| **t** | Dump all tasks and their info | Process debugging |
+| **u** | Remount all filesystems read-only | Safe unmount |
+| **v** | Restore framebuffer console | Recover VT |
+| **w** | Dump blocked (D-state) tasks | Debug I/O hangs |
+| **z** | Dump ftrace buffer | Trace analysis |
+| **0-9** | Set console log level | Control message verbosity |
+| **R** | Replay kernel log on consoles | View logs when hung |
+
+### Using SysRq
+
+```bash
+# On x86: Alt + SysRq + <command key>
+# (SysRq is also PrintScreen on most keyboards)
+
+# Via /proc/sysrq-trigger (always allowed for root, regardless of sysrq bitmask)
+$ echo t > /proc/sysrq-trigger       # Dump tasks
+$ echo m > /proc/sysrq-trigger       # Dump memory
+$ echo s > /proc/sysrq-trigger       # Sync filesystems
+
+# Multi-character sequence (process all)
+$ echo _reisub > /proc/sysrq-trigger # Safe reboot sequence
+
+# The "REISUB" sequence (safe reboot, backwards BUSIER):
+#   R = turn off raw keyboard mode
+#   E = SIGTERM all processes
+#   I = SIGKILL all processes
+#   S = sync filesystems
+#   U = remount read-only
+#   B = reboot
+```
+
+### When SysRq Gets Stuck
+
+```bash
+# If SysRq seems stuck after use:
+# 1. Tap Shift, Alt, and Ctrl on both sides of the keyboard
+# 2. Hit an invalid SysRq sequence (e.g., Alt+SysRq+z)
+# 3. Switch to another VT (Alt+Fn) and back
+```
+
+### Adding SysRq to Kernel Modules
+
+```c
+#include <linux/sysrq.h>
+
+static void my_sysrq_handler(int key)
+{
+    pr_info("SysRq %c: custom handler\n", key);
+}
+
+static const struct sysrq_key_op my_sysrq_op = {
+    .handler        = my_sysrq_handler,
+    .help_msg       = "my-handler(c)",
+    .action_msg     = "Custom handler",
+    .enable_mask    = SYSRQ_ENABLE_DUMP,
+};
+
+/* Register on module load */
+register_sysrq_key('c', &my_sysrq_op);
+
+/* Unregister on module unload */
+unregister_sysrq_key('c', &my_sysrq_op);
+```
+
 ## References
 
 - [systemd.special(7) man page](https://man7.org/linux/man-pages/man7/systemd.special.7.html) — Rescue/emergency targets
@@ -506,6 +615,7 @@ graph TD
 - [GRUB2 manual](https://www.gnu.org/software/grub/manual/grub/)
 - [SystemRescue documentation](https://www.system-rescue.org/)
 - [ArchWiki: Recovery](https://wiki.archlinux.org/title/Recovery)
+- [Kernel documentation: SysRq](https://docs.kernel.org/admin-guide/sysrq.html)
 
 ## Related Topics
 
