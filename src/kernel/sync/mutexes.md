@@ -280,7 +280,7 @@ graph LR
     end
 ```
 
-## rt_mutex (Priority-Inheriting Mutex)
+## rt_mutex: Deep Dive into Priority Inheritance
 
 The `rt_mutex` is a mutex with **priority inheritance** — if a high-priority task is blocked waiting for a mutex held by a low-priority task, the kernel temporarily boosts the lock holder's priority to match the waiter. RT-mutexes with priority inheritance are used to support PI-futexes, which enable `pthread_mutex_t` priority inheritance attributes (`PTHREAD_PRIO_INHERIT`).
 
@@ -293,37 +293,64 @@ rt_mutex_lock(&my_rt_mutex);
 rt_mutex_unlock(&my_rt_mutex);
 ```
 
-### Priority Inheritance
+### Unbounded Priority Inversion — The Problem PI Solves
 
-```mermaid
-sequenceDiagram
-    participant Low as Low-priority task (nice 19)
-    participant High as High-priority task (RT 50)
-    participant Scheduler
+Priority inversion occurs when a lower-priority process executes while a higher-priority process wants to run. The dangerous variant is **unbounded priority inversion**, where the high-priority process is blocked for an indeterminate time:
 
-    Low->>Low: Acquires rt_mutex
-    High->>High: Tries to acquire rt_mutex — BLOCKS
-    Note over Scheduler: High task (RT 50) is blocked by Low task (nice 19)
-    Scheduler->>Low: BOOST priority to RT 50
-    Low->>Low: Completes critical section faster (has RT priority now)
-    Low->>Low: Releases rt_mutex
-    Scheduler->>Low: Restore priority to nice 19
-    High->>High: Acquires rt_mutex, continues
+```
+Classic scenario (processes A, B, C — A highest, C lowest):
+
+  A tries to grab lock L1 (owned by C) → A blocks
+  C runs to release the lock
+  BUT: B preempts C (B has higher priority than C)
+  B runs indefinitely → A is starved
+
+  This is UNBOUNDED priority inversion:
+  A (high priority) is blocked by B (medium priority)
+  through C (low priority) — no guarantee of progress.
 ```
 
-Priority inheritance prevents **priority inversion**, where a medium-priority task preempts the low-priority lock holder, indirectly starving the high-priority waiter (the Mars Pathfinder incident of 1997 is the classic example).
+The Mars Pathfinder mission (1997) famously suffered from this bug in its VxWorks operating system.
 
-### RT-Mutex Waiter Tree (from Kernel Docs)
+### How Priority Inheritance Works
 
-From the official kernel documentation at `docs.kernel.org/locking/rt-mutex.html`:
+When A blocks on a lock owned by C:
+1. C **inherits A's priority** temporarily
+2. B cannot preempt C (C now has A's high priority)
+3. C completes its critical section and releases the lock
+4. C's priority is **restored** to its original value
+5. A acquires the lock and continues
 
-The enqueueing of waiters into the rtmutex waiter tree is done in **priority order**. For same priorities, FIFO order is chosen. For each rtmutex, only the **top priority waiter** is enqueued into the owner's priority waiters tree. This tree too queues in priority order.
+### The PI Chain
 
-Whenever the top priority waiter of a task changes (e.g., it timed out or got a signal), the priority of the owner task is readjusted. The priority enqueueing is handled by `pi_waiters`.
+Priority inheritance can propagate through multiple locks. If the boosted owner blocks on another rt-mutex, the priority boost **chains** to the next owner:
 
-### RT-Mutex State Tracking
+```
+Task A (prio 99) blocks on Mutex1 (owned by Task B, prio 50)
+  → Task B boosted to prio 99
+  Task B blocks on Mutex2 (owned by Task C, prio 10)
+    → Task C boosted to prio 99
+    Task C releases Mutex2 → Task B resumes
+  Task B releases Mutex1 → Task A resumes
+```
 
-The state of the rt-mutex is tracked via the `owner` field:
+This chain of locks and tasks is called the **PI chain**. The kernel traverses this chain to ensure all intermediate lock holders receive the priority boost.
+
+### RT-Mutex Waiter Tree
+
+From the kernel documentation at `docs.kernel.org/locking/rt-mutex-design.html`:
+
+Each rt-mutex maintains a **waiter tree** (red-black tree) ordered by task priority:
+
+- Waiters are enqueued in **priority order** (FIFO for same priority)
+- Only the **top priority waiter** is enqueued into the owner's `pi_waiters` tree
+- When the top waiter changes (timeout, signal, etc.), the owner's priority is readjusted
+
+The owner task maintains its own **PI tree** (`pi_waiters`) that contains the highest-priority waiter for each lock it holds. The kernel uses this to determine the effective priority of the owner.
+
+### RT-Mutex State Encoding
+
+The `owner` field uses bit-packing for efficient state tracking:
 
 | `lock->owner` | bit 0 | State |
 |----------------|-------|-------|
@@ -332,17 +359,28 @@ The state of the rt-mutex is tracked via the `owner` field:
 | task pointer | 0 | Lock is held (fast release possible) |
 | task pointer | 1 | Lock is held and has waiters |
 
-The fast atomic compare-exchange-based acquire and release is only possible when bit 0 of `lock->owner` is 0.
+Fast atomic `cmpxchg`-based acquire/release is only possible when bit 0 is 0.
 
-### RT-Mutex Fast Path
+### PI Chain Walk Algorithm
 
-RT-mutexes are optimized for fastpath operations and have **no internal locking overhead** when locking an uncontended mutex or unlocking a mutex without waiters. The optimized fastpath operations require `cmpxchg` support. If `cmpxchg` is not available, the rt-mutex internal spinlock is used as a fallback.
+From `docs.kernel.org/locking/rt-mutex-design.html`, the PI chain walk proceeds as follows:
 
-### Priority Propagation
+1. **Task blocks on mutex** → add task as waiter to mutex's waiter tree
+2. **Check if owner's priority needs boosting** → if waiter's priority > owner's priority, boost owner
+3. **If owner is blocked on another rt-mutex** → propagate boost up the chain (go to step 1 for the next mutex)
+4. **Priority adjustments cascade** → each level of the chain is updated
 
-If the temporarily boosted owner blocks on another rt-mutex itself, it **propagates** the priority boosting to the owner of the other rt-mutex. The priority boosting is immediately removed once the rt-mutex has been unlocked. This chain of priority propagation ensures that a high-priority task blocked through multiple levels of lock dependencies will eventually boost all intermediate lock holders.
+The chain walk uses **raw spinlocks** (`pi_lock`) to protect the PI data structures. The algorithm limits chain depth to prevent excessive overhead.
 
-### rt_mutex API
+### cmpxchg Optimization
+
+RT-mutexes use `cmpxchg` tricks for fast-path operations:
+
+- **Fast acquire**: If `lock->owner == NULL`, atomically set to `current` — no locking needed
+- **Fast release**: If `lock->owner == current` and bit 0 is 0, atomically clear — no locking needed
+- **Fallback**: If `cmpxchg` is not available on the architecture, the internal `wait_lock` spinlock is used
+
+### RT-Mutex API
 
 ```c
 DEFINE_RT_MUTEX(my_rt_mutex);
@@ -355,7 +393,19 @@ void rt_mutex_unlock(struct rt_mutex *lock);
 
 /* Timed lock */
 int rt_mutex_timed_lock(struct rt_mutex *lock, struct hrtimer_sleeper *timeout);
+
+/* Destroy */
+void rt_mutex_destroy(struct rt_mutex *lock);
 ```
+
+### PI-Futexes
+
+RT-mutexes enable **PI-futexes**, which allow userspace `pthread_mutex_t` with `PTHREAD_PRIO_INHERIT` to work correctly. When a userspace thread blocks on a PI futex:
+
+1. The kernel creates an rt-mutex waiter
+2. Priority inheritance propagates through the kernel's PI chain
+3. The lock holder's priority is boosted in the scheduler
+4. This prevents unbounded priority inversion for real-time userspace applications
 
 ## Mutex vs Semaphore
 

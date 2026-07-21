@@ -770,6 +770,89 @@ module_exit(widget_exit);
 MODULE_LICENSE("GPL");
 ```
 
+## zsmalloc Allocator
+
+zsmalloc is a specialized slab-like allocator designed specifically for use with **zram** (compressed RAM block devices). Unlike the general-purpose slab allocators (SLUB/SLOB), zsmalloc is optimized for storing compressed objects under low-memory conditions.
+
+### Design Goals
+
+- **No higher-order allocations**: zsmalloc never attempts order > 0 page allocations, which are very likely to fail under memory pressure.
+- **Minimize fragmentation**: Instead of using single pages (which would waste space for objects ≥ PAGE_SIZE/2), zsmalloc links multiple order-0 pages together into a **zspage** — a chain of physical pages that acts as a single contiguous region.
+- **Objects span page boundaries**: An object can start on one physical page and end on another within the same zspage.
+
+### Key Characteristics
+
+| Property | Detail |
+|----------|--------|
+| Max object size | PAGE_SIZE (typically 4 KiB) |
+| Return type | Opaque `unsigned long` handle (not a dereferenceable pointer) |
+| Size classes | 255 classes, with merging of similar classes |
+| Statistics | `/sys/kernel/debug/zsmalloc/<user>/classes` (with `CONFIG_ZSMALLOC_STAT`) |
+
+### Why Opaque Handles?
+
+`zs_malloc()` returns an opaque handle rather than a pointer because zsmalloc does not keep zspages permanently mapped — this avoids consuming precious kernel virtual address space on 32-bit systems. Access to allocated memory must go through `zs_map_object()` / `zs_unmap_object()` APIs.
+
+### zspage Structure
+
+A zspage is a chain of up to `ZSMALLOC_CHAIN_SIZE` order-0 physical pages linked via `struct page` fields. Each zspage belongs to a size class, and the optimal chain length is calculated at pool creation time to maximize space utilization.
+
+```c
+/* Simplified zspage layout */
+struct zspage {
+    unsigned int class_idx;    /* Size class index */
+    unsigned int fullness;     /* Fullness group (0-100%) */
+    unsigned int objects;      /* Total objects that fit */
+    unsigned int inuse;        /* Objects currently allocated */
+    /* Linked list of pages in the chain */
+    struct page *first_page;
+};
+```
+
+### Usage Example
+
+```c
+#include <linux/zsmalloc.h>
+
+/* Create a zsmalloc pool */
+struct zs_pool *pool = zs_create_pool("my_pool", GFP_KERNEL);
+
+/* Allocate an object (returns opaque handle) */
+unsigned long handle = zs_malloc(pool, size, GFP_KERNEL);
+
+/* Map the object for access */
+void *obj = zs_map_object(pool, handle, ZS_MM_RW);
+
+/* Use obj[0..size-1] */
+memcpy(obj, data, size);
+
+/* Unmap when done */
+zs_unmap_object(pool, handle);
+
+/* Free */
+zs_free(pool, handle, size);
+
+/* Destroy pool */
+zs_destroy_pool(pool);
+```
+
+### Size Class Merging
+
+zsmalloc merges size classes with similar characteristics (same pages per zspage and similar object counts) to reduce overhead. For example, classes #95–99 may be merged into class #100 if their optimal zspage configurations are similar. The tradeoff is slightly wasted bytes per object versus better overall utilization.
+
+### Statistics Interface
+
+With `CONFIG_ZSMALLOC_STAT`, the file `/sys/kernel/debug/zsmalloc/<user>/classes` shows per-class statistics:
+
+```
+class size 10% 20% 30% 40% 50% 60% 70% 80% 90% 99% 100% obj_allocated obj_used pages_used pages_per_zspage freeable
+ 30  512  0  12   4   1   0   1   0   0   1   0    414        3464      3346       433           1       14
+```
+
+The percentage columns show the number of zspages at each fullness level, helping identify fragmentation and utilization issues.
+
+---
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
@@ -788,6 +871,7 @@ MODULE_LICENSE("GPL");
 - [LWN: SLUB allocator](https://lwn.net/Articles/229984/)
 - [Christoph Lameter: SLUB — The Unqueued Slab Allocator](https://www.kernel.org/doc/gorman/html/understand/understand011.html)
 
+- [Kernel documentation: zsmalloc](https://docs.kernel.org/mm/zsmalloc.html)
 - [Kernel documentation: SLUB allocator](https://docs.kernel.org/mm/slub.html)
 - [Kernel documentation: kmalloc API](https://docs.kernel.org/core-api/kmalloc.html)
 

@@ -562,17 +562,105 @@ module_param_named(debug, drv_debug, int, 0644);
 | `mitigations=` | CPU vulnerability mitigations |
 | `module.sig_enforce=` | Enforce module signatures |
 
+## Additional Parameters (from kernel docs)
+
+The following parameters are documented in the kernel's command-line parameters reference at `docs.kernel.org/admin-guide/kernel-parameters.html`:
+
+### Memory
+
+```bash
+# Control memory acceptance (for TDX/SEV guests)
+accept_memory=eager    # Accept all unaccepted memory at boot
+accept_memory=lazy     # Accept lazily (default, faster boot)
+
+# Contiguous Memory Allocator (CMA)
+cma=nn[MG]             # Set CMA region size
+
+# Memory hotplug
+memblock=debug         # Enable memblock debugging
+
+# Huge pages
+hugepagesz=2M          # Huge page size
+hugepages=512          # Number of huge pages
+transparent_hugepages=always  # THP mode (always/madvise/never)
+```
+
+### CPU and Scheduler
+
+```bash
+# CPU isolation for real-time workloads
+isolcpus=domain,2-7        # Isolate CPUs from scheduler domains
+nohz_full=2-15             # Full tickless on specified CPUs
+rcu_nocbs=2-15             # Offload RCU callbacks
+
+# Scheduler tuning
+sched_verbose              # Enable verbose scheduler debugging
+
+# Intel P-state driver
+intel_pstate=passive       # Use passive mode (governor-managed)
+intel_pstate=active        # Use active mode (hardware-managed)
+intel_pstate=no_hwp        # Disable HWP (Hardware P-states)
+
+# CPU bug mitigations
+mitigations=off            # Disable all CPU mitigations
+mds=off                    # Disable MDS mitigation
+tsx=on                     # Enable TSX
+tsx=off                    # Disable TSX
+smt=off                    # Disable SMT (Hyper-Threading)
+```
+
+### ACPI and Power
+
+```bash
+# ACPI control
+acpi=force                 # Force ACPI on
+acpi=noirq                 # Don't use ACPI for IRQ routing
+acpi=strict                # Be less tolerant of non-compliant platforms
+acpi_osi="Windows 2012"    # Report specific OS to ACPI firmware
+acpi_backlight=native      # Use native backlight driver
+
+# Power management
+processor.max_cstate=1     # Limit C-states for low latency
+idle=poll                  # Busy-wait in idle (lowest latency)
+```
+
+### Tracing and Debug
+
+```bash
+# Event tracing at boot
+trace_event=sched_switch,sched_wakeup
+trace_event=block:*        # All block events
+
+# Function tracing
+ftrace=function_graph
+ftrace_graph_filter=some_function
+
+# Dynamic debug
+dyndbg="file drivers/net/e1000e/* +p"
+
+# Fault injection
+fail_make_request=<probability>  # Inject block I/O failures
+```
+
+### Networking
+
+```bash
+# Network configuration at boot
+ip=dhcp                    # DHCP on all interfaces
+ip=192.168.1.100::192.168.1.1:255.255.255.0::eth0:off
+
+# Disable features
+ipv6.disable=1             # Disable IPv6
+net.ifnames=0              # Disable predictable names
+
+# Network stack tuning
+netdev_budget=600          # NAPI budget per cycle
+netdev_budget_usecs=8000   # NAPI time budget (µs)
+```
+
 ## Further Reading
 
-- [The Linux Kernel Documentation](https://docs.kernel.org/)
-- [LWN.net - Linux and free software news](https://lwn.net/)
-- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
-- [GNU Manuals](https://www.gnu.org/manual/manual.html)
-- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
-- [Planet GNU](https://planet.gnu.org/)
-- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
-
-- [Kernel parameters documentation](https://www.kernel.org/doc/html/latest/admin-guide/kernel-parameters.html)
+- [The kernel's command-line parameters — docs.kernel.org](https://docs.kernel.org/admin-guide/kernel-parameters.html)
 - [Linux kernel command line howto](https://tldp.org/HOWTO/html_single/BootPrompt-HOWTO/)
 - [systemd kernel command line](https://www.freedesktop.org/software/systemd/man/kernel-command-line.html)
 - [Arch Linux kernel parameters](https://wiki.archlinux.org/title/Kernel_parameters)

@@ -943,6 +943,64 @@ The TIPC implementation lives in `net/tipc/` and uses these key data structures:
 8. [TIPC Getting Started](http://tipc.io/getting_started.html) — TIPC setup guide
 9. [TIPC Programming Guide](http://tipc.io/programming.html) — TIPC API reference
 10. [TIPC Protocol Specification](http://tipc.io/protocol.html) — Protocol details
+11. [Identifier Locator Addressing (ILA) — docs.kernel.org](https://docs.kernel.org/networking/ila.html)
+
+## ILA — Identifier Locator Addressing
+
+Identifier-Locator Addressing (ILA) is an IPv6-based technique that separates a node's **identity** (immutable identifier) from its **location** (topological network prefix). This enables overlay networking without encapsulation — packets are translated in-flight by performing destination address rewrites, so the network sees standard IPv6 traffic (ECMP, RSS, GRO, GSO all work normally).
+
+ILA is defined in Internet-Draft `draft-herbert-intarea-ila` and implemented in the Linux kernel.
+
+### Key Concepts
+
+| Term | Description |
+|------|-------------|
+| **Identifier** | 64-bit immutable identity of a node |
+| **Locator** | 64-bit network prefix routing to a physical host |
+| **SIR address** | IPv6 = SIR prefix (upper 64) + identifier (lower 64) — visible to applications |
+| **ILA address** | IPv6 = locator (upper 64) + identifier (lower 64) — never visible to applications |
+| **ILA router** | Network node performing ILA translation and forwarding |
+| **ILA host** | End host performing ILA translation on TX or RX |
+
+### How ILA Works
+
+```mermaid
+sequenceDiagram
+    participant App as Host A (Application)
+    participant ILA1 as ILA Router (Ingress)
+    participant Net as IPv6 Network
+    participant ILA2 as ILA Router (Egress)
+    participant Host as Host B
+
+    App->>ILA1: Packet to SIR address
+    Note over ILA1: Translate SIR → ILA address
+    ILA1->>Net: Standard IPv6 packet
+    Net->>ILA2: Standard IPv6 packet
+    Note over ILA2: Translate ILA → SIR address
+    ILA2->>Host: Packet to SIR address
+```
+
+### Transport Checksum Handling
+
+ILA address translation modifies the destination address, which is covered by transport-layer checksums (TCP/UDP). Three strategies:
+
+- **No action**: Allow incorrect checksums on wire; receiver verifies after ILA→SIR translation
+- **Adjust transport checksum**: Parse packet and recompute checksum (requires deep packet inspection)
+- **Checksum-neutral mapping** (preferred): Offset the difference in the low-order 16 bits of the identifier so the checksum remains valid without parsing beyond the IP header
+
+### Configuration
+
+```bash
+# ILA route with checksum-neutral mapping
+ip route add 3333:0:0:1:2000:0:1:87/128 encap ila 2001:0:87:0 \
+    csum-mode neutral-map ident-type use-format
+
+# ILA to SIR translation (receive path)
+ip ila add loc_match 2001:0:119:0 loc 3333:0:0:1 \
+    csum-mode neutral-map-auto ident-type luid
+```
+
+ILA can also be implemented as an XDP program for high-performance router deployments.
 
 ## Related Topics
 

@@ -1032,6 +1032,79 @@ grep vmx /proc/cpuinfo
 4. KVM API documentation: `Documentation/virt/kvm/api.rst` in the Linux kernel tree.
 5. Laan, J. van der. "KVM and QEMU Integration." KVM Forum.
 
+## Hypercalls
+
+Hypercalls are the mechanism by which a guest VM communicates with the hypervisor, analogous to how a user-space application makes system calls to the kernel. When a guest executes a hypercall instruction, it causes a VM exit that KVM handles.
+
+### Architecture-Specific Hypercall Mechanisms
+
+| Architecture | Instruction | Notes |
+|-------------|-------------|-------|
+| **x86 (Intel)** | `vmcall` / `vmxcall` | VMX instructions causing VM exit with `KVM_EXIT_HYPERCALL` |
+| **x86 (AMD)** | `vmmcall` | SVM hypercall instruction |
+| **ARM64** | `hvc #0` | Hypervisor Call (HVC) instruction |
+| **RISC-V** | `ecall` | Environment call to S-mode (supervisor) |
+| **s390** | `diag` | Diagnose instruction with specific function codes |
+| **MIPS** | `hypcall` | MIPS hypervisor call |
+
+### KVM Hypercall Interface
+
+KVM exposes hypercalls through the `KVM_EXIT_HYPERCALL` exit reason. When a guest executes a hypercall instruction, KVM can either:
+
+1. **Handle it in-kernel** — for standard KVM hypercalls (KVM_HC_* constants)
+2. **Exit to userspace** — with `exit_reason = KVM_EXIT_HYPERCALL`, letting QEMU handle it
+
+The hypercall parameters are passed in architecture-specific registers:
+- **x86**: `RAX` = hypercall number, `RBX`, `RCX`, `RDX`, `RSI`, `RDI` = arguments
+- **ARM64**: `X0` = hypercall number, `X1–X5` = arguments
+
+### Common KVM Hypercalls (x86)
+
+```c
+/* From include/uapi/linux/kvm_para.h */
+#define KVM_HC_VAPIC_POLL_IRQ        1  /* Poll for pending IRQs */
+#define KVM_HC_MMU_OP                 2  /* MMU operations (legacy) */
+#define KVM_HC_CLOCK_PAIRING          3  /* Clock synchronization */
+#define KVM_HC_KICK_CPU               4  /* Wake a halted vCPU */
+#define KVM_HC_SEND_IPI               9  /* Send IPI to vCPUs */
+#define KVM_HC_SCHED_YIELD           10  /* Yield to host scheduler */
+```
+
+### Hypercall Setup
+
+KVM advertises supported hypercalls via CPUID leaves. The guest queries `CPUID leaf 0x40000001` to discover which hypercalls are available:
+
+```c
+/* Guest-side: check if a hypercall is available */
+unsigned int eax, ebx, ecx, edx;
+cpuid(0x40000001, &eax, &ebx, &ecx, &edx);
+/* eax = bitmask of supported KVM_HC_* hypercalls */
+
+/* Guest-side: make a hypercall */
+static inline long kvm_hypercall0(unsigned int nr)
+{
+    long ret;
+    asm volatile("vmcall"
+                 : "=a"(ret)
+                 : "a"(nr)
+                 : "memory");
+    return ret;
+}
+```
+
+### Hyper-V Compatible Hypercalls
+
+KVM also supports Hyper-V compatible hypercalls for Windows guest optimization. When `KVM_CAP_HYPERV` is enabled, KVM presents Hyper-V CPUID leaves and handles Hyper-V hypercalls, enabling features like:
+- **Hyper-V SynIC** (Synthetic Interrupt Controller)
+- **Hyper-V VMBus** for enlightened I/O
+- **Hyper-V hypercalls** for time sync, TLB flush, and more
+
+```bash
+# Enable Hyper-V support in QEMU
+qemu-system-x86_64 -enable-kvm \
+    -cpu host,hv_relaxed,hv_vapic,hv_spinlocks=0x1fff,hv_vpindex,hv_runtime,hv_synic,hv_stimer
+```
+
 ## Further Reading
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
@@ -1049,6 +1122,7 @@ grep vmx /proc/cpuinfo
 - [QEMU Internals Documentation](https://www.qemu.org/docs/master/devel/)
 - [KVM Source Browser](https://elixir.bootlin.com/linux/latest/source/virt/kvm)
 - [KVM MMU Documentation](https://docs.kernel.org/virt/kvm/mmu.html) — Shadow and EPT page table internals
+- [KVM Hypercalls — docs.kernel.org](https://docs.kernel.org/virt/kvm/hypercalls.html)
 - [KVM API Documentation](https://docs.kernel.org/virt/kvm/api.html) — Definitive KVM API reference with CPUID, memory, and capability details
 
 ## Related Topics
