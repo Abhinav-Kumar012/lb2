@@ -218,6 +218,42 @@ perf record -C 0,1 ./myprogram       # Only CPUs 0 and 1
 perf record -e instructions -c 10000 ./myprogram  # Every 10000 instructions
 ```
 
+### Advanced Recording Options
+
+```bash
+# Record with dwarf callgraph (best for optimized code)
+perf record -g --call-graph dwarf,16384 ./myprogram
+# 16384 = stack dump size (default 8192, increase for deep stacks)
+
+# Record with both user and kernel callchains
+perf record -g -a ./myprogram
+
+# Record with timestamp
+perf record -g --timestamp ./myprogram
+
+# Record with sample weight (for memory access profiling)
+perf record -e ldlat-loads --weight ./myprogram
+
+# Record with BPF-based stack traces
+perf record -g --bpf-event ./myprogram
+
+# Record specific tracepoints with call stacks
+perf record -e 'sched:sched_switch' -g -a sleep 5
+
+# Record with switch-output (split output on signal)
+perf record --switch-output -a sleep 60
+# Creates perf.data.1, perf.data.2, etc.
+
+# Record with compression
+perf record -z ./myprogram
+
+# Record with branch sampling (Intel LBR)
+perf record -b ./myprogram  # Record taken branches
+
+# Record with Intel Processor Trace (full execution trace)
+perf record -e intel_pt// -a sleep 5
+```
+
 ### Output File
 
 ```bash
@@ -293,6 +329,37 @@ perf annotate --stdio compute_matrix
 #   15.40 :    vaddpd (%rdx),%ymm1,%ymm2
 #    8.12 :    vmovupd %ymm2,(%rdx)
 #          :  }
+```
+
+### Report Filtering and Aggregation
+
+```bash
+# Filter by symbol
+perf report --stdio --symbol-filter=compute_matrix
+
+# Filter by DSO (shared library)
+perf report --stdio --dso=libc.so.6
+
+# Filter by thread
+perf report --stdio --tid=1234
+
+# Filter by CPU
+perf report --stdio --cpu=0
+
+# Show only kernel symbols
+perf report --stdio --kallsyms=/proc/kallsyms
+
+# Aggregate by parent function
+perf report --stdio --parent=some_function
+
+# Show percentage relative to a specific function
+perf report --stdio --symbol-filter=main -g fractal,0.5,caller
+
+# Output as call tree
+perf report --stdio --call-graph callee
+
+# Output as flat profile with call graph info
+perf report --stdio -g none,0,caller,count
 ```
 
 ## Flame Graphs

@@ -483,6 +483,94 @@ The KVM userspace API is exposed through `/dev/kvm` ioctl calls:
 | `KVM_CREATE_IRQCHIP` | Create in-kernel interrupt controller |
 | `KVM_CREATE_PIT2` | Create in-kernel PIT |
 | `KVM_SET_TSC_KHZ` | Set vCPU TSC frequency |
+| `KVM_GET_CLOCK` / `KVM_SET_CLOCK` | Get/set guest clock |
+| `KVM_SET_IDENTITY_MAP_ADDR` | Set identity map page address |
+| `KVM_SET_TSS_ADDR` | Set TSS address |
+| `KVM_CREATE_PIT2` | Create in-kernel i8254 PIT |
+| `KVM_SET_CLOCK` | Set guest clock |
+| `KVM_GET_DIRTY_LOG` | Get dirty page bitmap (for migration) |
+| `KVM_SET_VCPU_EVENTS` | Set vCPU events (interrupts, exceptions) |
+| `KVM_GET_DEBUGREGS` / `KVM_SET_DEBUGREGS` | Get/set debug registers |
+| `KVM_SET_ENABLE_CAP` | Enable KVM capability |
+
+### KVM API Usage Flow
+
+```c
+#include <linux/kvm.h>
+#include <sys/ioctl.h>
+#include <sys/mman.h>
+#include <fcntl.h>
+
+int main(void)
+{
+    int kvm_fd, vm_fd, vcpu_fd;
+    struct kvm_sregs sregs;
+    struct kvm_regs regs;
+    struct kvm_userspace_memory_region mem;
+
+    /* 1. Open KVM device */
+    kvm_fd = open("/dev/kvm", O_RDWR | O_CLOEXEC);
+
+    /* 2. Check API version */
+    int api_ver = ioctl(kvm_fd, KVM_GET_API_VERSION, 0);
+    if (api_ver != 12) {
+        fprintf(stderr, "KVM API version %d, expected 12\n", api_ver);
+        return 1;
+    }
+
+    /* 3. Create VM */
+    vm_fd = ioctl(kvm_fd, KVM_CREATE_VM, 0);
+
+    /* 4. Set up memory */
+    void *mem_region = mmap(NULL, 0x100000, PROT_READ | PROT_WRITE,
+                           MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+    mem.slot = 0;
+    mem.guest_phys_addr = 0;
+    mem.memory_size = 0x100000;
+    mem.userspace_addr = (unsigned long)mem_region;
+    ioctl(vm_fd, KVM_SET_USER_MEMORY_REGION, &mem);
+
+    /* 5. Create vCPU */
+    vcpu_fd = ioctl(vm_fd, KVM_CREATE_VCPU, 0);
+
+    /* 6. Map the kvm_run structure */
+    size_t mmap_size = ioctl(kvm_fd, KVM_GET_VCPU_MMAP_SIZE, 0);
+    struct kvm_run *run = mmap(NULL, mmap_size, PROT_READ | PROT_WRITE,
+                               MAP_SHARED, vcpu_fd, 0);
+
+    /* 7. Set up special registers */
+    ioctl(vcpu_fd, KVM_GET_SREGS, &sregs);
+    sregs.cs.base = 0;
+    sregs.cs.selector = 0;
+    ioctl(vcpu_fd, KVM_SET_SREGS, &sregs);
+
+    /* 8. Set up general registers */
+    regs.rip = 0;
+    regs.rsp = 0x100000;
+    regs.rflags = 0x2;
+    ioctl(vcpu_fd, KVM_SET_REGS, &regs);
+
+    /* 9. Load guest code */
+    memcpy(mem_region, guest_code, sizeof(guest_code));
+
+    /* 10. Run guest */
+    while (1) {
+        ioctl(vcpu_fd, KVM_RUN, 0);
+
+        switch (run->exit_reason) {
+        case KVM_EXIT_IO:
+            if (run->io.direction == KVM_EXIT_IO_OUT)
+                putchar(*((char *)run + run->io.data_offset));
+            break;
+        case KVM_EXIT_HLT:
+            return 0;
+        case KVM_EXIT_INTERNAL_ERROR:
+            fprintf(stderr, "Internal error: %u\n", run->internal.suberror);
+            return 1;
+        }
+    }
+}
+```
 
 ### KVM Run Structure
 
@@ -529,8 +617,63 @@ struct kvm_run {
             __u32 ndata;
             __u64 data[16];
         } internal;
+        /* KVM_EXIT_DEBUG */
+        struct {
+            struct kvm_debug_exit_arch arch;
+        } debug;
+        /* KVM_EXIT_SYSTEM_EVENT */
+        struct {
+            __u32 type;
+            __u64 flags;
+            __u64 data[16];
+        } system_event;
         /* ... more exit types ... */
     };
+};
+```
+
+### Common Exit Reasons
+
+```c
+enum {
+    KVM_EXIT_UNKNOWN = 0,
+    KVM_EXIT_EXCEPTION = 1,
+    KVM_EXIT_IO = 2,
+    KVM_EXIT_HYPERCALL = 3,
+    KVM_EXIT_DEBUG = 4,
+    KVM_EXIT_HLT = 5,
+    KVM_EXIT_MMIO = 6,
+    KVM_EXIT_IRQ_WINDOW_OPEN = 7,
+    KVM_EXIT_SHUTDOWN = 8,
+    KVM_EXIT_FAIL_ENTRY = 9,
+    KVM_EXIT_INTR = 10,
+    KVM_EXIT_SET_TPR = 11,
+    KVM_EXIT_TPR_ACCESS = 12,
+    KVM_EXIT_S390_SIEIC = 13,
+    KVM_EXIT_S390_RESET = 14,
+    KVM_EXIT_DCR = 15,
+    KVM_EXIT_NMI = 16,
+    KVM_EXIT_INTERNAL_ERROR = 17,
+    KVM_EXIT_OSI = 18,
+    KVM_EXIT_PAPR_HCALL = 19,
+    KVM_EXIT_S390_UCONTROL = 20,
+    KVM_EXIT_WATCHDOG = 21,
+    KVM_EXIT_S390_TSCH = 22,
+    KVM_EXIT_EPR = 23,
+    KVM_EXIT_SYSTEM_EVENT = 24,
+    KVM_EXIT_S390_STSI = 25,
+    KVM_EXIT_IOAPIC_EOI = 26,
+    KVM_EXIT_HYPERV = 27,
+    KVM_EXIT_ARM_NISV = 28,
+    KVM_EXIT_X86_RDMSR = 29,
+    KVM_EXIT_X86_WRMSR = 30,
+    KVM_EXIT_DIRTY_RING_FULL = 31,
+    KVM_EXIT_AP_RESET_HOLD = 32,
+    KVM_EXIT_X86_BUS_LOCK = 33,
+    KVM_EXIT_XEN = 34,
+    KVM_EXIT_RISCV_SBI = 35,
+    KVM_EXIT_RISCV_CSR = 36,
+    KVM_EXIT_NOTIFY = 37,
 };
 ```
 

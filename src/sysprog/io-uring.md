@@ -366,6 +366,169 @@ sqe->flags |= IOSQE_FIXED_FILE;
 io_uring_prep_read(sqe, 5, buf, size, 0);  /* File index 5, not fd 5 */
 ```
 
+### Buffer Selection (Provided Buffers)
+
+Buffer selection lets the kernel choose from a pre-registered pool of buffers. This is essential for multishot operations where the application doesn't know how many completions will arrive:
+
+```c
+/* Register a pool of buffers with group ID */
+struct io_uring_buf_ring *br;
+int bgid = 0;  /* Buffer group ID */
+
+/* Allocate buffer ring */
+br = io_uring_setup_buf_ring(&ring, 16, bgid, 0, &ret);
+
+/* Add buffers to the ring */
+for (int i = 0; i < 16; i++) {
+    struct io_uring_buf *buf = &br->bufs[i];
+    buf->addr = (unsigned long)aligned_alloc(4096, 4096);
+    buf->len = 4096;
+    buf->bid = i;  /* Buffer ID */
+}
+io_uring_buf_ring_add(br, buf, 4096, i, io_uring_buf_ring_mask(16), i);
+io_uring_buf_ring_advance(br, 16);
+
+/* Use buffer selection in SQE */
+sqe = io_uring_get_sqe(&ring);
+io_uring_prep_recv(sqe, client_fd, NULL, 0, 0);
+sqe->flags |= IOSQE_BUFFER_SELECT;
+sqe->buf_group = bgid;  /* Select from this group */
+
+/* On completion, CQE tells which buffer was used */
+struct io_uring_cqe *cqe;
+io_uring_wait_cqe(&ring, &cqe);
+int bid = cqe->flags >> IORING_CQE_BUFFER_SHIFT;
+char *data = br->bufs[bid].addr;
+int len = cqe->res;
+/* Replenish the buffer */
+io_uring_buf_ring_add(br, &br->bufs[bid], 4096, bid, mask, 0);
+io_uring_buf_ring_advance(br, 1);
+```
+
+### Registered Buffer Ring Optimization
+
+```c
+/* Advanced: use huge pages for registered buffers */
+void *buf_base = mmap(NULL, 16 * 4096,
+                       PROT_READ | PROT_WRITE,
+                       MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB,
+                       -1, 0);
+
+/* Register entire region */
+struct iovec iov = { .iov_base = buf_base, .iov_len = 16 * 4096 };
+io_uring_register_buffers(&ring, &iov, 1);
+
+/* Use with IORING_OP_READ_FIXED */
+/* Single registration, many uses — no per-call overhead */
+```
+
+## Multishot Operations
+
+Multishot operations allow a single SQE to generate multiple CQEs. This is critical for network servers that need to continuously accept connections or receive data without resubmitting SQEs:
+
+### Multishot Accept
+
+```c
+/* Multishot accept: one SQE, many connections */
+sqe = io_uring_get_sqe(&ring);
+io_uring_prep_multishot_accept(sqe, listen_fd, NULL, NULL, 0);
+io_uring_sqe_set_data(sqe, ctx);
+io_uring_submit(&ring);
+
+/* Each new connection generates a CQE with IORING_CQE_F_MORE set */
+while (1) {
+    struct io_uring_cqe *cqe;
+    io_uring_wait_cqe(&ring, &cqe);
+
+    int client_fd = cqe->res;
+    if (client_fd >= 0) {
+        /* Handle new connection */
+        handle_client(client_fd);
+    }
+
+    if (cqe->flags & IORING_CQE_F_MORE) {
+        /* More completions coming — don't resubmit */
+    } else {
+        /* Multishot ended (error or limit reached) — resubmit */
+        sqe = io_uring_get_sqe(&ring);
+        io_uring_prep_multishot_accept(sqe, listen_fd, NULL, NULL, 0);
+        io_uring_submit(&ring);
+    }
+    io_uring_cqe_seen(&ring, cqe);
+}
+```
+
+### Multishot Receive
+
+```c
+/* Multishot receive: one SQE, many messages */
+sqe = io_uring_get_sqe(&ring);
+io_uring_prep_recv(sqe, client_fd, NULL, 0, 0);
+sqe->ioprio |= IORING_RECV_MULTISHOT;
+sqe->flags |= IOSQE_BUFFER_SELECT;
+sqe->buf_group = bgid;
+io_uring_sqe_set_data(sqe, ctx);
+io_uring_submit(&ring);
+
+/* Each received message generates a CQE */
+while (1) {
+    struct io_uring_cqe *cqe;
+    io_uring_wait_cqe(&ring, &cqe);
+
+    if (cqe->res > 0) {
+        int bid = cqe->flags >> IORING_CQE_BUFFER_SHIFT;
+        char *data = get_buffer(bid);
+        process_message(data, cqe->res);
+        replenish_buffer(bid);  /* Return buffer to pool */
+    }
+
+    if (!(cqe->flags & IORING_CQE_F_MORE))
+        break;  /* Multishot ended */
+
+    io_uring_cqe_seen(&ring, cqe);
+}
+```
+
+### Multishot Poll
+
+```c
+/* Multishot poll: continuously monitor fd for events */
+sqe = io_uring_get_sqe(&ring);
+io_uring_prep_poll_add(sqe, fd, POLLIN | POLLOUT);
+sqe->ioprio |= IORING_POLL_MULTISHOT;
+io_uring_sqe_set_data(sqe, ctx);
+io_uring_submit(&ring);
+
+/* Each event generates a CQE */
+while (1) {
+    struct io_uring_cqe *cqe;
+    io_uring_wait_cqe(&ring, &cqe);
+
+    if (cqe->res & POLLIN) {
+        /* Data available for reading */
+    }
+    if (cqe->res & POLLOUT) {
+        /* Can write */
+    }
+
+    if (!(cqe->flags & IORING_CQE_F_MORE))
+        break;
+
+    io_uring_cqe_seen(&ring, cqe);
+}
+```
+
+### Multishot vs Single-shot
+
+| Feature | Single-shot | Multishot |
+|---------|------------|----------|
+| SQEs per event | 1 per event | 1 for many events |
+| CQEs per event | 1 | 1 per event (F_MORE flag) |
+| Buffer selection | Optional | Required (for recv) |
+| Resubmission | After each CQE | Only when multishot ends |
+| Best for | One-shot ops | Servers, event loops |
+| Kernel support | 5.1+ | 6.0+ (accept), 6.0+ (recv) |
+
 ## Linked Operations (Chains)
 
 ```c

@@ -513,6 +513,106 @@ StandardInput=socket
 # Each connection gets its own service instance
 ```
 
+### Socket Activation Internals
+
+systemd implements socket activation through file descriptor passing:
+
+```c
+/* src/core/socket.c (simplified) */
+
+/* When Accept=yes: */
+static int socket_accept(struct Socket *s)
+{
+    /* 1. Accept new connection on listening socket */
+    int fd = accept4(s->fd, NULL, NULL, SOCK_NONBLOCK | SOCK_CLOEXEC);
+
+    /* 2. Spawn new service instance */
+    /* The connection fd is passed as fd 3 (or via stdin) */
+    Service *service = service_new(s->service_template);
+    service->stdin_fd = fd;
+
+    /* 3. Start the service */
+    service_start(service);
+}
+
+/* When Accept=no: */
+static int socket_start_no_accept(struct Socket *s)
+{
+    /* 1. Create listening socket */
+    int fd = socket(s->address.family, s->address.type, 0);
+    bind(fd, s->address.sockaddr, s->address.size);
+    listen(fd, s->backlog);
+
+    /* 2. Pass fd to service */
+    /* Service inherits the socket fd */
+}
+```
+
+### Socket Types and Protocols
+
+```ini
+[Socket]
+# TCP stream socket
+ListenStream=8080
+ListenStream=127.0.0.1:9090
+ListenStream=[::1]:9090
+
+# Unix stream socket
+ListenStream=/run/myapp/myapp.sock
+
+# Unix datagram socket
+ListenDatagram=/run/myapp/myapp.dgram
+
+# UDP socket
+ListenDatagram=0.0.0.0:5353
+
+# FIFO (named pipe)
+ListenFIFO=/run/myapp/myapp.fifo
+
+# Netlink socket
+ListenNetlink=kobject-uevent 1
+
+# Sequential packet socket
+ListenSequentialPacket=/run/myapp/myapp.seqpacket
+```
+
+### Socket Options
+
+```ini
+[Socket]
+# Socket permissions
+SocketMode=0660
+SocketUser=myapp
+SocketGroup=myapp
+
+# Reuse address (SO_REUSEADDR)
+ReusePort=true
+
+# Backlog
+Backlog=128
+
+# Keep alive
+KeepAlive=true
+KeepAliveTimeSec=60
+KeepAliveIntervalSec=10
+KeepAliveProbes=6
+
+# Buffer sizes
+ReceiveBuffer=1M
+SendBuffer=1M
+
+# Connection limits
+MaxConnections=100
+MaxConnectionsPerSource=10
+
+# Trigger limit (prevent DoS)
+TriggerLimitIntervalSec=2s
+TriggerLimitBurst=200
+
+# Idle timeout (close after no activity)
+TimeoutIdleSec=300
+```
+
 ## cgroups Integration
 
 systemd uses cgroups to organize processes and manage resources.
@@ -679,6 +779,84 @@ journalctl --verify
 journalctl --vacuum-time=30d       # Keep 30 days
 journalctl --vacuum-size=500M      # Keep 500MB max
 journalctl --vacuum-files=10       # Keep 10 files max
+```
+
+### Journal Filtering Deep Dive
+
+The journal supports rich field-based filtering:
+
+```bash
+# Filter by any journal field
+journalctl CONTAINER_NAME=webapp
+journalctl _SYSTEMD_UNIT=docker.service
+journalctl _COMM=sshd
+journalctl _EXE=/usr/sbin/sshd
+journalctl _CMDLINE=\"nginx -g daemon off;\"
+
+# Combine multiple filters (AND)
+journalctl _UID=1000 _COMM=bash
+
+# Combine with OR using +
+journalctl -u nginx.service -u apache2.service
+
+# Exclude specific units
+journalctl -u nginx.service --no-pager | grep -v healthcheck
+
+# Full-text search
+journalctl -g "connection refused"
+journalctl -g "OOM"               # Out-of-memory kills
+journalctl -g "segfault"          # Segfaults
+
+# Regex search (ERE)
+journalctl -g "error|fail|denied" -p err
+
+# Filter by executable path
+journalctl /usr/bin/python3
+
+# View all fields of a log entry
+journalctl -o verbose -u nginx.service | head -20
+# Shows: _PID, _UID, _GID, _COMM, _EXE, _CMDLINE,
+#        _SYSTEMD_UNIT, _BOOT_ID, _MACHINE_ID, etc.
+
+# Export specific fields
+journalctl -u nginx.service -o json-pretty | jq '.[] | {timestamp: .__REALTIME_TIMESTAMP, message: .MESSAGE}'
+
+# Rate limiting: view messages that were suppressed
+journalctl --rate-limit
+# Shows rate-limited messages and limits
+
+# Filter by container/Podman
+journalctl CONTAINER_NAME=myapp
+journalctl _UID=100000 CONTAINER_NAME=webapp
+```
+
+### Structured Logging with journald
+
+Applications can send structured fields to the journal:
+
+```c
+#include <systemd/sd-journal.h>
+
+/* Send structured log message */
+sd_journal_send("MESSAGE=Connection accepted",
+                "PRIORITY=6",
+                "MYAPP_CLIENT_IP=10.0.0.1",
+                "MYAPP_REQUEST_ID=abc123",
+                NULL);
+
+/* Or via stdout with structured fields */
+printf("Connection accepted\n"
+       "MYAPP_CLIENT_IP=10.0.0.1\n"
+       "MYAPP_REQUEST_ID=abc123\n");
+```
+
+```bash
+# Query custom fields
+journalctl MYAPP_CLIENT_IP=10.0.0.1
+journalctl MYAPP_REQUEST_ID=abc123
+
+# View all unique values for a field
+journalctl -F MYAPP_CLIENT_IP
 ```
 
 ### Journal Configuration

@@ -1,9 +1,8 @@
 name: CI
 
 on:
-  push:
-    branches: [dev]
-  workflow_dispatch:
+  pull_request:
+    branches: [main]
 
 jobs:
   build:
@@ -23,4 +22,3 @@ jobs:
         run: |
           echo "Pages: $(find src -name '*.md' -not -name 'SUMMARY.md' -size +1k | wc -l)"
           echo "Lines: $(find src -name '*.md' -not -name 'SUMMARY.md' -size +1k -exec cat {} + | wc -l)"
-          echo "Empty: $(find src -name '*.md' -not -name 'SUMMARY.md' -size -100c | wc -l)"
