@@ -463,6 +463,13 @@ CPU  0:  0  0  0  0  0  0  0  0  0  0  0  0  0  0  0  0
 
 ## References
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [Linux Kernel Documentation: RCU](https://www.kernel.org/doc/html/latest/RCU/index.html)
 - [Paul E. McKenney: "RCU Usage In the Linux Kernel: 18 Years Later"](https://lwn.net/Articles/777216/)
 - [Paul E. McKenney: "What is RCU, Fundamentally?"](https://lwn.net/Articles/262464/)

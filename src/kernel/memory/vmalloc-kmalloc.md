@@ -591,6 +591,13 @@ Unlike `vmalloc()`, `ioremap()` maps **device memory** (not RAM), so the pages a
 
 ## References
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - **Linux Device Drivers, 3rd Edition** — Chapter 8: Allocating Memory
 - **Linux Kernel Development, 3rd Edition** — Chapter 12: Memory Management
 - [Kernel source: mm/vmalloc.c](https://elixir.bootlin.com/linux/latest/source/mm/vmalloc.c)

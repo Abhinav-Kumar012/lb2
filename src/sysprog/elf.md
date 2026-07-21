@@ -561,6 +561,14 @@ $ objdump -d /bin/ls | grep -A5 "<_start>:"
 
 ## References
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [LWN.net - Linux and free software news](https://lwn.net/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [ELF(5) — Linux manual page](https://man7.org/linux/man-pages/man5/elf.5.html)
 - [System V Application Binary Interface](https://www.sco.com/developers/devspecs/gabi41.pdf)
 - [x86-64 ABI](https://gitlab.com/x86-psABIs/x86-64-ABI)

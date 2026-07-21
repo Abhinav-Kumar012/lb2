@@ -337,6 +337,14 @@ static void aio_read_test(const char **files, int n) {
 
 ## References
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [LWN.net - Linux and free software news](https://lwn.net/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [Linux io_uring documentation](https://kernel.dk/io_uring.pdf) — Jens Axboe
 - [libaio source and man pages](https://pagure.io/libaio)
 - [io_uring man pages](https://unix.systems/man/io_uring.7)

@@ -731,6 +731,14 @@ int main(void)
 
 ## References
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [LWN.net - Linux and free software news](https://lwn.net/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [signal(7) — Linux manual page](https://man7.org/linux/man-pages/man7/signal.7.html)
 - [sigaction(2) — Linux manual page](https://man7.org/linux/man-pages/man2/sigaction.2.html)
 - [signal-safety(7) — Async-signal-safe functions](https://man7.org/linux/man-pages/man7/signal-safety.7.html)

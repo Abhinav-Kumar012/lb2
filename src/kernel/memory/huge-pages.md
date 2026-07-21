@@ -648,6 +648,13 @@ $ echo never > /sys/kernel/mm/transparent_hugepage/enabled
 
 ## References
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - **Linux Kernel Development, 3rd Edition** — Chapter 12: Memory Management
 - [Kernel source: mm/huge_memory.c](https://elixir.bootlin.com/linux/latest/source/mm/huge_memory.c)
 - [Kernel source: mm/khugepaged.c](https://elixir.bootlin.com/linux/latest/source/mm/khugepaged.c)

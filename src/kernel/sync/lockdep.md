@@ -462,6 +462,13 @@ $ echo 0 > /proc/lock_stat
 
 ## References
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [Linux Kernel Documentation: Lockdep Design](https://www.kernel.org/doc/html/latest/locking/lockdep-design.html)
 - [Ingo Molnár: "Runtime lock dependency validator" (original patch)](https://lwn.net/Articles/185500/)
 - [LWN: "Lockdep: the Linux lock validator"](https://lwn.net/Articles/185500/)

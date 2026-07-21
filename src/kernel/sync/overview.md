@@ -381,6 +381,13 @@ See [Lockdep](lockdep.md) for the most important of these.
 
 ## References
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [Linux Kernel Documentation: Kernel locking](https://www.kernel.org/doc/html/latest/locking/index.html)
 - [Understanding the Linux Kernel, 3rd Edition — Chapter 5: Kernel Synchronization](https://www.oreilly.com/library/view/understanding-the-linux/0596005652/)
 - [Linux Device Drivers, 3rd Edition — Chapter 5: Concurrency and Race Conditions](https://lwn.net/Kernel/LDD3/)

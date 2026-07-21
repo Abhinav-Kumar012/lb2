@@ -544,6 +544,13 @@ CommitLimit:    24772608 kB    # Maximum allowed commit
 
 ## References
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - **Understanding the Linux Kernel, 3rd Edition** — Daniel P. Bovet, Marco Cesati (O'Reilly, 2005)
 - **Linux Kernel Development, 3rd Edition** — Robert Love (Addison-Wesley, 2010)
 - **Linux Device Drivers, 3rd Edition** — Jonathan Corbet, Alessandro Rubini, Greg Kroah-Hartman

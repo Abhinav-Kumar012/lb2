@@ -655,6 +655,14 @@ $ sudo tail -f /var/log/auth.log
 
 ## References
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [LWN.net - Linux and free software news](https://lwn.net/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 1. **RFC 4251** — The Secure Shell (SSH) Protocol Architecture
 2. **RFC 4252** — The Secure Shell (SSH) Authentication Protocol
 3. **RFC 4253** — The Secure Shell (SSH) Transport Layer Protocol

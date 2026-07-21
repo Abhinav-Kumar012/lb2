@@ -348,6 +348,14 @@ done
 
 ## Further Reading
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [LWN.net - Linux and free software news](https://lwn.net/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - <https://www.kernel.org/doc/html/latest/filesystems/sysfs.html> - sysfs kernel documentation
 - <https://www.kernel.org/doc/html/latest/driver-api/> - Driver API documentation
 - <https://man7.org/linux/man-pages/man5/sysfs.5.html> - sysfs(5)

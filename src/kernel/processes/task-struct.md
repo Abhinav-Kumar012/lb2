@@ -565,6 +565,13 @@ The kernel developers carefully organize frequently-accessed fields into the sam
 
 ## Further Reading
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [Linux man pages: proc(5)](https://man7.org/linux/man-pages/man5/proc.5.html)
 - [Linux kernel source: include/linux/sched.h](https://elixir.bootlin.com/linux/latest/source/include/linux/sched.h)
 - [Linux kernel source: kernel/fork.c](https://elixir.bootlin.com/linux/latest/source/kernel/fork.c)

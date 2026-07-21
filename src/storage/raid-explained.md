@@ -512,6 +512,13 @@ mount -o noatime /dev/md0 /data/archive
 
 ## Further Reading
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - <https://www.usenix.org/legacy/events/fast09/tech/full_papers/jiang/jiang.pdf> - RAID reliability analysis
 - <https://lwn.net/Articles/636968/> - Linux RAID performance tuning
 - <https://github.com/ceph/ceph> - Ceph distributed storage (erasure coding)

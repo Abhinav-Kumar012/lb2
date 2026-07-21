@@ -377,6 +377,13 @@ mutex_lock_nested(&child->lock, DOUBLE_DEPTH_NESTING);
 
 ## References
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [Linux Kernel Documentation: Lock ordering](https://www.kernel.org/doc/html/latest/locking/lockdep-design.html)
 - [Jonathan Corbet: "Locking patterns"](https://lwn.net/Articles/185667/)
 - [Paul McKenney: "Lockdep: the Linux lock validator"](https://lwn.net/Articles/185500/)

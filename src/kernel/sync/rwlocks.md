@@ -452,6 +452,13 @@ perf lock report
 
 ## References
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [rwlock API](https://www.kernel.org/doc/Documentation/locking/locktypes.txt) — Kernel lock types overview
 - [rw_semaphore internals](https://www.kernel.org/doc/Documentation/locking/rwsem-design.txt) — Design document
 - [LWN: Scaling rw_semaphores](https://lwn.net/Articles/565734/) — Optimistic spinning

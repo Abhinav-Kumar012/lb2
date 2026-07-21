@@ -469,6 +469,14 @@ echo 2 > /proc/irq/53/smp_affinity  # Queue 2 → CPU 1
 
 ## Further Reading
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [LWN.net - Linux and free software news](https://lwn.net/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - <https://www.kernel.org/doc/html/latest/driver-api/nvme.html> - Linux NVMe driver API
 - <https://nvmexpress.org/educational-resources/> - NVMe educational resources
 - <https://sg.danny.cz/sg/> - Linux SCSI Generic (sg) driver documentation

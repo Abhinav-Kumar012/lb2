@@ -346,6 +346,14 @@ sudo setcap cap_sys_nice+ep ./my_rt_app
 
 ## References
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [LWN.net - Linux and free software news](https://lwn.net/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [SCHED_DEADLINE design document](https://www.kernel.org/doc/sched/deadline-design.txt) — Original design notes
 - [sched(7) man page](https://man7.org/linux/man-pages/man7/sched.7.html) — Scheduling overview
 - [chrt(1) man page](https://man7.org/linux/man-pages/man1/chrt.1.html) — Command-line tool

@@ -507,6 +507,13 @@ $ gcc -o myio myio.c -luring
 
 ## References
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [io_uring(7) — Linux manual page](https://man7.org/linux/man-pages/man7/io_uring.7.html)
 - [io_uring_setup(2)](https://man7.org/linux/man-pages/man2/io_uring_setup.2.html)
 - [liburing documentation](https://github.com/axboe/liburing)

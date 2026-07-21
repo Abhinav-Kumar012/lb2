@@ -1076,6 +1076,14 @@ echo "Database host: ${config[database.host]}"
 
 ## Further Reading
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [LWN.net - Linux and free software news](https://lwn.net/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [BashFAQ - Greg's Wiki](https://mywiki.wooledge.org/BashFAQ) — Answers to common questions
 - [Bash Pitfalls](https://mywiki.wooledge.org/BashPitfalls) — Common mistakes and fixes
 - [Defensive BASH Programming](https://defensive-shell-programming.name/) — Writing robust scripts

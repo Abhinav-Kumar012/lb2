@@ -437,6 +437,13 @@ $ sudo cat /proc/lock_stat
 
 ## References
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [Linux Kernel Documentation: mutex](https://www.kernel.org/doc/html/latest/locking/mutex-design.html)
 - [Davidlohr Bueso: "Mutex: the sleeping lock"](https://lwn.net/Articles/575460/)
 - [Thomas Gleixner: rt_mutex implementation](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/kernel/locking/rtmutex.c)

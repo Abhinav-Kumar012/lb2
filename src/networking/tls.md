@@ -587,6 +587,14 @@ $ openssl dhparam -out /etc/ssl/dhparam.pem 4096
 
 ## References
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [LWN.net - Linux and free software news](https://lwn.net/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 1. **RFC 8446** — The Transport Layer Security (TLS) Protocol Version 1.3
 2. **RFC 5246** — The Transport Layer Security (TLS) Protocol Version 1.2
 3. **RFC 6066** — Transport Layer Security (TLS) Extensions

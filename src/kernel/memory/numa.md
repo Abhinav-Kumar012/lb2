@@ -360,6 +360,13 @@ static int do_numa_page(struct vm_fault *vmf) {
 
 ## Further Reading
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - https://www.kernel.org/doc/html/latest/vm/numa.html
 - https://man7.org/linux/man-pages/man7/numa.7.html
 - https://man7.org/linux/man-pages/man2/set_mempolicy.2.html

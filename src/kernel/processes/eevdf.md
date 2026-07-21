@@ -485,6 +485,13 @@ $ echo 19 > /proc/$PID/latency_nice   # Tolerant of latency
 
 ## Further Reading
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [LWN: The EEVDF CPU scheduler](https://lwn.net/Articles/925371/)
 - [LWN: EEVDF and latency nice](https://lwn.net/Articles/927784/)
 - [Original paper: A Fair Share Scheduler (Stoica & Abdel-Wahab, 1995)](https://citeseerx.ist.psu.edu/document?repid=rep1&type=pdf&doi=bf95d25b1c53e28e1c59e1c0b56b0e0e1f9a1d3b)

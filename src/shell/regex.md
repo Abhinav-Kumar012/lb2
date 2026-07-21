@@ -765,6 +765,14 @@ data> abc123def
 
 ## Further Reading
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [LWN.net - Linux and free software news](https://lwn.net/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [Regular-Expressions.info](https://www.regular-expressions.info/) — Comprehensive tutorial
 - [PCRE2 Man Page](https://www.pcre.org/current/doc/html/) — Official PCRE documentation
 - [regex101](https://regex101.com/) — Interactive regex tester with explanations

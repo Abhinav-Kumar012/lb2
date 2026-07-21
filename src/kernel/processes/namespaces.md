@@ -459,6 +459,14 @@ grep CONFIG_TIME_NS /boot/config-$(uname -r)
 
 ## References
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [LWN.net - Linux and free software news](https://lwn.net/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [namespaces(7) man page](https://man7.org/linux/man-pages/man7/namespaces.7.html) — Comprehensive reference
 - [Linux kernel namespace docs](https://www.kernel.org/doc/Documentation/networking/net_namespace.txt)
 - [User namespaces and security](https://man7.org/linux/man-pages/man7/user_namespaces.7.html)

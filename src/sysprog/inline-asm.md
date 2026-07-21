@@ -402,6 +402,14 @@ int val = __sync_fetch_and_add(&counter, 1);
 
 ## References
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [LWN.net - Linux and free software news](https://lwn.net/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [GCC Extended Asm documentation](https://gcc.gnu.org/onlinedocs/gcc/Extended-Asm.html)
 - [GCC Constraints](https://gcc.gnu.org/onlinedocs/gcc/Constraints.html)
 - [Linux kernel inline asm guide](https://www.kernel.org/doc/html/latest/process/programming-language.html)

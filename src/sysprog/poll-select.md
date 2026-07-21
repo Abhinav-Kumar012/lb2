@@ -480,6 +480,14 @@ epoll_ctl(epoll_fd, EPOLL_CTL_MOD, fd, &ev);  /* Re-arm */
 
 ## References
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [LWN.net - Linux and free software news](https://lwn.net/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [select(2) man page](https://man7.org/linux/man-pages/man2/select.2.html)
 - [poll(2) man page](https://man7.org/linux/man-pages/man2/poll.2.html)
 - [epoll(7) man page](https://man7.org/linux/man-pages/man7/epoll.7.html)

@@ -568,6 +568,13 @@ rt_rq[0]:
 
 ## Further Reading
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [Linux man pages: sched(7)](https://man7.org/linux/man-pages/man7/sched.7.html)
 - [Linux kernel: kernel/sched/rt.c](https://elixir.bootlin.com/linux/latest/source/kernel/sched/rt.c)
 - [Linux kernel: kernel/sched/deadline.c](https://elixir.bootlin.com/linux/latest/source/kernel/sched/deadline.c)

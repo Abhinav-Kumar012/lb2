@@ -374,6 +374,14 @@ ip link set bond0 type bond downdelay 200
 
 ## References
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [LWN.net - Linux and free software news](https://lwn.net/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [Kernel Bonding Documentation](https://www.kernel.org/doc/Documentation/networking/bonding.txt)
 - [Linux Ethernet Bonding Driver HOWTO](https://www.kernel.org/doc/Documentation/networking/bonding.txt)
 - [IEEE 802.3ad Specification](https://standards.ieee.org/standard/802_3ad-2000.html)

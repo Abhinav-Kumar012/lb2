@@ -601,6 +601,14 @@ $ cat /proc/sys/fs/pipe-user-pages-soft
 
 ## References
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [LWN.net - Linux and free software news](https://lwn.net/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [pipe(2) — Linux manual page](https://man7.org/linux/man-pages/man2/pipe.2.html)
 - [fifo(7) — Named pipes](https://man7.org/linux/man-pages/man7/fifo.7.html)
 - [dup(2) — Linux manual page](https://man7.org/linux/man-pages/man2/dup.2.html)

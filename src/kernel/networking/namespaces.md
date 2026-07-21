@@ -439,6 +439,12 @@ int join_netns(pid_t target_pid)
 
 ## References
 
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [Kernel Namespaces Documentation](https://docs.kernel.org/networking/scaling.html)
 - [man-pages: namespaces(7)](https://man7.org/linux/man-pages/man7/namespaces.7.html)
 - [man-pages: network_namespaces(7)](https://man7.org/linux/man-pages/man7/network_namespaces.7.html)

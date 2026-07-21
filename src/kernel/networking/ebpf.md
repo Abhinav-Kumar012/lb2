@@ -661,6 +661,14 @@ int tc_rewriter(struct __sk_buff *skb)
 
 ## References
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [LWN.net - Linux and free software news](https://lwn.net/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 1. **eBPF.io** — [ebpf.io](https://ebpf.io/)
 2. **BPF and XDP Reference Guide** — [docs.cilium.io/en/stable/bpf/](https://docs.cilium.io/en/stable/bpf/)
 3. **libbpf Documentation** — [libbpf.readthedocs.io](https://libbpf.readthedocs.io/)

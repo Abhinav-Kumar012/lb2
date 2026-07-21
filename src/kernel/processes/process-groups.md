@@ -463,6 +463,14 @@ tcsetpgrp(terminal_fd, getpgrp());
 
 ## References
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [LWN.net - Linux and free software news](https://lwn.net/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [credentials(7) man page](https://man7.org/linux/man-pages/man7/credentials.7.html) — Process IDs and groups
 - [session leader in Linux](https://man7.org/linux/man-pages/man2/setsid.2.html) — Session management
 - [tcsetpgrp(3) man page](https://man7.org/linux/man-pages/man3/tcsetpgrp.3.html) — Terminal control

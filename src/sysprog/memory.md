@@ -503,6 +503,14 @@ void optimize_access(void *addr, size_t len) {
 
 ## References
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [LWN.net - Linux and free software news](https://lwn.net/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [glibc malloc internals](https://sourceware.org/glibc/wiki/MInternals)
 - [jemalloc documentation](https://jemalloc.net/)
 - [tcmalloc documentation](https://github.com/google/tcmalloc)

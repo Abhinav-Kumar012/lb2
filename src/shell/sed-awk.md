@@ -879,6 +879,14 @@ grep -F 'fixed' file            # Faster than regex
 
 ## Further Reading
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [LWN.net - Linux and free software news](https://lwn.net/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [sed Manual (GNU)](https://www.gnu.org/software/sed/manual/sed.html) — Official GNU sed documentation
 - [gawk Manual (GNU)](https://www.gnu.org/software/gawk/manual/) — Official GNU awk documentation
 - [The AWK Programming Language](https://ia800609.us.archive.org/10/items/pdfy-MgN0H1joIoDVoIC7/The_AWK_Programming_Language.pdf) — The original book by Aho, Weinberger, Kernighan

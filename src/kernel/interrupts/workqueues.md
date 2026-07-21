@@ -513,6 +513,13 @@ graph LR
 
 ## References
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [Linux Kernel Documentation: Workqueues](https://www.kernel.org/doc/html/latest/core-api/workqueue.html)
 - [LWN: "A new workqueue implementation"](https://lwn.net/Articles/403883/)
 - [LWN: "Concurrency-managed workqueues"](https://lwn.net/Articles/385586/)

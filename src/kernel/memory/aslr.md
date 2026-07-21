@@ -341,6 +341,13 @@ ffffffff81000000 T _text
 
 ## Further Reading
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - https://man7.org/linux/man-pages/man5/core.5.html — core dump format and ASLR
 - https://man7.org/linux/man-pages/man8/sysctl.8.html — sysctl randomize_va_space
 - https://lwn.net/Articles/667236/ — "Revisiting kernel ASLR"

@@ -734,6 +734,14 @@ long nprocs = sysconf(_SC_NPROCESSORS_ONLN);
 
 ## References
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [LWN.net - Linux and free software news](https://lwn.net/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [pthread_create(3) — Linux manual page](https://man7.org/linux/man-pages/man3/pthread_create.3.html)
 - [pthread_mutex_lock(3) — Linux manual page](https://man7.org/linux/man-pages/man3/pthread_mutex_lock.3.html)
 - [pthread_cond_wait(3) — Linux manual page](https://man7.org/linux/man-pages/man3/pthread_cond_wait.3.html)

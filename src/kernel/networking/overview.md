@@ -646,6 +646,14 @@ $ sysctl net.ipv4.tcp_congestion_control=bbr
 
 ## References
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [LWN.net - Linux and free software news](https://lwn.net/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 1. **Linux Kernel Source** — `net/core/`, `net/ipv4/`, `include/linux/skbuff.h`
 2. *Understanding Linux Network Internals* by Christian Benvenuti (O'Reilly)
 3. *Linux Kernel Networking: Implementation and Theory* by Rami Rosen (Apress)

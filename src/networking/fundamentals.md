@@ -603,6 +603,14 @@ $ nmcli device wifi connect "MyNetwork" password "mypassword"
 
 ## References
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [LWN.net - Linux and free software news](https://lwn.net/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 1. **RFC 791** — Internet Protocol
 2. **RFC 793** — Transmission Control Protocol
 3. **RFC 768** — User Datagram Protocol

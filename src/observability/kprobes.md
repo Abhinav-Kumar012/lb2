@@ -314,6 +314,13 @@ kprobe:__kmalloc /arg0 > 1048576/ {
 
 ## Further Reading
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - <https://www.kernel.org/doc/html/latest/trace/kprobes.html> - Kernel kprobes documentation
 - <https://man7.org/linux/man-pages/man2/perf_event_open.2.html> - perf_event_open
 - <https://lwn.net/Articles/132196/> - Kprobes introduction

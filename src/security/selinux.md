@@ -526,6 +526,14 @@ See [AppArmor](./apparmor.md) for detailed comparison and usage.
 
 ## References
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [LWN.net - Linux and free software news](https://lwn.net/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - SELinux Project Wiki: https://selinuxproject.org/
 - Red Hat SELinux Documentation: https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html/using_selinux/
 - Fedora SELinux Guide: https://docs.fedoraproject.org/en-US/Fedora/25/html/SELinux_Users_and_Administrators_Guide/

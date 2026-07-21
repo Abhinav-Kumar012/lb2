@@ -1069,6 +1069,14 @@ update-alternatives --install /usr/bin/editor editor /usr/bin/vim 100  # Add
 
 ## Further Reading
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [LWN.net - Linux and free software news](https://lwn.net/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [GNU Coreutils Manual](https://www.gnu.org/software/coreutils/manual/)
 - [Linux Command Library](https://linuxcommandlibrary.com/)
 - [Explainshell](https://explainshell.com/) — Paste a command, get an explanation

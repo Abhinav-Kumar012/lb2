@@ -571,6 +571,13 @@ MODULE_LICENSE("GPL");
 
 ## References
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - **Understanding the Linux Kernel, 3rd Edition** — Chapter 17: Page Frame Reclaiming
 - [Kernel source: mm/oom_kill.c](https://elixir.bootlin.com/linux/latest/source/mm/oom_kill.c)
 - [Kernel documentation: OOM killer](https://www.kernel.org/doc/html/latest/admin-guide/mm/oom.html)

@@ -427,6 +427,13 @@ cat /sys/class/net/br0/bridge/hash_max
 
 ## References
 
+- [LWN.net - Linux and free software news](https://lwn.net/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [Kernel Bridge Documentation](https://docs.kernel.org/networking/bridge.html)
 - [Linux Foundation: Bridge](https://wiki.linuxfoundation.org/networking/bridge)
 - [man-pages: bridge(8)](https://man7.org/linux/man-pages/man8/bridge.8.html)

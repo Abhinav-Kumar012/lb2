@@ -690,6 +690,13 @@ $ kill -SIGTERM -1
 
 ## Further Reading
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [Linux man pages: signal(7)](https://man7.org/linux/man-pages/man7/signal.7.html)
 - [Linux man pages: sigaction(2)](https://man7.org/linux/man-pages/man2/sigaction.2.html)
 - [Linux man pages: kill(2)](https://man7.org/linux/man-pages/man2/kill.2.html)

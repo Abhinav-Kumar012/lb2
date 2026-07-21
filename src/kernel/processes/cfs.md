@@ -617,6 +617,13 @@ These limitations led to the development of EEVDF (see [EEVDF Scheduler](eevdf.m
 
 ## Further Reading
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [Linux kernel: kernel/sched/fair.c](https://elixir.bootlin.com/linux/latest/source/kernel/sched/fair.c)
 - [LWN: CFS scheduler](https://lwn.net/Articles/230574/) — Original CFS announcement
 - [LWN: The EEVDF CPU scheduler](https://lwn.net/Articles/925371/) — CFS replacement

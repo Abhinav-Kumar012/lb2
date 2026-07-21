@@ -570,6 +570,13 @@ getpcaps $(pgrep sshd)
 
 ## References
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - `man 7 capabilities` — Linux capabilities overview
 - `man 2 capget` / `man 2 capset` — System calls for capabilities
 - `man 8 setcap` / `man 8 getcap` — File capability utilities

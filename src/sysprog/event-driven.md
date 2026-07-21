@@ -391,6 +391,14 @@ epoll_ctl(epoll_fd, EPOLL_CTL_ADD, listen_fd, &ev);
 
 ## References
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [LWN.net - Linux and free software news](https://lwn.net/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [libevent documentation](https://libevent.org/)
 - [libev documentation](http://software.schmorp.de/pkg/libev.html)
 - [libuv documentation](https://docs.libuv.org/)

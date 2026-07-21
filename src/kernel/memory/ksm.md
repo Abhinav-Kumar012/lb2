@@ -320,6 +320,13 @@ graph TD
 
 ## Further Reading
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - https://www.kernel.org/doc/html/latest/admin-guide/mm/ksm.html
 - https://man7.org/linux/man-pages/man2/madvise.2.html — MADV_MERGEABLE
 - https://lwn.net/Articles/306704/ — "KSM: sharing memory between virtual machines"

@@ -573,6 +573,14 @@ The traditional Unix model has been extended over time:
 
 ## References
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [LWN.net - Linux and free software news](https://lwn.net/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - `man 2 stat` — File permissions and ownership: https://man7.org/linux/man-pages/man2/stat.2.html
 - `man 2 access` — Permission checking: https://man7.org/linux/man-pages/man2/access.2.html
 - `man 1 chmod` — Changing file permissions: https://man7.org/linux/man-pages/man1/chmod.1.html

@@ -591,6 +591,14 @@ Shared memory performance depends on synchronization overhead:
 
 ## References
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [LWN.net - Linux and free software news](https://lwn.net/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [shm_overview(7) — POSIX shared memory](https://man7.org/linux/man-pages/man7/shm_overview.7.html)
 - [shmget(2) — System V shared memory](https://man7.org/linux/man-pages/man2/shmget.2.html)
 - [shm_open(3) — POSIX shared memory](https://man7.org/linux/man-pages/man3/shm_open.3.html)

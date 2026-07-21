@@ -386,6 +386,13 @@ $ cat /proc/loadavg
 
 ## Further Reading
 
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
 - [Linux man pages: clone(2)](https://man7.org/linux/man-pages/man2/clone.2.html)
 - [Linux man pages: pthread_create(3)](https://man7.org/linux/man-pages/man3/pthread_create.3.html)
 - [NPTL Design document (Ulrich Drepper)](https://www.akkadia.org/drepper/nptl-design.pdf)
