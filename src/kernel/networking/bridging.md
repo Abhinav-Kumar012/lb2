@@ -144,7 +144,10 @@ brctl delbr br0
 
 ## STP (Spanning Tree Protocol)
 
-STP prevents loops in networks with redundant bridges/switches. When multiple paths exist between two points, STP blocks redundant paths to prevent broadcast storms.
+STP prevents loops in networks with redundant bridges/switches. When multiple paths
+exist between two points, STP blocks redundant paths to prevent broadcast storms.
+The Linux bridge implements STP/RSTP in-kernel, with the protocol state machine
+running as part of the bridge code (`net/bridge/stp_*`).
 
 ### How STP Works
 
@@ -163,6 +166,32 @@ graph LR
         B2 --- D2[Host D]
     end
 ```
+
+### STP Port States
+
+From the [kernel bridge documentation](https://docs.kernel.org/networking/bridge.html),
+each bridge port has an STP state that controls its behavior:
+
+| State | Value | Description |
+|-------|-------|-------------|
+| Disabled | 0 | Port completely inactive (BPDU filter). Traffic forwarding stopped. |
+| Listening | 1 | Listens for STP BPDUs, drops all other traffic. |
+| Learning | 2 | Accepts traffic only for MAC address table updates. |
+| Forwarding | 3 | Fully active — forwards traffic. |
+| Blocking | 4 | Processes only STP BPDUs (used during election). |
+
+### STP Bridge Netlink Attributes
+
+The bridge exposes STP configuration through netlink attributes:
+
+| Attribute | Description | Default |
+|-----------|-------------|---------|
+| `IFLA_BR_STP_STATE` | Enable/disable STP (0=off, >0=on) | 0 (disabled) |
+| `IFLA_BR_PRIORITY` | Bridge STP priority (0–65535) | 32768 |
+| `IFLA_BR_FORWARD_DELAY` | Time in LISTENING+LEARNING states (2–30s × USER_HZ) | 15s |
+| `IFLA_BR_HELLO_TIME` | Interval between hello packets (1–10s × USER_HZ) | 2s |
+| `IFLA_BR_MAX_AGE` | Hello packet timeout before assuming bridge is dead (6–40s × USER_HZ) | 20s |
+| `IFLA_BR_STP_MODE` | STP mode (userspace vs kernel) | — |
 
 ### STP Configuration
 
@@ -201,18 +230,43 @@ cat /sys/class/net/br0/bridge/stp_state
 # 1
 ```
 
-### RSTP (Rapid STP)
+### RSTP (Rapid STP — IEEE 802.1w)
 
-RSTP (802.1w) provides faster convergence than classic STP:
+RSTP provides faster convergence than classic STP (802.1D). The Linux bridge
+implements RSTP natively — when STP is enabled on modern kernels, RSTP is
+used automatically. RSTP achieves sub-second convergence by:
+
+- Using proposal/agreement handshake instead of timer-based transitions
+- Introducing **alternate** and **backup** port roles for rapid failover
+- Eliminating the 30-second listening→learning delay for edge ports
+- Allowing ports to transition to forwarding without waiting for BPDU timeout
 
 ```bash
 # RSTP is enabled by default when STP is on in modern kernels
 ip link set br0 type bridge stp_state 1
-# Modern kernels use RSTP automatically
 
 # View STP protocol in use
 bridge -d link show | grep -i "state"
+
+# The bridge STP mode can be set via IFLA_BR_STP_MODE:
+# 0 = use kernel STP (default, RSTP)
+# 1 = use userspace STP daemon (e.g., xSTPd)
 ```
+
+### STP Timers
+
+The kernel tracks several STP timers per bridge, readable via netlink:
+
+| Timer | Description |
+|-------|-------------|
+| `IFLA_BR_HELLO_TIMER` | Time until next hello BPDU is sent |
+| `IFLA_BR_TCN_TIMER` | Topology Change Notification timer |
+| `IFLA_BR_TOPOLOGY_CHANGE_TIMER` | Topology change detection timer |
+| `IFLA_BR_GC_TIMER` | Garbage collection timer for stale entries |
+
+Read-only status attributes include `IFLA_BR_ROOT_ID`, `IFLA_BR_BRIDGE_ID`,
+`IFLA_BR_ROOT_PORT`, `IFLA_BR_ROOT_PATH_COST`, `IFLA_BR_TOPOLOGY_CHANGE`,
+and `IFLA_BR_TOPOLOGY_CHANGE_DETECTED`.
 
 ## VLAN Filtering
 

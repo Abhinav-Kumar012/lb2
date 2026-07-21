@@ -92,8 +92,10 @@ void update_per_cpu_data(void) {
 
 ### Nested Bottom-Half Variant
 
-The `local_lock_nested_bh` variant is particularly useful for code paths that
-can be called from both process and softirq context:
+The `local_lock_nested_bh` variant is specifically designed for code paths that
+can be called from both process context and softirq (bottom-half) context, using
+the **same** lock instance. It prevents deadlocks when a softirq interrupts a
+process-context critical section that holds the same lock:
 
 ```c
 DEFINE_LOCAL_LOCK(my_bh_lock);
@@ -105,11 +107,24 @@ void called_from_process(void) {
 }
 
 void called_from_softirq(void) {
-    local_lock(&my_bh_lock);  /* Already in softirq, just disable preemption */
+    /* Must use local_lock_nested_bh() — not local_lock() — to safely
+     * acquire a lock that may already be held by a process-context
+     * caller that was interrupted by this softirq.
+     *
+     * Non-RT: disables bottom halves (prevents re-entrant softirq)
+     * RT: acquires the per-CPU rt_mutex with a nested lockdep annotation
+     */
+    local_lock_nested_bh(&my_bh_lock);
     shared_bh_and_process_code();
-    local_unlock(&my_bh_lock);
+    local_unlock_nested_bh(&my_bh_lock);
 }
 ```
+
+Using plain `local_lock()` from softirq context when the same lock is taken with
+`local_lock_bh()` from process context will trigger **lockdep warnings** because
+lockdep cannot establish the correct nesting relationship. `local_lock_nested_bh()`
+provides the proper lockdep annotation to suppress false positives while still
+detecting real deadlocks.
 
 ## Implementation Details
 

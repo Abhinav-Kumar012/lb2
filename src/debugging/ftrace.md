@@ -174,6 +174,9 @@ echo > /sys/kernel/tracing/set_ftrace_pid
 
 The function_graph tracer shows function call hierarchies with timing information,
 similar to a call graph profiler. It's one of the most useful ftrace tracers.
+From the [kernel ftrace documentation](https://docs.kernel.org/trace/ftrace.html),
+the function_graph tracer records both function entry and return, building a complete
+call tree with per-call duration.
 
 ### Basic Usage
 
@@ -212,6 +215,8 @@ Reading the output:
 - Duration is shown in microseconds (us) or milliseconds (ms)
 - Indentation shows call depth
 - `/* comment */` markers indicate special events within a function
+- Leaf functions (no children) show duration on the same line as `{`
+- Parent functions show total duration on the `}` closing line
 
 ### Configuring Function Graph
 
@@ -219,16 +224,16 @@ Reading the output:
 # Set max depth of call graph
 echo 5 > /sys/kernel/tracing/max_graph_depth
 
-# Filter by function
+# Filter to specific functions only
 echo do_sys_open > /sys/kernel/tracing/set_graph_function
 
-# Clear filter
+# Clear filter (trace all functions)
 echo > /sys/kernel/tracing/set_graph_function
 
 # Show overhead (time not accounted for by children)
 echo 1 > /sys/kernel/tracing/options/funcgraph-overhead
 
-# Show function return address
+# Show process info (pid, command)
 echo 1 > /sys/kernel/tracing/options/funcgraph-proc
 
 # Show CPU info
@@ -236,6 +241,36 @@ echo 1 > /sys/kernel/tracing/options/funcgraph-cpu
 
 # Show absolute time instead of relative
 echo 1 > /sys/kernel/tracing/options/funcgraph-abstime
+
+# Show interrupts (irqs-off, need-resched flags)
+echo 1 > /sys/kernel/tracing/options/funcgraph-irqs
+
+# Show duration in common units
+echo 1 > /sys/kernel/tracing/options/funcgraph-duration
+```
+
+### Key Options
+
+| Option | Description |
+|--------|-------------|
+| `funcgraph-overhead` | Show time overhead (duration - sum of children) |
+| `funcgraph-proc` | Show process name/PID per entry |
+| `funcgraph-cpu` | Show CPU number |
+| `funcgraph-abstime` | Show absolute timestamp instead of relative |
+| `funcgraph-irqs` | Show irq-disabled/need-resched flags |
+| `funcgraph-duration` | Show duration of each function |
+| `funcgraph-tail` | Show return value of functions |
+
+### trace-cmd with function_graph
+
+```bash
+# Record function graph for a specific function
+sudo trace-cmd record -p function_graph -g do_sys_openat2 sleep 1
+trace-cmd report
+
+# Record function graph for all scheduler functions
+sudo trace-cmd record -p function_graph -g 'schedule*' sleep 1
+trace-cmd report
 ```
 
 ## Event Tracing

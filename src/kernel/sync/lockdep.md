@@ -597,19 +597,65 @@ For rwlocks, lockdep tracks:
 - Recursive read locks are allowed (no false positives)
 - But read → write ordering violations are still detected
 
+## Lockdep Design Details (from kernel docs)
+
+The following details are drawn from the official [Runtime locking correctness validator](https://docs.kernel.org/locking/lockdep-design.html) documentation by Ingo Molnár and Arjan van de Ven.
+
+### Lock Class Lifecycle
+
+A lock-class's behavior is constructed by its instances collectively: when the first instance of a lock-class is used after bootup the class gets registered, then all subsequent instances are mapped to the class and their usages and dependencies contribute to those of the class. A lock-class does not go away when a lock instance does, but it can be removed if the memory space of the lock class (static or dynamic) is reclaimed — this happens for example when a module is unloaded or a workqueue is destroyed.
+
+### State Tracking (4 usages × n STATES + 1)
+
+Lockdep tracks lock-class usage history in categories:
+
+- **4 usages per state**: 'ever held in STATE context', 'ever held as readlock in STATE context', 'ever held with STATE enabled', 'ever held as readlock with STATE enabled'
+- **n STATES**: `hardirq` and `softirq` (defined in `kernel/locking/lockdep_states.h`)
+- **+1 category**: 'ever used' (i.e., not unused)
+
+### Annotation Macros
+
+Two constructs annotate and check lock requirements:
+
+- **`lockdep_assert_held*(&lock)`** — Asserts that a particular lock is held at a certain time (generates `WARN()` otherwise). Widely used, e.g., in `kernel/sched/core.c` for `rq->lock`.
+- **`lockdep_pin_lock(&lock)`** / **`lockdep_unpin_lock(&lock, cookie)`** — Returns a `struct pin_cookie` that detects if a lock was "accidentally" unlocked between pin and unpin. Useful for callbacks where an upper layer assumes a lock remains taken but a lower layer might drop and reacquire it.
+
+### Proof of 100% Correctness
+
+Lockdep achieves mathematical closure: for every simple, standalone single-task locking sequence that occurred at least once during the kernel's lifetime, the validator proves with 100% certainty that no combination and timing of these locking sequences can ever cause a deadlock.
+
+### Recursive Read Locks
+
+Read-locks can be acquired multiple times without deadlock. Lockdep handles recursive read locks specially — it tracks read-side dependencies separately from write-side, allows recursive read locks (no false positives), but still detects read → write ordering violations.
+
+### Dependency Types and Strong Paths
+
+Lockdep distinguishes dependency types:
+
+- **Regular dependency**: Lock B acquired while holding Lock A
+- **Strong dependency path**: A chain of dependencies where each link is a direct nesting relationship
+- **Read vs write dependencies**: Read-lock dependencies are tracked separately
+
+The BFS distance is recorded so reports show the shortest dependency chain.
+
+### Block Conditions on Readers/Writers
+
+For read-write locks, lockdep tracks blocking conditions:
+- A reader waiting for a writer creates a dependency
+- A writer waiting for readers creates a dependency
+- These are tracked to detect deadlocks involving read-write lock conversions
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
 - [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
-- [Kernel documentation: Runtime locking correctness validator](https://docs.kernel.org/locking/lockdep-design.html)
 - [GNU Manuals](https://www.gnu.org/manual/manual.html)
 - [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
 - [Planet GNU](https://planet.gnu.org/)
 - [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
 
-- [Kernel documentation: Runtime locking correctness validator](https://docs.kernel.org/locking/lockdep-design.html)
+- [Runtime locking correctness validator — docs.kernel.org](https://docs.kernel.org/locking/lockdep-design.html) — Official lockdep design documentation
 - [Kernel documentation: Lockdep](https://docs.kernel.org/locking/lockdep.html)
-- [Kernel documentation: Lockdep design](https://docs.kernel.org/locking/lockdep-design.html)
 - [Ingo Molnár: "Runtime lock dependency validator" (original patch)](https://lwn.net/Articles/185500/)
 - [LWN: "Lockdep: the Linux lock validator"](https://lwn.net/Articles/185500/)
 - [Linux Kernel Source: kernel/locking/lockdep.c](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/kernel/locking/lockdep.c)

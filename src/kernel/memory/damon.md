@@ -336,6 +336,115 @@ echo 10 > $KDAMOND/schemes/1/access/min_age
 echo max > $KDAMOND/schemes/1/access/max_age
 ```
 
+## Sysfs Interface (Detailed)
+
+From the [kernel documentation](https://docs.kernel.org/admin-guide/mm/damon/usage.html), DAMON exposes a
+comprehensive sysfs interface under `/sys/kernel/mm/damon/admin/` for privileged userspace
+programs. The `damo` tool is built on top of this interface.
+
+### Files Hierarchy
+
+The complete sysfs hierarchy is:
+
+```
+/sys/kernel/mm/damon/admin/
+├── kdamonds/
+│   ├── nr_kdamonds           # Number of kdamond instances
+│   └── 0/
+│       ├── state             # on/off/commit/update_schemes_stats/...
+│       ├── pid               # PID of kdamond thread (read-only when on)
+│       ├── refresh_ms        # Auto-refresh interval for stats/tuned intervals
+│       └── contexts/
+│           ├── nr_contexts
+│           └── 0/
+│               ├── avail_operations  # Available operations (vaddr/paddr/...)
+│               ├── operations       # Set operations type
+│               ├── addr_unit        # Address unit (bytes)
+│               ├── monitoring_attrs/
+│               │   ├── intervals/
+│               │   │   ├── sample_us    # Sampling interval (µs)
+│               │   │   ├── aggr_us      # Aggregation interval (µs)
+│               │   │   └── update_us    # Regions update interval (µs)
+│               │   └── nr_regions/
+│               │       ├── min          # Min number of monitoring regions
+│               │       └── max          # Max number of monitoring regions
+│               ├── targets/
+│               │   ├── nr_targets
+│               │   └── 0/
+│               │       ├── pid_target   # Target process PID
+│               │       └── regions/
+│               │           ├── nr_regions
+│               │           └── 0/
+│               │               ├── start  # Region start address
+│               │               └── end    # Region end address
+│               └── schemes/
+│                   ├── nr_schemes
+│                   └── 0/
+│                       ├── action          # pageout/hugepage/lru_prio/migrate/...
+│                       ├── target_nid      # Target NUMA node (for migrate)
+│                       ├── apply_interval_us
+│                       ├── access_pattern/
+│                       │   ├── sz/min,max
+│                       │   ├── nr_accesses/min,max
+│                       │   └── age/min,max
+│                       ├── quotas/
+│                       │   ├── ms, bytes, reset_interval_ms
+│                       │   └── weights/sz_permil,nr_accesses_permil,age_permil
+│                       ├── watermarks/
+│                       │   ├── metric, interval_us
+│                       │   ├── high, mid, low
+│                       ├── filters/
+│                       │   └── 0/type,matching,allow,memcg_path,...
+│                       ├── stats/
+│                       │   ├── nr_tried, sz_tried
+│                       │   ├── nr_applied, sz_applied
+│                       │   └── qt_exceeds
+│                       └── tried_regions/
+│                           └── 0/start,end,nr_accesses,age
+```
+
+### State Commands
+
+The `state` file accepts these commands:
+
+| Command | Description |
+|---------|-------------|
+| `on` | Start the kdamond |
+| `off` | Stop the kdamond |
+| `commit` | Re-read sysfs configuration (apply changes) |
+| `update_tuned_intervals` | Update sample_us/aggr_us with auto-tuned values |
+| `update_schemes_stats` | Refresh the stats files for each DAMOS scheme |
+| `update_schemes_tried_regions` | Refresh tried_regions data |
+| `update_schemes_effective_quotas` | Refresh effective_bytes for quotas |
+| `commit_schemes_quota_goals` | Re-read quota goal configurations |
+| `clear_schemes_tried_regions` | Clear tried_regions data |
+
+### Quick Configuration Example
+
+```bash
+cd /sys/kernel/mm/damon/admin/
+# Create one kdamond with one context
+echo 1 > kdamonds/nr_kdamonds
+echo 1 > kdamonds/0/contexts/nr_contexts
+# Use virtual address monitoring
+echo vaddr > kdamonds/0/contexts/0/operations
+# Set target PID
+echo 1 > kdamonds/0/contexts/0/targets/nr_targets
+echo $(pidof myworkload) > kdamonds/0/contexts/0/targets/0/pid_target
+# Set intervals: 5ms sample, 100ms aggr, 1s update
+echo 5000 > kdamonds/0/contexts/0/monitoring_attrs/intervals/sample_us
+echo 100000 > kdamonds/0/contexts/0/monitoring_attrs/intervals/aggr_us
+echo 1000000 > kdamonds/0/contexts/0/monitoring_attrs/intervals/update_us
+# Add a reclaim scheme
+echo 1 > kdamonds/0/contexts/0/schemes/nr_schemes
+echo pageout > kdamonds/0/contexts/0/schemes/0/action
+echo 0 > kdamonds/0/contexts/0/schemes/0/access_pattern/nr_accesses/min
+echo 0 > kdamonds/0/contexts/0/schemes/0/access_pattern/nr_accesses/max
+echo 10 > kdamonds/0/contexts/0/schemes/0/access_pattern/age/min
+# Start
+echo on > kdamonds/0/state
+```
+
 ## Programmatic Interface (libdamon)
 
 The DAMON user-space library `damo` provides a Python interface:
@@ -401,6 +510,9 @@ CONFIG_DAMON_LRU_SORT=y       # LRU sorting module
 ## Further Reading
 
 - [DAMON official documentation](https://www.kernel.org/doc/html/latest/mm/damon/index.html)
+- [DAMON sysfs usage — docs.kernel.org](https://docs.kernel.org/admin-guide/mm/damon/usage.html) — Detailed sysfs interface reference
+- [DAMON design — docs.kernel.org](https://docs.kernel.org/mm/damon/design.html) — Internal design document
+- [DAMON API — docs.kernel.org](https://docs.kernel.org/mm/damon/api.html) — Kernel programming interface
 - [DAMON: Data Access MONitoring (LWN.net)](https://lwn.net/Articles/812707/)
 - [DAMON Patches (lore.kernel.org)](https://lore.kernel.org/linux-mm/?q=damon)
 - [DAMON user-space tool (damo)](https://github.com/damonitor/damo)

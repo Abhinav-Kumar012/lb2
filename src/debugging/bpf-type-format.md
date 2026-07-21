@@ -473,10 +473,106 @@ CONFIG_DEBUG_INFO_BTF_MODULES=y  # Generate BTF for modules
 | Large vmlinux.h | Includes all types | Keep only needed types |
 | "Type not compatible" | CO-RE type mismatch | Use `bpf_core_type_exists()` check |
 
+## BTF Specification Details (from kernel docs)
+
+The following details are drawn from the official [BPF Type Format (BTF)](https://docs.kernel.org/bpf/btf.html) kernel documentation.
+
+### BTF Header
+
+The BTF data blob begins with:
+
+```c
+struct btf_header {
+    __u16 magic;       /* 0xEB9F — different encoding for big/little endian */
+    __u8  version;     /* BTF version (currently 1) */
+    __u8  flags;
+    __u32 hdr_len;     /* sizeof(struct btf_header) when generated */
+    /* All offsets are in bytes relative to the end of this header */
+    __u32 type_off;    /* offset of type section */
+    __u32 type_len;    /* length of type section */
+    __u32 str_off;     /* offset of string section */
+    __u32 str_len;     /* length of string section */
+};
+```
+
+The magic `0xEB9F` has different encoding for big and little endian systems, and can be used to test whether BTF is generated for a big- or little-endian target. The `btf_header` is designed to be extensible with `hdr_len` equal to `sizeof(struct btf_header)` when a data blob is generated.
+
+### String Encoding
+
+The first string in the string section must be a null string. The rest of the string table is a concatenation of null-terminated strings.
+
+### Type Encoding
+
+Type ID 0 is reserved for the void type. The type section is parsed sequentially and type IDs are assigned starting from 1. Each type contains:
+
+```c
+struct btf_type {
+    __u32 name_off;
+    /* "info" bits arrangement:
+     *   bits 0-23:  vlen (e.g. # of struct members)
+     *   bits 24-30: kind (e.g. int, ptr, array...)
+     *   bit 31:     kind_flag (used by struct, union, enum, fwd, enum64,
+     *                           decl_tag and type_tag)
+     */
+    __u32 info;
+    /* "size" is used by INT, ENUM, STRUCT, UNION and ENUM64.
+     * "type" is used by PTR, TYPEDEF, VOLATILE, CONST, RESTRICT,
+     *         FUNC, FUNC_PROTO, DECL_TAG and TYPE_TAG.
+     */
+    union {
+        __u32 size;
+        __u32 type;
+    };
+};
+```
+
+### Integer Encoding
+
+`BTF_KIND_INT` is followed by a `u32` with:
+
+- `BTF_INT_ENCODING(VAL)` — attributes: `BTF_INT_SIGNED`, `BTF_INT_CHAR`, `BTF_INT_BOOL`
+- `BTF_INT_OFFSET(VAL)` — starting bit offset for value calculation
+- `BTF_INT_BITS(VAL)` — actual number of bits (max 128)
+
+`btf_type.size * 8` must be ≥ `BTF_INT_BITS()`.
+
+### Struct/Union Members
+
+```c
+struct btf_member {
+    __u32 name_off;
+    __u32 type;
+    __u32 offset;  /* bit offset; if kind_flag set, also contains bitfield size */
+};
+```
+
+When `kind_flag` is set, the offset contains both bitfield size and bit offset:
+```c
+#define BTF_MEMBER_BITFIELD_SIZE(val) ((val) >> 24)
+#define BTF_MEMBER_BIT_OFFSET(val)    ((val) & 0xffffff)
+```
+
+### Function and Function Prototype
+
+- `BTF_KIND_FUNC` (12): Represents a defined subprogram (not a type). Links to a `BTF_KIND_FUNC_PROTO`.
+- `BTF_KIND_FUNC_PROTO` (13): Function prototype with parameter types and return type.
+
+### Variables and Data Sections
+
+- `BTF_KIND_VAR` (14): Global variable with type and linkage.
+- `BTF_KIND_DATASEC` (15): Section containing variables (maps to ELF sections).
+
+### Additional Kinds
+
+- `BTF_KIND_FLOAT` (16): Floating point types
+- `BTF_KIND_DECL_TAG` (17): Declaration tags (annotations on declarations)
+- `BTF_KIND_TYPE_TAG` (18): Type tags (annotations on types)
+- `BTF_KIND_ENUM64` (19): Enumeration up to 64-bit values
+
 ## Further Reading
 
 - [BPF CO-RE Reference Guide](https://nakryiko.com/posts/bpf-core-reference-guide/)
-- [BTF Specification](https://www.kernel.org/doc/html/latest/bpf/btf.html)
+- [BPF Type Format (BTF) — docs.kernel.org](https://docs.kernel.org/bpf/btf.html) — Official BTF specification
 - [libbpf CO-RE tutorial](https://nakryiko.com/posts/libbpf-ultimate-guide/)
 - [bpftool documentation](https://man7.org/linux/man-pages/man8/bpftool-btf.8.html)
 - [LWN: BPF Type Format](https://lwn.net/Articles/781430/)

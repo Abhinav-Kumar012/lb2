@@ -1,0 +1,478 @@
+# cmpxchg (Compare-and-Exchange)
+
+`cmpxchg` is the fundamental atomic compare-and-exchange primitive in the Linux
+kernel. It is the building block for lock-free data structures, atomic
+read-modify-write operations, and per-CPU variables. The kernel provides
+architecture-optimized implementations with explicit memory ordering semantics.
+
+> **Header:** `include/linux/atomic.h`, `include/asm-generic/cmpxchg.h`  
+> **Arch headers:** `arch/*/include/asm/cmpxchg.h`  
+> **Compiler builtin:** `__sync_val_compare_and_swap()`, `__atomic_compare_exchange()`
+
+---
+
+## Concept
+
+Compare-and-exchange is an atomic operation:
+
+```
+cmpxchg(ptr, old, new):
+    if *ptr == old:
+        *ptr = new
+        return old     (success)
+    else:
+        return *ptr    (failure — *ptr was different)
+```
+
+The key property: **the load, comparison, and store happen atomically** with
+respect to all other CPUs. No other thread can modify `*ptr` between the
+comparison and the store.
+
+---
+
+## Kernel API
+
+### Basic `cmpxchg`
+
+```c
+#include <linux/atomic.h>
+
+/* Typed cmpxchg */
+typeof(*ptr) cmpxchg(typeof(*ptr) *ptr, typeof(*ptr) old, typeof(*ptr) new);
+
+/* Example */
+int expected = 0;
+int prev = cmpxchg(&my_var, expected, 1);
+if (prev == expected) {
+    /* Successfully changed my_var from 0 to 1 */
+} else {
+    /* my_var was not 0; prev holds the actual value */
+}
+```
+
+### `cmpxchg_relaxed` / `cmpxchg_acquire` / `cmpxchg_release`
+
+Variants with explicit memory ordering:
+
+| Variant | Ordering | Use Case |
+|---------|----------|----------|
+| `cmpxchg` | Full barrier (`smp_mb()`) | General purpose; strongest ordering |
+| `cmpxchg_relaxed` | No barrier | When ordering is handled separately |
+| `cmpxchg_acquire` | Acquire barrier | Lock acquisition pattern |
+| `cmpxchg_release` | Release barrier | Lock release pattern |
+
+```c
+/* Acquire semantics: subsequent reads/writes see the change */
+int old = cmpxchg_acquire(&lock->state, FREE, LOCKED);
+
+/* Release semantics: prior writes visible before this store */
+cmpxchg_release(&lock->state, LOCKED, FREE);
+```
+
+### `try_cmpxchg`
+
+Modern (Linux 6.1+) variant that returns success/failure via pointer:
+
+```c
+bool try_cmpxchg(typeof(*ptr) *ptr, typeof(*ptr) *oldp, typeof(*ptr) new);
+
+/* Usage */
+int expected = 0;
+if (try_cmpxchg(&my_var, &expected, 1)) {
+    /* Success: my_var was 0, now 1 */
+} else {
+    /* Failure: expected now contains the actual value */
+    /* No need for a separate load */
+}
+```
+
+This is preferred over `cmpxchg` on architectures where the comparison result
+is available without an extra load (e.g., x86 sets ZF flag).
+
+### `cmpxchg64` / `cmpxchg_local`
+
+```c
+/* 64-bit cmpxchg (needed on 32-bit architectures) */
+u64 cmpxchg64(u64 *ptr, u64 old, u64 new);
+
+/* Per-CPU only (no inter-CPU atomicity) — faster for per-CPU variables */
+unsigned long cmpxchg_local(unsigned long *ptr, unsigned long old, unsigned long new);
+```
+
+---
+
+## Atomic Operations Built on cmpxchg
+
+The kernel implements compound atomic operations using `cmpxchg`:
+
+```c
+/* These are all built on cmpxchg internally: */
+atomic_add_return(i, v);      /* atomic add, return result */
+atomic_sub_return(i, v);      /* atomic subtract */
+atomic_inc_return(v);         /* atomic increment */
+atomic_dec_return(v);         /* atomic decrement */
+atomic_fetch_add(i, v);       /* add, return old value */
+atomic_fetch_or(i, v);        /* bitwise OR */
+atomic_fetch_and(i, v);       /* bitwise AND */
+atomic_fetch_xor(i, v);       /* bitwise XOR */
+
+/* 64-bit variants */
+atomic64_cmpxchg(v, old, new);
+atomic64_try_cmpxchg(v, &old, new);
+```
+
+### How `atomic_add_return` Uses cmpxchg
+
+```c
+/* Simplified — actual implementation varies by arch */
+static inline int atomic_add_return(int i, atomic_t *v)
+{
+    int old, new;
+    do {
+        old = atomic_read(v);
+        new = old + i;
+    } while (cmpxchg(&v->counter, old, new) != old);
+    return new;
+}
+```
+
+On architectures with native atomic add (x86 `lock xadd`), this is a single
+instruction instead of a cmpxchg loop.
+
+---
+
+## Architecture Implementations
+
+### x86 / x86_64
+
+```c
+/* arch/x86/include/asm/cmpxchg.h */
+
+/* 32-bit cmpxchg */
+#define cmpxchg(ptr, old, new)                         \
+    __cmpxchg(ptr, old, new, sizeof(*(ptr)))
+
+/* Inline assembly — x86 has native CMPXCHG instruction */
+static inline unsigned long __cmpxchg(volatile void *ptr,
+                                       unsigned long old,
+                                       unsigned long new, int size)
+{
+    switch (size) {
+    case 1:
+        asm volatile("lock cmpxchgb %b1, %0"
+                     : "+m" (*(u8 *)ptr), "=a" (old)
+                     : "r" ((u8)new), "1" ((u8)old)
+                     : "memory");
+        break;
+    case 2:
+        asm volatile("lock cmpxchw %w1, %0"
+                     : "+m" (*(u16 *)ptr), "=a" (old)
+                     : "r" ((u16)new), "1" ((u16)old)
+                     : "memory");
+        break;
+    case 4:
+        asm volatile("lock cmpxchgl %k1, %0"
+                     : "+m" (*(u32 *)ptr), "=a" (old)
+                     : "r" ((u32)new), "1" ((u32)old)
+                     : "memory");
+        break;
+#ifdef CONFIG_X86_64
+    case 8:
+        asm volatile("lock cmpxchgq %1, %0"
+                     : "+m" (*(u64 *)ptr), "=a" (old)
+                     : "r" ((u64)new), "1" ((u64)old)
+                     : "memory");
+        break;
+#endif
+    }
+    return old;
+}
+```
+
+**Key instruction:** `LOCK CMPXCHG` — atomic on SMP via cache-line locking.
+
+On x86, `cmpxchg` includes a full memory barrier (`lock` prefix implies `mfence`
+on modern CPUs).
+
+### ARM64
+
+```c
+/* arch/arm64/include/asm/cmpxchg.h */
+
+/* Uses LL/SC (Load-Linked / Store-Conditional) */
+#define __CMPXCHG_CASE(w, sz, name, mb, cl)                         \
+static inline unsigned long __cmpxchg_case_##name(                    \
+        volatile void *ptr, unsigned long old, unsigned long new)    \
+{                                                                     \
+    unsigned long tmp, ret;                                           \
+    asm volatile(                                                     \
+        "   prfm    pstl1strm, %2\n"                                 \
+        "1: ld" #mb "xr" #sz "\t%" #w "0, %2\n"                     \
+        "   eor     %" #w "1, %" #w "0, %" #w "3\n"                 \
+        "   cbnz    %" #w "1, 2f\n"                                  \
+        "   st" #cl "xr" #sz "\t%w1, %" #w "4, %2\n"                \
+        "   cbnz    %w1, 1b\n"                                       \
+        "2:"                                                          \
+        : "=&r" (ret), "=&r" (tmp), "+Q" (*(unsigned long *)ptr)     \
+        : "r" (old), "r" (new)                                       \
+        : cl);                                                        \
+    return ret;                                                       \
+}
+```
+
+**ARM64 instructions:** `LDXR` (load-exclusive) / `STXR` (store-conditional)
+loop, with optional `LDAXR` / `STLR` for acquire/release semantics.
+
+### RISC-V
+
+```c
+/* arch/riscv/include/asm/cmpxchg.h */
+
+/* Uses LR/SC (Load-Reserved / Store-Conditional) */
+#define __cmpxchg(ptr, old, new, size)                                  \
+({                                                                       \
+    __typeof__(*(ptr)) __ret;                                            \
+    switch (size) {                                                      \
+    case 4:                                                              \
+        __ret = cmpxchg_val_32(ptr, old, new);                          \
+        break;                                                           \
+    }                                                                    \
+    __ret;                                                               \
+})
+
+/* cmpxchg_val_32 uses lr.w / sc.w loop */
+```
+
+**RISC-V instructions:** `LR.W` / `SC.W` (32-bit), `LR.D` / `SC.D` (64-bit).
+
+### PowerPC
+
+```c
+/* arch/powerpc/include/asm/cmpxchg.h */
+
+/* Uses lwarx / stwcx. (LL/SC variant) */
+#define __cmpxchg_u32(ptr, old, new)                                    \
+({                                                                       \
+    unsigned int *__ptr = (unsigned int *)(ptr);                         \
+    unsigned int __old = (old);                                          \
+    unsigned int __new = (new);                                          \
+    unsigned int __prev;                                                 \
+    __asm__ __volatile__(                                                \
+        "1: lwarx   %0,0,%2\n"                                          \
+        "   cmpw    0,%0,%3\n"                                           \
+        "   bne-    2f\n"                                                \
+        "   stwcx.  %4,0,%2\n"                                           \
+        "   bne-    1b\n"                                                \
+        "   isync\n"                                                     \
+        "2:"                                                             \
+        : "=&r" (__prev), "=m" (*__ptr)                                  \
+        : "r" (__ptr), "r" (__old), "r" (__new), "m" (*__ptr)           \
+        : "cc", "xer", "memory");                                        \
+    __prev;                                                              \
+})
+```
+
+---
+
+## Memory Barriers and Ordering
+
+cmpxchg interacts with the CPU memory model. The barriers ensure that:
+
+1. **No reordering of cmpxchg with surrounding accesses** (full barrier variant).
+2. **Acquire/release semantics** for lock-free algorithms.
+
+### Full Barrier (default `cmpxchg`)
+
+```
+Store A ──┤                    ├── Load X
+          ├── cmpxchg(old,new) ├──
+Load B  ──┤                    ├── Store Y
+```
+
+Nothing moves across the cmpxchg in either direction.
+
+### Acquire (`cmpxchg_acquire`)
+
+```
+                ├── cmpxchg_acquire(old,new) ├──
+Load B  ──┤                    ├── Load X
+Store A ──┤                    ├── Store Y
+```
+
+Loads and stores *after* the acquire cannot move *before* it.
+
+### Release (`cmpxchg_release`)
+
+```
+Store A ──┤                    ├── Load X
+Load B  ──┤                    ├── Store Y
+          ├── cmpxchg_release(old,new) ├──
+```
+
+Loads and stores *before* the release cannot move *after* it.
+
+### x86 vs ARM64 Barrier Cost
+
+| Architecture | Full barrier cost | Acquire/Release cost |
+|-------------|-------------------|---------------------|
+| x86_64 | `lock` prefix (~20 cycles) | Same (x86 is strongly ordered) |
+| ARM64 | `DMB ISH` (~50-100 cycles) | `LDAXR`/`STLR` (free or near-free) |
+
+On ARM64, using `cmpxchg_acquire`/`cmpxchg_release` instead of `cmpxchg` can
+be significantly faster.
+
+---
+
+## Common Usage Patterns
+
+### Lock-Free Stack (Treiber Stack)
+
+```c
+struct node {
+    struct node *next;
+    int data;
+};
+
+struct stack {
+    struct node *head;
+};
+
+void push(struct stack *s, struct node *n)
+{
+    struct node *old;
+    do {
+        old = READ_ONCE(s->head);
+        n->next = old;
+    } while (cmpxchg(&s->head, old, n) != old);
+}
+
+struct node *pop(struct stack *s)
+{
+    struct node *old, *next;
+    do {
+        old = READ_ONCE(s->head);
+        if (!old)
+            return NULL;
+        next = old->next;
+    } while (cmpxchg(&s->head, old, next) != old);
+    return old;
+}
+```
+
+### Version Counter / Sequence Lock Pattern
+
+```c
+struct seqcount {
+    unsigned int sequence;
+};
+
+void write_begin(struct seqcount *sc)
+{
+    /* Odd = write in progress */
+    sc->sequence++;
+    smp_wmb();
+}
+
+void write_end(struct seqcount *sc)
+{
+    smp_wmb();
+    sc->sequence++;  /* Even = stable */
+}
+
+unsigned int read_begin(struct seqcount *sc)
+{
+    unsigned int seq;
+    seq = READ_ONCE(sc->sequence);
+    smp_rmb();
+    return seq;
+}
+
+bool read_retry(struct seqcount *sc, unsigned int start)
+{
+    smp_rmb();
+    return READ_ONCE(sc->sequence) != start;
+}
+```
+
+### Test-and-Set Bit
+
+```c
+/* Atomically test and set bit, return old value */
+bool test_and_set_bit(long nr, volatile unsigned long *addr)
+{
+    /* Implemented via cmpxchg on most architectures */
+    unsigned long mask = 1UL << (nr % BITS_PER_LONG);
+    unsigned long old;
+    do {
+        old = *addr;
+        if (old & mask)
+            return true;  /* already set */
+    } while (cmpxchg(addr, old, old | mask) != old);
+    return false;
+}
+```
+
+---
+
+## cmpxchg vs Other Primitives
+
+| Primitive | Use Case | Atomicity |
+|-----------|----------|-----------|
+| `cmpxchg` | Conditional update, CAS loops | Single atomic RMW |
+| `atomic_add` | Simple increment/decrement | May use native instruction |
+| `xchg` | Unconditional exchange | Single atomic RMW |
+| `test_and_set_bit` | Bit manipulation | Via cmpxchg or native |
+| `spin_lock` | Mutual exclusion | cmpxchg-based on ticket/spin locks |
+| `rcu_assign_pointer` | RCU publish | Store + barrier |
+
+---
+
+## Common Pitfalls
+
+### ABA Problem
+
+```
+Thread 1: reads A, gets preempted
+Thread 2: changes A→B→A
+Thread 1: cmpxchg succeeds (thinks nothing changed)
+```
+
+**Fix:** Use versioned pointers (tag the pointer with a counter).
+
+### Spurious Failures
+
+cmpxchg can fail spuriously on LL/SC architectures (ARM64, RISC-V) if the
+cache line is evicted. This is *correct behavior* — CAS loops always retry.
+
+### Size Mismatch
+
+```c
+/* WRONG: cmpxchg on a u8 using u32 pointer */
+u8 val = 0;
+cmpxchg((u32 *)&val, 0, 1);  /* undefined behavior */
+
+/* RIGHT: use properly typed pointer */
+cmpxchg(&val, (u8)0, (u8)1);
+```
+
+---
+
+## Relation to Other Kernel Subsystems
+
+- **cmpxchg** is the foundation for `atomic_*` operations.
+- **spinlock** (ticket/MCS/qspinlock) uses cmpxchg for lock acquisition.
+- **RCU** uses cmpxchg for lock-free pointer updates.
+- **Per-CPU variables** use `cmpxchg_local` for fast per-CPU operations.
+- **Lock-free lists** (e.g., `llist`) are built on cmpxchg.
+
+---
+
+## Further Reading
+
+- [Kernel docs: Atomic Operations](https://www.kernel.org/doc/html/latest/core-api/atomic_ops.html)
+- [Kernel docs: Memory Barriers](https://www.kernel.org/doc/html/latest/core-api/wrappers/memory-barriers.html)
+- [LWN: Lock-free algorithms](https://lwn.net/Articles/262464/)
+- [Intel SDM Vol. 2: CMPXCHG instruction](https://www.intel.com/sdm)
+- [ARM Architecture Reference Manual: LDXR/STXR]
+- [Hans Boehm: Can Seqlocks Get Along With Programming Language Memory Models?](https://www.hpl.hp.com/techreports/2012/HPL-2012-68.html)
+- See also: [Spinlocks](/kernel/sync/spinlock), [Memory Barriers](/kernel/sync/barriers), [RCU](/kernel/sync/rcu), [Atomic Operations](/kernel/sync/atomic)

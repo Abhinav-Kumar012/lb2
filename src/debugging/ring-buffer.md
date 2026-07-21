@@ -515,7 +515,7 @@ perf report --header
 | Implementation    | Lockless | Per-CPU | Variable Events | Use Case         |
 |-------------------|----------|---------|-----------------|------------------|
 | ftrace ring buffer| Yes      | Yes     | Yes             | Kernel tracing   |
-| perf ring buffer  | Yes      | Yes     | No (fixed)      | Performance analysis|
+| perf ring buffer  | Yes      | Yes     | Yes (variable)  | Performance analysis|
 | BPF ring buffer   | Yes      | No      | Yes             | BPF programs     |
 | AF_PACKET V3      | Semi     | Yes     | Yes             | Packet capture   |
 | io_uring          | Yes      | No      | Yes             | Async I/O        |

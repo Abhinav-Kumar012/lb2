@@ -87,7 +87,31 @@ graph LR
     end
 ```
 
-## Extent-Based Block Mapping
+## Block Mapping
+
+ext4 supports two block mapping strategies: the legacy **indirect block** scheme (from ext2/ext3)
+and the modern **extent-based** scheme. The extent-based approach is the default for new files.
+
+### Indirect Block Mapping (Legacy)
+
+From the [kernel ext4 blockmap documentation](https://docs.kernel.org/filesystems/ext4/blockmap.html),
+the traditional block mapping uses the inode's `i_block[15]` array with direct and indirect
+pointers:
+
+| `i_block[]` Offset | Mapping Type | Coverage (4 KiB blocks) |
+|---------------------|-------------|--------------------------|
+| 0–11 | Direct blocks | Blocks 0–11 (48 KiB) |
+| 12 | Single indirect | Blocks 12–1035 (1024 blocks = 4 MiB) |
+| 13 | Double indirect | Blocks 1036–1,049,611 (~4 GiB) |
+| 14 | Triple indirect | Blocks 1,049,612–1,074,791,436 (~4 TiB) |
+
+Each indirect block contains `$block_size / 4` pointers (1024 pointers for 4 KiB blocks).
+The triple-indirect block enables files up to ~4 TiB with 4 KiB blocks.
+
+This scheme is inefficient for large files — a 1 GB file requires ~260,000 block pointer
+entries vs. 1–4 extents.
+
+### Extent-Based Block Mapping
 
 The most significant improvement in ext4 over ext3 is extent-based block mapping. Instead of
 storing individual block numbers (indirect blocks), ext4 stores extents — contiguous runs of

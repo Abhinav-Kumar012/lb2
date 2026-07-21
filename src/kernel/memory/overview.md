@@ -585,6 +585,62 @@ ls /sys/kernel/mm/damon/
 - **Workload characterization**: Understand which parts of an application's memory are actively used
 - **Energy efficiency**: Reduce power by moving cold memory to low-power DIMMs
 
+## HMM (Heterogeneous Memory Management)
+
+From the [kernel HMM documentation](https://docs.kernel.org/mm/hmm.html), HMM provides
+infrastructure to integrate non-conventional memory (like GPU onboard memory) into the
+kernel's regular memory management path. The cornerstone is using specialized `struct page`
+for device memory.
+
+### The Problem HMM Solves
+
+Devices with large onboard memory (GPUs, accelerators) historically managed memory through
+dedicated driver APIs, creating a **split address space** where:
+- Application memory (malloc, mmap) and device memory are separate
+- Complex data structures must be duplicated and pointer relationships remapped
+- Libraries cannot transparently use data from other libraries or the core program
+- Compilers cannot leverage devices without explicit programmer intervention
+
+### HMM Design
+
+HMM provides two main features:
+
+1. **Address space mirroring**: Duplicates the CPU page table into the device page table,
+   so the same virtual address points to the same physical memory on both CPU and device.
+   Uses `mmu_interval_notifier` to track CPU page table updates.
+
+2. **DEVICE_PRIVATE memory** (ZONE_DEVICE): Allocates `struct page` for device memory
+   pages. The CPU cannot map these directly, but they integrate with existing mm mechanisms.
+   Migration to/from device memory uses the standard migration path — from the CPU's
+   perspective, a migrated page looks like it was swapped out.
+
+### Key API
+
+```c
+/* Register for page table change notifications */
+int mmu_interval_notifier_insert(struct mmu_interval_notifier *interval_sub,
+                                 struct mm_struct *mm, unsigned long start,
+                                 unsigned long length,
+                                 const struct mmu_interval_notifier_ops *ops);
+
+/* Populate device page table (triggers CPU page faults if needed) */
+int hmm_range_fault(struct hmm_range *range);
+```
+
+### Shared Virtual Memory (SVM)
+
+HMM enables SVM — any valid CPU pointer is also a valid device pointer. This simplifies
+heterogeneous computing where GPUs, DSPs, or FPGAs perform computations on behalf of a
+process. Any CPU access to a device-migrated page triggers a page fault and migration
+back to main memory.
+
+### Use Cases
+
+- **GPU computing**: CUDA/ROCm-style unified memory
+- **AI/ML accelerators**: Transparent tensor memory management
+- **FPGA compute**: Device-side memory with CPU accessibility
+- **CXL devices**: Memory expanders with heterogeneous access latency
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)

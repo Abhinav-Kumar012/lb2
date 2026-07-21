@@ -439,7 +439,43 @@ The `intel_idle` driver auto-detects available C-states. The `cpuidle` framework
 
 ### CPU Performance Scaling (cpufreq)
 
-The kernel provides multiple CPU frequency governors:
+From the [kernel cpufreq documentation](https://docs.kernel.org/admin-guide/pm/cpufreq.html),
+the CPUFreq subsystem manages CPU frequency/voltage scaling (P-states) through three layers:
+
+1. **CPUFreq core** — Common infrastructure and sysfs user space interface
+2. **Scaling governors** — Algorithms to estimate required CPU capacity
+3. **Scaling drivers** — Hardware-specific interfaces to change P-states
+
+### CPUFreq Policy Objects
+
+CPUs sharing hardware P-state control interfaces are grouped into `struct cpufreq_policy`
+objects. Each policy has its own sysfs directory under `/sys/devices/system/cpu/cpufreq/policyX/`.
+All CPUs in a policy change frequency together.
+
+### Sysfs Policy Interface
+
+```bash
+# Policy directory symlinked from each CPU
+ls /sys/devices/system/cpu/cpu0/cpufreq/
+# cpuinfo_cur_freq    cpuinfo_max_freq    cpuinfo_min_freq
+# scaling_cur_freq    scaling_max_freq    scaling_min_freq
+# scaling_governor    scaling_available_governors
+# scaling_driver      scaling_available_frequencies
+# related_cpus        affected_cpus
+# energy_performance_preference  scaling_boost_freqency
+
+# View current frequency
+cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq
+
+# View available governors
+cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_available_governors
+# conservative ondemand userspace powersave performance schedutil
+
+# Set governor
+echo performance > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
+```
+
+### Scaling Governors
 
 | Governor | Description |
 |----------|-------------|
@@ -448,17 +484,33 @@ The kernel provides multiple CPU frequency governors:
 | `schedutil` | **Recommended**: Uses scheduler utilization data (PELT) for frequency selection |
 | `ondemand` | Legacy: Timer-based load sampling |
 | `conservative` | Legacy: Gradual frequency changes |
+| `userspace` | Frequency controlled by user-space daemon |
 
-**`schedutil`** (available since kernel 4.7) is the preferred governor because it has direct access to scheduler metrics and can adjust frequency at each scheduler tick, reducing latency between load changes and frequency adjustments.
+**`schedutil`** (kernel 4.7+) is the preferred governor because it has direct access to
+scheduler metrics via utilization update callbacks registered with the CPU scheduler.
+It can adjust frequency at each scheduler tick, reducing latency between load changes
+and frequency adjustments. Other governors use periodic timers.
 
-### Processor-Specific Drivers
+### Scaling Drivers
 
-- **intel_pstate**: Intel's performance scaling driver for Core processors. Provides hardware-managed P-states (HWP) on supported CPUs.
-- **amd-pstate**: AMD's performance scaling driver (since kernel 5.17). Supports both guided and active modes.
+Scaling drivers talk to hardware, providing available P-state information and executing
+frequency changes. Multiple governors can be used with any driver.
+
+| Driver | Platform | Features |
+|--------|----------|----------|
+| `intel_pstate` | Intel Core | HWP (Hardware P-states), energy-aware |
+| `intel_cpufreq` | Intel (passive mode) | Exposes standard cpufreq interface |
+| `amd-pstate` | AMD (kernel 5.17+) | Guided and active modes, EPP support |
+| `acpi-cpufreq` | Generic ACPI | Standard ACPI P-state interface |
+| `cpufreq-dt` | ARM/embedded | Device-tree based |
+
+The `intel_pstate` driver can bypass the governor layer entirely, implementing its own
+P-state selection algorithms via the `->setpolicy()` callback.
 
 ### Intel Performance and Energy Bias Hint (EPB)
 
-Intel CPUs provide an Energy Performance Bias (EPB) register that influences the hardware's frequency selection heuristics:
+Intel CPUs provide an Energy Performance Bias (EPB) register that influences the hardware's
+frequency selection heuristics:
 
 ```bash
 # View EPB value (0=performance, 15=power saving)

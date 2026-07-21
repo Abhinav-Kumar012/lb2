@@ -1316,6 +1316,48 @@ qemu-system-x86_64 -enable-kvm \
     -cpu host,hv_relaxed,hv_vapic,hv_spinlocks=0x1fff,hv_vpindex,hv_runtime,hv_synic,hv_stimer
 ```
 
+## vCPU Device Interface
+
+From the [kernel vCPU device documentation](https://docs.kernel.org/virt/kvm/devices/vcpu.html),
+the virtual CPU "device" accepts `KVM_SET_DEVICE_ATTR`, `KVM_GET_DEVICE_ATTR`, and
+`KVM_HAS_DEVICE_ATTR` ioctls targeting vCPU-wide settings. Groups and attributes are
+architecture-specific.
+
+### ARM64: PMUv3 Control (KVM_ARM_VCPU_PMU_V3_CTRL)
+
+| Attribute | Description |
+|-----------|-------------|
+| `KVM_ARM_VCPU_PMU_V3_IRQ` | Set/get the PMU overflow interrupt number (PPI or SPI) |
+| `KVM_ARM_VCPU_PMU_V3_INIT` | Initialize PMUv3 (must be done after in-kernel irqchip) |
+| `KVM_ARM_VCPU_PMU_V3_FILTER` | Install PMU event allow/deny filters (`struct kvm_pmu_event_filter`) |
+| `KVM_ARM_VCPU_PMU_V3_SET_PMU` | Specify which hardware PMU to use (heterogeneous systems) |
+| `KVM_ARM_VCPU_PMU_V3_SET_NR_COUNTERS` | Set the number of implemented event counters |
+
+### ARM64: Timer Control (KVM_ARM_VCPU_TIMER_CTRL)
+
+| Attribute | Description | Default |
+|-----------|-------------|---------|
+| `KVM_ARM_VCPU_TIMER_IRQ_VTIMER` | EL1 virtual timer interrupt (PPI) | 27 |
+| `KVM_ARM_VCPU_TIMER_IRQ_PTIMER` | EL1 physical timer interrupt (PPI) | 30 |
+| `KVM_ARM_VCPU_TIMER_IRQ_HVTIMER` | EL2 virtual timer interrupt (PPI) | 28 |
+| `KVM_ARM_VCPU_TIMER_IRQ_HPTIMER` | EL2 physical timer interrupt (PPI) | 26 |
+
+### ARM64: Paravirtualized Time (KVM_ARM_VCPU_PVTIME_CTRL)
+
+| Attribute | Description |
+|-----------|-------------|
+| `KVM_ARM_VCPU_PVTIME_IPA` | Set the base address of the stolen time structure (64-byte aligned) |
+
+### x86: TSC Control (KVM_VCPU_TSC_CTRL)
+
+| Attribute | Description |
+|-----------|-------------|
+| `KVM_VCPU_TSC_OFFSET` | 64-bit TSC offset: `guest_tsc = host_tsc + offset` |
+
+This is critical for **live migration** — the destination VMM adjusts the TSC offset
+to account for time elapsed during migration and TSC differences between source
+and destination hosts.
+
 ## Further Reading
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
@@ -1327,6 +1369,7 @@ qemu-system-x86_64 -enable-kvm \
 - [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
 
 - [The Definitive KVM API Documentation — docs.kernel.org](https://docs.kernel.org/virt/kvm/api.html) — Official KVM API reference (ioctls, capabilities, extensions, restrictions)
+- [Generic vCPU interface — docs.kernel.org](https://docs.kernel.org/virt/kvm/devices/vcpu.html) — vCPU device attributes (PMUv3, timers, TSC)
 - [KVM API Documentation — kernel.org](https://www.kernel.org/doc/html/latest/virt/kvm/api.html)
 - [KVM Forum Presentations](https://www.linux-kvm.org/page/KVM_Forum)
 - [Intel SDM Volume 3C — VMX](https://www.intel.com/sdm)
@@ -1334,7 +1377,6 @@ qemu-system-x86_64 -enable-kvm \
 - [KVM Source Browser](https://elixir.bootlin.com/linux/latest/source/virt/kvm)
 - [KVM MMU Documentation](https://docs.kernel.org/virt/kvm/mmu.html) — Shadow and EPT page table internals
 - [KVM Hypercalls — docs.kernel.org](https://docs.kernel.org/virt/kvm/hypercalls.html)
-- [KVM API Documentation](https://docs.kernel.org/virt/kvm/api.html) — Definitive KVM API reference with CPUID, memory, and capability details
 - [Nested VMX documentation — docs.kernel.org](https://docs.kernel.org/virt/kvm/nested-vmx.html)
 
 ## Related Topics

@@ -103,10 +103,10 @@ Bcachefs supports transparent compression with multiple algorithms:
 
 ```bash
 # Set compression on a directory
-bcachefs setattr --compression=zstd /mnt/bcachefs/data
+bcachefs set-compression --compression=zstd /mnt/bcachefs/data
 
 # Set compression with level
-bcachefs setattr --compression=zstd:3 /mnt/bcachefs/data
+bcachefs set-compression --compression=zstd:3 /mnt/bcachefs/data
 ```
 
 ### How Compression Works
@@ -130,8 +130,10 @@ applications.
 
 ### Encryption Modes
 
-- **ChaCha20 + Poly1305**: authenticated encryption (AEAD), recommended default
-- **AES-256-XTS**: block cipher mode, traditional FDE approach
+- **XChaCha20 + Poly1305**: authenticated encryption (AEAD), recommended default.
+  Uses a 192-bit extended nonce to prevent nonce reuse across extents.
+- **AES-256-XTS**: block cipher mode, traditional FDE approach (confidentiality
+  only, no authentication)
 
 ### Key Management
 

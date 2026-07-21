@@ -126,7 +126,7 @@ version:
 struct tpacket_req3 req = {
     .tp_block_size = 1 << 22,      /* 4 MiB per block */
     .tp_block_nr   = 64,           /* 64 blocks */
-    .tp_frame_size = TPACKET_V3,   /* ignored in V3, kernel sets optimal */
+    .tp_frame_size = 0,             /* ignored in V3, kernel computes optimal size */
     .tp_frame_nr   = 0,            /* computed from block_size * block_nr */
     .tp_retire_blk_tov = 64,       /* block timeout in ms */
     .tp_sizeof_priv = 0,           /* private data area per block */
@@ -186,6 +186,10 @@ setsockopt(fd, SOL_PACKET, PACKET_FANOUT, &fanout_arg, sizeof(fanout_arg));
 | `FANOUT_EBPF`       | Custom eBPF program for distribution        |
 | `FANOUT_FLAG_DEFRAG`| Defragment IP before hashing (for flow consistency) |
 | `FANOUT_FLAG_ROLLOVER` | Enable rollover as fallback on overload  |
+
+**Note:** `FANOUT_FLAG_DEFRAG` and `FANOUT_FLAG_ROLLOVER` are modifier flags that
+are OR'd with a base policy (e.g., `FANOUT_HASH | FANOUT_FLAG_DEFRAG`), not
+standalone policies.
 
 ### Fanout with BPF
 
@@ -318,7 +322,7 @@ int main(void) {
 #include <sys/mman.h>
 #include <sys/socket.h>
 #include <linux/if_packet.h>
-#include <pollfd.h>
+#include <poll.h>
 
 #define BLOCK_SIZE  (1 << 22)  /* 4 MiB */
 #define BLOCK_NR    64

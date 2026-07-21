@@ -379,6 +379,78 @@ The kernel provides several powerful debugging tools:
 
 See [Lockdep](lockdep.md) for the most important of these.
 
+## Lock Torture Testing
+
+The kernel provides `locktorture`, a built-in module for stress-testing locking primitives.
+From the [kernel documentation](https://docs.kernel.org/locking/locktorture.html):
+
+### CONFIG_LOCK_TORTURE_TEST
+
+The `CONFIG_LOCK_TORTURE_TEST` config option provides a kernel module that runs torture
+tests on core kernel locking primitives. The test creates kernel threads that acquire locks
+and hold them for configurable durations, simulating different critical region behaviors.
+Contention is controlled by adjusting hold time and thread count.
+
+### Supported Lock Types
+
+The `torture_type` module parameter selects which primitive to test:
+
+| Value | Primitive |
+|-------|-----------|
+| `lock_busted` | Simulates a buggy lock (for testing the test) |
+| `spin_lock` | `spin_lock()` / `spin_unlock()` pairs |
+| `spin_lock_irq` | `spin_lock_irq()` / `spin_unlock_irq()` pairs |
+| `rw_lock` | Read/write lock pairs |
+| `rw_lock_irq` | Read/write lock with IRQ disable |
+| `mutex_lock` | `mutex_lock()` / `mutex_unlock()` pairs |
+| `rtmutex_lock` | RT-mutex pairs (requires `CONFIG_RT_MUTEXES=y`) |
+| `rwsem_lock` | Read/write semaphore pairs |
+
+### Key Module Parameters
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `nwriters_stress` | Number of writer (exclusive) threads | 2 × online CPUs |
+| `nreaders_stress` | Number of reader (shared) threads | Same as writers |
+| `torture_type` | Lock type to test | `spin_lock` |
+| `shutdown_secs` | Seconds before auto-shutdown (0 = disabled) | 0 |
+| `stat_interval` | Seconds between stats printk (0 = on unload only) | 60 |
+| `stutter` | Seconds to run before pausing (same duration) | 5 |
+| `onoff_interval` | Seconds between CPU hotplug operations | 0 |
+| `verbose` | Enable verbose debug output | 1 |
+
+### Usage Example
+
+```bash
+# Load and test spinlocks for 1 hour
+modprobe locktorture torture_type=spin_lock
+sleep 3600
+rmmod locktorture
+dmesg | grep torture:
+
+# Test mutexes with 8 writer threads
+modprobe locktorture torture_type=mutex_lock nwriters_stress=8
+sleep 600
+rmmod locktorture
+dmesg | grep torture:
+```
+
+### Statistics Output
+
+```
+spin_lock-torture: Writes: Total: 93746064 Max/Min: 0/0 Fail: 0
+                   (A)           (B)              (C)     (D)  (E)
+```
+
+- **(A)**: Lock type being tortured
+- **(B)**: Number of writer lock acquisitions
+- **(C)**: Min/max times threads failed to acquire the lock
+- **(D)**: Number of acquisition failures
+- **(E)**: Error flag — should only be positive if there's a bug in the lock implementation
+
+The `rmmod` command forces a final verdict: `SUCCESS`, `FAILURE`, or `RCU_HOTPLUG`
+(indicates CPU-hotplug problems were detected even if locking was fine).
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)

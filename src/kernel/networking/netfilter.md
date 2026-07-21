@@ -356,9 +356,12 @@ graph LR
 
 ## nftables
 
-### Architecture
+nftables is the successor to iptables, providing a more efficient and flexible packet
+filtering framework built on the Netfilter hooks. From the kernel networking documentation,
+nftables replaces the separate iptables/ip6tables/ebtables/arptables tools with a unified
+framework.
 
-nftables is the successor to iptables, providing a more efficient and flexible framework:
+### Architecture
 
 ```mermaid
 graph TB
@@ -380,15 +383,32 @@ graph TB
     end
 ```
 
+nftables is built on top of the same Netfilter hook infrastructure as iptables. It
+registers hook functions at the same five hook points (PRE_ROUTING, LOCAL_IN, FORWARD,
+LOCAL_OUT, POST_ROUTING) but uses a more efficient rule evaluation engine.
+
 ### Key Improvements Over iptables
 
 | Feature | iptables | nftables |
 |---------|----------|----------|
-| Rule processing | Linear scan | Optimized with sets and maps |
-| IPv4/IPv6 | Separate tools | Unified framework |
-| Atomic updates | No | Yes |
-| Custom data types | Limited | Full support |
-| Performance | O(n) | O(1) with sets |
+| Rule processing | Linear scan through chains | Optimized with sets and maps |
+| IPv4/IPv6 | Separate tools (iptables/ip6tables) | Unified `inet` family |
+| Atomic updates | No (iptables-restore) | Yes (`nft -f` atomically replaces ruleset) |
+| Custom data types | Limited | Full support with concatenations |
+| Performance | O(n) per packet | O(1) with sets and maps |
+| Rule syntax | Extension modules | Built-in expression language |
+| Hook priorities | Fixed per table type | User-configurable |
+
+### Tables, Chains, and Rules
+
+nftables organizes filtering into:
+
+- **Tables**: Containers for chains and sets. Have a family (`ip`, `ip6`, `inet`, `arp`,
+  `bridge`, `netdev`). The `inet` family handles both IPv4 and IPv6.
+- **Chains**: Attached to hook points with configurable priority and policy (`accept`/`drop`).
+  Types: `filter`, `nat`, `route`.
+- **Rules**: Ordered list of expressions evaluated for each packet.
+- **Sets**: Named collections of data (IP addresses, ports) for O(1) lookup.
 
 ### nftables Commands
 
@@ -399,7 +419,7 @@ $ sudo nft list ruleset
 # Create a table
 $ sudo nft add table inet filter
 
-# Create a chain
+# Create a chain with policy
 $ sudo nft add chain inet filter input { type filter hook input priority 0 \; policy drop \; }
 
 # Add rules
@@ -411,16 +431,54 @@ $ sudo nft add set inet filter blocked_ips { type ipv4_addr \; }
 $ sudo nft add element inet filter blocked_ips { 192.168.1.100, 10.0.0.50 }
 $ sudo nft add rule inet filter input ip saddr @blocked_ips drop
 
+# Interval set for CIDR matching
+$ sudo nft add set inet filter whitelist { type ipv4_addr \; flags interval \; }
+$ sudo nft add element inet filter whitelist { 192.168.1.0/24, 10.0.0.0/8 }
+$ sudo nft add rule inet filter input ip saddr @whitelist accept
+
+# Map: port → action
+$ sudo nft add map inet filter port_policy { type inet_service \; verdict \; }
+$ sudo nft add element inet filter port_policy { 22 : accept, 80 : accept, 443 : accept }
+$ sudo nft add rule inet filter input tcp dport vmap @port_policy
+
 # NAT with nftables
 $ sudo nft add table nat
 $ sudo nft add chain nat postrouting { type nat hook postrouting priority 100 \; }
 $ sudo nft add rule nat postrouting oifname "eth0" masquerade
 
+# Port forwarding
+$ sudo nft add chain nat prerouting { type nat hook prerouting priority -100 \; }
+$ sudo nft add rule nat prerouting tcp dport 80 dnat to 192.168.1.10:80
+
+# Logging
+$ sudo nft add rule inet filter input log prefix "INPUT DROP: " drop
+
 # Save ruleset
 $ sudo nft list ruleset > /etc/nftables.conf
 
-# Restore ruleset
+# Restore ruleset (atomic)
 $ sudo nft -f /etc/nftables.conf
+```
+
+### Sets and Maps
+
+nftables sets provide O(1) lookup performance, a major advantage over iptables' linear
+rule matching:
+
+```bash
+# Anonymous set (inline)
+$ sudo nft add rule inet filter input tcp dport { 22, 80, 443 } accept
+
+# Named set (reusable)
+$ sudo nft add set inet filter dns_servers { type ipv4_addr \; }
+$ sudo nft add element inet filter dns_servers { 8.8.8.8, 8.8.4.4, 1.1.1.1 }
+
+# Interval set (CIDR ranges)
+$ sudo nft add set inet filter internal { type ipv4_addr \; flags interval \; }
+$ sudo nft add element inet filter internal { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 }
+
+# Map (key → value)
+$ sudo nft add map inet filter port_action { type inet_service \; verdict \; }
 ```
 
 ### Migration from iptables
@@ -435,6 +493,8 @@ $ sudo iptables-translate-restore < /etc/iptables/rules.v4
 
 # Run iptables rules using nftables backend (compatibility layer)
 $ sudo update-alternatives --set iptables /usr/sbin/iptables-nft
+
+# The nf_tables kernel module is: nf_tables (loaded automatically when nft is used)
 ```
 
 ## Netfilter Hooks Implementation
