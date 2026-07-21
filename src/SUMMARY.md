@@ -1,32 +1,36 @@
 # Summary
 
-# Linux Encyclopedia
+[Introduction](./introduction.md)
 
 ---
 
-# Virtualization
+# Admin
 
-- [Overview](./virtualization/overview.md)
-- [KVM Internals](./virtualization/kvm.md)
-- [QEMU](./virtualization/qemu.md)
-- [Xen Hypervisor](./virtualization/xen.md)
+- [Backup](./admin/backup.md)
+- [Cron](./admin/cron.md)
+- [Disk Management](./admin/disk-management.md)
+- [Firewall](./admin/firewall.md)
+- [Logging](./admin/logging.md)
+- [Lvm](./admin/lvm.md)
+- [Networking Config](./admin/networking-config.md)
+- [Overview](./admin/overview.md)
+- [Package Management](./admin/package-management.md)
+- [Dpkg Apt](./admin/packages/dpkg-apt.md)
+- [Pacman](./admin/packages/pacman.md)
+- [Portage](./admin/packages/portage.md)
+- [Rpm Dnf](./admin/packages/rpm-dnf.md)
+- [Performance](./admin/performance.md)
+- [Permissions](./admin/permissions.md)
+- [Process Management](./admin/process-management.md)
+- [Raid](./admin/raid.md)
+- [Rescue](./admin/rescue.md)
+- [Systemd](./admin/systemd.md)
+- [Sysvinit](./admin/sysvinit.md)
+- [Users Groups](./admin/users-groups.md)
 
 ---
 
-# Containers
+# Arch
 
-- [Overview](./containers/overview.md)
-- [Container Primitives](./containers/primitives.md)
-- [Docker Internals](./containers/docker-internals.md)
-- [Kubernetes and Linux](./containers/kubernetes.md)
-- [cgroups v2](./containers/cgroups-v2.md)
-
----
-
-# Embedded Linux
-
-- [Overview](./embedded/overview.md)
-- [Cross-Compilation](./embedded/cross-compilation.md)
-- [U-Boot](./embedded/uboot.md)
-- [Device Tree](./embedded/device-tree.md)
-- [ARM Architecture](./embedded/arm.md)
+- [Arm](./arch/arm.md)
+- [Calling Conventions](./arch/calling-conventions.md)
