@@ -27,7 +27,7 @@ Key benefits of virtual memory include:
 - **Copy-on-write (COW)**: Forked processes share pages until one writes.
 
 ```mermaid
-graph LR
+flowchart LR
     subgraph "Process Virtual Address Space"
         V1["Virtual Page 0x7f00"]
         V2["Virtual Page 0x7f01"]
@@ -431,7 +431,7 @@ Committed_AS:   25165824 kB    # Committed address space (overcommit)
 ## Linux Memory Management: The Big Picture
 
 ```mermaid
-graph TB
+flowchart TB
     subgraph "User Space"
         APP["Application"]
         MMAP["mmap()"]
@@ -440,15 +440,15 @@ graph TB
     end
     subgraph "Kernel Memory Management"
         subgraph "Virtual Memory"
-            VMA["VMA Management<br/>(mm_struct, vm_area_struct)"]
-            PT["Page Tables<br/>(PGD→PUD→PMD→PTE)"]
+            VMA["VMA Management<br>(mm_struct, vm_area_struct)"]
+            PT["Page Tables<br>(PGD→PUD→PMD→PTE)"]
         end
         subgraph "Physical Allocation"
-            PA["Page Allocator<br/>(Buddy System)"]
-            ZONE["Zones<br/>(DMA, DMA32, Normal, Movable)"]
+            PA["Page Allocator<br>(Buddy System)"]
+            ZONE["Zones<br>(DMA, DMA32, Normal, Movable)"]
         end
         subgraph "Small Allocations"
-            SLAB["SLUB Allocator<br/>(kmalloc, kmem_cache)"]
+            SLAB["SLUB Allocator<br>(kmalloc, kmem_cache)"]
         end
         subgraph "Kernel Virtual"
             VMALLOC["vmalloc()"]
@@ -460,7 +460,7 @@ graph TB
             OOM["OOM Killer"]
         end
         subgraph "Page Cache"
-            PC["Page Cache<br/>(address_space, xarray)"]
+            PC["Page Cache<br>(address_space, xarray)"]
             WB["Writeback"]
         end
     end

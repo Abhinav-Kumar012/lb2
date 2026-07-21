@@ -156,14 +156,14 @@ podman pod rm -f myapp
 ### Pod Architecture
 
 ```mermaid
-graph TB
+flowchart TB
     subgraph "Pod: myapp"
         subgraph "Shared Namespaces"
-            NET["Network Namespace<br/>(shared IP, ports)"]
+            NET["Network Namespace<br>(shared IP, ports)"]
             IPC["IPC Namespace"]
-            UTS["UTS Namespace<br/>(shared hostname)"]
+            UTS["UTS Namespace<br>(shared hostname)"]
         end
-        INFRA["infra container<br/>(pause)"]
+        INFRA["infra container<br>(pause)"]
         WEB["web (nginx)"]
         SIDECAR["sidecar (fluentd)"]
     end

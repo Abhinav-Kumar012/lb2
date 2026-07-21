@@ -455,7 +455,7 @@ graph TB
         CORE[core]
         EXTRA[extra]
         MULTILIB[multilib]
-        AUR[AUR<br/>(PKGBUILDs)]
+        AUR["AUR<br/>(PKGBUILDs)"]
     end
     subgraph "Local System"
         DB[(Package DB<br/>/var/lib/pacman/)]

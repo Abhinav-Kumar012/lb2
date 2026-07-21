@@ -108,7 +108,7 @@ void pthread_exit(void *retval);
 ### Join vs Detach
 
 ```mermaid
-graph TD
+flowchart TD
     subgraph "Joinable (default)"
         T1["Thread created"] --> T2["Thread running"]
         T2 --> T3["Thread exits"]
@@ -121,8 +121,8 @@ graph TD
         D3 --> D4["Resources freed automatically"]
     end
 ```
-
-```c
+```mermaid
+c
 /* Pattern: join all threads */
 #define NUM_THREADS 8
 pthread_t threads[NUM_THREADS];
@@ -217,7 +217,7 @@ pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_DEFAULT);
 ### Deadlock Prevention
 
 ```mermaid
-graph LR
+flowchart LR
     subgraph "Deadlock"
         T1["Thread 1"] -->|locks| M1["Mutex A"]
         T1 -->|waits for| M2["Mutex B"]
@@ -225,10 +225,10 @@ graph LR
         T2 -->|waits for| M1
     end
 ```
-
 **Prevention strategies:**
 
-```c
+```mermaid
+c
 /* Strategy 1: Consistent lock ordering */
 /* Always lock A before B */
 pthread_mutex_lock(&mutex_a);
@@ -359,23 +359,27 @@ int main(void)
 ### Key Rules for Condition Variables
 
 1. **Always use `while` loops**, not `if`, for the condition check:
-   ```c
+   
+```c
    /* WRONG: may have spurious wakeups */
    if (count == 0) pthread_cond_wait(...);
 
    /* CORRECT */
    while (count == 0) pthread_cond_wait(...);
-   ```
+   
+```
 
 2. **Always hold the mutex** when calling `pthread_cond_wait()`:
-   ```c
+   
+```c
    pthread_mutex_lock(&mutex);
    while (!condition)
        pthread_cond_wait(&cond, &mutex);  /* Atomically releases mutex + waits */
    /* Mutex is re-acquired when woken */
    /* ... use shared data ... */
    pthread_mutex_unlock(&mutex);
-   ```
+   
+```
 
 3. **Signal vs Broadcast:**
    - `pthread_cond_signal()` — wakes one waiting thread
@@ -463,23 +467,23 @@ void *worker(void *arg)
 ### TLS Implementation
 
 ```mermaid
-graph TD
+flowchart TD
     subgraph "Thread 1"
-        FS1["%fs base"] --> TLS1["TLS Block 1<br/>errno, __thread vars"]
+        FS1["%fs base"] --> TLS1["TLS Block 1<br>errno, __thread vars"]
     end
     subgraph "Thread 2"
-        FS2["%fs base"] --> TLS2["TLS Block 2<br/>errno, __thread vars"]
+        FS2["%fs base"] --> TLS2["TLS Block 2<br>errno, __thread vars"]
     end
     subgraph "Thread 3"
-        FS3["%fs base"] --> TLS3["TLS Block 3<br/>errno, __thread vars"]
+        FS3["%fs base"] --> TLS3["TLS Block 3<br>errno, __thread vars"]
     end
 ```
-
 On x86-64, TLS uses the `%fs` segment register. Each thread has a different `%fs` base, so `mov %fs:offset, %rax` accesses thread-specific data.
 
 ## Thread Cancellation
 
-```c
+```mermaid
+c
 #include <pthread.h>
 
 int pthread_cancel(pthread_t thread);
@@ -631,7 +635,7 @@ pthread_rwlock_unlock(&rwlock);
 ```
 
 ```mermaid
-graph LR
+flowchart LR
     subgraph "Read Lock"
         R1["Reader 1"] -->|rdlock| RW["RWLock"]
         R2["Reader 2"] -->|rdlock| RW
@@ -643,12 +647,12 @@ graph LR
         R5["Reader (blocked)"] -.->|wait| RW2
     end
 ```
-
 ## Barriers
 
 Wait for all threads to reach a synchronization point:
 
-```c
+```mermaid
+c
 #include <pthread.h>
 
 pthread_barrier_t barrier;

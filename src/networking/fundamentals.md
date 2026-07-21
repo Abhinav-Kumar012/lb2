@@ -11,15 +11,15 @@ The Open Systems Interconnection (OSI) model is a conceptual framework that stan
 ### The Seven Layers
 
 ```mermaid
-graph TB
+flowchart TB
     subgraph "OSI Model"
-        L7[Layer 7: Application]
-        L6[Layer 6: Presentation]
-        L5[Layer 5: Session]
-        L4[Layer 4: Transport]
-        L3[Layer 3: Network]
-        L2[Layer 2: Data Link]
-        L1[Layer 1: Physical]
+        L7["Layer 7: Application"]
+        L6["Layer 6: Presentation"]
+        L5["Layer 5: Session"]
+        L4["Layer 4: Transport"]
+        L3["Layer 3: Network"]
+        L2["Layer 2: Data Link"]
+        L1["Layer 1: Physical"]
     end
 
     L7 --> L6
@@ -56,14 +56,14 @@ The Physical layer deals with the raw transmission of bits over a physical mediu
 The Data Link layer provides node-to-node data transfer and handles error detection:
 
 ```mermaid
-graph LR
+flowchart LR
     subgraph "Ethernet Frame"
-        PREAMBLE[Preamble: 8B]
-        DEST_MAC[Dest MAC: 6B]
-        SRC_MAC[Src MAC: 6B]
-        TYPE[Type: 2B]
-        DATA[Data: 46-1500B]
-        FCS[FCS: 4B]
+        PREAMBLE["Preamble: 8B"]
+        DEST_MAC["Dest MAC: 6B"]
+        SRC_MAC["Src MAC: 6B"]
+        TYPE["Type: 2B"]
+        DATA["Data: 46-1500B"]
+        FCS["FCS: 4B"]
     end
 ```
 
@@ -78,15 +78,15 @@ graph LR
 The Network layer handles logical addressing and routing:
 
 ```mermaid
-graph LR
+flowchart LR
     subgraph "IPv4 Packet"
-        VERSION[Version: 4b]
-        IHL[IHL: 4b]
-        TOTAL_LEN[Total Length: 16b]
-        TTL[TTL: 8b]
-        PROTOCOL[Protocol: 8b]
-        SRC_IP[Source IP: 32b]
-        DST_IP[Dest IP: 32b]
+        VERSION["Version: 4b"]
+        IHL["IHL: 4b"]
+        TOTAL_LEN["Total Length: 16b"]
+        TTL["TTL: 8b"]
+        PROTOCOL["Protocol: 8b"]
+        SRC_IP["Source IP: 32b"]
+        DST_IP["Dest IP: 32b"]
         DATA[Data]
     end
 ```
@@ -102,22 +102,22 @@ graph LR
 The Transport layer provides end-to-end communication:
 
 ```mermaid
-graph LR
+flowchart LR
     subgraph "TCP Segment"
-        SRC_PORT[Source Port: 16b]
-        DST_PORT[Dest Port: 16b]
-        SEQ[Sequence Number: 32b]
-        ACK_NUM[Ack Number: 32b]
-        FLAGS[Flags: 9b]
-        WINDOW[Window: 16b]
+        SRC_PORT["Source Port: 16b"]
+        DST_PORT["Dest Port: 16b"]
+        SEQ["Sequence Number: 32b"]
+        ACK_NUM["Ack Number: 32b"]
+        FLAGS["Flags: 9b"]
+        WINDOW["Window: 16b"]
         DATA[Data]
     end
 
     subgraph "UDP Datagram"
-        SRC_PORT2[Source Port: 16b]
-        DST_PORT2[Dest Port: 16b]
-        LENGTH[Length: 16b]
-        CHECKSUM[Checksum: 16b]
+        SRC_PORT2["Source Port: 16b"]
+        DST_PORT2["Dest Port: 16b"]
+        LENGTH["Length: 16b"]
+        CHECKSUM["Checksum: 16b"]
         DATA2[Data]
     end
 ```
@@ -146,7 +146,7 @@ These upper layers handle application-specific communication:
 The TCP/IP model is a simplified four-layer model used in practice:
 
 ```mermaid
-graph TB
+flowchart TB
     subgraph "TCP/IP Model"
         APP[Application Layer]
         TRANS[Transport Layer]
@@ -181,7 +181,7 @@ graph TB
 Encapsulation is the process of wrapping data with protocol headers as it moves down the stack:
 
 ```mermaid
-graph TB
+flowchart TB
     subgraph "Application Layer"
         DATA[Application Data]
     end
@@ -209,12 +209,11 @@ graph TB
     DATA2 --> DATA3
     DATA3 --> DATA4
 ```
-
 ### Encapsulation Example
 
 Sending an HTTP request:
 
-```
+```mermaid
 ┌─────────────────────────────────────────────────────────────┐
 │ Ethernet Header                                              │
 │  Dest MAC: 00:11:22:33:44:55                                │
@@ -296,23 +295,22 @@ sequenceDiagram
 ### IPv4 Address Classes
 
 ```mermaid
-graph LR
+flowchart LR
     subgraph "Class A"
-        A_NET[Network: 8 bits]
-        A_HOST[Host: 24 bits]
+        A_NET["Network: 8 bits"]
+        A_HOST["Host: 24 bits"]
     end
 
     subgraph "Class B"
-        B_NET[Network: 16 bits]
-        B_HOST[Host: 16 bits]
+        B_NET["Network: 16 bits"]
+        B_HOST["Host: 16 bits"]
     end
 
     subgraph "Class C"
-        C_NET[Network: 24 bits]
-        C_HOST[Host: 8 bits]
+        C_NET["Network: 24 bits"]
+        C_HOST["Host: 8 bits"]
     end
 ```
-
 | Class | Range | Default Mask | Networks | Hosts/Network |
 |-------|-------|--------------|----------|---------------|
 | A | 0-127 | /8 | 126 | 16,777,214 |
@@ -321,7 +319,7 @@ graph LR
 
 ### Private Address Spaces
 
-```
+```mermaid
 10.0.0.0/8       — 10.0.0.0 to 10.255.255.255    (Class A)
 172.16.0.0/12    — 172.16.0.0 to 172.31.255.255   (Class B)
 192.168.0.0/16   — 192.168.0.0 to 192.168.255.255 (Class C)
@@ -392,10 +390,10 @@ sequenceDiagram
     B->>A: ARP Reply: 192.168.1.20 is at AA:BB:CC:DD:EE:FF
     Note left of B: Unicast reply
 ```
-
 ### ARP Cache
 
-```bash
+```mermaid
+bash
 # View ARP cache
 $ ip neigh show
 192.168.1.1 dev eth0 lladdr 00:11:22:33:44:55 REACHABLE
@@ -432,7 +430,7 @@ $ ip route get 8.8.8.8
 ### Routing Process
 
 ```mermaid
-graph TB
+flowchart TB
     PKT[Incoming Packet] --> MATCH{Match Destination}
     MATCH -->|Exact| EXACT[Use exact route]
     MATCH -->|Longest Prefix| LPM[Longest Prefix Match]
@@ -441,7 +439,6 @@ graph TB
     LPM --> OUT
     DEFAULT --> OUT
 ```
-
 ## ICMP (Internet Control Message Protocol)
 
 ICMP is used for error reporting and diagnostics:
@@ -457,7 +454,8 @@ ICMP is used for error reporting and diagnostics:
 
 ### Ping
 
-```bash
+```mermaid
+bash
 # Basic ping
 $ ping -c 4 8.8.8.8
 PING 8.8.8.8 (8.8.8.8) 56(84) bytes of data.

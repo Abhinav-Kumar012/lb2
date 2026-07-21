@@ -13,25 +13,25 @@ Namespaces partition kernel resources such that one set of processes sees one se
 ### Namespace Overview
 
 ```mermaid
-graph TB
-    subgraph Host View
+flowchart TB
+    subgraph Host_View["Host View"]
         H_PID[All PIDs visible]
         H_NET[eth0, docker0, br0]
-        H_MNT[/ = host rootfs]
+        H_MNT["/ = host rootfs"]
         H_UTS[hostname = server1]
         H_IPC[All shared memory, semaphores]
         H_USER[root = UID 0]
-        H_CGRP[cgroup root = /]
+        H_CGRP["cgroup root = /"]
         H_TIME[system clock]
     end
-    subgraph Container View
-        C_PID[Only container PIDs<br/>PID 1 = entrypoint]
+    subgraph Container_View["Container View"]
+        C_PID["Only container PIDs<br>PID 1 = entrypoint"]
         C_NET[veth, eth0: 172.17.0.2]
-        C_MNT[/ = container rootfs]
+        C_MNT["/ = container rootfs"]
         C_UTS[hostname = mycontainer]
         C_IPC[Isolated IPC]
         C_USER[root = UID 100000]
-        C_CGRP[cgroup root = /container]
+        C_CGRP["cgroup root = /container"]
         C_TIME[Same system clock]
     end
 ```
@@ -159,15 +159,15 @@ ip netns exec myns curl -s https://example.com
 ```
 
 ```mermaid
-graph LR
-    subgraph Host Network
-        ETH0[eth0<br/>192.168.1.100]
-        VETH0[veth0<br/>10.0.0.1]
-        BRIDGE[docker0<br/>172.17.0.1]
+flowchart LR
+    subgraph Host_Network["Host Network"]
+        ETH0["eth0<br>192.168.1.100"]
+        VETH0["veth0<br>10.0.0.1"]
+        BRIDGE["docker0<br>172.17.0.1"]
     end
-    subgraph Container Network NS
-        VETH1[veth1<br/>10.0.0.2]
-        LO[lo<br/>127.0.0.1]
+    subgraph Container_Network_NS["Container Network NS"]
+        VETH1["veth1<br>10.0.0.2"]
+        LO["lo<br>127.0.0.1"]
     end
     ETH0 --> VETH0
     VETH0 <-->|veth pair| VETH1
@@ -290,16 +290,16 @@ echo "0 1000 1" > /proc/self/gid_map
 ```
 
 ```mermaid
-graph LR
-    subgraph User Namespace
-        U0[Container UID 0<br/>root]
-        U1[Container UID 1000<br/>appuser]
-        U65534[Container UID 65534<br/>nobody]
+flowchart LR
+    subgraph User_Namespace["User Namespace"]
+        U0["Container UID 0<br>root"]
+        U1["Container UID 1000<br>appuser"]
+        U65534["Container UID 65534<br>nobody"]
     end
     subgraph Host
-        H1000[Host UID 1000<br/>regular user]
-        H100001[Host UID 100001<br/>mapped range start]
-        H165534[Host UID 165534<br/>mapped range end]
+        H1000["Host UID 1000<br>regular user"]
+        H100001["Host UID 100001<br>mapped range start"]
+        H165534["Host UID 165534<br>mapped range end"]
     end
     U0 -->|maps to| H1000
     U1 -->|maps to| H100001

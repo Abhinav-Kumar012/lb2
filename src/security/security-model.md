@@ -71,7 +71,7 @@ graph LR
         RUID[Real UID<br/>Who launched the process]
         EUID[Effective UID<br/>Used for permission checks]
         SUID[Saved Set-UID<br/>Can switch back to EUID]
-        FSUID[Filesystem UID<br/>Used for FS checks (Linux-specific)]
+        FSUID["Filesystem UID<br/>Used for FS checks (Linux-specific)"]
     end
 
     RUID -->|normal exec| EUID

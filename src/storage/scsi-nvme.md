@@ -97,7 +97,7 @@ NVMe was designed from scratch for non-volatile memory. Its architecture elimina
 ### NVMe Queue Architecture
 
 ```mermaid
-graph TD
+flowchart TD
     subgraph "NVMe Controller"
         SQ0["Admin Submission Queue (SQ0)"]
         CQ0["Admin Completion Queue (CQ0)"]
@@ -125,12 +125,12 @@ graph TD
     SQ0 --> CQ0
     CQ0 --> HOST
 ```
-
 ### NVMe Submission Queue Entry (SQE)
 
 Each NVMe command is a 64-byte structure:
 
-```c
+```mermaid
+c
 struct nvme_command {
     union {
         struct nvme_common_command common;
@@ -248,21 +248,21 @@ cat /sys/class/nvme/nvme0/nvme0n1/size
 The fundamental performance difference between SCSI and NVMe comes from queue architecture:
 
 ```mermaid
-graph LR
+flowchart LR
     subgraph "SATA/AHCI"
-        SQ_SATA["Single Queue<br/>Depth: 32"]
+        SQ_SATA["Single Queue<br>Depth: 32"]
     end
     subgraph "SAS"
-        SQ_SAS["Multiple Queues<br/>Depth: 256+ per LUN"]
+        SQ_SAS["Multiple Queues<br>Depth: 256+ per LUN"]
     end
     subgraph "NVMe"
-        SQ_NVMe["Up to 65535 Queues<br/>Depth: 65536 per queue"]
+        SQ_NVMe["Up to 65535 Queues<br>Depth: 65536 per queue"]
     end
 ```
-
 ### Benchmarking SCSI vs NVMe
 
-```bash
+```mermaid
+bash
 # Quick sequential read benchmark
 # SCSI/SATA SSD
 fio --name=seqread --filename=/dev/sda --rw=read --bs=1M \
@@ -385,11 +385,11 @@ ls /sys/module/libata/parameters/
 ## Comparing SCSI and NVMe Feature Sets
 
 ```mermaid
-graph TB
+flowchart TB
     subgraph "Common Features"
-        CF1[Read/Write]
-        CF2[Flush/Barrier]
-        CF3[Write Zeroes/UNMAP]
+        CF1["Read/Write"]
+        CF2["Flush/Barrier"]
+        CF3["Write Zeroes/UNMAP"]
         CF4[Error Reporting]
     end
     subgraph "SCSI-specific"
@@ -406,10 +406,10 @@ graph TB
         NF5[Telemetry Log]
     end
 ```
-
 ## Kernel Module Information
 
-```bash
+```mermaid
+bash
 # SCSI modules
 modinfo sd_mod
 # filename:    /lib/modules/.../kernel/drivers/scsi/sd_mod.ko

@@ -38,8 +38,8 @@ graph TB
     end
 
     subgraph "Output"
-        VMLINUX[vmlinux (ELF)]
-        BZIMAGE[bzImage (compressed)]
+        VMLINUX["vmlinux (ELF)"]
+        BZIMAGE["bzImage (compressed)"]
         MODULES[*.ko modules]
         HEADERS[headers_install]
     end

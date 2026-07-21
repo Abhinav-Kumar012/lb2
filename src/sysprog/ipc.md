@@ -9,7 +9,7 @@ Linux offers a rich set of IPC mechanisms inherited from multiple Unix tradition
 ## IPC Mechanism Taxonomy
 
 ```mermaid
-graph TD
+flowchart TD
     IPC["Linux IPC Mechanisms"]
     IPC --> SAME["Same Machine"]
     IPC --> NET["Network (Different Machines)"]
@@ -31,7 +31,6 @@ graph TD
 
     NET --> SOCKETS["TCP/UDP Sockets"]
 ```
-
 ## System V IPC vs POSIX IPC
 
 Linux supports two major IPC families, each providing semaphores, message queues, and shared memory.
@@ -40,7 +39,8 @@ Linux supports two major IPC families, each providing semaphores, message queues
 
 Introduced in AT&T Unix System III (1980s). Available on virtually all Unix systems.
 
-```c
+```mermaid
+c
 #include <sys/ipc.h>
 #include <sys/shm.h>    /* Shared memory */
 #include <sys/sem.h>    /* Semaphores */
@@ -236,7 +236,7 @@ connect(sockfd, (struct sockaddr *)&addr, sizeof(addr));
 A high-level IPC framework built on Unix domain sockets:
 
 ```mermaid
-graph LR
+flowchart LR
     subgraph "D-Bus"
         DAEMON["dbus-daemon"]
         A["App A"] -->|method call| DAEMON
@@ -253,8 +253,8 @@ flowchart TD
     START["Need IPC?"] --> Q1{"Same machine?"}
     Q1 -->|No| SOCKETS["TCP/UDP Sockets"]
     Q1 -->|Yes| Q2{"Need high throughput?"}
-    Q2 -->|Yes| SHM["Shared Memory<br/>+ synchronization"]
-    Q2 -->|No| Q3{"Discrete messages<br/>or byte stream?"}
+    Q2 -->|Yes| SHM["Shared Memory<br>+ synchronization"]
+    Q2 -->|No| Q3{"Discrete messages<br>or byte stream?"}
     Q3 -->|Messages| Q4{"Need priorities?"}
     Q4 -->|Yes| MQ["POSIX Message Queue"]
     Q4 -->|No| Q5{"Simple or complex?"}
@@ -264,7 +264,6 @@ flowchart TD
     Q5 -->|Simple| FIFO["Named Pipes (FIFO)"]
     Q5 -->|Complex| UNIX_SOCK2["Unix Domain Sockets"]
 ```
-
 ### Decision Matrix
 
 | Mechanism | Throughput | Latency | Complexity | Bidirectional | Data Boundary |
@@ -281,7 +280,8 @@ flowchart TD
 
 ### ipcs — View IPC Resources
 
-```bash
+```mermaid
+bash
 # Show all IPC resources
 $ ipcs
 

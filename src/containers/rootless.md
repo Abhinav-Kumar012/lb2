@@ -24,7 +24,7 @@ UID 0 inside the namespace while mapped to an unprivileged UID outside.
 ### How UID Mapping Works
 
 ```mermaid
-graph LR
+flowchart LR
     subgraph "Host"
         H_UID["UID 100000-165535"]
         H_USER["Regular user (UID 1000)"]
@@ -102,7 +102,7 @@ device in the user namespace and translates network traffic using a user-mode TC
 ### How It Works
 
 ```mermaid
-graph TB
+flowchart TB
     subgraph "Container Network Namespace"
         APP["Container Process"]
         TAP["tap0 (10.0.2.100)"]
@@ -163,7 +163,7 @@ works without root on any kernel version.
 ### How It Works
 
 ```mermaid
-graph TB
+flowchart TB
     subgraph "Container View"
         MNT["Merged Mount"]
     end
@@ -276,7 +276,7 @@ cat /sys/fs/cgroup/user.slice/user-$(id -u).slice/cgroup.controllers
 ### cgroup Delegation Architecture
 
 ```mermaid
-graph TB
+flowchart TB
     subgraph "systemd cgroup tree"
         ROOT["/sys/fs/cgroup/"]
         USER_SLICE["user.slice"]
@@ -380,7 +380,7 @@ sudo usermod -aG fuse $USER
 Rootless containers provide defense-in-depth:
 
 ```mermaid
-graph TB
+flowchart TB
     subgraph "Root Container Attack"
         A1["Container Breakout"] -->|"UID 0 on host"| A2["Full root access"]
     end

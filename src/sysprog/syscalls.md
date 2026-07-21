@@ -26,18 +26,18 @@ A system call is the controlled mechanism for Ring 3 code to request Ring 0 serv
 4. Raise privilege to Ring 0
 
 ```mermaid
-graph LR
-    A[User Process<br/>Ring 3] -->|syscall instruction| B[Kernel Entry Point<br/>Ring 0]
+flowchart LR
+    A["User Process<br>Ring 3"] -->|syscall instruction| B["Kernel Entry Point<br>Ring 0"]
     B --> C[syscall_table[nr]]
     C --> D[Kernel Handler]
     D -->|sysret/iret| A
 ```
-
 ### The System Call Table
 
 The kernel maintains a **system call table**—an array of function pointers indexed by syscall number. On x86-64 Linux, this is defined in `arch/x86/entry/syscall_64.c`:
 
-```c
+```mermaid
+c
 /* Simplified from kernel source */
 asmlinkage const sys_call_ptr_t sys_call_table[] = {
     [0] = sys_read,
@@ -100,14 +100,13 @@ sequenceDiagram
     CPU->>CPU: Switch to kernel stack (IST/TSS)
     CPU->>K: Jump to entry_SYSCALL_64
     K->>K: Save all registers to pt_regs
-    K->>K: Look up sys_call_table[%rax]
+    K->>K: Look up sys_call_table["%rax"]
     K->>K: Call sys_xxx(args...)
     K->>K: Result in %rax
     K->>CPU: SYSRETQ instruction
     CPU->>U: Restore %rip from %rcx, %rflags from %r11
     U->>U: Check %rax for error
 ```
-
 **Key steps in detail:**
 
 1. **Register setup**: The user-space code loads the syscall number into `%rax` and arguments into `%rdi`, `%rsi`, `%rdx`, `%r10`, `%r8`, `%r9` (note: `%r10` instead of `%rcx`, because `SYSCALL` clobbers `%rcx`).
@@ -136,7 +135,8 @@ sequenceDiagram
 
 The oldest mechanism on x86. Uses a software interrupt:
 
-```asm
+```mermaid
+asm
 mov eax, 1        ; syscall number: sys_write
 mov ebx, 1        ; fd: stdout
 mov ecx, msg      ; buffer

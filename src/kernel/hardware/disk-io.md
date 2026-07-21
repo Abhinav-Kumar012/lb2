@@ -11,7 +11,7 @@ Modern Linux storage stacks are complex, involving multiple layers of buffering,
 ```mermaid
 graph TD
     subgraph "User Space"
-        APP[Application<br>read()/write()]
+        APP["Application<br>read()/write()"]
     end
     subgraph "VFS Layer"
         VFS[Virtual File System]
@@ -304,7 +304,7 @@ static void nvme_end_request(struct request *req)
 
 ```mermaid
 graph TD
-    A[write() syscall] --> B[VFS: write to page cache]
+    A["write() syscall"] --> B[VFS: write to page cache]
     B --> C[Page marked dirty]
     C --> D{Write-back trigger?}
     D -->|No| E[Return to application<br>Data NOT on disk yet]

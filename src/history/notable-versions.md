@@ -235,15 +235,15 @@ Code size: ~6,000,000 lines (2.6.0)
 ```mermaid
 graph LR
     subgraph "O(n) Scheduler (2.4)"
-        SCAN[Scan all tasks<br/>O(n) time] --> PICK[Pick highest priority]
+        SCAN["Scan all tasks<br/>O(n) time"] --> PICK[Pick highest priority]
     end
     
     subgraph "O(1) Scheduler (2.6.0)"
-        BITMAP[Priority Bitmap<br/>find first bit] --> QUEUE[Per-CPU Run Queue<br/>O(1) enqueue/dequeue]
+        BITMAP[Priority Bitmap<br/>find first bit] --> QUEUE["Per-CPU Run Queue<br/>O(1) enqueue/dequeue"]
     end
     
     subgraph "CFS Scheduler (2.6.23+)"
-        RB[Red-Black Tree<br/>Sorted by vruntime] --> FAIR[Pick leftmost<br/>O(log n)]
+        RB["Red-Black Tree<br/>Sorted by vruntime"] --> FAIR["Pick leftmost<br/>O(log n)"]
     end
     
     style SCAN fill:#f99,stroke:#333

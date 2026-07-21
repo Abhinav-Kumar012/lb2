@@ -9,17 +9,17 @@ This chapter dissects Docker's internal architecture: the container runtime stac
 ## Docker Architecture
 
 ```mermaid
-graph TB
+flowchart TB
     subgraph Client
         CLI[docker CLI]
         COMPOSE[docker compose]
         BUILD[docker build]
     end
-    subgraph Docker Engine
-        DOCKERD[dockerd<br/>Docker daemon<br/>REST API, image mgmt, volumes]
-        CONTAINERD[containerd<br/>Container lifecycle, snapshots]
-        SHIM[containerd-shim<br/>Per-container process]
-        RUNC[runc<br/>OCI runtime]
+    subgraph Docker_Engine["Docker Engine"]
+        DOCKERD["dockerd<br>Docker daemon<br>REST API, image mgmt, volumes"]
+        CONTAINERD["containerd<br>Container lifecycle, snapshots"]
+        SHIM["containerd-shim<br>Per-container process"]
+        RUNC["runc<br>OCI runtime"]
     end
     subgraph Kernel
         NS[Namespaces]
@@ -113,7 +113,7 @@ sequenceDiagram
     containerd->>shim: Reconnect (shim still running)
     shim->>containerd: Report container status
     
-    Note over container: Container still running!<br/>Shim maintains container I/O
+    Note over container: Container still running!<br>Shim maintains container I/O
 ```
 
 The shim ensures containers survive daemon restarts (live-restore).
@@ -254,15 +254,15 @@ crictl inspect-container abc123 | grep -A5 snapshotter
 Docker images are composed of read-only layers stacked on top of each other:
 
 ```mermaid
-graph TB
-    subgraph Image Layers (read-only)
-        L1[Layer 1: Ubuntu base<br/>77.8MB - apt-get install]
-        L2[Layer 2: Install deps<br/>12.3MB - apt-get install libssl]
-        L3[Layer 3: Copy app<br/>2.1MB - COPY . /app]
-        L4[Layer 4: Set config<br/>0.1KB - ENV, CMD]
+flowchart TB
+    subgraph Image_Layers__read_only["Image Layers (read-only)"]
+        L1["Layer 1: Ubuntu base<br>77.8MB - apt-get install"]
+        L2["Layer 2: Install deps<br>12.3MB - apt-get install libssl"]
+        L3["Layer 3: Copy app<br>2.1MB - COPY . /app"]
+        L4["Layer 4: Set config<br>0.1KB - ENV, CMD"]
     end
-    subgraph Container (read-write)
-        RW[Writable Layer<br/>Container changes]
+    subgraph Container__read_write["Container (read-write)"]
+        RW["Writable Layer<br>Container changes"]
     end
     RW --> L4 --> L3 --> L2 --> L1
 ```
@@ -319,14 +319,14 @@ docker images --tree  # (if using buildx with --metadata-file)
 Overlay2 is the default storage driver for Docker on Linux:
 
 ```mermaid
-graph TB
-    subgraph Container View
-        MOUNT[merged/<br/>Container sees unified filesystem]
+flowchart TB
+    subgraph Container_View["Container View"]
+        MOUNT["merged/<br>Container sees unified filesystem"]
     end
     subgraph Overlay2
-        UPPER[upper/<br/>Container writes go here]
-        WORK[work/<br/>Internal use only]
-        LOWER[lower/<br/>Image layers (read-only)]
+        UPPER["upper/<br>Container writes go here"]
+        WORK["work/<br>Internal use only"]
+        LOWER["lower/<br>Image layers (read-only)"]
     end
     MOUNT -->|overlay mount| UPPER
     MOUNT -->|overlay mount| LOWER
@@ -443,19 +443,19 @@ getfattr -n trusted.overlay.opaque /var/lib/docker/overlay2/abc/merged/etc/dir
 ### Bridge Network (Default)
 
 ```mermaid
-graph TB
+flowchart TB
     subgraph Host
-        ETH0[eth0<br/>192.168.1.100]
-        DOCKER0[docker0<br/>172.17.0.1/16<br/>Linux bridge]
-        IPT[iptables NAT<br/>MASQUERADE]
-        VETH0[veth-abc<br/>Container 1 end]
-        VETH1[veth-def<br/>Container 2 end]
+        ETH0["eth0<br>192.168.1.100"]
+        DOCKER0["docker0<br>172.17.0.1/16<br>Linux bridge"]
+        IPT["iptables NAT<br>MASQUERADE"]
+        VETH0["veth-abc<br>Container 1 end"]
+        VETH1["veth-def<br>Container 2 end"]
     end
-    subgraph Container 1
-        C1[eth0<br/>172.17.0.2]
+    subgraph Container_1["Container 1"]
+        C1["eth0<br>172.17.0.2"]
     end
-    subgraph Container 2
-        C2[eth0<br/>172.17.0.3]
+    subgraph Container_2["Container 2"]
+        C2["eth0<br>172.17.0.3"]
     end
     
     ETH0 --> IPT

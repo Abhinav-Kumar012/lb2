@@ -11,7 +11,7 @@ This chapter covers the core POSIX I/O functions—`open`, `read`, `write`, `clo
 A **file descriptor** (fd) is a small non-negative integer that the kernel uses to reference an open file. Every process has a **file descriptor table** maintained in the kernel's `task_struct`:
 
 ```mermaid
-graph TD
+flowchart TD
     subgraph "Process File Descriptor Table"
         FD0["0 (stdin)"] --> R1["struct file (terminal)"]
         FD1["1 (stdout)"] --> R2["struct file (terminal)"]
@@ -22,7 +22,6 @@ graph TD
     R4 --> INODE["inode (disk)"]
     R5 --> SOCK["socket buffer (kernel)"]
 ```
-
 **Reserved descriptors:**
 
 | FD | Name | Default |
@@ -31,7 +30,8 @@ graph TD
 | 1 | stdout | Standard output |
 | 2 | stderr | Standard error |
 
-```bash
+```mermaid
+bash
 # View file descriptors for a process
 $ ls -la /proc/self/fd
 lrwx------ 1 user user 64 Jul 21 12:00 0 -> /dev/pts/0
@@ -43,25 +43,25 @@ lr-x------ 1 user user 64 Jul 21 12:00 3 -> /proc/12345/fd
 ### The Three-Level I/O Architecture
 
 ```mermaid
-graph TB
+flowchart TB
     subgraph "User Space"
-        APP["Application<br/>read(fd, buf, n)"]
-        LIBC["glibc wrapper<br/>__GI___libc_read()"]
+        APP["Application<br>read(fd, buf, n)"]
+        LIBC["glibc wrapper<br>__GI___libc_read()"]
     end
     subgraph "Kernel"
-        VFS["VFS Layer<br/>vfs_read()"]
-        FS["Filesystem<br/>ext4_file_read_iter()"]
-        BLOCK["Block Layer<br/>submit_bio()"]
-        DEVICE["Device Driver<br/>NVMe/SCSI"]
+        VFS["VFS Layer<br>vfs_read()"]
+        FS["Filesystem<br>ext4_file_read_iter()"]
+        BLOCK["Block Layer<br>submit_bio()"]
+        DEVICE["Device Driver<br>NVMe/SCSI"]
     end
     APP --> LIBC --> VFS --> FS --> BLOCK --> DEVICE
 ```
-
 ## open() and openat()
 
 ### Function Signatures
 
-```c
+```mermaid
+c
 #include <fcntl.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -393,7 +393,7 @@ int main(void)
 ## O_SYNC — Synchronous I/O
 
 ```mermaid
-graph LR
+flowchart LR
     subgraph "write() returns when..."
         W1["O_SYNC"] -->|data + metadata| D1["Disk"]
         W2["O_DSYNC"] -->|data only| D2["Disk"]
@@ -401,7 +401,6 @@ graph LR
         W4["Normal write()"] -->|data| P1["Page Cache"]
     end
 ```
-
 | Flag | write() completes after | read() behavior |
 |------|------------------------|-----------------|
 | None | Data in page cache | From page cache |
@@ -409,7 +408,8 @@ graph LR
 | `O_DSYNC` | Data on disk | From page cache |
 | `O_SYNC\|O_RSYNC` | Data + metadata on disk | Synchronized |
 
-```bash
+```mermaid
+bash
 # Compare write performance
 $ dd if=/dev/zero of=/tmp/test_nosync bs=4k count=10000
 $ dd if=/dev/zero of=/tmp/test_sync bs=4k count=10000 oflag=sync
@@ -422,25 +422,24 @@ $ dd if=/dev/zero of=/tmp/test_sync bs=4k count=10000 oflag=sync
 Each process has its own file descriptor table, stored in `task_struct->files`:
 
 ```mermaid
-graph TD
+flowchart TD
     subgraph "Process A"
-        FDT_A["files_struct<br/>fdtable"]
+        FDT_A["files_struct<br>fdtable"]
         FD0_A["fd[0] → file #1"]
         FD1_A["fd[1] → file #1"]
         FD2_A["fd[2] → file #2"]
     end
     subgraph "Process B (child of A)"
-        FDT_B["files_struct<br/>fdtable"]
+        FDT_B["files_struct<br>fdtable"]
         FD0_B["fd[0] → file #1"]
         FD1_B["fd[1] → file #3"]
     end
-    FDT_A --> FD0_A --> FILE1["struct file<br/>refcount=3"]
+    FDT_A --> FD0_A --> FILE1["struct file<br>refcount=3"]
     FDT_A --> FD1_A --> FILE1
-    FDT_A --> FD2_A --> FILE2["struct file<br/>refcount=1"]
+    FDT_A --> FD2_A --> FILE2["struct file<br>refcount=1"]
     FDT_B --> FD0_B --> FILE1
-    FDT_B --> FD1_B --> FILE3["struct file<br/>refcount=1"]
+    FDT_B --> FD1_B --> FILE3["struct file<br>refcount=1"]
 ```
-
 **Three-level structure:**
 
 1. **Process fd table**: Array in `files_struct` mapping fd numbers to `struct file *`
@@ -453,7 +452,8 @@ graph TD
 
 ## dup2() — Duplicating File Descriptors
 
-```c
+```mermaid
+c
 #include <unistd.h>
 
 int dup(int oldfd);              /* Lowest available fd */

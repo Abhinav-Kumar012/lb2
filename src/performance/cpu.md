@@ -11,11 +11,11 @@ This chapter covers `perf` for CPU profiling, flame graphs for visualization, CP
 ### Cache Hierarchy
 
 ```mermaid
-graph TD
+flowchart TD
     subgraph "CPU Core 0"
-        L1I0["L1 I-Cache<br/>32 KB, 8-way"]
-        L1D0["L1 D-Cache<br/>32 KB, 8-way"]
-        L20["L2 Cache<br/>256 KB, 8-way"]
+        L1I0["L1 I-Cache<br>32 KB, 8-way"]
+        L1D0["L1 D-Cache<br>32 KB, 8-way"]
+        L20["L2 Cache<br>256 KB, 8-way"]
     end
     subgraph "CPU Core 1"
         L1I1["L1 I-Cache"]
@@ -23,10 +23,10 @@ graph TD
         L21["L2 Cache"]
     end
     subgraph "L3 (LLC - Last Level Cache)"
-        L3["L3 Cache<br/>8-32 MB, shared"]
+        L3["L3 Cache<br>8-32 MB, shared"]
     end
     subgraph "Memory"
-        DRAM["Main Memory<br/>~100ns latency"]
+        DRAM["Main Memory<br>~100ns latency"]
     end
 
     L1I0 --> L20
@@ -37,7 +37,6 @@ graph TD
     L21 --> L3
     L3 --> DRAM
 ```
-
 ### Memory Latency Hierarchy
 
 | Level | Typical Latency | Typical Size |
@@ -50,7 +49,8 @@ graph TD
 
 ### CPU Topology
 
-```bash
+```mermaid
+bash
 # View CPU topology
 lscpu
 # Architecture:        x86_64
@@ -184,20 +184,20 @@ perf record -e sched:sched_switch -a -g -- sleep 30
 ### Flame Graph Interpretation
 
 ```mermaid
-graph TD
+flowchart TD
     subgraph "Flame Graph Reading"
-        FG["X-axis: Stack profile<br/>Y-axis: Stack depth<br/>Width: % of samples"]
+        FG["X-axis: Stack profile<br>Y-axis: Stack depth<br>Width: % of samples"]
         FG --> TIPS["Tips = Functions on CPU"]
         FG --> WIDTH["Wide = More CPU time"]
         FG --> PLATEAUS["Plateaus = Bottleneck"]
     end
 ```
-
 ## CPU Cache Performance
 
 ### Cache Misses
 
-```bash
+```mermaid
+bash
 # Count cache misses
 perf stat -e L1-dcache-loads,L1-dcache-load-misses,\
 LLC-loads,LLC-load-misses -- sleep 5
@@ -612,14 +612,13 @@ When the CPU scheduler has no runnable tasks for a CPU, the special "idle" task 
 2. Calls the **driver** to ask the hardware to enter that state
 
 ```mermaid
-graph TD
+flowchart TD
     A[CPU idle — no tasks] --> B[Governor selects idle state]
     B --> C[Driver enters idle state]
     C --> D[Hardware in low-power state]
-    D --> E[Wakeup event (timer, interrupt)]
+    D --> E["Wakeup event (timer, interrupt)"]
     E --> F[CPU resumes execution]
 ```
-
 ### Idle State Properties
 
 Each idle state is characterized by:
@@ -632,7 +631,8 @@ Each idle state is characterized by:
 
 ### C-State Hierarchy
 
-```bash
+```mermaid
+bash
 # List available idle states
 cat /sys/devices/system/cpu/cpu0/cpuidle/state0/name  # POLL (not a real C-state)
 cat /sys/devices/system/cpu/cpu0/cpuidle/state1/name  # C1

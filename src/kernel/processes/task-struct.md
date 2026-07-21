@@ -364,7 +364,7 @@ The `for_each_process` macro walks the `init_task.tasks` list:
 ```
 
 ```mermaid
-graph LR
+flowchart LR
     init["init_task"] -->|"tasks.next"| P1["Process 1"]
     P1 -->|"tasks.next"| P2["Process 2"]
     P2 -->|"tasks.next"| P3["Process 3"]

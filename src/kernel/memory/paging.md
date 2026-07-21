@@ -435,7 +435,7 @@ Modern x86_64 CPUs perform the page table walk in hardware (no software interven
 The hardware walk uses a **page walk cache** to cache intermediate (non-leaf) entries:
 
 ```mermaid
-graph TB
+flowchart TB
     CPU["CPU Core"]
     TLB["TLB"]
     PWC["Page Walk Cache"]

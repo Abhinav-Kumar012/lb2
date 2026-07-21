@@ -69,15 +69,15 @@ all metadata:
 ```mermaid
 graph TD
     subgraph "Btrfs On-Disk Structure"
-        SB["Superblock<br/>(copies at 64K, 64M, 256G)"]
-        RT["Root Tree<br/>→ points to all other trees"]
-        FS["FS Tree<br/>→ files, directories, inodes"]
-        CK["Checksum Tree<br/>→ data checksums"]
-        CH["Chunk Tree<br/>→ logical→physical mapping"]
-        DEV["Device Tree<br/>→ device info"]
-        OR["Orphan Tree<br/>→ orphan inodes"]
-        QU["Quota Tree<br/>→ qgroup info"]
-        LOG["Log Tree<br/>→ fsync log"]
+        SB["Superblock<br>(copies at 64K, 64M, 256G)"]
+        RT["Root Tree<br>→ points to all other trees"]
+        FS["FS Tree<br>→ files, directories, inodes"]
+        CK["Checksum Tree<br>→ data checksums"]
+        CH["Chunk Tree<br>→ logical→physical mapping"]
+        DEV["Device Tree<br>→ device info"]
+        OR["Orphan Tree<br>→ orphan inodes"]
+        QU["Quota Tree<br>→ qgroup info"]
+        LOG["Log Tree<br>→ fsync log"]
         SB --> RT
         RT --> FS
         RT --> CK
@@ -129,7 +129,7 @@ graph LR
     end
 
     subgraph "Chunk Tree Mapping"
-        CT["Chunk Tree<br/>stripe_size, devid, offset"]
+        CT["Chunk Tree<br>stripe_size, devid, offset"]
     end
 
     subgraph "Physical Devices"

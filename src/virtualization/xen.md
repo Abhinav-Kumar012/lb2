@@ -9,23 +9,23 @@ Xen's architecture is distinct from KVM: rather than turning the host OS into a 
 ## Architecture Overview
 
 ```mermaid
-graph TB
-    subgraph Xen Hypervisor
+flowchart TB
+    subgraph Xen_Hypervisor["Xen Hypervisor"]
         SCHED[Scheduler]
         MEM[Memory Manager]
         EVT[Event Channels]
         HYPER[Hypercall Interface]
     end
-    subgraph dom0 - Management Domain
-        D0_LINUX[Linux Kernel<br/>Modified]
-        D0_TOOLS[Xen Toolstack<br/>xl / libxl / libvirt]
-        D0_BACKEND[Backend Drivers<br/>netback, blkback]
-        D0_STOR[Storage / Network]
+    subgraph dom0___Management_Domain["dom0 - Management Domain"]
+        D0_LINUX["Linux Kernel<br>Modified"]
+        D0_TOOLS["Xen Toolstack<br>xl / libxl / libvirt"]
+        D0_BACKEND["Backend Drivers<br>netback, blkback"]
+        D0_STOR["Storage / Network"]
     end
-    subgraph domU - Guest Domains
-        U1[Guest 1<br/>PV or HVM]
-        U2[Guest 2<br/>PV or HVM]
-        U3[Guest 3<br/>PVH]
+    subgraph domU___Guest_Domains["domU - Guest Domains"]
+        U1["Guest 1<br>PV or HVM"]
+        U2["Guest 2<br>PV or HVM"]
+        U3["Guest 3<br>PVH"]
     end
     subgraph Hardware
         CPU[CPUs]
@@ -118,20 +118,20 @@ sequenceDiagram
 ### PV Frontend/Backend Model
 
 ```mermaid
-graph LR
-    subgraph domU (PV Guest)
-        FE_NET[netfront<br/>Network Frontend]
-        FE_BLK[blkfront<br/>Block Frontend]
-        FE_FB[fbfront<br/>Framebuffer Frontend]
+flowchart LR
+    subgraph domU__PV_Guest["domU (PV Guest)"]
+        FE_NET["netfront<br>Network Frontend"]
+        FE_BLK["blkfront<br>Block Frontend"]
+        FE_FB["fbfront<br>Framebuffer Frontend"]
     end
-    subgraph Xen Hypervisor
-        GT[Grant Tables<br/>Shared Memory]
-        EC[Event Channels<br/>Notifications]
+    subgraph Xen_Hypervisor["Xen Hypervisor"]
+        GT["Grant Tables<br>Shared Memory"]
+        EC["Event Channels<br>Notifications"]
     end
-    subgraph dom0 (Backend)
-        BE_NET[netback<br/>Network Backend]
-        BE_BLK[blkback<br/>Block Backend]
-        BE_FB[fbbackend<br/>Framebuffer Backend]
+    subgraph dom0__Backend["dom0 (Backend)"]
+        BE_NET["netback<br>Network Backend"]
+        BE_BLK["blkback<br>Block Backend"]
+        BE_FB["fbbackend<br>Framebuffer Backend"]
     end
 
     FE_NET <-->|grant table + event channel| BE_NET
@@ -238,18 +238,18 @@ Xenstore is a hierarchical configuration database shared between domains. It's u
 - Feature flags
 
 ```mermaid
-graph TB
-    subgraph Xenstore Tree
-        ROOT[/]
-        LOCAL[/local]
-        DOMAIN[/local/domain]
-        D0[/local/domain/0]
-        D1[/local/domain/1]
-        D1_VM[/local/domain/1/vm]
-        D1_DEVICE[/local/domain/1/device]
-        BACKEND[/local/domain/0/backend]
-        BE_VBD[/local/domain/0/backend/vbd]
-        BE_VIF[/local/domain/0/backend/vif]
+flowchart TB
+    subgraph Xenstore_Tree["Xenstore Tree"]
+        ROOT["/"]
+        LOCAL["/local"]
+        DOMAIN["/local/domain"]
+        D0["/local/domain/0"]
+        D1["/local/domain/1"]
+        D1_VM["/local/domain/1/vm"]
+        D1_DEVICE["/local/domain/1/device"]
+        BACKEND["/local/domain/0/backend"]
+        BE_VBD["/local/domain/0/backend/vbd"]
+        BE_VIF["/local/domain/0/backend/vif"]
     end
     ROOT --> LOCAL
     LOCAL --> DOMAIN
@@ -340,17 +340,17 @@ The Credit scheduler is Xen's default CPU scheduler. It's a proportional-share s
 ### How It Works
 
 ```mermaid
-graph TB
-    subgraph Credit Scheduler
-        POOL[Credit Pool<br/>Global CPU credits]
-        D0_C[dom0: weight=512<br/>credits=200]
-        D1_C[domU1: weight=256<br/>credits=100]
-        D2_C[domU2: weight=256<br/>credits=50]
+flowchart TB
+    subgraph Credit_Scheduler["Credit Scheduler"]
+        POOL["Credit Pool<br>Global CPU credits"]
+        D0_C["dom0: weight=512<br>credits=200"]
+        D1_C["domU1: weight=256<br>credits=100"]
+        D2_C["domU2: weight=256<br>credits=50"]
     end
     subgraph States
-        BOOST[BOOST<br/>Recently received I/O]
-        UNDER[UNDER<br/>Has credits remaining]
-        OVER[OVER<br/>Credits exhausted]
+        BOOST["BOOST<br>Recently received I/O"]
+        UNDER["UNDER<br>Has credits remaining"]
+        OVER["OVER<br>Credits exhausted"]
     end
     POOL --> D0_C
     POOL --> D1_C
@@ -396,19 +396,19 @@ xl sched-credit -a
 PVH combines the best of PV and HVM:
 
 ```mermaid
-graph LR
-    subgraph PV Guest
+flowchart LR
+    subgraph PV_Guest["PV Guest"]
         PV_K[PV Kernel] --> PV_HYPER[Hypercalls]
         PV_K --> PV_PV[PV Drivers]
     end
-    subgraph HVM Guest
+    subgraph HVM_Guest["HVM Guest"]
         HVM_K[Unmodified Kernel] --> HVM_EMUL[Emulated Devices]
         HVM_K --> HVM_PV[PV Drivers]
     end
-    subgraph PVH Guest
+    subgraph PVH_Guest["PVH Guest"]
         PVH_K[PV-aware Kernel] --> PVH_HYPER[Hypercalls]
         PVH_K --> PVH_PV[PV Drivers]
-        PVH_K --> PVH_HVM[HVM Hardware<br/>VT-x/AMD-V]
+        PVH_K --> PVH_HVM["HVM Hardware<br>VT-x/AMD-V"]
     end
 ```
 

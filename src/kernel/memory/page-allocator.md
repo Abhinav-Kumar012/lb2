@@ -58,15 +58,15 @@ For example, with order 2 (4 pages each):
 - Pages 8-11 (PFN 0x08) and Pages 12-15 (PFN 0x0C) are buddies
 
 ```mermaid
-graph TB
+flowchart TB
     subgraph "Buddy System - Order 3 (8 pages)"
-        B3["Block 0-7<br/>Order 3"]
-        B3 --> B2L["Block 0-3<br/>Order 2"]
-        B3 --> B2R["Block 4-7<br/>Order 2"]
-        B2L --> B1LL["Block 0-1<br/>Order 1"]
-        B2L --> B1LR["Block 2-3<br/>Order 1"]
-        B2R --> B1RL["Block 4-5<br/>Order 1"]
-        B2R --> B1RR["Block 6-7<br/>Order 1"]
+        B3["Block 0-7<br>Order 3"]
+        B3 --> B2L["Block 0-3<br>Order 2"]
+        B3 --> B2R["Block 4-7<br>Order 2"]
+        B2L --> B1LL["Block 0-1<br>Order 1"]
+        B2L --> B1LR["Block 2-3<br>Order 1"]
+        B2R --> B1RL["Block 4-5<br>Order 1"]
+        B2R --> B1RR["Block 6-7<br>Order 1"]
         B1LL --> B0LLL["Page 0"]
         B1LL --> B0LLR["Page 1"]
         B1LR --> B0LRL["Page 2"]
@@ -181,11 +181,11 @@ enum {
 ```
 
 ```mermaid
-graph LR
+flowchart LR
     subgraph "Zone Memory"
-        HIGH["WMARK_HIGH<br/>(plenty of free pages)"]
-        LOW["WMARK_LOW<br/>(wake kswapd)"]
-        MIN["WMARK_MIN<br/>(direct reclaim)"]
+        HIGH["WMARK_HIGH<br>(plenty of free pages)"]
+        LOW["WMARK_LOW<br>(wake kswapd)"]
+        MIN["WMARK_MIN<br>(direct reclaim)"]
         ZERO["0 (out of memory)"]
     end
     HIGH -->|"Pages decrease"| LOW
@@ -309,21 +309,21 @@ GFP (Get Free Pages) flags control allocation behavior:
 ### Allocation Path
 
 ```mermaid
-graph TB
-    REQ["alloc_pages(gfp, order)"] --> PCP{"Per-CPU cache<br/>(order-0 only)"}
+flowchart TB
+    REQ["alloc_pages(gfp, order)"] --> PCP{"Per-CPU cache<br>(order-0 only)"}
     PCP -->|"Hit"| DONE["Return page"]
-    PCP -->|"Miss"| BUDDY{"Buddy system<br/>(zone free list)"}
+    PCP -->|"Miss"| BUDDY{"Buddy system<br>(zone free list)"}
     BUDDY -->|"Hit"| DONE
     BUDDY -->|"Miss"| WATER{"Below watermarks?"}
-    WATER -->|"Above low"| KSWAPD["Wake kswapd<br/>(async reclaim)"]
-    WATER -->|"Below min"| DIRECT["Direct reclaim<br/>(synchronous)"]
+    WATER -->|"Above low"| KSWAPD["Wake kswapd<br>(async reclaim)"]
+    WATER -->|"Below min"| DIRECT["Direct reclaim<br>(synchronous)"]
     WATER -->|"Below emergency"| EMERG["Use emergency reserves"]
     KSWAPD --> BUDDY
     DIRECT --> BUDDY
     EMERG --> BUDDY
     BUDDY -->|"Still empty"| COMPACT["Memory compaction"]
     COMPACT --> BUDDY
-    BUDDY -->|"Still empty"| FALLBACK{"Try other zones<br/>(zonelist fallback)"}
+    BUDDY -->|"Still empty"| FALLBACK{"Try other zones<br>(zonelist fallback)"}
     FALLBACK -->|"Hit"| DONE
     FALLBACK -->|"Miss"| OOM["OOM Killer"]
 ```

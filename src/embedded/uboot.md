@@ -422,7 +422,7 @@ mkimage -f image.its -K u-boot.dtb -k /path/to/keys -r fitImage
 ```mermaid
 graph TB
     subgraph Hardware Root of Trust
-        HAB[HAB (i.MX) / ATF (ARM64)<br/>ROM verifies SPL]
+        HAB["HAB (i.MX) / ATF (ARM64)<br/>ROM verifies SPL"]
     end
     subgraph SPL
         SPL_VER[SPL verifies U-Boot]

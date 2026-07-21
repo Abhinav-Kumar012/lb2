@@ -39,8 +39,8 @@ by kernel functions that generate content on demand:
 graph TD
     subgraph "procfs Implementation"
         A["/proc entry"] -->|"read()"| B["seq_file interface"]
-        B --> C["Kernel function<br/>generates output"]
-        A -->|"write()"| D["Kernel function<br/>parses input"]
+        B --> C["Kernel function<br>generates output"]
+        A -->|"write()"| D["Kernel function<br>parses input"]
     end
 
     subgraph "Examples"

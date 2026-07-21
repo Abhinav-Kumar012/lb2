@@ -30,12 +30,11 @@ A typical Linux-capable core implements `RV64GC` (64-bit with G = IMAFDZicsr_Zif
 
 ```mermaid
 flowchart LR
-    U["U-mode<br/>User applications"]
-    S["S-mode<br/>Supervisor (kernel)"]
-    M["M-mode<br/>Machine (firmware)"]
+    U["U-mode<br>User applications"]
+    S["S-mode<br>Supervisor (kernel)"]
+    M["M-mode<br>Machine (firmware)"]
     U --> S --> M
 ```
-
 | Level | Code | Used By |
 |-------|------|---------|
 | Machine (M) | 3 | Boot ROM, OpenSBI |
@@ -57,7 +56,8 @@ SiFive was the first company to produce RISC-V SoCs for Linux.
 
 **HiFive Unmatched Quick Start:**
 
-```bash
+```mermaid
+bash
 # Download prebuilt image
 wget https://github.com/sifive/freedom-u-sdk/releases/download/v2022.04.00/demo-coreip-cli-unmatched-2022.04.00.rootfs.wic.gz
 
@@ -127,21 +127,21 @@ qemu-system-riscv64 \
 
 ```mermaid
 flowchart TD
-    BOOTROM["Boot ROM<br/>(SoC-internal)"] --> SPL["SPL / FSBL<br/>(First Stage Bootloader)"]
-    SPL --> OPENSBI["OpenSBI (M-mode)<br/>(Supervisor Binary Interface)"]
-    OPENSBI --> UBOOT["U-Boot (S-mode)<br/>(optional)"]
+    BOOTROM["Boot ROM<br>(SoC-internal)"] --> SPL["SPL / FSBL<br>(First Stage Bootloader)"]
+    SPL --> OPENSBI["OpenSBI (M-mode)<br>(Supervisor Binary Interface)"]
+    OPENSBI --> UBOOT["U-Boot (S-mode)<br>(optional)"]
     UBOOT --> KERNEL["Linux Kernel (S-mode)"]
     KERNEL --> INIT["init / systemd (U-mode)"]
     INIT --> APPS["Applications"]
 ```
-
 ### 3.2 OpenSBI — The Firmware
 
 OpenSBI is the standard M-mode firmware for RISC-V, analogous to ARM's TF-A.
 It provides the **Supervisor Binary Interface (SBI)** — the API between M-mode
 and S-mode.
 
-```bash
+```mermaid
+bash
 # Build OpenSBI
 git clone https://github.com/riscv-software-src/opensbi.git
 cd opensbi

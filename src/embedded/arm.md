@@ -44,18 +44,17 @@ ARMv8-A introduced the 64-bit AArch64 execution state while maintaining backward
 ARMv8-A defines four exception levels (EL0-EL3), each with increasing privilege:
 
 ```mermaid
-graph TB
-    subgraph Exception Levels
-        EL3["EL3 (Secure Monitor)<br/>TrustZone, firmware<br/>Highest privilege"]
-        EL2["EL2 (Hypervisor)<br/>KVM, Xen<br/>Virtualization"]
-        EL1["EL1 (OS Kernel)<br/>Linux kernel<br/>Kernel mode"]
-        EL0["EL0 (Application)<br/>User processes<br/>Lowest privilege"]
+flowchart TB
+    subgraph "Exception Levels"
+        EL3["EL3 (Secure Monitor)<br>TrustZone, firmware<br>Highest privilege"]
+        EL2["EL2 (Hypervisor)<br>KVM, Xen<br>Virtualization"]
+        EL1["EL1 (OS Kernel)<br>Linux kernel<br>Kernel mode"]
+        EL0["EL0 (Application)<br>User processes<br>Lowest privilege"]
     end
     EL0 --> EL1
     EL1 --> EL2
     EL2 --> EL3
 ```
-
 ### Exception Level Mapping
 
 | Exception Level | Typical Use | Linux Use | Examples |
@@ -65,7 +64,8 @@ graph TB
 | **EL1** | OS Kernel | Linux kernel | Kernel mode |
 | **EL0** | Application | User-space processes | Applications, libraries |
 
-```bash
+```mermaid
+bash
 # Check current exception level (from kernel)
 # Reading CurrentEL register
 cat /proc/cpuinfo | head -20
@@ -193,21 +193,21 @@ vector_table:
 ### Translation Tables
 
 ```mermaid
-graph TB
-    subgraph Virtual Address
+flowchart TB
+    subgraph "Virtual Address"
         VA[VA 48-bit]
-        L0_IDX[L0: bits 47:39<br/>9 bits = 512 entries]
-        L1_IDX[L1: bits 38:30<br/>9 bits = 512 entries]
-        L2_IDX[L2: bits 29:21<br/>9 bits = 512 entries]
-        L3_IDX[L3: bits 20:12<br/>9 bits = 512 entries]
-        OFFSET[Offset: bits 11:0<br/>12 bits = 4KB]
+        L0_IDX["L0: bits 47:39<br>9 bits = 512 entries"]
+        L1_IDX["L1: bits 38:30<br>9 bits = 512 entries"]
+        L2_IDX["L2: bits 29:21<br>9 bits = 512 entries"]
+        L3_IDX["L3: bits 20:12<br>9 bits = 512 entries"]
+        OFFSET["Offset: bits 11:0<br>12 bits = 4KB"]
     end
-    subgraph Page Table
-        L0[Level 0 Table<br/>TTBR0_EL1]
-        L1[Level 1 Table<br/>1GB entries]
-        L2[Level 2 Table<br/>2MB entries]
-        L3[Level 3 Table<br/>4KB entries]
-        PAGE[Physical Page<br/>4KB]
+    subgraph "Page Table"
+        L0["Level 0 Table<br>TTBR0_EL1"]
+        L1["Level 1 Table<br>1GB entries"]
+        L2["Level 2 Table<br>2MB entries"]
+        L3["Level 3 Table<br>4KB entries"]
+        PAGE["Physical Page<br>4KB"]
     end
     VA --> L0
     L0 --> L0_IDX
@@ -219,10 +219,10 @@ graph TB
     L3 --> L3_IDX
     L3 --> PAGE
 ```
-
 ### Memory Types and Attributes
 
-```bash
+```mermaid
+bash
 # ARM memory types:
 # Normal memory: Cachable, used for code and data
 # Device memory: Non-cachable, for memory-mapped I/O
@@ -365,14 +365,14 @@ void sve_add(float *a, float *b, float *c, int n) {
 TrustZone is ARM's hardware security technology that creates a secure world and a normal world:
 
 ```mermaid
-graph TB
-    subgraph Secure World
-        SEC_EL3["EL3: Secure Monitor<br/>(ATF/OP-TEE)"]
-        SEC_EL1["EL1: Secure OS<br/>(OP-TEE, Trusty)"]
+flowchart TB
+    subgraph "Secure World"
+        SEC_EL3["EL3: Secure Monitor<br>(ATF/OP-TEE)"]
+        SEC_EL1["EL1: Secure OS<br>(OP-TEE, Trusty)"]
         SEC_EL0["EL0: Trusted Apps"]
     end
-    subgraph Normal World
-        NORM_EL2["EL2: Hypervisor<br/>(KVM/Xen)"]
+    subgraph "Normal World"
+        NORM_EL2["EL2: Hypervisor<br>(KVM/Xen)"]
         NORM_EL1["EL1: Linux Kernel"]
         NORM_EL0["EL0: Applications"]
     end
@@ -380,10 +380,10 @@ graph TB
     SEC_EL3 <-->|SMC| NORM_EL1
     SEC_EL1 <-->|Secure IPC| SEC_EL0
 ```
-
 ### TrustZone Components
 
-```bash
+```mermaid
+bash
 # ARM Trusted Firmware (ATF/TF-A)
 # Runs at EL3, implements:
 # 1. PSCI (Power State Coordination Interface)
@@ -417,23 +417,23 @@ dmesg | grep psci
 ARM's heterogeneous multiprocessing combines high-performance and energy-efficient cores:
 
 ```mermaid
-graph TB
-    subgraph big.LITTLE / DynamIQ Cluster
-        subgraph Performance Cores (Cortex-A78)
-            BIG0[Core 0<br/>Cortex-A78<br/>High performance]
-            BIG1[Core 1<br/>Cortex-A78]
+flowchart TB
+    subgraph "big.LITTLE / DynamIQ Cluster"
+        subgraph "PC["Performance Cores (Cortex-A78)"]"
+            BIG0["Core 0<br>Cortex-A78<br>High performance"]
+            BIG1["Core 1<br>Cortex-A78"]
         end
-        subgraph Efficiency Cores (Cortex-A55)
-            LITTLE0[Core 2<br/>Cortex-A55<br/>Power efficient]
-            LITTLE1[Core 3<br/>Cortex-A55]
-            LITTLE2[Core 4<br/>Cortex-A55]
+        subgraph "EC["Efficiency Cores (Cortex-A55)"]"
+            LITTLE0["Core 2<br>Cortex-A55<br>Power efficient"]
+            LITTLE1["Core 3<br>Cortex-A55"]
+            LITTLE2["Core 4<br>Cortex-A55"]
         end
     end
 ```
-
 ### big.LITTLE Scheduling
 
-```bash
+```mermaid
+bash
 # Linux Energy-Aware Scheduler (EAS)
 # Considers CPU capacity and energy cost when placing tasks
 

@@ -19,15 +19,15 @@ Linux has three slab allocator implementations:
 4. **Slab merging**: Combine caches with similar object sizes to reduce fragmentation.
 
 ```mermaid
-graph TB
+flowchart TB
     subgraph "Application / Kernel Code"
         KMALLOC["kmalloc(size, gfp)"]
         CACHE_ALLOC["kmem_cache_alloc(cache, gfp)"]
     end
     subgraph "SLUB Allocator"
-        PCPU["Per-CPU Page Cache<br/>(kmem_cache_cpu)"]
-        SLAB["Slab Page<br/>(contiguous pages)"]
-        PARTIAL["Partial Slabs List<br/>(kmem_cache_node)"]
+        PCPU["Per-CPU Page Cache<br>(kmem_cache_cpu)"]
+        SLAB["Slab Page<br>(contiguous pages)"]
+        PARTIAL["Partial Slabs List<br>(kmem_cache_node)"]
     end
     subgraph "Page Allocator"
         BUDDY["Buddy System"]

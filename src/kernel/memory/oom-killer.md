@@ -48,7 +48,7 @@ __alloc_pages_may_oom(gfp_t gfp_mask, unsigned int order,
 ### The Allocation Slow Path
 
 ```mermaid
-graph TB
+flowchart TB
     A["alloc_pages()"] --> B{"Per-CPU cache"}
     B -->|"Hit"| C["Return page"]
     B -->|"Miss"| D{"Buddy system"}
@@ -251,7 +251,7 @@ oom_group_kill 0
 When a cgroup exceeds its memory limit:
 
 ```mermaid
-graph TB
+flowchart TB
     A["Process allocates memory"] --> B{"cgroup limit reached?"}
     B -->|"No"| C["Allocation succeeds"]
     B -->|"Yes"| D["Reclaim within cgroup"]
@@ -259,7 +259,7 @@ graph TB
     E -->|"Yes"| C
     E -->|"No"| F{"oom_group set?"}
     F -->|"Yes"| G["Kill entire cgroup"]
-    F -->|"No"| H["Kill highest-scored process<br/>within cgroup"]
+    F -->|"No"| H["Kill highest-scored process<br>within cgroup"]
     G --> I["Retry allocation"]
     H --> I
 ```
@@ -637,7 +637,7 @@ $ cat /proc/sys/vm/enable_soft_offline
 ### HWPOISON Process Flow
 
 ```mermaid
-graph TB
+flowchart TB
     A[Memory controller reports error] --> B{Correctable?}
     B -->|Yes| C[Soft offline: migrate page]
     B -->|No| D[Hard offline: isolate page]

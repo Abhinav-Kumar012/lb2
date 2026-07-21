@@ -112,14 +112,14 @@ msync(addr, 4096, MS_SYNC);  /* Force writeback */
 ### Comparison
 
 ```mermaid
-graph TB
+flowchart TB
     subgraph "MAP_PRIVATE"
-        P_PROC1["Process 1"] -->|"COW"| P_PAGE["Physical Page<br/>(copy)"]
-        P_PROC2["Process 2"] -->|"COW"| P_PAGE2["Physical Page<br/>(different copy)"]
+        P_PROC1["Process 1"] -->|"COW"| P_PAGE["Physical Page<br>(copy)"]
+        P_PROC2["Process 2"] -->|"COW"| P_PAGE2["Physical Page<br>(different copy)"]
         P_FILE["File on Disk"] -.->|"Initial read"| P_PAGE
     end
     subgraph "MAP_SHARED"
-        S_PROC1["Process 1"] -->|"Direct"| S_PAGE["Physical Page<br/>(shared)"]
+        S_PROC1["Process 1"] -->|"Direct"| S_PAGE["Physical Page<br>(shared)"]
         S_PROC2["Process 2"] -->|"Direct"| S_PAGE
         S_PAGE <-->|"Read/Write"| S_FILE["File on Disk"]
     end
@@ -304,11 +304,11 @@ struct vm_operations_struct {
 ### VMA Lifecycle
 
 ```mermaid
-graph TB
+flowchart TB
     A["mmap() syscall"] --> B["do_mmap()"]
     B --> C["mmap_region()"]
     C --> D["vma_merge() or alloc_vma()"]
-    D --> E["VMA created<br/>vm_area_struct"]
+    D --> E["VMA created<br>vm_area_struct"]
     E --> F["Page fault on access"]
     F --> G["handle_mm_fault()"]
     G --> H["VMA found via find_vma()"]

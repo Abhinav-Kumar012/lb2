@@ -238,10 +238,10 @@ developed by Megiddo and Modha, which is superior to simple LRU:
 ```mermaid
 graph TD
     subgraph "ARC Cache"
-        MRU["Most Recently Used (MRU)<br/>Recently accessed, first time seen"]
-        MFU["Most Frequently Used (MFU)<br/>Accessed multiple times"]
-        GhostMRU["Ghost MRU<br/>Evicted MRU entries"]
-        GhostMFU["Ghost MFU<br/>Evicted MFU entries"]
+        MRU["Most Recently Used (MRU)<br>Recently accessed, first time seen"]
+        MFU["Most Frequently Used (MFU)<br>Accessed multiple times"]
+        GhostMRU["Ghost MRU<br>Evicted MRU entries"]
+        GhostMFU["Ghost MFU<br>Evicted MFU entries"]
     end
 
     A["Read Request"] -->|"New block"| MRU

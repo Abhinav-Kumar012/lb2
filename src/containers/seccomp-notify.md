@@ -12,7 +12,7 @@ system call policy decisions are delegated to a user-space process.
 ## Architecture Overview
 
 ```mermaid
-graph TD
+flowchart TD
     A[Sandboxed Process] --> B[Syscall Entry]
     B --> C[seccomp Filter]
     C --> D{Filter Result}
@@ -245,7 +245,7 @@ int is_notification_valid(int listener, __u64 id)
 Container runtimes use seccomp notify to proxy system calls:
 
 ```mermaid
-graph TD
+flowchart TD
     A[Container Process] --> B[seccomp filter]
     B --> C{Dangerous syscall?}
     C -->|mount, pivot_root| D[USER_NOTIF]

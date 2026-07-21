@@ -387,17 +387,17 @@ exec 3</proc/1234/ns/net
 ## Namespace Lifecycle Diagram
 
 ```mermaid
-graph TD
+flowchart TD
     A["clone(CLONE_NEWPID | CLONE_NEWNET | CLONE_NEWNS)"] --> B["New child process"]
-    B --> C["New PID namespace<br/>PID 1"]
-    B --> D["New network namespace<br/>lo only"]
-    B --> E["New mount namespace<br/>inherits mounts"]
-    C --> F["Child creates<br/>grandchildren"]
-    F --> G["Grandchild gets PID 2<br/>in child's namespace"]
-    E --> H["mount --make-private /<br/>isolate mount table"]
-    D --> I["ip link add veth0<br/>create virtual NIC"]
+    B --> C["New PID namespace<br>PID 1"]
+    B --> D["New network namespace<br>lo only"]
+    B --> E["New mount namespace<br>inherits mounts"]
+    C --> F["Child creates<br>grandchildren"]
+    F --> G["Grandchild gets PID 2<br>in child's namespace"]
+    E --> H["mount --make-private /<br>isolate mount table"]
+    D --> I["ip link add veth0<br>create virtual NIC"]
 
-    J["Parent process<br/>(original namespaces)"] --> A
+    J["Parent process<br>(original namespaces)"] --> A
 
     style A fill:#e53e3e,color:#fff
     style B fill:#3182ce,color:#fff

@@ -16,11 +16,11 @@ flowchart TB
         VM2[VM 2]
         VM3[VM 3]
     end
-    subgraph Virtual Network
+    subgraph Virtual_Network["Virtual Network"]
         VETH1[veth pair]
         VETH2[veth pair]
         VETH3[veth pair]
-        BRIDGE[Linux Bridge / OVS]
+        BRIDGE["Linux Bridge / OVS"]
     end
     subgraph Physical
         ETH[Physical NIC]

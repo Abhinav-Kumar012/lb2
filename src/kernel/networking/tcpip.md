@@ -360,7 +360,7 @@ TCP uses a sliding window for flow control:
 ```mermaid
 graph LR
     subgraph "Send Window"
-        SENT[Sent & ACKed]
+        SENT["Sent & ACKed"]
         SENT2[Sent, Not ACKed]
         SEND[Can Send]
         WAIT[Cannot Send]

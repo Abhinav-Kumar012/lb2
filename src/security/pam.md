@@ -9,7 +9,7 @@ This separation is powerful: you can change authentication from local passwords 
 ## Architecture
 
 ```mermaid
-graph TB
+flowchart TB
     subgraph "Applications"
         LOGIN[login]
         SSHD[sshd]
@@ -21,26 +21,26 @@ graph TB
 
     subgraph "PAM Library (libpam)"
         API[PAM API]
-        CONF[Configuration<br/>/etc/pam.d/]
+        CONF["Configuration<br>/etc/pam.d/"]
     end
 
     subgraph "PAM Modules"
-        UNIX[pam_unix.so<br/>Local passwords]
-        LDAP[pam_ldap.so<br/>LDAP/AD auth]
-        TOTP[pam_google_authenticator.so<br/>2FA/TOTP]
-        PWQUAL[pam_pwquality.so<br/>Password strength]
-        LIMITS[pam_limits.so<br/>Resource limits]
-        ENV[pam_env.so<br/>Environment vars]
-        SYSTEMD[pam_systemd.so<br/>Login sessions]
-        FAIL[pam_faillock.so<br/>Account lockout]
-        SECURE[pam_securetty.so<br/>Root login restrictions]
+        UNIX["pam_unix.so<br>Local passwords"]
+        LDAP["pam_ldap.so<br>LDAP/AD auth"]
+        TOTP["pam_google_authenticator.so<br>2FA/TOTP"]
+        PWQUAL["pam_pwquality.so<br>Password strength"]
+        LIMITS["pam_limits.so<br>Resource limits"]
+        ENV["pam_env.so<br>Environment vars"]
+        SYSTEMD["pam_systemd.so<br>Login sessions"]
+        FAIL["pam_faillock.so<br>Account lockout"]
+        SECURE["pam_securetty.so<br>Root login restrictions"]
     end
 
     subgraph "Backends"
-        SHADOW[/etc/shadow]
+        SHADOW["/etc/shadow"]
         LDAP_SRV[LDAP Server]
         AD[Active Directory]
-        TOTP_KEY[~/.google_authenticator]
+        TOTP_KEY["~/.google_authenticator"]
     end
 
     LOGIN --> API
@@ -101,7 +101,6 @@ sequenceDiagram
     Modules-->>PAM: OK / FAIL
     PAM-->>App: Result
 ```
-
 | Group | Purpose | Typical Modules |
 |-------|---------|-----------------|
 | **auth** | Verify user identity | pam_unix, pam_ldap, pam_google_authenticator |
@@ -113,7 +112,8 @@ sequenceDiagram
 
 ### File Locations
 
-```bash
+```mermaid
+bash
 # Main PAM configuration file (used as fallback)
 /etc/pam.conf          # Rarely used on modern systems
 
@@ -160,24 +160,23 @@ The **control** field determines how a module's result affects the overall outco
 | `substack` | Like include, but module failures don't propagate to the parent. |
 
 ```mermaid
-graph TD
-    A[Module 1: required] -->|Success| B[Module 2: required]
+flowchart TD
+    A["Module 1: required"] -->|Success| B["Module 2: required"]
     A -->|Failure| F[Continue checking, but final result = FAIL]
-    B -->|Success| C[Module 3: sufficient]
+    B -->|Success| C["Module 3: sufficient"]
     B -->|Failure| F
-    C -->|Success| S[Final result = SUCCESS<br/>Skip remaining modules]
-    C -->|Failure| D[Module 4: optional]
+    C -->|Success| S["Final result = SUCCESS<br>Skip remaining modules"]
+    C -->|Failure| D["Module 4: optional"]
     D -->|Either| E[Final result = determined by required modules]
 
     style S fill:#90EE90
     style F fill:#FF6347
 ```
-
 ### Advanced Control Syntax
 
 For fine-grained control, use the bracket syntax:
 
-```
+```mermaid
 [default=value1 value2 ... action=value ...]
 ```
 

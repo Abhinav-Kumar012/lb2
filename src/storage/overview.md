@@ -12,13 +12,13 @@ The Linux I/O stack is a layered architecture. Each layer adds its own abstracti
 
 ```mermaid
 graph TD
-    A[Application / VFS] --> B[Filesystem (ext4, XFS, Btrfs)]
+    A[Application / VFS] --> B["Filesystem (ext4, XFS, Btrfs)"]
     B --> C[Page Cache / Direct I/O]
-    C --> D[Block I/O Layer (bio, request_queue)]
-    D --> E[I/O Scheduler (mq-deadline, BFQ, kyber)]
-    E --> F[Device Driver (SCSI, NVMe, virtio-blk)]
+    C --> D["Block I/O Layer (bio, request_queue)"]
+    D --> E["I/O Scheduler (mq-deadline, BFQ, kyber)"]
+    E --> F["Device Driver (SCSI, NVMe, virtio-blk)"]
     F --> G[Block Device /dev/sdX, /dev/nvme0n1]
-    G --> H[Hardware (HDD, SSD, NVMe, SAN)]
+    G --> H["Hardware (HDD, SSD, NVMe, SAN)"]
 ```
 
 ### Layer Descriptions

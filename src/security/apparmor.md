@@ -13,9 +13,9 @@ AppArmor's philosophy is to be **practical and easy to use**, making security ac
 The fundamental architectural difference between AppArmor and SELinux:
 
 ```mermaid
-graph LR
+flowchart LR
     subgraph "AppArmor (Path-Based)"
-        AP[/etc/apparmor.d/usr.sbin.httpd] -->|restricts access to| AFP["/var/www/** r<br/>/var/log/** rw<br/>/etc/passwd r"]
+        AP["/etc/apparmor.d/usr.sbin.httpd"] -->|restricts access to| AFP["/var/www/** r<br>/var/log/** rw<br>/etc/passwd r"]
     end
 
     subgraph "SELinux (Label-Based)"
@@ -25,7 +25,6 @@ graph LR
     style AP fill:#87CEEB
     style SEL fill:#FF6347
 ```
-
 | Aspect | AppArmor | SELinux |
 |--------|----------|---------|
 | Identification | By **file path** | By **inode label (xattr)** |
@@ -36,7 +35,8 @@ graph LR
 
 ### Practical Implications
 
-```bash
+```mermaid
+bash
 # AppArmor: a profile restricting /usr/sbin/myapp
 #   /etc/myapp.conf r,
 #   /var/lib/myapp/** rw,
@@ -168,14 +168,14 @@ cat /etc/apparmor.d/abstractions/base
 AppArmor profiles operate in two modes:
 
 ```mermaid
-graph LR
+flowchart LR
     subgraph "Enforce Mode"
-        E[Profile Active] -->|violations| ED[Denied + Logged]
+        E[Profile Active] -->|violations| ED["Denied + Logged"]
         E -->|allowed| EA[Allowed]
     end
 
     subgraph "Complain Mode"
-        C[Profile Active] -->|violations| CD[Allowed + Logged]
+        C[Profile Active] -->|violations| CD["Allowed + Logged"]
         C -->|allowed| CA[Allowed]
     end
 
@@ -184,8 +184,8 @@ graph LR
     style EA fill:#90EE90
     style CA fill:#90EE90
 ```
-
-```bash
+```mermaid
+bash
 # Check profile status
 sudo aa-status
 # apparmor module is loaded.
@@ -544,7 +544,7 @@ Profiles can define "hats" — sub-profiles for privilege separation:
 ## AppArmor vs. SELinux: Deep Comparison
 
 ```mermaid
-graph TB
+flowchart TB
     subgraph "Decision Process"
         A[Process requests file access]
         A --> B{AppArmor}
@@ -555,7 +555,7 @@ graph TB
         B2 --> B3[Allow or Deny]
 
         C --> C1[Read inode security label]
-        C1 --> C2[Check policy: source_type + target_type]
+        C1 --> C2["Check policy: source_type + target_type"]
         C2 --> C3[Allow or Deny]
     end
 

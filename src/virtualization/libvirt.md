@@ -12,10 +12,10 @@ domain XML configuration, virtual networking, storage pools, and the
 
 ```mermaid
 flowchart TB
-    subgraph User Interfaces
+    subgraph User_Interfaces["User Interfaces"]
         VIRSH[virsh CLI]
         VM[virt-manager GUI]
-        API[libvirt API (C, Python, Go)]
+        API["libvirt API (C, Python, Go)"]
     end
     subgraph libvirtd
         DAEMON[libvirtd daemon]
@@ -24,7 +24,7 @@ flowchart TB
         DRIVER_XEN[Xen driver]
     end
     subgraph Hypervisors
-        KVM[KVM/QEMU]
+        KVM["KVM/QEMU"]
         XEN[Xen]
         LXC_INST[LXC containers]
     end

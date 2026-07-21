@@ -26,10 +26,10 @@ into AGs, each of which is essentially an independent filesystem with its own:
 ```mermaid
 graph TB
     subgraph "XFS Filesystem"
-        AG0["AG 0<br/>Blocks 0 - 1B<br/>Own superblock copy<br/>Own free-space B+ trees<br/>Own inode B+ trees"]
-        AG1["AG 1<br/>Blocks 1B - 2B<br/>Own free-space B+ trees<br/>Own inode B+ trees"]
-        AG2["AG 2<br/>Blocks 2B - 3B<br/>Own free-space B+ trees<br/>Own inode B+ trees"]
-        AG3["AG N...<br/>..."]
+        AG0["AG 0<br>Blocks 0 - 1B<br>Own superblock copy<br>Own free-space B+ trees<br>Own inode B+ trees"]
+        AG1["AG 1<br>Blocks 1B - 2B<br>Own free-space B+ trees<br>Own inode B+ trees"]
+        AG2["AG 2<br>Blocks 2B - 3B<br>Own free-space B+ trees<br>Own inode B+ trees"]
+        AG3["AG N...<br>..."]
     end
 ```
 
@@ -314,7 +314,7 @@ For large directories, XFS uses a B+ tree indexed by a hash of the filename:
 ```mermaid
 graph TD
     subgraph "XFS Large Directory"
-        R["B+ Tree Root<br/>Hash → Directory Block"]
+        R["B+ Tree Root<br>Hash → Directory Block"]
         L1["Leaf: hash entries A-F"]
         L2["Leaf: hash entries G-M"]
         L3["Leaf: hash entries N-Z"]

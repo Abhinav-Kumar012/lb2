@@ -13,7 +13,7 @@ Unlike many modern projects that use GitHub pull requests or GitLab merge reques
 The kernel development model is a **directed acyclic graph (DAG)** of Git trees, flowing upward toward a single person: **Linus Torvalds**.
 
 ```mermaid
-graph TD
+flowchart TD
     subgraph "Contributors"
         C1[Individual developers]
         C2[Company engineers]
@@ -21,16 +21,16 @@ graph TD
     end
     
     subgraph "Subsystem Maintainers"
-        M1[Networking: David S. Miller]
-        M2[Filesystems: Various]
-        M3[Drivers: Platform-specific]
-        M4[Arch: Architecture-specific]
-        M5[Security: Various]
+        M1["Networking: David S. Miller"]
+        M2["Filesystems: Various"]
+        M3["Drivers: Platform-specific"]
+        M4["Arch: Architecture-specific"]
+        M5["Security: Various"]
     end
     
     subgraph "Senior Maintainers"
         S1[Andrew Morton — mm tree]
-        S2[Greg KH — stable / staging]
+        S2["Greg KH — stable / staging"]
         S3[Arnd Bergmann — asm-generic]
     end
     
@@ -53,10 +53,9 @@ graph TD
     
     style L fill:#f96,stroke:#333,stroke-width:3px
 ```
-
 ### The Role of Each Level
 
-```
+```mermaid
 Level 0: Contributors
 ─────────────────────
 • Write code, test, report bugs
@@ -153,12 +152,12 @@ sequenceDiagram
     Linus->>Linus: Merge during merge window
     Note over Linus: Or: Maint->MM->Linus (via -mm tree)
 ```
-
 ### Patch Submission Process
 
 #### Step 1: Write the Patch
 
-```bash
+```mermaid
+bash
 # Make your changes
 $ git add -p
 $ git commit -s    # -s adds Signed-off-by (DCO)
@@ -234,7 +233,6 @@ gantt
     section Release
     Final release              :milestone, rel, 63, 63
 ```
-
 ### Merge Window Details
 
 The **merge window** is the first ~2 weeks after a release:
@@ -245,7 +243,8 @@ The **merge window** is the first ~2 weeks after a release:
 - Thousands of patches can be merged in this period
 - Linus is **very selective** — incomplete or buggy pull requests are rejected
 
-```bash
+```mermaid
+bash
 # Example: Linus pulling from a subsystem
 # (from Linus's perspective)
 $ git pull https://git.kernel.org/pub/scm/linux/kernel/git/davem/net.git net-next
@@ -299,7 +298,7 @@ flowchart TD
     A[Developer writes fix] --> B{Is it a bug fix?}
     B -->|No| C[Target next-merge-window or mainline]
     B -->|Yes| D{Does it fix a regression?}
-    D -->|Yes| E[Add Cc: stable@vger.kernel.org]
+    D -->|Yes| E["Add Cc: stable@vger.kernel.org"]
     D -->|No| F{Is it important enough?}
     F -->|Yes| E
     F -->|No| C
@@ -315,12 +314,12 @@ flowchart TD
     style E fill:#bbf,stroke:#333
     style K fill:#f96,stroke:#333
 ```
-
 ### The Stable Tag
 
 To nominate a patch for stable, include these tags:
 
-```c
+```mermaid
+c
 /*
  * Fix null pointer dereference in widget driver
  *
@@ -519,32 +518,32 @@ Testing against linux-next is one of the most valuable things developers can do.
 ## Diagram: The Kernel Development Ecosystem
 
 ```mermaid
-graph TB
+flowchart TB
     subgraph "Development Trees"
-        MAIN[torvalds/linux<br/>mainline]
-        NEXT[linux-next<br/>integration tree]
-        STABLE[stable/linux<br/>stable releases]
+        MAIN["torvalds/linux<br>mainline"]
+        NEXT["linux-next<br>integration tree"]
+        STABLE["stable/linux<br>stable releases"]
     end
     
     subgraph "Subsystem Trees"
         NET[net-next]
-        FS[ext4/dev]
+        FS["ext4/dev"]
         ARM[arm-soc]
         DRM[drm-next]
-        MORE[...600+ trees]
+        MORE["...600+ trees"]
     end
     
     subgraph "Infrastructure"
         ML[mailing lists]
         PW[patchwork]
-        CI[0-day / kernel-ci]
+        CI["0-day / kernel-ci"]
         BOT[build bots]
     end
     
     subgraph "Tools"
         GP[git send-email]
-        CK[checkpatch.pl]
-        GM[get_maintainer.pl]
+        CK["checkpatch.pl"]
+        GM["get_maintainer.pl"]
         SP[sparse]
         SM[smatch]
     end
@@ -571,7 +570,6 @@ graph TB
     style NEXT fill:#bbf,stroke:#333
     style STABLE fill:#bfb,stroke:#333
 ```
-
 ## Patch Submission Best Practices
 
 Based on the kernel documentation at `docs.kernel.org/process/submitting-patches.html`:
@@ -592,7 +590,7 @@ Based on the kernel documentation at `docs.kernel.org/process/submitting-patches
 
 When referencing a specific commit, include both the SHA-1 ID (at least 12 characters) and the one-line summary:
 
-```
+```mermaid
 Commit e21d2170f36602ae2708 ("video: remove unnecessary
 platform_set_drvdata()") removed the unnecessary
 platform_set_drvdata(), but left the variable "dev" unused,

@@ -22,17 +22,16 @@ select(maxfd + 1, &rfds, NULL, NULL, NULL);
 ```
 
 ```mermaid
-graph LR
+flowchart LR
     subgraph "select/poll: O(n)"
         S1["10,000 fds"] --> S2["Scan all 10,000"]
         S2 --> S3["3 ready"]
         S3 --> S4["Return 3"]
     end
     subgraph "epoll: O(ready)"
-        E1["epoll_wait()"] --> E2["Kernel returns<br/>only 3 ready fds"]
+        E1["epoll_wait()"] --> E2["Kernel returns<br>only 3 ready fds"]
     end
 ```
-
 | Call | Per-call cost | Per-wait cost | Scalability |
 |------|--------------|---------------|-------------|
 | `select()` | O(1) setup | O(n) scan | Poor |
@@ -43,7 +42,8 @@ graph LR
 
 ### epoll_create() / epoll_create1()
 
-```c
+```mermaid
+c
 #include <sys/epoll.h>
 
 int epoll_create(int size);     /* size is just a hint, ignored since 2.6.8 */
@@ -226,12 +226,12 @@ sequenceDiagram
     E->>R: read(fd, buf, 100)
     Note over R: Continue until EAGAIN
 ```
-
 ### Edge-Triggered (EPOLLET)
 
 `epoll_wait()` reports a fd **only once** when the state changes (edge). You must read/write until `EAGAIN`.
 
-```c
+```mermaid
+c
 /* Edge-triggered: must drain completely */
 ev.events = EPOLLIN | EPOLLET;  /* Edge-triggered */
 ev.data.fd = connfd;
@@ -275,11 +275,10 @@ sequenceDiagram
     E->>R: Start read loop
     R->>R: read() → 1000 bytes
     R->>R: read() → EAGAIN
-    Note over E: No more notifications<br/>until NEW data arrives
+    Note over E: No more notifications<br>until NEW data arrives
     K->>K: 500 more bytes arrive
     K->>E: EPOLLIN (new edge!)
 ```
-
 ### Comparison
 
 | Aspect | Level-Triggered | Edge-Triggered |
@@ -295,7 +294,8 @@ sequenceDiagram
 
 Useful for multithreaded servers where you want exactly one thread to handle each event:
 
-```c
+```mermaid
+c
 ev.events = EPOLLIN | EPOLLET | EPOLLONESHOT;
 epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &ev);
 
@@ -329,7 +329,7 @@ epoll_ctl(epfd, EPOLL_CTL_ADD, listenfd, &ev);
 ```
 
 ```mermaid
-graph TD
+flowchart TD
     subgraph "Without EPOLLEXCLUSIVE"
         L1["listenfd ready"] --> T1["Thread 1 wakes"]
         L1 --> T2["Thread 2 wakes"]
@@ -345,10 +345,10 @@ graph TD
         T5 -->|"accept() succeeds"| OK2["Got connection"]
     end
 ```
-
 ### Thread Pool Pattern
 
-```c
+```mermaid
+c
 /* Main thread: accept connections */
 /* Worker threads: handle I/O */
 

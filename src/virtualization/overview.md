@@ -104,9 +104,9 @@ static inline int HYPERVISOR_update_va_mapping(
 **Paravirtualized I/O (virtio model):**
 
 ```mermaid
-graph LR
+flowchart LR
     subgraph Guest
-        APP[Application] --> VFS[VFS/Block Layer]
+        APP[Application] --> VFS["VFS/Block Layer"]
         VFS --> FE[virtio-blk frontend]
     end
     subgraph Hypervisor
@@ -129,11 +129,11 @@ Intel VT-x introduces two new CPU modes:
 The transition between these modes is managed by a data structure called the **VMCS** (Virtual Machine Control Structure).
 
 ```mermaid
-graph TD
-    subgraph VMX Root Mode
-        HV[Hypervisor / Host]
+flowchart TD
+    subgraph VMX_Root_Mode["VMX Root Mode"]
+        HV["Hypervisor / Host"]
     end
-    subgraph VMX Non-Root Mode
+    subgraph VMX_Non_Root_Mode["VMX Non-Root Mode"]
         G[Guest OS]
     end
     HV -->|VM Entry| G
@@ -180,8 +180,8 @@ lsmod | grep kvm
 Type 1 hypervisors run directly on hardware without a host operating system. The hypervisor itself IS the operating system (or runs alongside a minimal management partition).
 
 ```mermaid
-graph TB
-    subgraph Type 1 Hypervisor
+flowchart TB
+    subgraph Type_1_Hypervisor["Type 1 Hypervisor"]
         VM1[VM 1] --> HV[Hypervisor]
         VM2[VM 2] --> HV
         VM3[VM 3] --> HV
@@ -205,8 +205,8 @@ graph TB
 Type 2 hypervisors run as applications on a conventional host operating system.
 
 ```mermaid
-graph TB
-    subgraph Type 2 Hypervisor
+flowchart TB
+    subgraph Type_2_Hypervisor["Type 2 Hypervisor"]
         VM1[VM 1] --> HV[Hypervisor App]
         VM2[VM 2] --> HV
         HV --> HOST[Host OS]
@@ -260,22 +260,22 @@ graph TB
 KVM (Kernel-based Virtual Machine) is the primary virtualization technology in Linux. It transforms the Linux kernel into a hypervisor by leveraging hardware-assisted virtualization.
 
 ```mermaid
-graph TB
-    subgraph User Space
-        QEMU[QEMU / qemu-system-x86_64]
+flowchart TB
+    subgraph User_Space["User Space"]
+        QEMU["QEMU / qemu-system-x86_64"]
         LIBVIRT[libvirt]
         APP[Management Tools]
         LIBVIRT --> QEMU
         APP --> LIBVIRT
     end
-    subgraph Kernel Space
-        KVM[kvm.ko / kvm-intel.ko / kvm-amd.ko]
+    subgraph Kernel_Space["Kernel Space"]
+        KVM["kvm.ko / kvm-intel.ko / kvm-amd.ko"]
         VFIO[VFIO - Device Passthrough]
-        VHOST[vhost / vhost-net]
+        VHOST["vhost / vhost-net"]
     end
     subgraph Hardware
-        CPU[CPU with VT-x/AMD-V]
-        IOMMU[VT-d / AMD-Vi]
+        CPU["CPU with VT-x/AMD-V"]
+        IOMMU["VT-d / AMD-Vi"]
         NIC[Network Interface]
     end
     QEMU -->|/dev/kvm ioctl| KVM
@@ -375,8 +375,8 @@ int main() {
 ### Cloud Computing
 
 ```mermaid
-graph TB
-    subgraph Cloud Provider
+flowchart TB
+    subgraph Cloud_Provider["Cloud Provider"]
         LB[Load Balancer] --> WEB1[Web VM 1]
         LB --> WEB2[Web VM 2]
         WEB1 --> DB[DB VM]
@@ -455,14 +455,14 @@ qemu-system-x86_64 \
 ### Container vs VM Convergence
 
 ```mermaid
-graph LR
-    subgraph Traditional Stack
+flowchart LR
+    subgraph Traditional_Stack["Traditional Stack"]
         APP1[App] --> OS1[Full OS] --> HV[Hypervisor] --> HW[Hardware]
     end
-    subgraph Container Stack
+    subgraph Container_Stack["Container Stack"]
         APP2[App] --> CONT[Container Runtime] --> HOST[Host OS] --> HW
     end
-    subgraph MicroVM Stack
+    subgraph MicroVM_Stack["MicroVM Stack"]
         APP3[App] --> MINI_OS[Minimal Kernel] --> MICRO[MicroVM] --> HW
     end
 ```

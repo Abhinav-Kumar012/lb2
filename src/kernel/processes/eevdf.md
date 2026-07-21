@@ -62,7 +62,7 @@ This means a task is eligible if it's "behind" the fair share — it hasn't cons
 ```mermaid
 stateDiagram-v2
     [*] --> Eligible: vruntime ≤ now
-    [* --> Ineligible: vruntime > now
+    [*] --> Ineligible: vruntime > now
     Eligible --> Ineligible: Consumes too much
     Ineligible --> Eligible: Time passes (now catches up)
     Eligible --> Running: Picked by scheduler

@@ -12,11 +12,11 @@ and hugepages configuration.
 
 ```mermaid
 flowchart LR
-    subgraph Guest VM
+    subgraph Guest_VM["Guest VM"]
         APP[Application]
         GDRV[Guest Driver]
     end
-    subgraph Host Kernel
+    subgraph Host_Kernel["Host Kernel"]
         VFIO[VFIO Framework]
         IOMMU[IOMMU Driver]
     end
@@ -157,10 +157,10 @@ environments.
 
 ```mermaid
 flowchart TD
-    A[Enable IOMMU in BIOS/GRUB] --> B[Reboot and verify IOMMU]
+    A["Enable IOMMU in BIOS/GRUB"] --> B[Reboot and verify IOMMU]
     B --> C[Identify device IOMMU group]
     C --> D[Bind device to vfio-pci]
-    D --> E[Configure QEMU/libvirt]
+    D --> E["Configure QEMU/libvirt"]
     E --> F[Start VM with passthrough]
     F --> G[Install guest drivers]
 ```
@@ -410,13 +410,13 @@ cat /sys/devices/system/node/node*/meminfo | grep Huge
 
 ```mermaid
 flowchart LR
-    subgraph NUMA Node 0
+    subgraph NUMA_Node_0["NUMA Node 0"]
         C0[CPU 0 - Host]
         C1[CPU 1 - Host]
         C2[CPU 2 - VM]
         C3[CPU 3 - VM]
     end
-    subgraph NUMA Node 1
+    subgraph NUMA_Node_1["NUMA Node 1"]
         C4[CPU 4 - VM]
         C5[CPU 5 - VM]
         C6[CPU 6 - Host]

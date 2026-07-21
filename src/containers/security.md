@@ -15,15 +15,15 @@ a single vulnerability doesn't compromise the entire system.
 Security layers:
 
 ```mermaid
-graph TB
+flowchart TB
     subgraph "Container Security Layers"
-        L1["Image Scanning<br/>(pre-deployment)"]
-        L2["Read-Only Rootfs<br/>(runtime)"]
-        L3["Linux Capabilities<br/>(privilege restriction)"]
-        L4["Seccomp Profiles<br/>(syscall filtering)"]
-        L5["AppArmor / SELinux<br/>(mandatory access control)"]
-        L6["User Namespaces<br/>(UID isolation)"]
-        L7["Resource Limits<br/>(cgroups)"]
+        L1["Image Scanning<br>(pre-deployment)"]
+        L2["Read-Only Rootfs<br>(runtime)"]
+        L3["Linux Capabilities<br>(privilege restriction)"]
+        L4["Seccomp Profiles<br>(syscall filtering)"]
+        L5["AppArmor / SELinux<br>(mandatory access control)"]
+        L6["User Namespaces<br>(UID isolation)"]
+        L7["Resource Limits<br>(cgroups)"]
     end
 
     L1 --> L2 --> L3 --> L4 --> L5 --> L6 --> L7

@@ -9,10 +9,10 @@
 ## Architecture
 
 ```mermaid
-graph TD
+flowchart TD
     subgraph "User Space"
-        SQ["Submission Queue (SQ)<br/>Ring buffer (shared memory)"]
-        CQ["Completion Queue (CQ)<br/>Ring buffer (shared memory)"]
+        SQ["Submission Queue (SQ)<br>Ring buffer (shared memory)"]
+        CQ["Completion Queue (CQ)<br>Ring buffer (shared memory)"]
         APP["Application"]
     end
     subgraph "Kernel Space"
@@ -20,12 +20,11 @@ graph TD
         IO["I/O subsystem"]
     end
     APP -->|"Submit SQEs"| SQ
-    SQ -->|"io_uring_enter() or<br/>kernel polling"| KWORKER
+    SQ -->|"io_uring_enter() or<br>kernel polling"| KWORKER
     KWORKER --> IO
     IO -->|"Post CQEs"| CQ
     CQ -->|"Reap completions"| APP
 ```
-
 ### Key Design Principles
 
 1. **Shared ring buffers**: SQ and CQ are mapped into user space — no copy needed
@@ -36,7 +35,8 @@ graph TD
 
 ## io_uring_setup()
 
-```c
+```mermaid
+c
 #include <linux/io_uring.h>
 
 int io_uring_setup(unsigned entries, struct io_uring_params *params);
@@ -326,14 +326,14 @@ sequenceDiagram
     KT->>CQ: Write CQE
     APP->>CQ: Read CQE (no syscall!)
 ```
-
 **Latency improvement**: ~0.1μs per operation (vs ~0.3μs with `io_uring_enter()`).
 
 ## Registered Buffers
 
 Avoid repeated buffer registration with `io_uring_register_buffers()`:
 
-```c
+```mermaid
+c
 /* Register buffers upfront */
 struct iovec iovecs[4];
 for (int i = 0; i < 4; i++) {
@@ -546,15 +546,15 @@ io_uring_submit(&ring);
 ```
 
 ```mermaid
-graph LR
-    SQE1["Write SQE<br/>flags: LINK"] --> SQE2["fsync SQE"]
+flowchart LR
+    SQE1["Write SQE<br>flags: LINK"] --> SQE2["fsync SQE"]
     SQE2 --> CQE1["CQE: write result"]
     CQE1 --> CQE2["CQE: fsync result"]
 ```
-
 ## Polling for Events
 
-```c
+```mermaid
+c
 /* Poll for readability */
 sqe = io_uring_get_sqe(&ring);
 io_uring_prep_poll_add(sqe, fd, POLLIN);

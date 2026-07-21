@@ -10,12 +10,12 @@ Cross-compilation touches every layer of an embedded system: the bootloader, ker
 
 ```mermaid
 graph LR
-    subgraph Host (Build Machine)
+    subgraph HB["Host (Build Machine)"]
         HOST_ARCH[x86_64 Linux]
         TOOLCHAIN[Cross Toolchain<br/>aarch64-linux-gnu-gcc]
         SYSROOT[Sysroot<br/>Target libraries & headers]
     end
-    subgraph Target (Embedded Device)
+    subgraph TD["Target (Embedded Device)"]
         TARGET_ARCH[ARM64 / ARM32 / RISC-V / MIPS]
         BINARY[Cross-compiled Binary]
     end

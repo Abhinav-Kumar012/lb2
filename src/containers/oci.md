@@ -22,9 +22,9 @@ and layers.
 ### Image Structure
 
 ```mermaid
-graph TB
+flowchart TB
     subgraph "Registry"
-        INDEX["Image Index<br/>(fat manifest / multi-arch)"]
+        INDEX["Image Index<br>(fat manifest / multi-arch)"]
         MANIFEST["Image Manifest"]
         CONFIG["Image Config (JSON)"]
         L1["Layer 1 (tar+gzip)"]

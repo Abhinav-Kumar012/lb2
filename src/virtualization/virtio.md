@@ -13,10 +13,10 @@ performance tuning.
 ```mermaid
 flowchart TB
     subgraph Emulated["Full Emulation (Slow)"]
-        E_DRV["Guest Driver<br/>(e.g., e1000)"] --> E_EM["QEMU Emulator<br/>(full hardware model)"]
+        E_DRV["Guest Driver<br>(e.g., e1000)"] --> E_EM["QEMU Emulator<br>(full hardware model)"]
     end
     subgraph PV["Paravirtualization (Fast)"]
-        P_DRV["Virtio Driver<br/>(guest)"] --> P_VQ["Virtqueue<br/>(shared ring)"] --> P_HYP["Hypervisor Backend"]
+        P_DRV["Virtio Driver<br>(guest)"] --> P_VQ["Virtqueue<br>(shared ring)"] --> P_HYP["Hypervisor Backend"]
     end
     subgraph Direct["Passthrough (Fastest)"]
         D_DRV["Native Driver"] --> D_HW["Physical Hardware"]
@@ -40,11 +40,11 @@ A virtqueue consists of three descriptor tables shared between guest and host:
 ```mermaid
 flowchart LR
     subgraph Guest
-        AVAIL["Available Ring<br/>(guest writes)"]
+        AVAIL["Available Ring<br>(guest writes)"]
     end
-    subgraph Shared Memory
-        DESC["Descriptor Table<br/>(buffer pointers)"]
-        USED["Used Ring<br/>(host writes)"]
+    subgraph Shared_Memory["Shared Memory"]
+        DESC["Descriptor Table<br>(buffer pointers)"]
+        USED["Used Ring<br>(host writes)"]
     end
     AVAIL -->|"buffer index"| DESC
     DESC -->|"completed buffers"| USED
@@ -63,10 +63,10 @@ cache locality and reducing memory barriers.
 ```mermaid
 flowchart LR
     subgraph Packed["Packed Virtqueue"]
-        D0["Desc 0<br/>avail+used"]
-        D1["Desc 1<br/>avail+used"]
-        D2["Desc 2<br/>avail+used"]
-        D3["Desc 3<br/>avail+used"]
+        D0["Desc 0<br>avail+used"]
+        D1["Desc 1<br>avail+used"]
+        D2["Desc 2<br>avail+used"]
+        D3["Desc 3<br>avail+used"]
     end
     D0 --> D1 --> D2 --> D3 --> D0
 ```
@@ -88,8 +88,8 @@ flowchart LR
         APP[Application] --> VNET[virtio-net driver]
     end
     subgraph Host
-        BACKEND[TAP device / vhost-net]
-        BRIDGE[Linux Bridge / OVS]
+        BACKEND["TAP device / vhost-net"]
+        BRIDGE["Linux Bridge / OVS"]
     end
     VNET -->|"virtqueue TX/RX"| BACKEND
     BACKEND --> BRIDGE
@@ -251,8 +251,8 @@ flowchart TB
     subgraph vDPA
         VDPA[vDPA bus]
         subgraph HW["Hardware"]
-            CTRL[Control plane<br/>(software)]
-            DATA[Data plane<br/>(hardware/firmware)]
+            CTRL["Control plane<br>(software)"]
+            DATA["Data plane<br>(hardware/firmware)"]
         end
         VDPA --> CTRL
         VDPA --> DATA

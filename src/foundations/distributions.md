@@ -9,7 +9,7 @@ There are hundreds of Linux distributions, but they're not random — they form 
 Every distribution provides these core components:
 
 ```mermaid
-graph TB
+flowchart TB
     subgraph "Distribution Components"
         KERNEL["Linux Kernel"]
         CLIB["C Library (glibc/musl)"]
@@ -31,7 +31,6 @@ graph TB
         DESKTOP_CHOICE["GNOME vs KDE vs XFCE vs none"]
     end
 ```
-
 ### The C Library
 
 The **C library** is the bridge between user-space programs and the kernel's system calls. It's the most fundamental piece of userspace software:
@@ -76,7 +75,8 @@ Debian has three main branches:
 
 Debian's release cycle is driven by quality, not time — a new stable release happens when it's ready (typically every 2-3 years). Each stable release gets approximately 3 years of official support, with additional LTS support via the Debian LTS team.
 
-```bash
+```mermaid
+bash
 # Debian package management
 $ sudo apt update                          # Update package lists
 $ sudo apt upgrade                         # Upgrade all packages
@@ -449,7 +449,7 @@ Some distros combine both models:
 Choosing a distribution depends on your use case, experience level, and preferences:
 
 ```mermaid
-graph TD
+flowchart TD
     START["What do you need?"]
     START --> SERVER{"Server or Desktop?"}
     SERVER -->|"Server"| EXPERIENCE{"Experience level?"}
@@ -470,7 +470,6 @@ graph TD
 
     style START fill:#4ecdc4,stroke:#333
 ```
-
 ### Decision Matrix
 
 | Use Case | Recommended | Why |
@@ -502,7 +501,8 @@ Tools like **SUSE Studio**, **Ubuntu Customization Kit**, and **live-build** (fo
 
 For embedded systems, **Buildroot** and **Yocto** are build systems that create minimal, customized Linux distributions:
 
-```bash
+```mermaid
+bash
 # Buildroot example — build a minimal Linux system
 $ git clone https://github.com/buildroot/buildroot.git
 $ cd buildroot

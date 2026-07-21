@@ -223,11 +223,11 @@ static inline void load_new_mm_cr3(pgd_t *pgdir, u16 new_asid, bool need_flush)
 ```
 
 ```mermaid
-graph LR
+flowchart LR
     subgraph "Context Switch with PCID"
-        T1["Task 1<br/>PCID=1"] -->|"CR3 = pgd1 | PCID1"| TLB
-        T2["Task 2<br/>PCID=2"] -->|"CR3 = pgd2 | PCID2"| TLB
-        TLB["TLB<br/>Entries tagged with PCID"]
+        T1["Task 1<br>PCID=1"] -->|"CR3 = pgd1 | PCID1"| TLB
+        T2["Task 2<br>PCID=2"] -->|"CR3 = pgd2 | PCID2"| TLB
+        TLB["TLB<br>Entries tagged with PCID"]
     end
 
     subgraph "Without PCID"
@@ -384,14 +384,14 @@ $ sudo cyclictest -p 99 -i 1000 -l 10000 -m
 The hidden cost of context switching is **cache pollution**:
 
 ```mermaid
-graph TD
+flowchart TD
     subgraph "Before Context Switch"
-        CACHE["L1/L2 Cache<br/>Filled with Task A's data"]
+        CACHE["L1/L2 Cache<br>Filled with Task A's data"]
     end
 
     subgraph "After Context Switch to Task B"
-        CACHE2["L1/L2 Cache<br/>Task B's data must be loaded"]
-        MISS["Cache misses!<br/>DRAM access: ~100ns each"]
+        CACHE2["L1/L2 Cache<br>Task B's data must be loaded"]
+        MISS["Cache misses!<br>DRAM access: ~100ns each"]
     end
 
     CACHE -->|"Context switch"| CACHE2
@@ -476,7 +476,7 @@ sequenceDiagram
     Prev->>CPU: Save prev's RSP
 
     Note over CPU: Switch memory context
-    CPU->>CPU: switch_mm_irqs_off()<br/>(if different mm)
+    CPU->>CPU: switch_mm_irqs_off()<br>(if different mm)
     CPU->>CPU: Load new CR3 (page table)
 
     Note over Next: Restore next's state

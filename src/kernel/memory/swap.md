@@ -240,12 +240,12 @@ struct lruvec {
 ```
 
 ```mermaid
-graph TB
+flowchart TB
     subgraph "Page Aging (Two-Handed Clock)"
-        NEW["New page<br/>(just faulted in)"]
-        ACTIVE["Active list<br/>(recently accessed)"]
-        INACTIVE["Inactive list<br/>(candidates for reclaim)"]
-        FREED["Freed<br/>(reclaimed)"]
+        NEW["New page<br>(just faulted in)"]
+        ACTIVE["Active list<br>(recently accessed)"]
+        INACTIVE["Inactive list<br>(candidates for reclaim)"]
+        FREED["Freed<br>(reclaimed)"]
     end
 
     NEW -->|"Accessed"| ACTIVE
@@ -344,13 +344,13 @@ static int kswapd(void *p)
 ### Watermark-Based Activation
 
 ```mermaid
-graph TB
+flowchart TB
     subgraph "Memory Levels"
         TOTAL["Total Memory"]
-        HIGH["WMARK_HIGH<br/>kswapd sleeps"]
-        LOW["WMARK_LOW<br/>kswapd wakes"]
-        MIN["WMARK_MIN<br/>direct reclaim"]
-        ZERO["0 bytes free<br/>OOM killer"]
+        HIGH["WMARK_HIGH<br>kswapd sleeps"]
+        LOW["WMARK_LOW<br>kswapd wakes"]
+        MIN["WMARK_MIN<br>direct reclaim"]
+        ZERO["0 bytes free<br>OOM killer"]
     end
 
     TOTAL --> HIGH

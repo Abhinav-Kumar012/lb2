@@ -98,11 +98,11 @@ Task C: nice=10, weight=110
 After equal wall-clock time, the low-priority task has much higher `vruntime` and will be scheduled less.
 
 ```mermaid
-graph LR
+flowchart LR
     subgraph "vruntime Growth (10ms actual runtime)"
-        A["nice=-10<br/>vruntime += 1.07ms"]
-        B["nice=0<br/>vruntime += 10.0ms"]
-        C["nice=10<br/>vruntime += 93.1ms"]
+        A["nice=-10<br>vruntime += 1.07ms"]
+        B["nice=0<br>vruntime += 10.0ms"]
+        C["nice=10<br>vruntime += 93.1ms"]
     end
 ```
 
@@ -130,7 +130,7 @@ struct cfs_rq {
 ```
 
 ```mermaid
-graph TD
+flowchart TD
     root["RB Root"]
     n1["vruntime=100"]
     n2["vruntime=50"]
@@ -305,7 +305,7 @@ With default values:
 - If 10 tasks: period = 7.5ms (10 × 0.75ms, since 10 × 0.75ms > 6ms)
 
 ```mermaid
-graph TD
+flowchart TD
     subgraph "4 tasks, period=6ms"
         T1["Task 1: 1.5ms"]
         T2["Task 2: 1.5ms"]
@@ -407,10 +407,10 @@ static void check_preempt_tick(struct cfs_rq *cfs_rq, struct sched_entity *curr)
 With `CONFIG_FAIR_GROUP_SCHED`, CFS can schedule **groups of tasks** as a unit. This is essential for containers and cgroups:
 
 ```mermaid
-graph TD
+flowchart TD
     ROOT["root cfs_rq"]
-    G1["cgroup: /app1<br/>weight=1024"]
-    G2["cgroup: /app2<br/>weight=2048"]
+    G1["cgroup: /app1<br>weight=1024"]
+    G2["cgroup: /app2<br>weight=2048"]
 
     ROOT --> G1
     ROOT --> G2

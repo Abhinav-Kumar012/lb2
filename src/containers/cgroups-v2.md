@@ -9,16 +9,16 @@ cgroups v2 is the foundation of container resource management — every containe
 ## cgroups v1 vs v2
 
 ```mermaid
-graph TB
-    subgraph cgroups v1 - Multiple Hierarchies
-        V1_CPU[/sys/fs/cgroup/cpu/]
-        V1_MEM[/sys/fs/cgroup/memory/]
-        V1_BLKIO[/sys/fs/cgroup/blkio/]
-        V1_NETCLS[/sys/fs/cgroup/net_cls/]
-        V1_PIDS[/sys/fs/cgroup/pids/]
+flowchart TB
+    subgraph cgroups_v1___Multiple_Hierarchies["cgroups v1 - Multiple Hierarchies"]
+        V1_CPU["/sys/fs/cgroup/cpu/"]
+        V1_MEM["/sys/fs/cgroup/memory/"]
+        V1_BLKIO["/sys/fs/cgroup/blkio/"]
+        V1_NETCLS["/sys/fs/cgroup/net_cls/"]
+        V1_PIDS["/sys/fs/cgroup/pids/"]
     end
-    subgraph cgroups v2 - Unified Hierarchy
-        V2_ROOT[/sys/fs/cgroup/]
+    subgraph cgroups_v2___Unified_Hierarchy["cgroups v2 - Unified Hierarchy"]
+        V2_ROOT["/sys/fs/cgroup/"]
         V2_CPU[cpu controller]
         V2_MEM[memory controller]
         V2_IO[io controller]
@@ -129,18 +129,18 @@ ls /sys/fs/cgroup/my-group/
 The CPU controller manages CPU bandwidth and scheduling:
 
 ```mermaid
-graph TB
-    subgraph /sys/fs/cgroup/
+flowchart TB
+    subgraph sys_fs_cgroup["/sys/fs/cgroup/"]
         ROOT_CPU[cpu.max: "max 100000"]
         ROOT_WEIGHT[cpu.weight: 100]
     end
-    subgraph my-app/
-        APP_CPU[cpu.max: "50000 100000"<br/>50% of one CPU]
+    subgraph my_app["my-app/"]
+        APP_CPU["cpu.max: "50000 100000"<br>50% of one CPU"]
         APP_WEIGHT[cpu.weight: 200]
         APP_STAT[cpu.stat]
     end
-    subgraph my-worker/
-        WORK_CPU[cpu.max: "200000 100000"<br/>2 CPUs]
+    subgraph my_worker["my-worker/"]
+        WORK_CPU["cpu.max: "200000 100000"<br>2 CPUs"]
         WORK_WEIGHT[cpu.weight: 100]
     end
     ROOT_CPU --> APP_CPU
@@ -263,11 +263,11 @@ cat /sys/fs/cgroup/mem-test/memory.current
 ### Memory Thresholds
 
 ```mermaid
-graph TB
-    subgraph Memory Pressure Response
-        LOW["memory.low (128MB)<br/>No reclaim, protected"]
-        HIGH["memory.high (192MB)<br/>Throttle + reclaim"]
-        MAX["memory.max (256MB)<br/>OOM kill"]
+flowchart TB
+    subgraph Memory_Pressure_Response["Memory Pressure Response"]
+        LOW["memory.low (128MB)<br>No reclaim, protected"]
+        HIGH["memory.high (192MB)<br>Throttle + reclaim"]
+        MAX["memory.max (256MB)<br>OOM kill"]
     end
     LOW --> HIGH --> MAX
 ```
@@ -417,10 +417,10 @@ cat /sys/fs/cgroup/limited/pids.events
 PSI measures resource pressure — how much time tasks are stalled waiting for resources:
 
 ```mermaid
-graph TB
-    subgraph PSI Metrics
-        SOME["some (avg10, avg60, avg300)<br/>At least one task stalled"]
-        FULL["full (avg10, avg60, avg300)<br/>All tasks stalled"]
+flowchart TB
+    subgraph PSI_Metrics["PSI Metrics"]
+        SOME["some (avg10, avg60, avg300)<br>At least one task stalled"]
+        FULL["full (avg10, avg60, avg300)<br>All tasks stalled"]
     end
     subgraph Resources
         CPU_PRESSURE["cpu.pressure"]

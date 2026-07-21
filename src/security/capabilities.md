@@ -11,9 +11,9 @@ The capabilities system was designed by Andrew Morgan and integrated into Linux 
 ## The Problem with Root
 
 ```mermaid
-graph LR
+flowchart LR
     subgraph "Traditional Unix"
-        ROOT[root: UID 0] -->|can do EVERYTHING| A[Read any file]
+        ROOT["root: UID 0"] -->|can do EVERYTHING| A[Read any file]
         ROOT --> B[Write any file]
         ROOT --> C[Bind any port]
         ROOT --> D[Load modules]
@@ -39,13 +39,13 @@ graph LR
 Each process has **five** capability sets, each serving a different purpose:
 
 ```mermaid
-graph TB
+flowchart TB
     subgraph "Process Capability Sets"
-        P[Permitted<br/>Maximum capabilities<br/>the process can use]
-        I[Inheritable<br/>Capabilities preserved<br/>across execve]
-        E[Effective<br/>Currently active<br/>capabilities]
-        B[Bounding<br/>Upper limit on<br/>capabilities]
-        AM[Ambient<br/>Capabilities preserved<br/>across execve for<br/>non-root processes]
+        P["Permitted<br>Maximum capabilities<br>the process can use"]
+        I["Inheritable<br>Capabilities preserved<br>across execve"]
+        E["Effective<br>Currently active<br>capabilities"]
+        B["Bounding<br>Upper limit on<br>capabilities"]
+        AM["Ambient<br>Capabilities preserved<br>across execve for<br>non-root processes"]
     end
 
     E -->|subset of| P
@@ -59,7 +59,6 @@ graph TB
     style B fill:#FFA500
     style AM fill:#DDA0DD
 ```
-
 ### Capability Set Details
 
 | Set | Symbol | Description |
@@ -74,7 +73,7 @@ graph TB
 
 When a process executes a new program, the new capability sets are calculated:
 
-```
+```mermaid
 P'(permitted)   = (P(inheritable) & F(inheritable)) |
                   (F(permitted) & P(bounding)) |
                   P'(ambient)
@@ -507,13 +506,13 @@ sudo -u nginx /usr/sbin/nginx
 Capabilities and seccomp work together:
 
 ```mermaid
-graph TD
+flowchart TD
     A[Process requests action] --> B{Has required capability?}
-    B -->|No| DENY[Denied: EPERM]
+    B -->|No| DENY["Denied: EPERM"]
     B -->|Yes| C{Seccomp allows syscall?}
-    C -->|No| DENY2[Denied: SIGSYS/EPERM]
-    C -->|Yes| D{LSM (SELinux/AppArmor) allows?}
-    D -->|No| DENY3[Denied: EACCES]
+    C -->|No| DENY2["Denied: SIGSYS/EPERM"]
+    C -->|Yes| D{"LSM (SELinux/AppArmor) allows?"}
+    D -->|No| DENY3["Denied: EACCES"]
     D -->|Yes| GRANT[Allowed]
 
     style DENY fill:#FF6347
@@ -521,8 +520,8 @@ graph TD
     style DENY3 fill:#FF6347
     style GRANT fill:#90EE90
 ```
-
-```bash
+```mermaid
+bash
 # Example: a process has CAP_SYS_MODULE but seccomp blocks init_module()
 # → The capability check passes, but seccomp denies it
 # Defense in depth: both must allow the action

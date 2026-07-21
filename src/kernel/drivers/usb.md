@@ -13,7 +13,7 @@ the host controller initiates all transfers.
 graph TD
     subgraph "Host"
         CPU[CPU]
-        HC[Host Controller<br/>xHCI/EHCI]
+        HC[Host Controller<br>xHCI/EHCI]
         CORE[USB Core]
         DRV[USB Driver]
     end
@@ -47,7 +47,7 @@ USB devices describe themselves through a hierarchy of **descriptors**:
 
 ```mermaid
 graph TD
-    UD[Device Descriptor<br/>VID, PID, class] --> CD1[Configuration 1]
+    UD["Device Descriptor<br>VID, PID, class"] --> CD1[Configuration 1]
     CD1 --> IF1[Interface 0]
     CD1 --> IF2[Interface 1]
     IF1 --> EP1[Endpoint IN]
@@ -343,9 +343,9 @@ graph TD
         HOST[USB Host Driver]
     end
     subgraph "Embedded Device"
-        UDC[UDC Driver<br/>hardware]
+        UDC["UDC Driver<br>hardware"]
         GADGET[USB Gadget Framework]
-        FUNC[Function Driver<br/>mass_storage, serial, etc.]
+        FUNC["Function Driver<br>mass_storage, serial, etc."]
     end
     HOST <-->|USB Cable| UDC
     UDC <--> GADGET

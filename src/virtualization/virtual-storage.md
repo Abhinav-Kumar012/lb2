@@ -183,9 +183,9 @@ qemu-img info --backing-chain vm1.qcow2
 
 ```mermaid
 flowchart TB
-    BASE["base.qcow2<br/>(50 GB, read-only)"] --> VM1["vm1.qcow2<br/>(deltas only)"]
-    BASE --> VM2["vm2.qcow2<br/>(deltas only)"]
-    BASE --> VM3["vm3.qcow2<br/>(deltas only)"]
+    BASE["base.qcow2<br>(50 GB, read-only)"] --> VM1["vm1.qcow2<br>(deltas only)"]
+    BASE --> VM2["vm2.qcow2<br>(deltas only)"]
+    BASE --> VM3["vm3.qcow2<br>(deltas only)"]
 ```
 
 ### 3.2 Compression
@@ -388,7 +388,7 @@ qemu-img create -f qcow2 -b disk.qcow2 -F qcow2 disk-snap1.qcow2
 
 ```mermaid
 flowchart LR
-    BASE["disk.qcow2<br/>(base, frozen)"] --> SNAP1["disk-snap1.qcow2<br/>(active, writes go here)"]
+    BASE["disk.qcow2<br>(base, frozen)"] --> SNAP1["disk-snap1.qcow2<br>(active, writes go here)"]
 ```
 
 ### 6.3 Live Snapshots with libvirt
@@ -505,10 +505,10 @@ virsh pool-start nfs-pool
 
 ```mermaid
 flowchart TB
-    subgraph virtio-blk
+    subgraph virtio_blk["virtio-blk"]
         VB_DRV[virtio-blk driver] --> VB_VQ[Single virtqueue per disk]
     end
-    subgraph virtio-scsi
+    subgraph virtio_scsi["virtio-scsi"]
         VS_DRV[virtio-scsi driver] --> VS_CTRL[SCSI Controller]
         VS_CTRL --> VS_VQ1[Queue 0]
         VS_CTRL --> VS_VQ2[Queue 1]

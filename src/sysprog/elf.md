@@ -33,10 +33,10 @@ main.o: ELF 64-bit LSB relocatable, x86-64, ...
 ## ELF File Structure
 
 ```mermaid
-graph TD
+flowchart TD
     subgraph "ELF File Layout"
-        EH["ELF Header<br/>(54/64 bytes)"]
-        PHT["Program Header Table<br/>(segments)"]
+        EH["ELF Header<br>(54/64 bytes)"]
+        PHT["Program Header Table<br>(segments)"]
         S1[".text section"]
         S2[".data section"]
         S3[".rodata section"]
@@ -56,12 +56,12 @@ graph TD
     SHT --> S6
     SHT --> S7
 ```
-
 ### ELF Header
 
 The ELF header is always at offset 0 and identifies the file:
 
-```c
+```mermaid
+c
 typedef struct {
     unsigned char e_ident[EI_NIDENT]; /* Magic number + class + data + version */
     uint16_t e_type;                  /* Object file type */
@@ -238,28 +238,28 @@ Program Headers:
 ### Section-to-Segment Mapping
 
 ```mermaid
-graph TD
+flowchart TD
     subgraph "LOAD Segments (mapped into memory)"
-        R["PT_LOAD (R)<br/>.interp, .dynsym, .dynstr, .rela.dyn"]
-        RX["PT_LOAD (R+E)<br/>.init, .plt, .text, .fini"]
-        R2["PT_LOAD (R)<br/>.rodata, .eh_frame"]
-        RW["PT_LOAD (R+W)<br/>.data, .got, .bss"]
+        R["PT_LOAD (R)<br>.interp, .dynsym, .dynstr, .rela.dyn"]
+        RX["PT_LOAD (R+E)<br>.init, .plt, .text, .fini"]
+        R2["PT_LOAD (R)<br>.rodata, .eh_frame"]
+        RW["PT_LOAD (R+W)<br>.data, .got, .bss"]
     end
     subgraph "Other Segments"
-        INTERP["PT_INTERP<br/>/lib64/ld-linux-x86-64.so.2"]
-        DYN["PT_DYNAMIC<br/>.dynamic"]
-        STACK["PT_GNU_STACK<br/>(NX bit)"]
-        RELRO["PT_GNU_RELRO<br/>(read-only after reloc)"]
+        INTERP["PT_INTERP<br>/lib64/ld-linux-x86-64.so.2"]
+        DYN["PT_DYNAMIC<br>.dynamic"]
+        STACK["PT_GNU_STACK<br>(NX bit)"]
+        RELRO["PT_GNU_RELRO<br>(read-only after reloc)"]
     end
 ```
-
 ## Symbol Tables
 
 Symbols represent functions, variables, and other named entities.
 
 ### Symbol Entry
 
-```c
+```mermaid
+c
 typedef struct {
     uint32_t st_name;     /* Symbol name (index into string table) */
     uint8_t  st_info;     /* Type and binding */
@@ -454,10 +454,10 @@ sequenceDiagram
     LD->>LD: Call constructors (.init_array)
     LD->>U: Jump to program entry (_start)
 ```
-
 ## Using objdump
 
-```bash
+```mermaid
+bash
 # Disassemble .text section
 $ objdump -d /bin/ls | head -30
 

@@ -292,12 +292,12 @@ always within_size advise [never] deny force
 ### How THP Allocation Works
 
 ```mermaid
-graph TB
+flowchart TB
     A["Page fault on anonymous address"] --> B{"THP enabled?"}
     B -->|"No"| C["Allocate 4K page"]
     B -->|"Yes"| D["Try to allocate 2M page"]
     D --> E{"2M page available?"}
-    E -->|"Yes"| F["Map 2M huge page<br/>(single PMD entry)"]
+    E -->|"Yes"| F["Map 2M huge page<br>(single PMD entry)"]
     E -->|"No"| G{"defrag mode?"}
     G -->|"always"| H["Synchronous compaction"]
     G -->|"madvise"| I{"MADV_HUGEPAGE set?"}
@@ -307,7 +307,7 @@ graph TB
     H --> K{"Compaction succeeded?"}
     K -->|"Yes"| F
     K -->|"No"| J
-    J --> L["Map 4K pages<br/>(512 PTE entries)"]
+    J --> L["Map 4K pages<br>(512 PTE entries)"]
 ```
 
 ### THP Split

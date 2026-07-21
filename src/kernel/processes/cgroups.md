@@ -304,15 +304,15 @@ systemctl set-property myapp.service MemoryMax=1G
 ## Cgroup Hierarchy Diagram
 
 ```mermaid
-graph TD
-    root["/sys/fs/cgroup<br/>root cgroup<br/>CPU: 8 cores, Mem: 32GB"]
-    root --> services["services/<br/>CPU: 6 cores, Mem: 24GB"]
-    root --> batch["batch/<br/>CPU: 2 cores, Mem: 8GB"]
-    services --> web["webserver/<br/>CPU: 2 cores, Mem: 8GB"]
-    services --> db["database/<br/>CPU: 2 cores, Mem: 12GB"]
-    services --> cache["cache/<br/>CPU: 2 cores, Mem: 4GB"]
-    batch --> build["build/<br/>cpu.weight=200"]
-    batch --> test["test/<br/>cpu.weight=100"]
+flowchart TD
+    root["/sys/fs/cgroup<br>root cgroup<br>CPU: 8 cores, Mem: 32GB"]
+    root --> services["services/<br>CPU: 6 cores, Mem: 24GB"]
+    root --> batch["batch/<br>CPU: 2 cores, Mem: 8GB"]
+    services --> web["webserver/<br>CPU: 2 cores, Mem: 8GB"]
+    services --> db["database/<br>CPU: 2 cores, Mem: 12GB"]
+    services --> cache["cache/<br>CPU: 2 cores, Mem: 4GB"]
+    batch --> build["build/<br>cpu.weight=200"]
+    batch --> test["test/<br>cpu.weight=100"]
 
     style root fill:#2d3748,color:#fff
     style services fill:#2b6cb0,color:#fff

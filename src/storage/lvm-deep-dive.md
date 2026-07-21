@@ -11,7 +11,7 @@ This chapter covers LVM internals: how Physical Volumes (PVs), Volume Groups (VG
 ```mermaid
 graph TD
     subgraph "Logical View"
-        FS[Filesystem (ext4/XFS)]
+        FS["Filesystem (ext4/XFS)"]
         LV1["/dev/vg0/lv_root"]
         LV2["/dev/vg0/lv_data"]
     end

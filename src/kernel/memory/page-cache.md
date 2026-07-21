@@ -9,7 +9,7 @@ The page cache also buffers writes. When a process writes to a file, the data is
 ## Architecture Overview
 
 ```mermaid
-graph TB
+flowchart TB
     subgraph "User Space"
         READ["read(fd, buf, size)"]
         WRITE["write(fd, buf, size)"]
@@ -20,12 +20,12 @@ graph TB
         VFS_WRITE["vfs_write()"]
     end
     subgraph "Page Cache"
-        PC["Page Cache<br/>(address_space + xarray)"]
-        DIRTY["Dirty Pages<br/>(inode->i_wb)"]
+        PC["Page Cache<br>(address_space + xarray)"]
+        DIRTY["Dirty Pages<br>(inode->i_wb)"]
     end
     subgraph "I/O Layer"
         READAHEAD["Readahead"]
-        WRITEBACK["Writeback<br/>(pdflush/bdi_writeback)"]
+        WRITEBACK["Writeback<br>(pdflush/bdi_writeback)"]
     end
     subgraph "Block Layer"
         BIO["Block I/O"]
@@ -255,12 +255,12 @@ void page_cache_sync_readahead(struct address_space *mapping,
 The readahead window starts small and doubles on each sequential access until it reaches the maximum:
 
 ```mermaid
-graph LR
+flowchart LR
     subgraph "Readahead Window Growth"
-        A["Read page 0<br/>RA: 4 pages"] --> B["Read page 1<br/>RA: 8 pages"]
-        B --> C["Read page 2<br/>RA: 16 pages"]
-        C --> D["Read page 3<br/>RA: 32 pages"]
-        D --> E["Read page 4<br/>RA: 64 pages<br/>(ra_pages limit)"]
+        A["Read page 0<br>RA: 4 pages"] --> B["Read page 1<br>RA: 8 pages"]
+        B --> C["Read page 2<br>RA: 16 pages"]
+        C --> D["Read page 3<br>RA: 32 pages"]
+        D --> E["Read page 4<br>RA: 64 pages<br>(ra_pages limit)"]
     end
 ```
 
@@ -579,16 +579,16 @@ $ cat /proc/sys/vm/dirty_background_bytes
 ### Writeback Mechanisms
 
 ```mermaid
-graph TB
+flowchart TB
     subgraph "Writeback Triggers"
-        BG["Background writeback<br/>(bdi_writeback thread)"]
-        EXPIRE["Timer-based<br/>(dirty_expire_centisecs)"]
-        RATIO["Ratio-based<br/>(dirty_ratio exceeded)"]
-        SYNC["Sync<br/>(fsync, sync)"]
-        PRESSURE["Memory pressure<br/>(kswapd)"]
+        BG["Background writeback<br>(bdi_writeback thread)"]
+        EXPIRE["Timer-based<br>(dirty_expire_centisecs)"]
+        RATIO["Ratio-based<br>(dirty_ratio exceeded)"]
+        SYNC["Sync<br>(fsync, sync)"]
+        PRESSURE["Memory pressure<br>(kswapd)"]
     end
     subgraph "Writeback Execution"
-        WB["bdi_writeback<br/>(per-backing-dev)"]
+        WB["bdi_writeback<br>(per-backing-dev)"]
         WRITEPAGES["->writepages()"]
         BIO["Block I/O submission"]
     end
@@ -851,7 +851,7 @@ Direct I/O is beneficial when:
 - Data is accessed only once (streaming)
 
 ```mermaid
-graph TB
+flowchart TB
     subgraph "Buffered I/O (default)"
         APP_B["Application"] --> PC["Page Cache"] --> BIO_B["Block I/O"]
     end

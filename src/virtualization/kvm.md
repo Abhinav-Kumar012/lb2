@@ -17,20 +17,20 @@ kvm-amd.ko          — AMD-V implementation (SVM)
 ```
 
 ```mermaid
-graph TB
-    subgraph User Space
-        QEMU[QEMU / qemu-system-x86_64]
+flowchart TB
+    subgraph User_Space["User Space"]
+        QEMU["QEMU / qemu-system-x86_64"]
     end
-    subgraph Kernel Space - KVM
-        KVM_CORE[kvm.ko - Core Module<br/>vcpu management, memory, irqchip, MMIO]
-        KVM_INTEL[kvm-intel.ko<br/>VMX operations, VMCS management]
-        KVM_AMD[kvm-amd.ko<br/>SVM operations, VMCB management]
-        VHOST[vhost-net.ko / vhost.ko<br/>In-kernel virtio backends]
-        IRQCHIP[irqchip.ko<br/>In-kernel PIC/IOAPIC/LAPIC]
+    subgraph Kernel_Space___KVM["Kernel Space - KVM"]
+        KVM_CORE["kvm.ko - Core Module<br>vcpu management, memory, irqchip, MMIO"]
+        KVM_INTEL["kvm-intel.ko<br>VMX operations, VMCS management"]
+        KVM_AMD["kvm-amd.ko<br>SVM operations, VMCB management"]
+        VHOST["vhost-net.ko / vhost.ko<br>In-kernel virtio backends"]
+        IRQCHIP["irqchip.ko<br>In-kernel PIC/IOAPIC/LAPIC"]
     end
     subgraph Hardware
-        CPU[CPU with VT-x / AMD-V]
-        IOMMU[VT-d / AMD-Vi]
+        CPU["CPU with VT-x / AMD-V"]
+        IOMMU["VT-d / AMD-Vi"]
     end
     QEMU -->|/dev/kvm ioctl| KVM_CORE
     KVM_CORE --> KVM_INTEL
@@ -91,28 +91,28 @@ stateDiagram-v2
 The VMCS is a 4KB data structure in physical memory that holds the complete state of a virtual machine. Each vCPU has one active VMCS at a time.
 
 ```mermaid
-graph TB
-    subgraph VMCS 4KB Page
-        subgraph Guest State Area
-            GREGS[Guest Registers<br/>CR0, CR3, CR4, RSP, RIP...]
-            GSEG[Guest Segments<br/>CS, DS, SS, ES, FS, GS, TR, LDTR]
+flowchart TB
+    subgraph VMCS_4KB_Page["VMCS 4KB Page"]
+        subgraph Guest_State_Area["Guest State Area"]
+            GREGS["Guest Registers<br>CR0, CR3, CR4, RSP, RIP..."]
+            GSEG["Guest Segments<br>CS, DS, SS, ES, FS, GS, TR, LDTR"]
             GDTR[Guest GDTR, IDTR]
-            GMSR[Guest MSRs<br/>IA32_EFER, IA32_PAT...]
+            GMSR["Guest MSRs<br>IA32_EFER, IA32_PAT..."]
         end
-        subgraph Host State Area
-            HREGS[Host Registers<br/>CR0, CR3, CR4, RSP, RIP]
-            HSEG[Host Segments<br/>CS, SS, DS, ES, FS, GS, TR]
+        subgraph Host_State_Area["Host State Area"]
+            HREGS["Host Registers<br>CR0, CR3, CR4, RSP, RIP"]
+            HSEG["Host Segments<br>CS, SS, DS, ES, FS, GS, TR"]
         end
-        subgraph VM-Execution Control Fields
-            PIN[PIN-Based Controls<br/>External interrupts, NMI]
-            PROC[Processor-Based Controls<br/>HLT, INVLPG, RDTSC, CR3-load]
-            EPTP[EPT Pointer<br/>Extended Page Tables root]
-            VPID_FIELD[VPID<br/>Virtual Processor ID]
+        subgraph VM_Execution_Control_Fields["VM-Execution Control Fields"]
+            PIN["PIN-Based Controls<br>External interrupts, NMI"]
+            PROC["Processor-Based Controls<br>HLT, INVLPG, RDTSC, CR3-load"]
+            EPTP["EPT Pointer<br>Extended Page Tables root"]
+            VPID_FIELD["VPID<br>Virtual Processor ID"]
         end
-        subgraph VM-Exit Information Fields
+        subgraph VM_Exit_Information_Fields["VM-Exit Information Fields"]
             EXIT_REASON[Exit Reason]
             EXIT_QUAL[Exit Qualification]
-            IO_INFO[I/O Instruction Info]
+            IO_INFO["I/O Instruction Info"]
             IDT_INFO[IDT Vectoring Info]
         end
     end
@@ -162,7 +162,7 @@ sequenceDiagram
     VMX->>CPU: VMLAUNCH / VMRESUME
     CPU->>CPU: Execute guest code (VMX non-root)
 
-    Note over CPU: Sensitive instruction executed!<br/>(e.g., CPUID, I/O port access)
+    Note over CPU: Sensitive instruction executed!<br>(e.g., CPUID, I/O port access)
 
     CPU->>VMX: VM Exit (hardware saves state to VMCS)
     VMX->>KVM: VM exit handler
@@ -233,17 +233,17 @@ A virtual CPU (vCPU) is KVM's representation of a single processor core within a
 - Its own register state and pending interrupts
 
 ```mermaid
-graph TB
-    subgraph KVM VM Instance
-        VM[kvm struct<br/>memory regions, irqchip, devices]
-        VCPU0[kvm_vcpu #0<br/>Thread: TID 1001<br/>VMCS/VMCB, registers]
-        VCPU1[kvm_vcpu #1<br/>Thread: TID 1002<br/>VMCS/VMCB, registers]
-        VCPU2[kvm_vcpu #2<br/>Thread: TID 1003<br/>VMCS/VMCB, registers]
+flowchart TB
+    subgraph KVM_VM_Instance["KVM VM Instance"]
+        VM["kvm struct<br>memory regions, irqchip, devices"]
+        VCPU0["kvm_vcpu #0<br>Thread: TID 1001<br>VMCS/VMCB, registers"]
+        VCPU1["kvm_vcpu #1<br>Thread: TID 1002<br>VMCS/VMCB, registers"]
+        VCPU2["kvm_vcpu #2<br>Thread: TID 1003<br>VMCS/VMCB, registers"]
         VM --> VCPU0
         VM --> VCPU1
         VM --> VCPU2
     end
-    subgraph Host Process (QEMU)
+    subgraph Host_Process__QEMU["Host Process (QEMU)"]
         T0[Thread 0] -->|KVM_RUN| VCPU0
         T1[Thread 1] -->|KVM_RUN| VCPU1
         T2[Thread 2] -->|KVM_RUN| VCPU2
@@ -308,15 +308,15 @@ KVM can emulate interrupt controllers entirely in kernel space, avoiding expensi
 ### Interrupt Architecture
 
 ```mermaid
-graph LR
+flowchart LR
     subgraph Hardware
         PHYS_LAPIC[Physical LAPIC]
-        PHYS_IOAPIC[Physical I/O APIC]
+        PHYS_IOAPIC["Physical I/O APIC"]
     end
-    subgraph KVM Kernel
-        VLAPIC[Virtual LAPIC<br/>per vCPU]
-        VIOAPIC[Virtual I/O APIC]
-        VPIC[Virtual PIC<br/>8259A]
+    subgraph KVM_Kernel["KVM Kernel"]
+        VLAPIC["Virtual LAPIC<br>per vCPU"]
+        VIOAPIC["Virtual I/O APIC"]
+        VPIC["Virtual PIC<br>8259A"]
         IRQ_ROUTING[IRQ Routing Table]
     end
     subgraph Guest
@@ -383,7 +383,7 @@ sequenceDiagram
     Device->>LAPIC: Interrupt (MSI)
     LAPIC->>PID: Set bit in PID (PI notification)
     PID->>vCPU: Hardware delivers directly
-    Note over vCPU: No VM exit needed!<br/>Interrupt injected at VM entry
+    Note over vCPU: No VM exit needed!<br>Interrupt injected at VM entry
 
     alt vCPU running
         vCPU->>vCPU: Interrupt delivered in guest
@@ -400,14 +400,14 @@ KVM implements a two-level page table translation:
 2. **Extended Page Tables (EPT/NPT)** — managed by KVM (guest physical → host physical)
 
 ```mermaid
-graph LR
-    subgraph Guest Virtual Address
+flowchart LR
+    subgraph Guest_Virtual_Address["Guest Virtual Address"]
         GVA[GVA]
     end
-    subgraph Guest Page Tables
+    subgraph Guest_Page_Tables["Guest Page Tables"]
         GVA -->|Guest CR3| GPA[GPA - Guest Physical Address]
     end
-    subgraph EPT/NPT
+    subgraph EPT_NPT["EPT/NPT"]
         GPA -->|EPT Pointer| HPA[HPA - Host Physical Address]
     end
 ```
@@ -812,17 +812,17 @@ QEMU is the primary userspace component that works with KVM. It provides:
 4. **Live migration** — moving running VMs between hosts
 
 ```mermaid
-graph TB
-    subgraph QEMU Process
+flowchart TB
+    subgraph QEMU_Process["QEMU Process"]
         MAIN[Main Loop]
         DEV_MMIO[MMIO Dispatch Table]
-        DEV_IO[Port I/O Dispatch Table]
+        DEV_IO["Port I/O Dispatch Table"]
         BLOCK[Block Layer]
         NET[Network Backend]
         CHAR[Chardev Backend]
-        MONITOR[QMP/HMP Monitor]
+        MONITOR["QMP/HMP Monitor"]
     end
-    subgraph KVM Kernel
+    subgraph KVM_Kernel["KVM Kernel"]
         KVM_RUN[KVM_RUN ioctl]
         EXIT[VM Exit Handler]
     end
@@ -922,7 +922,7 @@ KVM implements two-level page table translation for memory virtualization:
 2. **Extended Page Tables (EPT/NPT)** — managed by KVM (GPA → HPA)
 
 ```mermaid
-graph LR
+flowchart LR
     GVA[GVA] -->|Guest CR3| GPA[GPA]
     GPA -->|EPT Pointer| HPA[HPA]
 ```
@@ -1030,12 +1030,12 @@ grep -c vmx /proc/cpuinfo  # Should show > 0
 ### Architecture Overview
 
 ```mermaid
-graph TB
-    subgraph L0 Host
+flowchart TB
+    subgraph L0_Host["L0 Host"]
         L0_KVM[KVM Module]
         L0_VMCS[L0 VMCS — runs L1]
     end
-    subgraph L1 VM (Nested Hypervisor)
+    subgraph L1_VM__Nested_Hypervisor["L1 VM (Nested Hypervisor)"]
         L1_KVM[KVM Module]
         L1_VMCB[L1 Virtual VMCS — describes L2]
         L1_VM[L2 VM]

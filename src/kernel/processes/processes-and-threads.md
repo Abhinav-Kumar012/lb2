@@ -48,15 +48,15 @@ Process (userspace PID = 1000)
 ```
 
 ```mermaid
-graph TD
+flowchart TD
     subgraph "Thread Group (tgid=1000)"
-        T1["Thread 1<br/>pid=1000<br/>Main thread"]
-        T2["Thread 2<br/>pid=1001"]
-        T3["Thread 3<br/>pid=1002"]
+        T1["Thread 1<br>pid=1000<br>Main thread"]
+        T2["Thread 2<br>pid=1001"]
+        T3["Thread 3<br>pid=1002"]
     end
 
-    T1 -->|"shares mm, files,<br/>signal, sighand"| T2
-    T2 -->|"shares mm, files,<br/>signal, sighand"| T3
+    T1 -->|"shares mm, files,<br>signal, sighand"| T2
+    T2 -->|"shares mm, files,<br>signal, sighand"| T3
 ```
 
 ## Process Hierarchy
@@ -77,13 +77,13 @@ struct task_struct {
 The `real_parent` never changes (it's who actually created this task). The `parent` pointer can change if a debugger attaches via `ptrace()` — this is how GDB intercepts signals meant for the debuggee.
 
 ```mermaid
-graph TD
-    init["init/systemd<br/>pid=1"]
-    shell["bash<br/>pid=500"]
-    vim["vim<br/>pid=501"]
-    compiler["gcc<br/>pid=600"]
-    cc1["cc1<br/>pid=601"]
-    as["as<br/>pid=602"]
+flowchart TD
+    init["init/systemd<br>pid=1"]
+    shell["bash<br>pid=500"]
+    vim["vim<br>pid=501"]
+    compiler["gcc<br>pid=600"]
+    cc1["cc1<br>pid=601"]
+    as["as<br>pid=602"]
 
     init --> shell
     init --> vim
@@ -187,7 +187,7 @@ The `flags` parameter controls sharing:
 ### What fork(), pthread_create(), and clone() Share
 
 ```mermaid
-graph LR
+flowchart LR
     subgraph "fork()"
         F1["New process"]
         F1 -->|"copies mm"| F2["Independent memory"]

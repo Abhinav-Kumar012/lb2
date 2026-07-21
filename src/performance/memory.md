@@ -63,21 +63,21 @@ Huge pages reduce TLB (Translation Lookaside Buffer) misses by using larger memo
 ### Why Huge Pages?
 
 ```mermaid
-graph TD
+flowchart TD
     subgraph "Regular 4K Pages (1GB virtual)"
-        TLB4K["TLB entries needed:<br/>1GB / 4KB = 262,144<br/>TLB has ~1536 entries<br/>→ Many misses!"]
+        TLB4K["TLB entries needed:<br>1GB / 4KB = 262,144<br>TLB has ~1536 entries<br>→ Many misses!"]
     end
     subgraph "2MB Huge Pages (1GB virtual)"
-        TLB2M["TLB entries needed:<br/>1GB / 2MB = 512<br/>TLB has ~1536 entries<br/>→ Fits! Few misses"]
+        TLB2M["TLB entries needed:<br>1GB / 2MB = 512<br>TLB has ~1536 entries<br>→ Fits! Few misses"]
     end
     subgraph "1GB Huge Pages (1GB virtual)"
-        TLB1G["TLB entries needed:<br/>1GB / 1GB = 1<br/>→ Perfect!"]
+        TLB1G["TLB entries needed:<br>1GB / 1GB = 1<br>→ Perfect!"]
     end
 ```
-
 ### Transparent Huge Pages (THP)
 
-```bash
+```mermaid
+bash
 # Check THP status
 cat /sys/kernel/mm/transparent_hugepage/enabled
 # [always] madvise never

@@ -52,17 +52,17 @@ Linux defines 31 standard signals (1-31) and real-time signals (32-64):
 ### Signal Classification
 
 ```mermaid
-graph TD
+flowchart TD
     subgraph "Default Action"
-        TERM["SIGTERM, SIGKILL, SIGINT<br/>Default: terminate"]
-        CORE["SIGSEGV, SIGABRT, SIGBUS<br/>Default: terminate + core dump"]
-        STOP["SIGSTOP, SIGTSTP<br/>Default: stop"]
-        CONT["SIGCONT<br/>Default: continue"]
-        IGN["SIGCHLD, SIGURG<br/>Default: ignore"]
+        TERM["SIGTERM, SIGKILL, SIGINT<br>Default: terminate"]
+        CORE["SIGSEGV, SIGABRT, SIGBUS<br>Default: terminate + core dump"]
+        STOP["SIGSTOP, SIGTSTP<br>Default: stop"]
+        CONT["SIGCONT<br>Default: continue"]
+        IGN["SIGCHLD, SIGURG<br>Default: ignore"]
     end
 
     subgraph "User-defined"
-        USR1["SIGUSR1, SIGUSR2<br/>No default meaning"]
+        USR1["SIGUSR1, SIGUSR2<br>No default meaning"]
     end
 
     subgraph "Cannot be caught/blocked"
@@ -139,7 +139,7 @@ struct task_struct {
 ```
 
 ```mermaid
-graph TD
+flowchart TD
     subgraph "Signal Pending Bitmask"
         B1["bit 0 (SIGHUP): 0"]
         B2["bit 1 (SIGINT): 1 ← pending"]

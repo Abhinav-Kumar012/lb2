@@ -165,10 +165,10 @@ graph TD
     A[mutex_lock called] --> B{Fast path: atomic cmpxchg}
     B -->|Success| C[Lock acquired]
     B -->|Fail: contended| D[mutex_lock_slow]
-    D --> E[spin_lock(&wait_lock)]
+    D --> E["spin_lock(&wait_lock)"]
     E --> F[Add to wait_list]
     F --> G[Set task state to TASK_UNINTERRUPTIBLE]
-    G --> H[spin_unlock(&wait_lock)]
+    G --> H["spin_unlock(&wait_lock)"]
     H --> I[schedule — sleep]
     I --> J[Woken up]
     J --> K{Acquired lock?}

@@ -9,31 +9,31 @@ QEMU is the de facto standard userspace component for KVM-based virtualization o
 ## Architecture Overview
 
 ```mermaid
-graph TB
-    subgraph QEMU Process
+flowchart TB
+    subgraph QEMU_Process["QEMU Process"]
         subgraph Core
             MAIN[Main Event Loop]
-            TCG[TCG - Tiny Code Generator<br/>Software Emulation]
-            KVM_IF[KVM Interface<br/>/dev/kvm ioctl]
+            TCG["TCG - Tiny Code Generator<br>Software Emulation"]
+            KVM_IF["KVM Interface<br>/dev/kvm ioctl"]
             QOM[QOM - Object Model]
         end
-        subgraph Device Emulation
-            BLK[Block Devices<br/>virtio-blk, IDE, SCSI, NVMe]
-            NET[Network Devices<br/>virtio-net, e1000, rtl8139]
-            GPU[Graphics<br/>virtio-gpu, VGA, QXL]
-            USB[USB Controllers<br/>xHCI, EHCI, UHCI]
-            CHAR[Character Devices<br/>serial, console, sockets]
-            AUDIO[Audio<br/>intel-hda, AC97]
+        subgraph Device_Emulation["Device Emulation"]
+            BLK["Block Devices<br>virtio-blk, IDE, SCSI, NVMe"]
+            NET["Network Devices<br>virtio-net, e1000, rtl8139"]
+            GPU["Graphics<br>virtio-gpu, VGA, QXL"]
+            USB["USB Controllers<br>xHCI, EHCI, UHCI"]
+            CHAR["Character Devices<br>serial, console, sockets"]
+            AUDIO["Audio<br>intel-hda, AC97"]
         end
-        subgraph Machine Model
-            MACHINE[Machine Type<br/>q35, i440fx, virt]
-            BIOS[BIOS/UEFI<br/>SeaBIOS, OVMF]
+        subgraph Machine_Model["Machine Model"]
+            MACHINE["Machine Type<br>q35, i440fx, virt"]
+            BIOS["BIOS/UEFI<br>SeaBIOS, OVMF"]
             ACPI[ACPI Tables]
             IRQ[Interrupt Routing]
         end
         subgraph Management
-            QMP[QMP Protocol<br/>JSON-based control]
-            HMP[HMP Monitor<br/>Human-friendly CLI]
+            QMP["QMP Protocol<br>JSON-based control"]
+            HMP["HMP Monitor<br>Human-friendly CLI"]
             QGA[QEMU Guest Agent]
         end
     end
@@ -131,9 +131,9 @@ QEMU provides hundreds of emulated devices. These fall into several categories:
 ### Device Categories
 
 ```mermaid
-graph TB
+flowchart TB
     subgraph Storage
-        IDE[IDE/ATA PIIX4, ICH6]
+        IDE["IDE/ATA PIIX4, ICH6"]
         SCSI[SCSI LSI53C895A, virtio-scsi]
         NVMe_NVMe[NVMe]
         VIRTIO_BLK[virtio-blk]
@@ -147,8 +147,8 @@ graph TB
         VMXNET3[VMware vmxnet3]
     end
     subgraph Display
-        VGA[VGA/Cirrus]
-        QXL[QXL (SPICE)]
+        VGA["VGA/Cirrus"]
+        QXL["QXL (SPICE)"]
         VIRTIO_GPU[virtio-gpu]
         BOCHS[Bochs Display]
     end
@@ -212,7 +212,7 @@ QOM is QEMU's object-oriented framework for modeling all objects in the system: 
 ### QOM Hierarchy
 
 ```mermaid
-graph TB
+flowchart TB
     ROOT[container] --> MACHINE[machine]
     ROOT --> PERIPHERAL[peripheral]
     ROOT --> BACKEND[backend]
@@ -337,15 +337,15 @@ Virtio is the paravirtualized I/O framework that provides high-performance devic
 ### Virtio Architecture
 
 ```mermaid
-graph LR
+flowchart LR
     subgraph Guest
         APP[Application] --> VFS[Kernel VFS]
         VFS --> VF[virtio Frontend Driver]
-        VF --> VRING[Virtqueue<br/>Available Ring / Used Ring]
+        VF --> VRING["Virtqueue<br>Available Ring / Used Ring"]
     end
     subgraph Host
         VRING -->|shared memory| VB[virtio Backend]
-        VB --> VHOST[vhost-net / vhost-user / QEMU]
+        VB --> VHOST["vhost-net / vhost-user / QEMU"]
         VHOST --> HOST[Host Resource]
     end
 ```

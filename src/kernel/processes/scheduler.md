@@ -32,12 +32,12 @@ struct sched_class {
 ### Class Priority Order
 
 ```mermaid
-graph TD
-    STOP["stop_sched_class<br/>(highest priority)"]
-    DL["dl_sched_class<br/>(SCHED_DEADLINE)"]
-    RT["rt_sched_class<br/>(SCHED_FIFO, SCHED_RR)"]
-    FAIR["fair_sched_class<br/>(SCHED_NORMAL, SCHED_BATCH)"]
-    IDLE["idle_sched_class<br/>(SCHED_IDLE)"]
+flowchart TD
+    STOP["stop_sched_class<br>(highest priority)"]
+    DL["dl_sched_class<br>(SCHED_DEADLINE)"]
+    RT["rt_sched_class<br>(SCHED_FIFO, SCHED_RR)"]
+    FAIR["fair_sched_class<br>(SCHED_NORMAL, SCHED_BATCH)"]
+    IDLE["idle_sched_class<br>(SCHED_IDLE)"]
 
     STOP --> DL --> RT --> FAIR --> IDLE
 
@@ -133,7 +133,7 @@ struct rq {
 ```
 
 ```mermaid
-graph TD
+flowchart TD
     subgraph "CPU 0"
         RQ0["rq[0]"]
         CFS0["cfs_rq"]
@@ -249,11 +249,11 @@ struct sched_domain {
 The hierarchy typically looks like:
 
 ```mermaid
-graph TD
-    NUMA["NUMA Domain<br/>(multiple nodes)"]
-    DIE["Die Domain<br/>(multiple cores per die)"]
-    MC["MC Domain<br/>(multiple cores per socket)"]
-    SMT["SMT Domain<br/>(hyperthreads per core)"]
+flowchart TD
+    NUMA["NUMA Domain<br>(multiple nodes)"]
+    DIE["Die Domain<br>(multiple cores per die)"]
+    MC["MC Domain<br>(multiple cores per socket)"]
+    SMT["SMT Domain<br>(hyperthreads per core)"]
 
     NUMA --> DIE --> MC --> SMT
 
@@ -744,21 +744,21 @@ struct cfs_rq {
 ```
 
 ```mermaid
-graph TD
+flowchart TD
     subgraph "CFS Red-Black Tree (keyed by vruntime)"
         ROOT["Root"]
-        N1["Task A<br/>vruntime=50"]
-        N2["Task B<br/>vruntime=120"]
-        N3["Task C<br/>vruntime=80"]
-        N4["Task D<br/>vruntime=200"]
-        N5["Task E<br/>vruntime=150"]
+        N1["Task A<br>vruntime=50"]
+        N2["Task B<br>vruntime=120"]
+        N3["Task C<br>vruntime=80"]
+        N4["Task D<br>vruntime=200"]
+        N5["Task E<br>vruntime=150"]
         ROOT --> N2
         N2 --> N1
         N2 --> N3
         N2 --> N5
         N5 --> N4
     end
-    LEFT["Leftmost = Next to run<br/>(Task A, vruntime=50)"] -.-> N1
+    LEFT["Leftmost = Next to run<br>(Task A, vruntime=50)"] -.-> N1
 ```
 
 ### Updating vruntime on Wakeup
@@ -787,10 +787,10 @@ The load balancer runs periodically and on idle transitions. The algorithm has t
 
 ```mermaid
 flowchart TD
-    A["load_balance() called"] --> B["find_busiest_group()<br/>Find group with highest load"]
-    B --> C["find_busiest_queue()<br/>Find CPU with highest load in group"]
-    C --> D["detach_tasks()<br/>Detach tasks from busiest queue"]
-    D --> E["attach_tasks()<br/>Attach tasks to this queue"]
+    A["load_balance() called"] --> B["find_busiest_group()<br>Find group with highest load"]
+    B --> C["find_busiest_queue()<br>Find CPU with highest load in group"]
+    C --> D["detach_tasks()<br>Detach tasks from busiest queue"]
+    D --> E["attach_tasks()<br>Attach tasks to this queue"]
     E --> F["Update load statistics"]
 ```
 

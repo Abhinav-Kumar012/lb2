@@ -13,7 +13,7 @@ Seccomp is used extensively by browsers (Chrome, Firefox), container runtimes (D
 Before understanding seccomp, it's important to understand system calls:
 
 ```mermaid
-graph LR
+flowchart LR
     subgraph "User Space"
         APP[Application]
         LIBC[glibc]
@@ -26,15 +26,15 @@ graph LR
     end
 
     APP -->|function call| LIBC
-    LIBC -->|syscall instruction<br/>rax=syscall number| SYSCALL
+    LIBC -->|syscall instruction<br>rax=syscall number| SYSCALL
     SYSCALL --> HANDLER
     HANDLER --> DRIVER
     DRIVER -->|result| HANDLER
     HANDLER -->|return value| LIBC
     LIBC --> APP
 ```
-
-```bash
+```mermaid
+bash
 # Linux x86_64 uses the syscall instruction
 # The syscall number goes in rax, arguments in rdi, rsi, rdx, r10, r8, r9
 
@@ -99,17 +99,17 @@ gcc -o seccomp_strict seccomp_strict.c
 Introduced in Linux 3.5, this is the mode used by virtually all modern seccomp users. It allows attaching a BPF program to filter syscalls.
 
 ```mermaid
-graph TD
+flowchart TD
     A[Process makes syscall] --> B{Seccomp filter attached?}
     B -->|No| C[Normal syscall processing]
     B -->|Yes| D[Run BPF filter program]
     D --> E{Filter verdict}
     E -->|SECCOMP_RET_ALLOW| C
-    E -->|SECCOMP_RET_KILL| F[Process killed (SIGSYS)]
+    E -->|SECCOMP_RET_KILL| F["Process killed (SIGSYS)"]
     E -->|SECCOMP_RET_TRAP| G[Process receives SIGSYS]
     E -->|SECCOMP_RET_ERRNO| H[Syscall returns errno]
     E -->|SECCOMP_RET_TRACE| I[ptrace notified]
-    E -->|SECCOMP_RET_LOG| J[Allow + log in audit]
+    E -->|SECCOMP_RET_LOG| J["Allow + log in audit"]
     E -->|SECCOMP_RET_USER_NOTIF| K[Notify userspace supervisor]
 
     style F fill:#FF6347
@@ -117,7 +117,6 @@ graph TD
     style H fill:#FFD700
     style C fill:#90EE90
 ```
-
 ### Seccomp Return Actions
 
 | Action | Value | Behavior |
@@ -135,7 +134,8 @@ graph TD
 
 The `libseccomp` library provides a higher-level API for creating seccomp filters:
 
-```bash
+```mermaid
+bash
 # Install libseccomp development headers
 sudo apt install libseccomp-dev     # Debian/Ubuntu
 sudo dnf install libseccomp-devel   # RHEL/Fedora
@@ -272,7 +272,6 @@ sequenceDiagram
     Supervisor->>Kernel: SECCOMP_IOCTL_NOTIF_SEND(fd, response)
     Kernel->>Sandboxed: Return fd (or EPERM)
 ```
-
 This is used by container runtimes (like Docker with `runc`) and snap-confine for more flexible sandboxing decisions that can't be expressed in BPF alone.
 
 ## Seccomp and Containers
@@ -281,7 +280,8 @@ This is used by container runtimes (like Docker with `runc`) and snap-confine fo
 
 Docker uses seccomp to restrict container syscalls. The default profile blocks ~44 of ~300+ syscalls:
 
-```bash
+```mermaid
+bash
 # View Docker's default seccomp profile
 cat /etc/docker/seccomp.json | python3 -m json.tool | head -30
 # {
@@ -597,12 +597,12 @@ seccomp-tools dump /usr/bin/myapp
 Seccomp is most effective when combined with other security layers:
 
 ```mermaid
-graph TB
+flowchart TB
     subgraph "Combined Security"
         SEC[Seccomp BPF] -->|restricts syscalls| PROC[Sandboxed Process]
         CAP[Capabilities] -->|restricts privileges| PROC
         NS[Namespaces] -->|isolates resources| PROC
-        LSM[SELinux/AppArmor] -->|restricts object access| PROC
+        LSM["SELinux/AppArmor"] -->|restricts object access| PROC
         CG[Cgroups] -->|limits resources| PROC
     end
 
@@ -616,14 +616,14 @@ graph TB
     style PRIV fill:#FFD700
     style LEGIT fill:#90EE90
 ```
-
 ## BPF Filter Details
 
 Seccomp-BPF filters are classic BPF (cBPF) programs — the same bytecode format used by `socket()`. Each filter consists of an array of `struct sock_filter` instructions:
 
 ### BPF Instruction Set for Seccomp
 
-```c
+```mermaid
+c
 struct sock_filter {
     __u16 code;   /* Opcode */
     __u8  jt;     /* Jump if true */

@@ -369,14 +369,14 @@ Physical address = (PFN << 12) | offset
 ```
 
 ```mermaid
-graph LR
-    VA["Virtual Address<br/>0x7f8c4a200040"]
-    CR3["CR3<br/>0x123456000"]
-    PGD["PGD[254]<br/>→ 0x1A000000"]
-    PUD["PUD[265]<br/>→ 0x2B000000"]
-    PMD["PMD[32]<br/>→ 0x3C000000"]
-    PTE["PTE[256]<br/>→ PFN 0x8B000"]
-    PA["Physical Address<br/>0x8B000040"]
+flowchart LR
+    VA["Virtual Address<br>0x7f8c4a200040"]
+    CR3["CR3<br>0x123456000"]
+    PGD["PGD[254]<br>→ 0x1A000000"]
+    PUD["PUD[265]<br>→ 0x2B000000"]
+    PMD["PMD[32]<br>→ 0x3C000000"]
+    PTE["PTE[256]<br>→ PFN 0x8B000"]
+    PA["Physical Address<br>0x8B000040"]
 
     VA --> CR3
     CR3 --> PGD
@@ -473,14 +473,14 @@ pgmajfault      14256
 When physical memory is scarce, the kernel reclaims pages. See [Swap](swap.md) and [OOM Killer](oom-killer.md) for complete details. The high-level flow:
 
 ```mermaid
-graph TB
+flowchart TB
     A["Memory pressure detected"] --> B{"Pages clean?"}
     B -->|Yes| C["Free page immediately"]
     B -->|No| D{"File-backed?"}
-    D -->|Yes| E["Write to disk if dirty,<br/>then free"]
+    D -->|Yes| E["Write to disk if dirty,<br>then free"]
     D -->|No| F{"Anonymous page?"}
     F -->|Yes| G{"Swap available?"}
-    G -->|Yes| H["Write to swap,<br/>update PTE, free"]
+    G -->|Yes| H["Write to swap,<br>update PTE, free"]
     G -->|No| I["OOM Killer"]
     E --> J["Page freed"]
     H --> J

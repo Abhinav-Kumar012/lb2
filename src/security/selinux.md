@@ -9,7 +9,7 @@ Unlike Discretionary Access Control (DAC), where file owners control access perm
 ## DAC vs. MAC: The Fundamental Difference
 
 ```mermaid
-graph TB
+flowchart TB
     subgraph "DAC (Traditional Unix)"
         DAC_USER[User owns file] -->|sets permissions| DAC_PERM[rw-r--r--]
         DAC_PERM -->|checked by kernel| DAC_RESULT{Allow?}
@@ -19,19 +19,19 @@ graph TB
     subgraph "MAC (SELinux)"
         MAC_ADMIN[Admin sets policy] -->|defines| MAC_RULE[type_transition rules]
         MAC_RULE -->|checked by kernel| MAC_RESULT{Allow?}
-        MAC_USER[User/Process] -.->|CANNOT override| MAC_RULE
+        MAC_USER["User/Process"] -.->|CANNOT override| MAC_RULE
     end
 
     style DAC_USER fill:#87CEEB
     style MAC_ADMIN fill:#FF6347
     style MAC_RULE fill:#FF6347
 ```
-
 ### Why MAC Matters
 
 Consider this scenario:
 
-```bash
+```mermaid
+bash
 # A web server runs as root (bad practice, but common)
 # With DAC only:
 #   root can read /etc/shadow → web server vulnerability exposes shadow file
@@ -105,7 +105,7 @@ semanage login -l
 ### Context Inheritance
 
 ```mermaid
-graph TD
+flowchart TD
     A[Parent Directory Context] -->|default context| B[New File Created]
     C[SELinux Policy Rules] -->|type_transition| B
     D[User Login Context] -->|maps via semanage login| E[User SELinux Identity]
@@ -116,8 +116,8 @@ graph TD
     F --> H{Access Decision}
     G --> H
 ```
-
-```bash
+```mermaid
+bash
 # Files inherit context from parent directory by default
 mkdir /var/www/html/images
 ls -Zd /var/www/html/images
@@ -426,18 +426,18 @@ $ sudo sesearch --allow -s httpd_t -t httpd_sys_content_t -c file -p read
 ```mermaid
 flowchart TD
     A[Application not working] --> B{SELinux the cause?}
-    B -->|Check| C[setenforce 0<br/>temporarily permissive]
+    B -->|Check| C["setenforce 0<br>temporarily permissive"]
     C --> D{Does it work now?}
-    D -->|No| E[Problem is NOT SELinux<br/>Check logs, permissions, etc.]
+    D -->|No| E["Problem is NOT SELinux<br>Check logs, permissions, etc."]
     D -->|Yes| F[SELinux is the cause]
-    F --> G[setenforce 1<br/>back to enforcing]
-    G --> H[Check audit logs:<br/>ausearch -m avc -ts recent]
+    F --> G["setenforce 1<br>back to enforcing"]
+    G --> H["Check audit logs:<br>ausearch -m avc -ts recent"]
     H --> I{Missing label?}
-    I -->|Yes| J[restorecon -Rv /path]
+    I -->|Yes| J["restorecon -Rv /path"]
     I -->|No| K{Need boolean?}
     K -->|Yes| L[setsebool -P bool_name on]
-    K -->|No| M[Generate custom policy:<br/>audit2allow -M mymodule]
-    M --> N[semodule -i mymodule.pp]
+    K -->|No| M["Generate custom policy:<br>audit2allow -M mymodule"]
+    M --> N["semodule -i mymodule.pp"]
     J --> O{Fixed?}
     L --> O
     N --> O
@@ -448,10 +448,10 @@ flowchart TD
     style E fill:#90EE90
     style F fill:#FF6347
 ```
-
 ### Generating Custom Policy Modules
 
-```bash
+```mermaid
+bash
 # From denial messages, generate a policy module
 sudo ausearch -m avc -ts recent | audit2allow -M myfix
 # ******************** IMPORTANT ***********************

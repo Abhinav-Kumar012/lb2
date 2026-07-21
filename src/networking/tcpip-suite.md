@@ -48,35 +48,35 @@ The IPv4 header is 20-60 bytes long:
 When a packet exceeds the MTU (Maximum Transmission Unit), it must be fragmented:
 
 ```mermaid
-graph LR
+flowchart LR
     subgraph "Original Packet (3000 bytes)"
-        DATA[Data: 3000 bytes]
+        DATA["Data: 3000 bytes"]
     end
 
     subgraph "Fragment 1"
         H1[IP Header]
-        D1[Data: 1480 bytes]
-        F1[Frag Offset: 0, MF: 1]
+        D1["Data: 1480 bytes"]
+        F1["Frag Offset: 0, MF: 1"]
     end
 
     subgraph "Fragment 2"
         H2[IP Header]
-        D2[Data: 1480 bytes]
-        F2[Frag Offset: 1480, MF: 1]
+        D2["Data: 1480 bytes"]
+        F2["Frag Offset: 1480, MF: 1"]
     end
 
     subgraph "Fragment 3"
         H3[IP Header]
-        D3[Data: 40 bytes]
-        F3[Frag Offset: 2960, MF: 0]
+        D3["Data: 40 bytes"]
+        F3["Frag Offset: 2960, MF: 0"]
     end
 
     DATA --> H1
     DATA --> H2
     DATA --> H3
 ```
-
-```bash
+```mermaid
+bash
 # Check MTU of interface
 $ ip link show eth0 | grep mtu
 2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500
@@ -195,9 +195,9 @@ sequenceDiagram
 TCP uses a sliding window for flow control:
 
 ```mermaid
-graph LR
+flowchart LR
     subgraph "Sender Window"
-        SENT[Sent & ACKed]
+        SENT["Sent & ACKed"]
         SENT2[Sent, Not ACKed]
         SEND[Can Send]
         WAIT[Cannot Send]
@@ -215,10 +215,10 @@ graph LR
     SEND --> N3
     WAIT --> N4
 ```
-
 **Window scaling** allows windows larger than 65,535 bytes:
 
-```bash
+```mermaid
+bash
 # Check window scaling
 $ sysctl net.ipv4.tcp_window_scaling
 net.ipv4.tcp_window_scaling = 1
@@ -233,7 +233,7 @@ wscale:7,7
 TCP congestion control prevents network congestion:
 
 ```mermaid
-graph TB
+flowchart TB
     SS[Slow Start] --> CA[Congestion Avoidance]
     CA --> FR[Fast Retransmit]
     FR --> RR[Recovery]
@@ -241,14 +241,14 @@ graph TB
     CA --> SS
     SS --> |Packet Loss| CA
 ```
-
 **Algorithms:**
 
 - **Reno**: Classic algorithm with fast retransmit and recovery
 - **CUBIC**: Default in Linux, cubic growth function
 - **BBR**: Bottleneck bandwidth and RTT-based
 
-```bash
+```mermaid
+bash
 # Check current congestion control
 $ sysctl net.ipv4.tcp_congestion_control
 net.ipv4.tcp_congestion_control = cubic
@@ -275,8 +275,8 @@ sequenceDiagram
     C->>S: Retransmit (seq=100, 100 bytes)
     S->>C: ACK (ack=200)
 ```
-
-```bash
+```mermaid
+bash
 # Check retransmission statistics
 $ nstat | grep -i retrans
 TcpRetransSegs    123    0.0
@@ -389,15 +389,15 @@ sequenceDiagram
 
     A->>B: ARP Request (Broadcast)
     A->>C: ARP Request (Broadcast)
-    Note right of A: Who has 192.168.1.20?<br/>Tell 192.168.1.10
+    Note right of A: Who has 192.168.1.20?<br>Tell 192.168.1.10
     B->>A: ARP Reply (Unicast)
-    Note left of B: 192.168.1.20 is at<br/>AA:BB:CC:DD:EE:FF
+    Note left of B: 192.168.1.20 is at<br>AA:BB:CC:DD:EE:FF
     Note over A: Cache entry created
 ```
-
 ### ARP Cache Management
 
-```bash
+```mermaid
+bash
 # View ARP cache
 $ ip neigh show
 192.168.1.1 dev eth0 lladdr 00:11:22:33:44:55 REACHABLE
@@ -432,9 +432,9 @@ sequenceDiagram
     participant S as DNS Server (8.8.8.8)
 
     C->>S: DNS Query (UDP, port 53)
-    Note right of C: Source: random port<br/>Dest: 53
+    Note right of C: Source: random port<br>Dest: 53
     S->>C: DNS Response (UDP)
-    Note left of S: Source: 53<br/>Dest: client port
+    Note left of S: Source: 53<br>Dest: client port
 ```
 
 ### HTTP over TCP
@@ -470,12 +470,12 @@ sequenceDiagram
     C->>D: UDP (TTL=3)
     D->>C: ICMP Port Unreachable
 ```
-
 ## Protocol Analysis with tcpdump
 
 ### Capturing Specific Protocols
 
-```bash
+```mermaid
+bash
 # Capture TCP traffic
 $ sudo tcpdump -i eth0 tcp
 

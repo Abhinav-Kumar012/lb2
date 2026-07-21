@@ -12,7 +12,7 @@ KSM was introduced in Linux 2.6.32 (2009) primarily for virtualization: multiple
 
 ```mermaid
 flowchart TD
-    A[KSM daemon (ksmd) wakes up] --> B[Scan registered pages]
+    A["KSM daemon (ksmd) wakes up"] --> B[Scan registered pages]
     B --> C[Calculate content hash]
     C --> D{Pages with same hash?}
     D -->|Yes| E[Compare byte-by-byte]
@@ -302,7 +302,7 @@ KSM can be exploited as a side channel:
 ```mermaid
 graph TD
     A[Attacker process] --> B[Allocates page with known content]
-    B --> C[Calls madvise(MADV_MERGEABLE)]
+    B --> C["Calls madvise(MADV_MERGEABLE)"]
     C --> D[Times write to page]
     D --> E{Fast write?}
     E -->|"Yes (no COW fault)"| F[Page was merged<br/>→ victim has identical content]

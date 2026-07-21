@@ -315,18 +315,18 @@ my_function:
 ```mermaid
 graph TB
     subgraph "Secure World"
-        SEC_OS[Secure OS<br/>(OP-TEE, Trusty)]
-        SEC_APP[Secure Applications<br/>(Trusted Apps)]
+        SEC_OS["Secure OS<br/>(OP-TEE, Trusty)"]
+        SEC_APP["Secure Applications<br/>(Trusted Apps)"]
         SEC_DRV[Secure Drivers]
     end
     
     subgraph "Normal World"
-        HYPER[Hypervisor<br/>(EL2)]
-        KERNEL[Linux Kernel<br/>(EL1)]
-        USER[Applications<br/>(EL0)]
+        HYPER["Hypervisor<br/>(EL2)"]
+        KERNEL["Linux Kernel<br/>(EL1)"]
+        USER["Applications<br/>(EL0)"]
     end
     
-    SEC_OS --> SEC_MONITOR[Secure Monitor<br/>ARM Trusted Firmware<br/>(EL3)]
+    SEC_OS --> SEC_MONITOR["Secure Monitor<br/>ARM Trusted Firmware<br/>(EL3)"]
     HYPER --> SEC_MONITOR
     
     SEC_MONITOR -->|"SMC call"| SEC_OS

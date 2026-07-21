@@ -234,8 +234,8 @@ graph TD
     B --> B2[Out-of-bounds read]
     B --> B3[Use-after-free info leak]
 
-    C --> C1[32-bit: feasible (2^19 positions)]
-    C --> C2[64-bit: impractical (2^28 positions)]
+    C --> C1["32-bit: feasible (2^19 positions)"]
+    C --> C2["64-bit: impractical (2^28 positions)"]
 
     D --> D1[Spectre/Meltdown]
     D --> D2[TLB timing]

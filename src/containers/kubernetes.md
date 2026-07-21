@@ -9,24 +9,24 @@ This chapter explores how Kubernetes interacts with the Linux kernel, covering t
 ## Kubernetes Architecture and Linux
 
 ```mermaid
-graph TB
-    subgraph Control Plane
+flowchart TB
+    subgraph Control_Plane["Control Plane"]
         API[API Server]
         ETCD[etcd]
         SCHED[Scheduler]
         CM[Controller Manager]
     end
-    subgraph Node (Linux Host)
+    subgraph Node__Linux_Host["Node (Linux Host)"]
         KUBELET[kubelet]
         KUBE_PROXY[kube-proxy]
-        CRI_PLUGIN[CRI Plugin<br/>containerd / CRI-O]
-        CONTAINER[Container<br/>Namespaces + cgroups]
+        CRI_PLUGIN["CRI Plugin<br>containerd / CRI-O"]
+        CONTAINER["Container<br>Namespaces + cgroups"]
         
-        subgraph CNI Plugin
-            CNI[CNI Plugin<br/>calico/flannel/cilium]
+        subgraph CNI_Plugin["CNI Plugin"]
+            CNI["CNI Plugin<br>calico/flannel/cilium"]
         end
-        subgraph CSI Plugin
-            CSI[CSI Plugin<br/>aws-ebs/csi-driver]
+        subgraph CSI_Plugin["CSI Plugin"]
+            CSI["CSI Plugin<br>aws-ebs/csi-driver"]
         end
     end
 
@@ -61,7 +61,7 @@ CRI is the gRPC interface between kubelet and the container runtime:
 sequenceDiagram
     participant API as API Server
     participant KL as kubelet
-    participant CRI as CRI Runtime<br/>(containerd)
+    participant CRI as CRI Runtime<br>(containerd)
     participant RUNC as runc
     participant K as Kernel
 
@@ -112,22 +112,22 @@ crictl exec -it <id> sh  # Exec into container
 A Kubernetes Pod shares namespaces among its containers:
 
 ```mermaid
-graph TB
+flowchart TB
     subgraph Pod
-        subgraph Shared Namespaces
-            NET[Network NS<br/>Shared IP, ports]
-            UTS[UTS NS<br/>Shared hostname]
-            IPC[IPC NS<br/>Shared IPC]
+        subgraph Shared_Namespaces["Shared Namespaces"]
+            NET["Network NS<br>Shared IP, ports"]
+            UTS["UTS NS<br>Shared hostname"]
+            IPC["IPC NS<br>Shared IPC"]
         end
-        subgraph infra container
-            PAUSE[pause container<br/>Holds namespaces alive]
+        subgraph infra_container["infra container"]
+            PAUSE["pause container<br>Holds namespaces alive"]
         end
-        subgraph App Container 1
+        subgraph App_Container_1["App Container 1"]
             C1_PID[Own PID NS]
             C1_MNT[Own Mount NS]
             C1_CGRP[Own Cgroup NS]
         end
-        subgraph App Container 2
+        subgraph App_Container_2["App Container 2"]
             C2_PID[Own PID NS]
             C2_MNT[Own Mount NS]
             C2_CGRP[Own Cgroup NS]
@@ -186,13 +186,13 @@ spec:
 CNI is the standard for configuring network namespaces in Kubernetes:
 
 ```mermaid
-graph TB
-    subgraph CNI Flow
+flowchart TB
+    subgraph CNI_Flow["CNI Flow"]
         KUBELET_CNI[kubelet] -->|AddNetwork| CNI_BIN[CNI Plugin Binary]
-        CNI_BIN -->|chain| CNI_PLUGINS[CNI Plugins<br/>bridge, loopback, portmap, bandwidth]
+        CNI_BIN -->|chain| CNI_PLUGINS["CNI Plugins<br>bridge, loopback, portmap, bandwidth"]
         CNI_PLUGINS -->|configure| NETNS[Network Namespace]
         NETNS --> VETH[veth pair]
-        VETH --> BRIDGE[Linux Bridge / Overlay]
+        VETH --> BRIDGE["Linux Bridge / Overlay"]
     end
 ```
 
@@ -289,21 +289,21 @@ bpftool prog list | grep cilium
 CSI standardizes storage provisioning in Kubernetes:
 
 ```mermaid
-graph TB
+flowchart TB
     subgraph Kubernetes
         PV[PersistentVolume]
         PVC[PersistentVolumeClaim]
         SC[StorageClass]
     end
-    subgraph CSI Components
-        CSI_DRIVER[CSI Driver<br/>Node + Controller]
-        CSI_NODE[CSI Node Plugin<br/>Per-node]
-        CSI_CTRL[CSI Controller Plugin<br/>Centralized]
+    subgraph CSI_Components["CSI Components"]
+        CSI_DRIVER["CSI Driver<br>Node + Controller"]
+        CSI_NODE["CSI Node Plugin<br>Per-node"]
+        CSI_CTRL["CSI Controller Plugin<br>Centralized"]
     end
-    subgraph Storage Backend
+    subgraph Storage_Backend["Storage Backend"]
         LOCAL[Local Disk]
         NFS_STORAGE[NFS]
-        CLOUD[Cloud Storage<br/>EBS/PD/AzureDisk]
+        CLOUD["Cloud Storage<br>EBS/PD/AzureDisk"]
     end
 
     PVC --> PV
@@ -395,15 +395,15 @@ spec:
 ### Seccomp in Kubernetes
 
 ```mermaid
-graph LR
-    subgraph Pod Spec
+flowchart LR
+    subgraph Pod_Spec["Pod Spec"]
         SECCTX[securityContext.seccompProfile]
     end
     subgraph kubelet
         KL[kubelet]
         SM[seccomp manager]
     end
-    subgraph Container Runtime
+    subgraph Container_Runtime["Container Runtime"]
         CR[containerd]
         RUNC[runc]
     end

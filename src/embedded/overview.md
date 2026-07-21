@@ -23,7 +23,7 @@ graph TB
         EMB_INIT[BusyBox init / systemd-minimal]
         EMB_ROOTFS[Read-only rootfs<br/>Custom-built]
         EMB_SINGLE[Single-purpose appliance]
-        EMB_STORAGE[MB of storage (flash)]
+        EMB_STORAGE["MB of storage (flash)"]
         EMB_RAM[MB of RAM]
     end
 ```

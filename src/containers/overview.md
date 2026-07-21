@@ -11,15 +11,15 @@ Containers have fundamentally changed how software is built, shipped, and run. T
 Understanding the distinction between containers and VMs is crucial:
 
 ```mermaid
-graph TB
-    subgraph Virtual Machine Stack
+flowchart TB
+    subgraph Virtual_Machine_Stack["Virtual Machine Stack"]
         APP1[App A] --> OS1[Guest OS]
         APP2[App B] --> OS2[Guest OS]
         OS1 --> HV[Hypervisor]
         OS2 --> HV
         HV --> HW1[Hardware]
     end
-    subgraph Container Stack
+    subgraph Container_Stack["Container Stack"]
         CA[App A] --> CR[Container Runtime]
         CB[App B] --> CR
         CR --> HOST[Host OS Kernel]
@@ -62,21 +62,21 @@ time docker run --rm alpine echo "hello"
 Namespaces provide isolation of system resources. Each container gets its own view of the system:
 
 ```mermaid
-graph TB
+flowchart TB
     subgraph Host
-        PID_H[PID Namespace<br/>Host: sees all processes]
-        NET_H[Network Namespace<br/>Host: eth0, br0]
-        MNT_H[Mount Namespace<br/>Host: full filesystem]
+        PID_H["PID Namespace<br>Host: sees all processes"]
+        NET_H["Network Namespace<br>Host: eth0, br0"]
+        MNT_H["Mount Namespace<br>Host: full filesystem"]
     end
-    subgraph Container A
-        PID_A[PID Namespace<br/>PID 1 = nginx]
-        NET_A[Network Namespace<br/>eth0: 172.17.0.2]
-        MNT_A[Mount Namespace<br/>overlay filesystem]
+    subgraph Container_A["Container A"]
+        PID_A["PID Namespace<br>PID 1 = nginx"]
+        NET_A["Network Namespace<br>eth0: 172.17.0.2"]
+        MNT_A["Mount Namespace<br>overlay filesystem"]
     end
-    subgraph Container B
-        PID_B[PID Namespace<br/>PID 1 = postgres]
-        NET_B[Network Namespace<br/>eth0: 172.17.0.3]
-        MNT_B[Mount Namespace<br/>overlay filesystem]
+    subgraph Container_B["Container B"]
+        PID_B["PID Namespace<br>PID 1 = postgres"]
+        NET_B["Network Namespace<br>eth0: 172.17.0.3"]
+        MNT_B["Mount Namespace<br>overlay filesystem"]
     end
 ```
 
@@ -123,11 +123,11 @@ See [cgroups v2](./cgroups-v2.md) for comprehensive coverage.
 Union filesystems (also called union mounts) layer multiple directories into a single unified view. This is the foundation of container images:
 
 ```mermaid
-graph TB
-    subgraph Container Layer
-        RW[Read-Write Layer<br/>Container-specific changes]
+flowchart TB
+    subgraph Container_Layer["Container Layer"]
+        RW["Read-Write Layer<br>Container-specific changes"]
     end
-    subgraph Image Layers
+    subgraph Image_Layers["Image Layers"]
         L3[Layer 3: Install nginx]
         L2[Layer 2: Install dependencies]
         L1[Layer 1: Ubuntu base]
@@ -168,17 +168,17 @@ docker inspect --format '{{.GraphDriver.Data}}' mycontainer
 ## Container Runtime Stack
 
 ```mermaid
-graph TB
-    subgraph User Interface
+flowchart TB
+    subgraph User_Interface["User Interface"]
         DOCKER_CLI[docker CLI]
         PODMAN[podman CLI]
-        CTR[ctr / nerdctl]
+        CTR["ctr / nerdctl"]
     end
-    subgraph High-Level Runtime
+    subgraph High_Level_Runtime["High-Level Runtime"]
         DOCKERD[dockerd]
         CONTAINERD[containerd]
     end
-    subgraph Low-Level Runtime
+    subgraph Low_Level_Runtime["Low-Level Runtime"]
         RUNC[runc]
         CRUN[crun]
         KATA[Kata Containers]
@@ -187,7 +187,7 @@ graph TB
         NS[Namespaces]
         CG[cgroups]
         CAP[Capabilities]
-        SEC[Seccomp / AppArmor / SELinux]
+        SEC["Seccomp / AppArmor / SELinux"]
     end
 
     DOCKER_CLI --> DOCKERD
@@ -231,15 +231,15 @@ skopeo inspect docker://docker.io/library/alpine:latest
 ## Container Security Model
 
 ```mermaid
-graph TB
-    subgraph Container Security Layers
-        NS_SEC[Namespaces<br/>Process/network isolation]
-        CG_SEC[cgroups<br/>Resource limits]
-        CAP_SEC[Capabilities<br/>Fine-grained privileges]
-        SEC_SEC[Seccomp<br/>Syscall filtering]
-        AA_SEC[AppArmor / SELinux<br/>Mandatory access control]
-        RO[Read-only rootfs<br/>Immutable containers]
-        NO_NEW[no_new_privs<br/>Prevent privilege escalation]
+flowchart TB
+    subgraph Container_Security_Layers["Container Security Layers"]
+        NS_SEC["Namespaces<br>Process/network isolation"]
+        CG_SEC["cgroups<br>Resource limits"]
+        CAP_SEC["Capabilities<br>Fine-grained privileges"]
+        SEC_SEC["Seccomp<br>Syscall filtering"]
+        AA_SEC["AppArmor / SELinux<br>Mandatory access control"]
+        RO["Read-only rootfs<br>Immutable containers"]
+        NO_NEW["no_new_privs<br>Prevent privilege escalation"]
     end
 ```
 
@@ -268,14 +268,14 @@ docker run --rm alpine cat /proc/1/status | grep -i seccomp
 ## Container Networking
 
 ```mermaid
-graph TB
-    subgraph Container Network
-        C1[Container 1<br/>172.17.0.2] --> VETH1[veth pair]
-        C2[Container 2<br/>172.17.0.3] --> VETH2[veth pair]
-        VETH1 --> BRIDGE[docker0 bridge<br/>172.17.0.1]
+flowchart TB
+    subgraph Container_Network["Container Network"]
+        C1["Container 1<br>172.17.0.2"] --> VETH1[veth pair]
+        C2["Container 2<br>172.17.0.3"] --> VETH2[veth pair]
+        VETH1 --> BRIDGE["docker0 bridge<br>172.17.0.1"]
         VETH2 --> BRIDGE
-        BRIDGE --> NAT[iptables NAT<br/>MASQUERADE]
-        NAT --> HOST_NIC[Host NIC<br/>eth0]
+        BRIDGE --> NAT["iptables NAT<br>MASQUERADE"]
+        NAT --> HOST_NIC["Host NIC<br>eth0"]
     end
 ```
 
@@ -334,7 +334,7 @@ docker run --tmpfs /app/cache nginx
 ## Container Ecosystem
 
 ```mermaid
-graph TB
+flowchart TB
     subgraph Build
         DOCKERFILE[Dockerfile]
         BUILDAH[Buildah]
@@ -345,7 +345,7 @@ graph TB
         DOCKERHUB[Docker Hub]
         GHCR[GitHub Container Registry]
         HARBOR[Harbor]
-        ECR[ECR / ACR / GCR]
+        ECR["ECR / ACR / GCR"]
     end
     subgraph Runtime
         DOCKER[Docker Engine]
@@ -357,7 +357,7 @@ graph TB
         K8S[Kubernetes]
         SWARM[Docker Swarm]
         NOMAD[Nomad]
-        ECS[ECS / EKS / AKS]
+        ECS["ECS / EKS / AKS"]
     end
 
     DOCKERFILE --> DOCKER

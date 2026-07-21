@@ -24,7 +24,7 @@ containerd is:
 containerd follows a layered, daemon-based architecture:
 
 ```mermaid
-graph TB
+flowchart TB
     subgraph "Clients"
         DOCKER["Docker (dockerd)"]
         CRICTL["crictl"]
@@ -253,7 +253,7 @@ creating, mounting, and merging filesystem snapshots.
 ### overlayfs Snapshotter (Default)
 
 ```mermaid
-graph TB
+flowchart TB
     subgraph "Container View"
         MNT["/ (merged view)"]
     end

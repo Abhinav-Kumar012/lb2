@@ -80,10 +80,10 @@ metadata-heavy operations:
 ```mermaid
 graph LR
     subgraph "Flex Group 0 (4 block groups)"
-        BG0["Block Group 0<br/>ALL bitmaps<br/>ALL inode tables<br/>Data blocks"]
-        BG1["Block Group 1<br/>Data blocks only"]
-        BG2["Block Group 2<br/>Data blocks only"]
-        BG3["Block Group 3<br/>Data blocks only"]
+        BG0["Block Group 0<br>ALL bitmaps<br>ALL inode tables<br>Data blocks"]
+        BG1["Block Group 1<br>Data blocks only"]
+        BG2["Block Group 2<br>Data blocks only"]
+        BG3["Block Group 3<br>Data blocks only"]
     end
 ```
 
@@ -152,7 +152,7 @@ blocks in ext2/ext3):
 ```mermaid
 graph TD
     subgraph "Inode (i_block[15])"
-        EH["Extent Header<br/>depth=1, entries=3"]
+        EH["Extent Header<br>depth=1, entries=3"]
         IDX0["Index: block 0 → Extent Block A"]
         IDX1["Index: block 10000 → Extent Block B"]
         IDX2["Index: block 50000 → Extent Block C"]
