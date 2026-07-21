@@ -381,6 +381,40 @@ The spinlock portion of `seqlock_t` is tracked by lockstat:
 $ sudo cat /proc/lock_stat | grep seqlock
 ```
 
+## Seqlock Internals (from docs.kernel.org)
+
+The kernel documentation at `docs.kernel.org/locking/seqlock.html` provides the authoritative reference for sequence counters and sequential locks. Key details from the official documentation:
+
+### Sequence Counters (seqcount_t)
+
+This is the raw counting mechanism without writer protection. Write side critical sections must be serialized by an external lock. If the write serialization primitive doesn't implicitly disable preemption, preemption must be explicitly disabled before entering the write side section.
+
+### Sequence Counters with Associated Locks (seqcount_LOCKNAME_t)
+
+These variants associate the lock used for writer serialization at initialization time, enabling lockdep to validate that write side critical sections are properly serialized. The lock association is a NOOP if lockdep is disabled (no storage or runtime overhead). Available variants:
+
+- `seqcount_spinlock_t`
+- `seqcount_raw_spinlock_t`
+- `seqcount_rwlock_t`
+- `seqcount_mutex_t`
+- `seqcount_ww_mutex_t`
+
+### Latch Sequence Counters (seqcount_latch_t)
+
+A multiversion concurrency control mechanism where the embedded seqcount_t counter even/odd value switches between two copies of protected data. This allows the read path to safely interrupt its own write side critical section. Use when write side sections cannot be protected from interruption by readers (typically when the read side can be invoked from NMI handlers).
+
+### Three Categories of Seqlock Readers
+
+The documentation defines three types of readers for `seqlock_t`:
+
+1. **Normal sequence readers**: Never block a writer, must retry if a writer is in progress. Writers do not wait for sequence readers.
+2. **Locking readers** (`read_seqlock_excl`): Wait if a writer or another locking reader is in progress. Exclusive — only one locking reader can acquire it.
+3. **Conditional lockless/locking readers** (`read_seqbegin_or_lock`): Try lockless first (even marker), fall back to locking read (odd marker) to avoid reader starvation during write spikes.
+
+### Key Constraint
+
+The documentation emphasizes: **this mechanism cannot be used if the protected data contains pointers**, as the writer can invalidate a pointer that the reader is following.
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
@@ -394,6 +428,7 @@ $ sudo cat /proc/lock_stat | grep seqlock
 - [Stephen Hemminger: "Seqlocks in Linux"](https://lwn.net/Articles/22805/)
 - [Linux Kernel Source: include/linux/seqlock.h](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/include/linux/seqlock.h)
 - [LWN: "Sequence counters and latch counters"](https://lwn.net/Articles/633627/)
+- [Sequence counters and sequential locks](https://docs.kernel.org/locking/seqlock.html) — Official kernel seqlock documentation
 
 ## Related Topics
 

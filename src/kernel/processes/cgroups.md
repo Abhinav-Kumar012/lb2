@@ -366,6 +366,79 @@ dmesg | grep -i "out of memory"
 zgrep -E 'CONFIG_CGROUP|CONFIG_MEMCG|CONFIG_BLK_CGROUP|CONFIG_CGROUP_SCHED' /proc/config.gz
 ```
 
+## Cgroup v2 Internals (from docs.kernel.org)
+
+The kernel documentation at `docs.kernel.org/admin-guide/cgroup-v2.html` is the authoritative reference for cgroup v2. Key details from the official documentation:
+
+### Mounting
+
+cgroup v2 has a single unified hierarchy, mounted with:
+```bash
+mount -t cgroup2 none $MOUNT_POINT
+```
+
+The cgroup2 filesystem has magic number `0x63677270` ("cgrp"). All controllers that support v2 and are not bound to a v1 hierarchy are automatically bound to the v2 hierarchy at the root.
+
+### Mount Options
+
+| Option | Description |
+|--------|-------------|
+| `nsdelegate` | Treat cgroup namespaces as delegation boundaries |
+| `favordynmods` | Reduce latency of dynamic cgroup modifications (task migrations, controller on/off) at the cost of making fork/exit more expensive |
+| `memory_localevents` | Only populate memory.events for the current cgroup, not subtrees |
+| `memory_recursiveprot` | Recursively apply memory.min and memory.low protection to entire subtrees |
+| `memory_hugetlb_accounting` | Count HugeTLB memory towards the cgroup's overall memory usage |
+| `pids_localevents` | Restore v1-like behavior of pids.events:max (local-only counting) |
+
+### Organizing Processes and Threads
+
+- Processes are migrated by writing their PID to the target cgroup's `cgroup.procs` file
+- Only one process can be migrated per `write(2)` call
+- When a process forks, the child inherits the parent's cgroup
+- `/proc/$PID/cgroup` shows a process's cgroup membership (format: `0::$PATH`)
+
+### Thread Mode
+
+cgroup v2 supports thread granularity for a subset of controllers. Key concepts:
+
+- **Threaded controllers**: cpu, cpuset, perf_event, pids
+- **Domain controllers**: All others (memory, io, etc.)
+- A cgroup can be made threaded by writing `"threaded"` to `cgroup.type`
+- Threaded cgroups join their parent's resource domain
+- Threads of a process can be spread across a threaded subtree
+
+### Unpopulated Notification
+
+each non-root cgroup has `cgroup.events` with a `populated` field (0 = no live processes, 1 = has processes). Poll and inotify events are triggered when the value changes, useful for cleanup after all processes exit.
+
+### Controlling Controllers
+
+Controllers are enabled/disabled via `cgroup.subtree_control`:
+```bash
+cat cgroup.controllers           # List available controllers
+echo "+cpu +memory -io" > cgroup.subtree_control  # Enable/disable
+```
+
+Enabling a controller in a cgroup means distribution of that resource across its immediate children will be controlled. Controllers enabled on nested cgroups always restrict further — root restrictions cannot be overridden.
+
+### Key Interface Files
+
+| File | Description |
+|------|-------------|
+| `cgroup.controllers` | List of available controllers |
+| `cgroup.subtree_control` | Controllers enabled for children |
+| `cgroup.procs` | PIDs of processes in this cgroup |
+| `cgroup.threads` | TIDs of threads in this cgroup |
+| `cgroup.type` | Cgroup type (domain, threaded, domain invalid) |
+| `cgroup.events` | Populated and frozen status |
+| `cgroup.freeze` | Freeze/thaw all processes in the cgroup |
+| `cgroup.max.depth` | Limit on nesting depth |
+| `cgroup.max.descendants` | Limit on number of descendant cgroups |
+
+### Delegation
+
+cgroup v2 supports safe delegation of subtrees to unprivileged users. When `nsdelegate` is used, cgroup namespaces act as delegation boundaries. A delegated subtree can be managed by the namespace owner without affecting the rest of the hierarchy.
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
@@ -381,6 +454,7 @@ zgrep -E 'CONFIG_CGROUP|CONFIG_MEMCG|CONFIG_BLK_CGROUP|CONFIG_CGROUP_SCHED' /pro
 - [systemd resource control](https://www.freedesktop.org/software/systemd/man/latest/systemd.resource-control.html) — systemd cgroup integration
 - [Red Hat cgroup v2 guide](https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/9/html/managing_monitoring_and_updating_the_kernel/using-cgroups-v2-to-control-distribution-of-cpu-time-for-applications_managing-monitoring-and-updating-the-kernel)
 - [Docker resource constraints](https://docs.docker.com/config/containers/resource_constraints/)
+- [Control Group v2](https://docs.kernel.org/admin-guide/cgroup-v2.html) — Official kernel cgroup v2 documentation
 
 ## Related Topics
 

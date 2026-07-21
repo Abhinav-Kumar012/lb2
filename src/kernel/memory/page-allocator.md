@@ -778,7 +778,8 @@ The kernel documentation recommends:
 - [Kernel source: mm/page_alloc.c](https://elixir.bootlin.com/linux/latest/source/mm/page_alloc.c)
 - [Kernel documentation: Physical Memory](https://www.kernel.org/doc/html/latest/mm/)
 - [Kernel documentation: Memory Allocation Guide](https://docs.kernel.org/core-api/memory-allocation.html)
-- [Kernel documentation: page_alloc](https://docs.kernel.org/mm/page_alloc.html)
+- [Kernel documentation: page_alloc](https://docs.kernel.org/mm/page_allocation.html)
+- [Kernel documentation: Page Allocation](https://docs.kernel.org/mm/page_allocation.html) — Official page allocator documentation
 - [LWN: Memory compaction](https://lwn.net/Articles/368869/)
 - [Mel Gorman: Understanding the Linux Virtual Memory Manager](https://www.kernel.org/doc/gorman/)
 
