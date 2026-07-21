@@ -1221,7 +1221,7 @@ $ cat /proc/sys/vm/zone_reclaim_mode
 - [LWN: Zram](https://lwn.net/Articles/545216/)
 - [LWN: THP swap](https://lwn.net/Articles/703927/)
 - [Documentation for /proc/sys/vm/ (kernel docs)](https://docs.kernel.org/admin-guide/sysctl/vm.html)
-- [Kernel documentation: zswap](https://docs.kernel.org/mm/zswap.html)
+- [Kernel documentation: zswap](https://docs.kernel.org/mm/zswap.html) — zswap internals, tunables, statistics
 - [Kernel documentation: Swap](https://docs.kernel.org/mm/swap.html)
 - [Kernel documentation: Memory Management](https://docs.kernel.org/mm/)
 

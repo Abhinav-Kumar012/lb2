@@ -729,7 +729,7 @@ cpuidle and cpufreq work together: cpufreq adjusts frequency/voltage while runni
 - <https://easyperf.net/> - Performance optimization resources
 - <https://man7.org/linux/man-pages/man1/perf.1.html> - perf man page
 - [Power Management — docs.kernel.org](https://docs.kernel.org/admin-guide/pm/index.html) — Official kernel power management documentation
-- [CPU Idle Time Management](https://docs.kernel.org/admin-guide/pm/cpuidle.html) — C-state management
+- [CPU Idle Time Management](https://docs.kernel.org/admin-guide/pm/cpuidle.html) — C-state management, governors (menu/TEO), drivers, sysfs interface
 - [CPU Performance Scaling (cpufreq)](https://docs.kernel.org/admin-guide/pm/cpufreq.html) — Frequency governors and drivers
 - [intel_pstate Driver](https://docs.kernel.org/admin-guide/pm/intel_pstate.html) — Intel P-state driver details
 - [amd-pstate Driver](https://docs.kernel.org/admin-guide/pm/amd-pstate.html) — AMD P-state driver details

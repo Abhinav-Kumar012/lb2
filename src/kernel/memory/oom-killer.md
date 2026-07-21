@@ -787,6 +787,7 @@ cat /proc/vmstat | grep -i poison
 - [earlyoom: Early OOM Daemon](https://github.com/rfjakob/earlyoom)
 - [Overcommit Accounting — docs.kernel.org](https://docs.kernel.org/mm/overcommit-accounting.html)
 - [Kernel documentation: Memory Failure](https://docs.kernel.org/mm/memory-failure.html)
+- [Kernel documentation: hwpoison](https://docs.kernel.org/mm/hwpoison.html) — Hardware poison handling, MCA recovery, testing interfaces
 
 ## Related Topics
 

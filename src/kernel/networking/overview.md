@@ -1320,6 +1320,7 @@ depends NET_SWITCHDEV
 12. [Identifier Locator Addressing (ILA) — docs.kernel.org](https://docs.kernel.org/networking/ila.html)
 13. [VXLAN documentation — docs.kernel.org](https://docs.kernel.org/networking/vxlan.html)
 14. [MPLS Sysfs variables — docs.kernel.org](https://docs.kernel.org/networking/mpls-sysctl.html)
+15. [Switchdev documentation — docs.kernel.org](https://docs.kernel.org/networking/switchdev.html) — Ethernet switch device driver model, L2 forwarding offload, FDB management
 
 ## ILA — Identifier Locator Addressing
 

@@ -657,6 +657,7 @@ if (ret == EOWNERDEAD) {
 - [Kernel documentation: RT-mutex implementation design](https://docs.kernel.org/locking/rt-mutex-design.html) — PI chain walk algorithm, waiter trees, cmpxchg tricks
 - [Kernel documentation: Generic Mutex Subsystem](https://docs.kernel.org/locking/mutex-design.html)
 - [Kernel documentation: Optimistic spinning and MCS lock](https://docs.kernel.org/locking/mutex-design.html#implementation)
+- [Kernel documentation: Robust futexes](https://docs.kernel.org/locking/robust-futexes.html) — Per-thread robust list, FUTEX_OWNER_DIED, exit-time cleanup
 - [Davidlohr Bueso: "Mutex: the sleeping lock"](https://lwn.net/Articles/575460/)
 - [Thomas Gleixner: rt_mutex implementation](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/kernel/locking/rtmutex.c)
 - [Wikipedia: Priority Inversion](https://en.wikipedia.org/wiki/Priority_inversion)

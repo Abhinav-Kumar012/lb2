@@ -913,6 +913,7 @@ Modern kernels support hardware-wrapped keys where the master key never enters k
 - [LWN: ext4 and delayed allocation](https://lwn.net/Articles/273912/)
 - [fscrypt Documentation](https://docs.kernel.org/filesystems/fscrypt.html) — Filesystem-level encryption (kernel API and design)
 - [fscrypt Userspace Tool](https://github.com/google/fscrypt) — Recommended CLI for managing fscrypt
+- [DAX (Direct Access) documentation — docs.kernel.org](https://docs.kernel.org/filesystems/dax.html) — DAX mode for ext4/XFS on persistent memory
 
 ## DAX (Direct Access) Mode
 

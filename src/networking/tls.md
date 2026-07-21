@@ -736,6 +736,7 @@ OpenSSL supports kTLS via the `SSL_sendfile()` API and automatic detection when 
 5. **Mozilla SSL Configuration Generator** — [ssl-config.mozilla.org](https://ssl-config.mozilla.org/)
 6. **SSL Labs** — [www.ssllabs.com/ssltest/](https://www.ssllabs.com/ssltest/)
 7. **OpenSSL Documentation** — [www.openssl.org/docs/](https://www.openssl.org/docs/)
+8. [Kernel TLS documentation — docs.kernel.org](https://docs.kernel.org/networking/tls.html) — kTLS ULP, NIC offload, TLS 1.3 key updates, statistics
 
 ## Related Topics
 

@@ -1547,6 +1547,7 @@ All KVM features and most bugfixes should be accompanied by tests. The kernel pr
 - [KVM MMU Documentation](https://docs.kernel.org/virt/kvm/mmu.html) — Shadow and EPT page table internals
 - [KVM Hypercalls — docs.kernel.org](https://docs.kernel.org/virt/kvm/hypercalls.html)
 - [Nested VMX documentation — docs.kernel.org](https://docs.kernel.org/virt/kvm/nested-vmx.html)
+- [KVM Review Checklist — docs.kernel.org](https://docs.kernel.org/virt/kvm/review-checklist.html) — Patch quality standards, testing requirements (selftests, kvm-unit-tests)
 
 ## Related Topics
 
