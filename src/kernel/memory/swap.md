@@ -1,1 +1,621 @@
-# Swap and Swappiness
+# Swap Subsystem
+
+## Introduction
+
+The swap subsystem extends available memory by moving inactive pages from RAM to a designated area on disk (swap space). When physical memory is scarce and the kernel needs to reclaim pages, it can write anonymous pages (heap, stack, data segments) to swap and free the physical frames. Later, if a swapped-out page is accessed, a major page fault occurs and the page is read back from swap.
+
+Swap is essential for:
+- **Overcommit**: Allowing processes to use more virtual memory than physical RAM
+- **Hibernation**: Storing the entire system state to disk
+- **Memory pressure relief**: Keeping the system running instead of killing processes
+- **NUMA balancing**: Moving pages between nodes
+
+## Swap Areas
+
+### Types of Swap
+
+Linux supports two types of swap areas:
+
+1. **Swap partition**: A dedicated disk partition (e.g., `/dev/sda2`)
+2. **Swap file**: A regular file on a filesystem
+
+```bash
+# Create a swap partition
+$ sudo mkswap /dev/sdb1
+$ sudo swapon /dev/sdb1
+
+# Create a swap file
+$ sudo fallocate -l 4G /swapfile
+$ sudo chmod 600 /swapfile
+$ sudo mkswap /swapfile
+$ sudo swapon /swapfile
+
+# View active swap areas
+$ swapon --show
+NAME      TYPE      SIZE  USED  PRIO
+/dev/sdb1 partition   8G  256M     0
+/swapfile  file        4G    0B    -2
+```
+
+### Swap Header and Layout
+
+Each swap area has a header containing metadata:
+
+```c
+/* include/linux/swap.h */
+struct swap_header {
+    union {
+        struct {
+            char reserved[PAGE_SIZE - 10];
+            char magic[10];           /* "SWAP-SPACE2" or "SWAPSPACE2" */
+        } magic;
+        struct {
+            __u32 version;
+            __u32 last_page;
+            __u32 nr_badpages;
+            unsigned char sws_uuid[16];
+            unsigned char sws_volume[16];
+            __u32 padding[117];
+            __u32 badpages[1];
+        } info;
+    };
+};
+```
+
+### Swap Info Structure
+
+```c
+/* include/linux/swap.h (simplified) */
+struct swap_info_struct {
+    unsigned long flags;
+    short prio;                    /* Priority (higher = used first) */
+    struct file *swap_file;        /* Underlying file/device */
+    struct block_device *bdev;     /* Block device */
+    struct swap_cluster_info *cluster_info; /* Cluster-based allocation */
+    struct swap_cluster_list free_clusters; /* Free clusters */
+    unsigned int max;              /* Maximum page slot */
+    unsigned int inuse_pages;      /* Currently used pages */
+    int pages;                     /* Total usable pages */
+    unsigned char *swap_map;       /* Per-page reference counts */
+    struct swap_cluster_info *cluster_info;
+    /* ... */
+};
+```
+
+## Swap Cache
+
+### Purpose
+
+The swap cache sits between the page cache and swap space. When a page is being swapped out, it temporarily exists in both the page cache and swap space. The swap cache:
+
+1. **Prevents redundant I/O**: If the page is accessed during writeback, it can be found in the swap cache without reading from disk.
+2. **Handles races**: Between the decision to swap out and the actual disk write.
+3. **Simplifies swap-in**: When swapping in, the kernel first checks the swap cache.
+
+```c
+/* mm/swap_state.c */
+struct address_space swapper_spaces[MAX_SWAPFILES] = {
+    [0 ... MAX_SWAPFILES-1] = {
+        .i_pages = XARRAY_INIT(swapper_spaces[0].i_pages,
+                                XA_FLAGS_LOCK_IRQ),
+        .a_ops = &swap_aops,
+    }
+};
+```
+
+### Swap Cache Operations
+
+```c
+/* mm/swap_state.c (simplified) */
+
+/* Add a page to the swap cache */
+int add_to_swap_cache(struct folio *folio, swp_entry_t entry,
+                      gfp_t gfp)
+{
+    struct address_space *address_space = swap_address_space(entry);
+    pgoff_t idx = swp_offset(entry);
+
+    return filemap_add_folio(address_space, folio, idx, gfp);
+}
+
+/* Look up a page in the swap cache */
+struct folio *filemap_get_folio(struct address_space *mapping,
+                                pgoff_t index)
+{
+    return xa_load(&mapping->i_pages, index);
+}
+```
+
+## Swap Entry Format
+
+A swap entry encodes the swap device and offset:
+
+```c
+/* include/linux/swapops.h */
+typedef struct {
+    unsigned long val;
+} swp_entry_t;
+
+/* Encode: device + offset */
+swp_entry_t swp_entry(unsigned type, pgoff_t offset)
+{
+    swp_entry_t ret;
+    ret.val = (type << SWP_TYPE_SHIFT(offset)) |
+              (offset << SWP_OFFSET_SHIFT);
+    return ret;
+}
+
+/* Decode */
+unsigned swp_type(swp_entry_t entry)
+{
+    return (entry.val >> SWP_TYPE_SHIFT(entry.val)) & SWP_TYPE_MASK;
+}
+
+pgoff_t swp_offset(swp_entry_t entry)
+{
+    return entry.val >> SWP_OFFSET_SHIFT(entry.val);
+}
+```
+
+The PTE format for a swapped-out page:
+
+```
+PTE (page not present, swapped out):
+┌─────────────────────────────────────┬──────────┐
+│ Swap type + offset                  │ Present=0 │
+│ (encoded in bits 1-62)              │ Bit 0=0   │
+└─────────────────────────────────────┴──────────┘
+```
+
+## Swap Allocation
+
+### Cluster-Based Allocation
+
+Modern Linux uses **cluster-based** swap allocation for better I/O performance:
+
+```c
+/* mm/swapfile.c (simplified) */
+struct swap_cluster_info {
+    unsigned int data:24;
+    unsigned char flags;
+};
+
+/* Allocate a swap cluster (typically 256 pages = 1 MB) */
+static struct swap_cluster_info *alloc_cluster(struct swap_info_struct *sis,
+                                                unsigned long idx)
+{
+    struct swap_cluster_info *ci;
+
+    ci = sis->cluster_info + idx / SWAP_CLUSTER_SIZE;
+    ci->data = idx;
+    ci->flags = CLUSTER_FLAG_HUGE;  /* For THP swap */
+
+    return ci;
+}
+```
+
+### Swap Slot Allocation
+
+```c
+/* mm/swapfile.c (simplified) */
+int get_swap_pages(int n_goal, swp_entry_t *entries)
+{
+    struct swap_info_struct *si;
+    int n_ret = 0;
+
+    /* Iterate through swap devices by priority */
+    for_each_swap_info(si) {
+        /* Allocate from this device */
+        n_ret += scan_swap_map_slots(si, SWAP_CLUSTER_MAX,
+                                      entries + n_ret);
+        if (n_ret >= n_goal)
+            break;
+    }
+
+    return n_ret;
+}
+```
+
+## Page Reclaim
+
+### LRU Lists
+
+The kernel tracks all reclaimable pages on LRU (Least Recently Used) lists:
+
+```c
+/* include/linux/mmzone.h */
+enum lru_list {
+    LRU_INACTIVE_ANON,   /* Old anonymous pages (candidates for swap) */
+    LRU_ACTIVE_ANON,     /* Recently used anonymous pages */
+    LRU_INACTIVE_FILE,   /* Old file pages (page cache) */
+    LRU_ACTIVE_FILE,     /* Recently used file pages */
+    LRU_UNEVICTABLE,     /* mlock'd pages */
+    NR_LRU_LISTS
+};
+
+struct lruvec {
+    struct list_head lists[NR_LRU_LISTS];
+    /* ... */
+};
+```
+
+```mermaid
+graph TB
+    subgraph "Page Aging (Two-Handed Clock)"
+        NEW["New page<br/>(just faulted in)"]
+        ACTIVE["Active list<br/>(recently accessed)"]
+        INACTIVE["Inactive list<br/>(candidates for reclaim)"]
+        FREED["Freed<br/>(reclaimed)"]
+    end
+
+    NEW -->|"Accessed"| ACTIVE
+    ACTIVE -->|"Demoted (not accessed)"| INACTIVE
+    INACTIVE -->|"Re-accessed"| ACTIVE
+    INACTIVE -->|"Not accessed"| FREED
+    FREED -->|"Re-faulted"| NEW
+```
+
+### The Aging Process
+
+The kernel periodically scans pages to determine which are active:
+
+```c
+/* mm/vmscan.c (simplified) */
+static void shrink_active_list(unsigned long nr_to_scan,
+                                struct lruvec *lruvec)
+{
+    struct folio *folio;
+    LIST_HEAD(l_hold);
+
+    /* Move pages from active to temp list */
+    while (nr_to_scan--) {
+        folio = lru_to_folio(&lruvec->lists[LRU_ACTIVE_FILE]);
+        list_move(&folio->lru, &l_hold);
+    }
+
+    /* Check access bits */
+    list_for_each_entry_safe(folio, ..., &l_hold, lru) {
+        if (folio_test_referenced(folio) || folio_test_workingset(folio)) {
+            /* Still active: put back on active list */
+            list_move(&folio->lru, &lruvec->lists[LRU_ACTIVE_FILE]);
+            folio_clear_referenced(folio);
+        } else {
+            /* Demote to inactive list */
+            list_move(&folio->lru, &lruvec->lists[LRU_INACTIVE_FILE]);
+        }
+    }
+}
+```
+
+### Reclaim Decision
+
+For each page on the inactive list, the reclaimer decides:
+
+```c
+/* mm/vmscan.c (simplified) */
+static enum folio_references folio_check_references(struct folio *folio,
+                                                      struct scan_control *sc)
+{
+    int referenced_ptes, referenced_folio;
+    bool dirty = folio_test_dirty(folio);
+
+    referenced_ptes = folio_referenced(folio, 0, &vm_flags, NULL);
+    referenced_folio = folio_test_clear_referenced(folio);
+
+    if (referenced_ptes || referenced_folio) {
+        /* Page was accessed — promote back to active */
+        return FOLIO_REFERENCED;
+    }
+
+    if (dirty && !folio_test_writeback(folio)) {
+        /* Dirty page: write back to disk */
+        return FOLIO_DIRTY;
+    }
+
+    /* Clean file page or swapbacked: can reclaim */
+    return FOLIO_RECLAIM_CLEAN;
+}
+```
+
+## kswapd: Background Reclaim
+
+### The kswapd Daemon
+
+`kswapd` is a kernel thread per NUMA node that performs background page reclaim when memory drops below the low watermark:
+
+```c
+/* mm/vmscan.c */
+static int kswapd(void *p)
+{
+    pg_data_t *pgdat = p;
+    struct task_struct *tsk = current;
+
+    for (;;) {
+        /* Sleep until woken by memory pressure */
+        wait_event_interruptible(pgdat->kswapd_wait,
+                     kswapd_wait_event(pgdat));
+
+        /* Reclaim pages until watermarks are satisfied */
+        balance_pgdat(pgdat, 0, &highest_zoneidx);
+    }
+}
+```
+
+### Watermark-Based Activation
+
+```mermaid
+graph TB
+    subgraph "Memory Levels"
+        TOTAL["Total Memory"]
+        HIGH["WMARK_HIGH<br/>kswapd sleeps"]
+        LOW["WMARK_LOW<br/>kswapd wakes"]
+        MIN["WMARK_MIN<br/>direct reclaim"]
+        ZERO["0 bytes free<br/>OOM killer"]
+    end
+
+    TOTAL --> HIGH
+    HIGH -->|"Memory decreases"| LOW
+    LOW -->|"kswapd active"| MIN
+    MIN -->|"Synchronous reclaim"| ZERO
+```
+
+```bash
+# View zone watermarks
+$ cat /proc/zoneinfo | grep -E "min|low|high"
+        min      1024
+        low      1280
+        high     1536
+```
+
+## Direct Reclaim
+
+When allocations cannot proceed (below min watermark), the calling process enters **direct reclaim** — synchronously reclaiming pages:
+
+```c
+/* mm/vmscan.c (simplified) */
+static unsigned long try_to_free_pages(struct zonelist *zonelist,
+                                        int order, gfp_t gfp_mask)
+{
+    struct scan_control sc = {
+        .gfp_mask = gfp_mask,
+        .order = order,
+        .priority = DEF_PRIORITY,
+        .may_writepage = !laptop_mode,
+        .may_unmap = 1,
+        .may_swap = 1,
+    };
+
+    /* Try to reclaim at decreasing priority */
+    do {
+        shrink_zones(&sc);
+        if (sc.nr_reclaimed >= SWAP_CLUSTER_MAX)
+            break;
+        sc.priority--;
+    } while (sc.priority >= 1);
+
+    return sc.nr_reclaimed;
+}
+```
+
+## Swappiness
+
+### What It Controls
+
+The `swappiness` parameter controls the balance between reclaiming file pages (page cache) and anonymous pages (swap):
+
+```bash
+$ cat /proc/sys/vm/swappiness
+60
+
+# Range: 0-200
+# 0: Only swap if absolutely necessary (prefer file cache)
+# 60: Default (balanced)
+# 100: Equal preference
+# 200: Strongly prefer swapping (aggressive swap usage)
+```
+
+### How It Works
+
+```c
+/* mm/vmscan.c (simplified) */
+static void get_scan_count(struct lruvec *lruvec,
+                            struct scan_control *sc,
+                            unsigned long *nr)
+{
+    /* Calculate scanning ratio for anon vs file pages */
+    unsigned long ap, fp;
+    int swappiness = mem_cgroup_swappiness(memcg);
+
+    ap = swappiness * (lruvec_size(LRU_INACTIVE_ANON) +
+                       lruvec_size(LRU_ACTIVE_ANON));
+    fp = (200 - swappiness) * (lruvec_size(LRU_INACTIVE_FILE) +
+                                lruvec_size(LRU_ACTIVE_FILE));
+
+    /* Scan anon and file lists proportionally */
+    /* Higher swappiness → more anon scanning → more swapping */
+}
+```
+
+### Tuning Guidelines
+
+| Workload | Recommended swappiness | Reasoning |
+|----------|----------------------|-----------|
+| Database server | 10-30 | Keep data in page cache, minimize swap |
+| Desktop | 60 (default) | Balanced responsiveness |
+| Embedded (no swap) | 0 | Avoid swap entirely |
+| Container host | 10-60 | Depends on workload |
+| Hibernation setup | 60+ | Need swap for hibernate image |
+
+## Swap Statistics
+
+### System-Wide
+
+```bash
+$ cat /proc/meminfo | grep Swap
+SwapTotal:       8388608 kB    # Total swap space
+SwapFree:        8126464 kB    # Free swap space
+SwapCached:       131072 kB    # Pages in swap cache (also in RAM)
+
+$ cat /proc/vmstat | grep -E "pswp|pgpg"
+pgpgin    1843200     # Pages read from disk
+pgpgout   2457600     # Pages written to disk
+pswpin       1024     # Pages swapped in
+pswpout      2048     # Pages swapped out
+```
+
+### Per-Process
+
+```bash
+# Per-process swap usage
+$ cat /proc/<pid>/status | grep VmSwap
+VmSwap:        256 kB
+
+# Detailed per-process swap
+$ for pid in $(ls /proc/ | grep -E '^[0-9]+$'); do
+    swap=$(awk '/VmSwap/{print $2}' /proc/$pid/status 2>/dev/null)
+    if [ "$swap" -gt 0 ] 2>/dev/null; then
+        name=$(cat /proc/$pid/comm)
+        echo "$pid $name ${swap}kB"
+    fi
+done | sort -k3 -n -r | head -10
+
+# smaps shows per-VMA swap usage
+$ cat /proc/<pid>/smaps | grep Swap
+Swap:                  0 kB
+SwapPss:               0 kB
+Swap:                128 kB
+```
+
+## Swap on Modern Systems
+
+### SSD vs HDD Swap
+
+| Aspect | SSD | HDD |
+|--------|-----|-----|
+| Latency | ~100 μs | ~10 ms |
+| IOPS | 50,000+ | 100-200 |
+| Wear concerns | Yes (limited write cycles) | No |
+| Recommended swappiness | 10-30 | 60 |
+| Zram swap | Preferred | Preferred |
+
+### Zram (Compressed RAM Swap)
+
+Zram creates a compressed swap device in RAM — trading CPU time for effective memory:
+
+```bash
+# Load zram module
+$ sudo modprobe zram num_devices=1
+
+# Configure zram (2GB compressed swap)
+$ echo lz4 > /sys/block/zram0/comp_algorithm
+$ echo 2G > /sys/block/zram0/disksize
+$ sudo mkswap /dev/zram0
+$ sudo swapon -p 100 /dev/zram0  # High priority (use before disk swap)
+
+# Check zram stats
+$ cat /sys/block/zram0/mm_stat
+    orig_data_size    compr_data_size  mem_used_total  mem_limit  ...
+         1073741824         358039552       402653184  2147483648  ...
+```
+
+Zram provides 2-3x effective memory expansion with ~10% CPU overhead.
+
+## Swap Prefetch and Readahead
+
+When swapping in a page, the kernel may read adjacent swap slots proactively:
+
+```c
+/* mm/swap_state.c */
+static void swap_readahead(struct swap_info_struct *si,
+                            pgoff_t offset)
+{
+    /* Read ahead N pages from swap */
+    /* Typically 2-8 pages depending on access pattern */
+}
+```
+
+## THP (Transparent Huge Pages) Swap
+
+With THP, the kernel can swap out entire 2 MiB huge pages as a single unit:
+
+```c
+/* mm/swapfile.c */
+int swap_writepage(struct page *page, struct writeback_control *wbc)
+{
+    if (PageTransHuge(page)) {
+        /* Write entire 2 MiB as one swap slot cluster */
+        return swap_writepage_thp(page, wbc);
+    }
+    /* Write single 4 KiB page */
+    return __swap_writepage(page, wbc);
+}
+```
+
+See [Huge Pages](huge-pages.md) for details.
+
+## Emergency Swap
+
+### swapd and OOM
+
+When all swap is exhausted and memory pressure continues, the OOM killer activates. See [OOM Killer](oom-killer.md).
+
+### Overcommit and Swap
+
+```bash
+$ cat /proc/sys/vm/overcommit_memory
+0    # 0=heuristic, 1=always, 2=strict
+
+# With mode 2: committed memory ≤ swap + RAM × overcommit_ratio/100
+$ cat /proc/sys/vm/overcommit_ratio
+50
+
+$ cat /proc/meminfo | grep Commit
+Committed_AS:   25165824 kB
+CommitLimit:    24772608 kB
+```
+
+## Code Example: Swap Monitoring
+
+```c
+/* Kernel module to monitor swap activity */
+#include <linux/module.h>
+#include <linux/swap.h>
+#include <linux/swapops.h>
+
+static void print_swap_info(void)
+{
+    struct swap_info_struct *si;
+    int i;
+
+    pr_info("=== Swap Information ===\n");
+    for (i = 0; i < MAX_SWAPFILES; i++) {
+        si = swap_info[i];
+        if (!si || !(si->flags & SWP_USED))
+            continue;
+
+        pr_info("Swap %d: %d/%d pages used, prio=%d\n",
+                i, si->inuse_pages, si->pages, si->prio);
+    }
+    pr_info("Total swap cache: %lu pages\n",
+            total_swapcache_pages());
+}
+```
+
+## References
+
+- **Understanding the Linux Kernel, 3rd Edition** — Chapter 17: Page Frame Reclaiming
+- **Linux Kernel Development, 3rd Edition** — Chapter 16: Page Cache and Page Writeback
+- [Kernel source: mm/swapfile.c](https://elixir.bootlin.com/linux/latest/source/mm/swapfile.c)
+- [Kernel source: mm/vmscan.c](https://elixir.bootlin.com/linux/latest/source/mm/vmscan.c)
+- [Kernel source: mm/swap_state.c](https://elixir.bootlin.com/linux/latest/source/mm/swap_state.c)
+- [Kernel documentation: Swap](https://www.kernel.org/doc/html/latest/admin-guide/mm/concepts.html)
+- [LWN: Zram](https://lwn.net/Articles/545216/)
+- [LWN: THP swap](https://lwn.net/Articles/703927/)
+
+## Related Topics
+
+- [Page Cache](page-cache.md) — File page caching and writeback
+- [OOM Killer](oom-killer.md) — Out-of-memory handling
+- [Huge Pages](huge-pages.md) — THP swap support
+- [Page Allocator](page-allocator.md) — Physical page allocation
+- [Virtual Memory](virtual-memory.md) — Page tables and address translation
