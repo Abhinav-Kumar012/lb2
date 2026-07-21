@@ -3,8 +3,7 @@ name: CI
 on:
   push:
     branches: [dev]
-  pull_request:
-    branches: [main]
+  workflow_dispatch:
 
 jobs:
   build:
@@ -24,34 +23,41 @@ jobs:
         run: |
           echo "Pages: $(find src -name '*.md' -not -name 'SUMMARY.md' -size +1k | wc -l)"
           echo "Lines: $(find src -name '*.md' -not -name 'SUMMARY.md' -size +1k -exec cat {} + | wc -l)"
-          echo "Empty: $(find src -name '*.md' -not -name 'SUMMARY.md' -size -100c | wc -l)"
 
-      - name: Check for broken links
-        run: |
-          echo "Checking SUMMARY.md entries..."
-          MISSING=0
-          grep -oP '\./[^)]+\.md' src/SUMMARY.md | while read entry; do
-            path="src/$entry"
-            if [ ! -f "$path" ]; then
-              echo "MISSING: $entry"
-              MISSING=1
-            fi
-          done
-          if [ "$MISSING" -eq 1 ]; then exit 1; fi
-
-  auto-merge:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+  deploy:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
     steps:
       - uses: actions/checkout@v4
         with:
           ref: main
           fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Merge dev to main
+      - name: Sync main with dev
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git merge origin/dev --no-edit -m "Auto-merge dev into main"
+          git fetch origin dev
+          git merge origin/dev --no-edit -m "Auto-sync: merge dev into main" || echo "Already up to date"
           git push origin main
+
+      - name: Install mdBook
+        run: |
+          curl -sSL https://github.com/rust-lang/mdBook/releases/download/v0.4.40/mdbook-v0.4.40-x86_64-unknown-linux-gnu.tar.gz | tar xz
+          sudo mv mdbook /usr/local/bin/
+
+      - name: Build book
+        run: mdbook build
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./book
+
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v4

@@ -717,6 +717,47 @@ sched_ext is particularly useful for:
 - **Research**: Experiment with scheduling policies in production-like environments safely.
 - **Container orchestration**: Custom schedulers that understand container boundaries.
 
+### Dispatch Queues (DSQs)
+
+sched_ext uses **Dispatch Queues (DSQs)** to bridge the scheduler core and the BPF scheduler. DSQs can operate as both FIFO and priority queues:
+
+- **`SCX_DSQ_GLOBAL`**: A global FIFO queue shared by all CPUs.
+- **`SCX_DSQ_LOCAL`**: A per-CPU local DSQ. A CPU always executes tasks from its local DSQ.
+- **Custom DSQs**: Created by the BPF scheduler via `scx_bpf_create_dsq()` for arbitrary grouping.
+
+A task is "inserted" into a DSQ and "moved" from a non-local DSQ into a CPU's local DSQ. When a CPU needs the next task: local DSQ → global DSQ → `ops.dispatch()` callback.
+
+### Scheduling Cycle
+
+The sched_ext scheduling cycle for a waking task:
+
+1. **`ops.select_cpu()`** — First callback. Selects a target CPU (optimization hint, not binding). Can immediately insert into `SCX_DSQ_LOCAL` to skip `ops.enqueue()`. Side-effect: wakes the selected CPU from idle.
+2. **`ops.enqueue()`** — Called unless the task was directly inserted from `select_cpu()`. Can: insert into global/local/custom DSQ, or queue internally in BPF.
+3. **`ops.dispatch()`** — Called when the local DSQ is empty and the global DSQ has no tasks. Lets the BPF scheduler move tasks to the local DSQ.
+4. **`ops.running()`** / **`ops.stopping()`** — Notified when a task starts/stops executing on a CPU.
+
+### Diagnostic Counters
+
+Each loaded scheduler exposes diagnostic counters via `/sys/kernel/sched_ext/<name>/events`:
+
+| Counter | Description |
+|---------|-------------|
+| `SCX_EV_SELECT_CPU_FALLBACK` | `select_cpu()` returned unusable CPU; core picked fallback |
+| `SCX_EV_DISPATCH_LOCAL_DSQ_OFFLINE` | Local DSQ dispatch redirected to global (CPU offline) |
+| `SCX_EV_DISPATCH_KEEP_LAST` | Task continued running (no other task available) |
+| `SCX_EV_ENQ_SKIP_EXITING` | Exiting task bypassed `ops.enqueue()` |
+| `SCX_EV_REFILL_SLICE_DFL` | Time slice refilled with `SCX_SLICE_DFL` default |
+| `SCX_EV_BYPASS_DURATION` | Total nanoseconds in bypass mode |
+| `SCX_EV_BYPASS_ACTIVATE` | Number of times bypass mode activated |
+
+### Bypass Mode
+
+When the BPF scheduler encounters issues, the kernel enters **bypass mode** — temporarily reverting to default scheduling behavior while keeping the BPF scheduler loaded. This allows recovery without full unloading.
+
+### Task State Tracking
+
+A task enters "BPF scheduler custody" when dispatched to a user DSQ or stored in BPF-internal data structures from `ops.enqueue()`. Tasks dispatched directly to terminal DSQs (`SCX_DSQ_LOCAL`, `SCX_DSQ_GLOBAL`) never enter BPF custody.
+
 ### Further Reading
 
 - [sched_ext Kernel Documentation](https://docs.kernel.org/scheduler/sched-ext.html)

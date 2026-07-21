@@ -312,6 +312,41 @@ graph TD
 2. On the next scan, if checksums still match, pages move to the **stable tree**
 3. In the stable tree, pages are actually merged (COW shared)
 
+### KSM Scanning Algorithm
+
+The KSM scanning process uses a single cursor (`struct ksm_scan`) that iterates through all registered memory areas:
+
+```c
+struct ksm_scan {
+    struct ksm_mm_slot *mm_slot;  /* Current mm_slot being scanned */
+    unsigned long address;         /* Next address to scan */
+    struct ksm_rmap_item **rmap_list; /* Next rmap to scan */
+    unsigned long seqnr;           /* Completed full scan count */
+};
+```
+
+The scanning works as follows:
+
+1. **Reduce excessive scanning**: KSM sorts pages by content into data structures holding pointers to page locations.
+2. **Stable tree** holds merged (write-protected) pages sorted by content — searching is fully reliable.
+3. **Unstable tree** holds pages found "unchanged for a period of time" — but since they're not write-protected, the tree may be corrupted by concurrent modifications.
+4. KSM handles unstable tree corruption by:
+   - **Flushing** the unstable tree after each complete scan of all memory areas
+   - Only inserting pages whose **hash hasn't changed** since the previous scan
+   - Using a **Red-Black tree** — balancing is based on node colors, not content, so corruption doesn't cause unbalanced trees
+5. KSM **never flushes the stable tree** — once a merge is found, it's permanent (until unmerge).
+6. When scanning a new page, KSM first compares against the stable tree, then the unstable tree.
+
+If `merge_across_nodes` is unset, KSM maintains separate stable and unstable trees per NUMA node.
+
+### Scanning Tunables
+
+| Tunable | Description |
+|---------|-------------|
+| `sleep_millisecs` | Sleep between scan batches (default: 20ms) |
+| `pages_to_scan` | Pages to scan per sleep cycle (default: 100) |
+| `stable_node_chains_prune_millisecs` | How often to prune stale nodes from chains |
+
 ## Reverse Mapping and max_page_sharing
 
 KSM maintains reverse mapping information for KSM pages in the stable tree. When a KSM page is shared between fewer than `max_page_sharing` VMAs, the stable tree node points to a linked list of `struct ksm_rmap_item` and the `page->mapping` of the KSM page points to the stable tree node.

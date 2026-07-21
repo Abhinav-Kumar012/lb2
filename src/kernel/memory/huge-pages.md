@@ -658,6 +658,23 @@ The kernel documentation describes these core design principles for THP:
 
 4. **No memory reservation**: THP uses hugepages whenever possible without requiring reservation. The only reservation is `kernelcore=` to prevent unmovable pages from fragmenting all memory.
 
+### Making Code Hugepage-Aware
+
+Code walking page tables but unaware of huge PMDs can call `split_huge_pmd(vma, pmd, addr)` after `pmd_offset`. This one-liner change (grep for `pmd_offset` and add `split_huge_pmd` after it) avoids writing hundreds of lines of complex hugepage-aware code.
+
+For physical hugepages that can't be handled natively, call `split_huge_page(page)`. This is what the VM does before swapout. `split_huge_page()` can fail if the page is pinned.
+
+### Locking for Hugepage-Aware Code
+
+To process huge PMDs safely during page table walks:
+
+1. Hold `mmap_lock` in read (or write) mode — prevents `khugepaged` from creating a huge PMD under you.
+2. Call `pmd_trans_huge()` on the PMD returned by `pmd_offset`.
+3. If true, take the page table lock (`pmd_lock()`) and re-check `pmd_trans_huge()`.
+4. If still true, process the huge PMD natively. If false after taking the lock, drop it and fall back to old code.
+
+`split_huge_pmd()` never fails and has no refcount limitations — it can be called at any point.
+
 ### Refcounting on THP
 
 Refcounting on THP follows compound page conventions:
