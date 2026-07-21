@@ -42,3 +42,28 @@ blockquote {
 .tip { border-color: #5cb85c; background: #f0f9f0; }
 .warning { border-color: #f0ad4e; background: #fdf8f0; }
 .danger { border-color: #d9534f; background: #fdf0f0; }
+
+/* Mermaid diagram styles */
+.mermaid {
+    text-align: center;
+    margin: 1.5em 0;
+    overflow-x: auto;
+    padding: 1em 0;
+}
+
+.mermaid svg {
+    max-width: 100%;
+    height: auto;
+}
+
+/* Dark theme mermaid adjustments */
+.theme-navy .mermaid,
+.theme-ayu .mermaid {
+    filter: invert(0.88) hue-rotate(180deg);
+}
+
+.mermaid .node rect,
+.mermaid .node circle,
+.mermaid .node polygon {
+    stroke-width: 2px;
+}
