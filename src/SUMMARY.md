@@ -73,6 +73,7 @@
 - [Docker Internals](./containers/docker-internals.md)
 - [Kubernetes](./containers/kubernetes.md)
 - [Oci](./containers/oci.md)
+- [Overlay Mount Options](./containers/overlay-mount-options.md)
 - [Overview](./containers/overview.md)
 - [Podman](./containers/podman.md)
 - [Primitives](./containers/primitives.md)
@@ -96,6 +97,7 @@
 - [Perf](./debugging/perf.md)
 - [Ring Buffer](./debugging/ring-buffer.md)
 - [Sanitizers](./debugging/sanitizers.md)
+- [Stack Trace](./debugging/stack-trace.md)
 - [Strace Ltrace](./debugging/strace-ltrace.md)
 - [Systemtap](./debugging/systemtap.md)
 - [Valgrind](./debugging/valgrind.md)
@@ -110,6 +112,7 @@
 - [Cross Compilation](./embedded/cross-compilation.md)
 - [Device Tree](./embedded/device-tree.md)
 - [Flattened Device Tree](./embedded/flattened-device-tree.md)
+- [Kexec](./embedded/kexec.md)
 - [Overview](./embedded/overview.md)
 - [Realtime](./embedded/realtime.md)
 - [Riscv](./embedded/riscv.md)
@@ -167,6 +170,7 @@
 - [Acpi](./kernel/drivers/acpi.md)
 - [Block Drivers](./kernel/drivers/block-drivers.md)
 - [Char Devices](./kernel/drivers/char-devices.md)
+- [Clk](./kernel/drivers/clk.md)
 - [Device Tree](./kernel/drivers/device-tree.md)
 - [Dma](./kernel/drivers/dma.md)
 - [Gpio](./kernel/drivers/gpio.md)
@@ -200,6 +204,7 @@
 - [Superblock](./kernel/filesystems/superblock.md)
 - [Sysfs](./kernel/filesystems/sysfs.md)
 - [Tmpfs](./kernel/filesystems/tmpfs.md)
+- [Ubifs](./kernel/filesystems/ubifs.md)
 - [Vfs](./kernel/filesystems/vfs.md)
 - [Xfs](./kernel/filesystems/xfs.md)
 - [Zfs](./kernel/filesystems/zfs.md)
@@ -234,6 +239,7 @@
 - [Vmalloc Kmalloc](./kernel/memory/vmalloc-kmalloc.md)
 - [Vmpressure](./kernel/memory/vmpressure.md)
 - [Zones](./kernel/memory/zones.md)
+- [Zpool](./kernel/memory/zpool.md)
 - [Numa](./kernel/mm/numa.md)
 - [Page Allocation](./kernel/mm/page-allocation.md)
 - [Modules](./kernel/modules.md)
@@ -249,6 +255,7 @@
 - [Sockets](./kernel/networking/sockets.md)
 - [Tc](./kernel/networking/tc.md)
 - [Tcpip](./kernel/networking/tcpip.md)
+- [Timestamping](./kernel/networking/timestamping.md)
 - [Tls Offload](./kernel/networking/tls-offload.md)
 - [Vlans](./kernel/networking/vlans.md)
 - [Wireless](./kernel/networking/wireless.md)
@@ -278,6 +285,7 @@
 - [Lock Contention](./kernel/sync/lock-contention.md)
 - [Lock Ordering](./kernel/sync/lock-ordering.md)
 - [Lockdep](./kernel/sync/lockdep.md)
+- [Lockref](./kernel/sync/lockref.md)
 - [Mutexes](./kernel/sync/mutexes.md)
 - [Overview](./kernel/sync/overview.md)
 - [Per Cpu](./kernel/sync/per-cpu.md)
@@ -336,6 +344,7 @@
 - [Numa](./performance/numa.md)
 - [Overview](./performance/overview.md)
 - [Page Table Isolation](./performance/page-table-isolation.md)
+- [Pebs](./performance/pebs.md)
 
 ---
 
@@ -369,6 +378,7 @@
 - [Secure Boot](./security/secure-boot.md)
 - [Security Model](./security/security-model.md)
 - [Selinux](./security/selinux.md)
+- [Yama](./security/yama.md)
 
 ---
 

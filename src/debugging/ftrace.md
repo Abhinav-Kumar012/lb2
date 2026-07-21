@@ -442,6 +442,149 @@ echo 'p:myprobe do_sys_open filename=+0(%si):string flags=%dx:x32' > /sys/kernel
 echo 'p:myprobe do_sys_open stack=%bp:x64' > /sys/kernel/tracing/kprobe_events
 ```
 
+## uprobes — User-Space Dynamic Tracing
+
+From `docs.kernel.org/trace/uprobetracer.html`, uprobes are the user-space counterpart of kprobes. They allow dynamic insertion of tracepoints at any instruction in user-space executables and libraries.
+
+### How Uprobes Work
+
+When a uprobe is registered at an offset in a user-space binary:
+1. The kernel replaces the instruction at that offset with a breakpoint (e.g., `int3` on x86)
+2. When the process hits the breakpoint, control passes to the uprobe handler
+3. The original instruction is single-stepped, then execution continues
+4. Return probes (uretprobes) work by replacing the return address with a trampoline
+
+### Setting Up Uprobes
+
+The uprobe interface expects the user to **calculate the offset** of the probe point in the object file (not the runtime virtual address):
+
+```bash
+# Find the offset of a function in a binary
+objdump -T /bin/bash | grep main
+# 00000000000a1b20 g   DF .text  0000000000000123  Base  main
+
+# Set a uprobe at that offset
+echo 'p:myprobe /bin/bash:0xa1b20' > /sys/kernel/tracing/uprobe_events
+
+# Set a return probe (uretprobe)
+echo 'r:myretprobe /bin/bash:0xa1b20' > /sys/kernel/tracing/uprobe_events
+
+# Enable the probe
+echo 1 > /sys/kernel/tracing/events/uprobes/myprobe/enable
+
+# Read events
+cat /sys/kernel/tracing/trace_pipe
+```
+
+### Uprobe Synopsis
+
+```
+p[:[GRP/][EVENT]] PATH:OFFSET [FETCHARGS]  : Set a uprobe
+r[:[GRP/][EVENT]] PATH:OFFSET [FETCHARGS]  : Set a return uprobe (uretprobe)
+-:[GRP/][EVENT]                             : Clear uprobe event
+
+PATH:   Path to executable or library
+OFFSET: Byte offset of probe point in the file
+```
+
+### Fetching Arguments
+
+Uprobes can fetch data from:
+
+| Syntax | Description |
+|--------|-------------|
+| `%REG` | Fetch register value |
+| `@ADDR` | Fetch memory at address (must be in userspace) |
+| `@+OFFSET` | Fetch memory at offset from probed file |
+| `$stackN` | Fetch Nth stack entry |
+| `$retval` | Fetch return value (uretprobe only) |
+| `$comm` | Current task name |
+| `+OFFS(FETCHARG)` | Fetch at offset from another fetcharg |
+| `\IMM` | Store an immediate value |
+
+Supported types: `u8/u16/u32/u64`, `s8/s16/s32/s64`, `x8/x16/x32/x64`, `string`, and bitfields (`b<width>@<offset>/<container>`).
+
+### Uprobe Example: Tracing bash
+
+```bash
+# Find offset of zfree in /bin/zsh
+cat /proc/$(pgrep zsh)/maps | grep /bin/zsh | grep r-xp
+# 00400000-0048a000 r-xp 00000000 08:03 130904 /bin/zsh
+
+objdump -T /bin/zsh | grep zfree
+# 0000000000446420 g DF .text  0000000000000012 Base zfree
+
+# Offset = 0x46420 (function offset in file)
+echo 'p:zfree_entry /bin/zsh:0x46420 %ip %ax' > /sys/kernel/tracing/uprobe_events
+echo 'r:zfree_exit /bin/zsh:0x46420 %ip %ax' >> /sys/kernel/tracing/uprobe_events
+
+# Verify registered events
+cat /sys/kernel/tracing/uprobe_events
+# p:uprobes/zfree_entry /bin/zsh:0x00046420 arg1=%ip arg2=%ax
+# r:uprobes/zfree_exit /bin/zsh:0x00046420 arg1=%ip arg2=%ax
+```
+
+### Event Profiling
+
+```bash
+# Check probe hit counts
+cat /sys/kernel/tracing/uprobe_profile
+# /bin/zsh  zfree_entry  1234
+# /bin/zsh  zfree_exit   1234
+```
+
+### Dynamic Events Interface
+
+Uprobes can also be registered via `/sys/kernel/tracing/dynamic_events` (unified interface for kprobes, uprobes, and tracepoints):
+
+```bash
+# Add via dynamic_events
+echo 'p:uprobes/myprobe /bin/bash:0xa1b20' > /sys/kernel/tracing/dynamic_events
+
+# Clear all dynamic events
+echo > /sys/kernel/tracing/dynamic_events
+```
+
+### Uprobes vs kprobes
+
+| Feature | kprobes | uprobes |
+|---------|---------|--------|
+| Target | Kernel functions | User-space executables/libraries |
+| Offset | Kernel symbol address | File offset (from objdump) |
+| Interface | `kprobe_events` | `uprobe_events` |
+| Return probes | kretprobes | uretprobes |
+| Permissions | Root only | Root only |
+| Use case | Kernel debugging | Application tracing |
+
+### Using Uprobes with bpftrace
+
+bpftrace provides a convenient high-level interface for uprobes:
+
+```bash
+# Trace a user-space function
+bpftrace -e 'uprobe:/bin/bash:readline { printf("readline: %s\n", ustack); }'
+
+# Trace function entry and return
+bpftrace -e '
+uprobe:/lib/x86_64-linux-gnu/libc.so.6:malloc
+{
+    @start[tid] = nsecs;
+}
+uretprobe:/lib/x86_64-linux-gnu/libc.so.6:malloc
+/@start[tid]/
+{
+    $dur = nsecs - @start[tid];
+    @us = hist($dur / 1000);
+    delete(@start[tid]);
+}
+'
+
+# Count calls to a specific function
+bpftrace -e 'uprobe:/usr/bin/python3:_PyEval_EvalFrameDefault { @[comm] = count(); }'
+```
+
+---
+
 ## Trace-cmd — User-Friendly Frontend
 
 `trace-cmd` is a command-line tool that wraps ftrace, providing a much more convenient
@@ -962,6 +1105,7 @@ For full details, see [Hardware Latency Detector — docs.kernel.org](https://do
 - [Brendan Gregg's ftrace page](https://www.brendangregg.com/blog/2014-07-01/perf-ftrace.html)
 - [Hardware Latency Detector — docs.kernel.org](https://docs.kernel.org/trace/hwlat_detector.html)
 - [Event Tracing Documentation](https://docs.kernel.org/trace/events.html) — Official event tracing reference (format files, filters, triggers, boot options)
+- [Uprobe-tracer documentation — docs.kernel.org](https://docs.kernel.org/trace/uprobetracer.html) — User-space uprobe-based event tracing
 
 ## Related Topics
 
