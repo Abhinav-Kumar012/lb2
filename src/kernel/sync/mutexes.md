@@ -572,7 +572,7 @@ $ sudo cat /proc/lock_stat
 - [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
 
 - [Kernel documentation: RT-mutex subsystem with PI support](https://docs.kernel.org/locking/rt-mutex.html)
-- [Kernel documentation: RT-mutex implementation design](https://docs.kernel.org/locking/rt-mutex-design.html)
+- [Kernel documentation: RT-mutex implementation design](https://docs.kernel.org/locking/rt-mutex-design.html) — PI chain walk algorithm, waiter trees, cmpxchg tricks
 - [Kernel documentation: Generic Mutex Subsystem](https://docs.kernel.org/locking/mutex-design.html)
 - [Kernel documentation: Optimistic spinning and MCS lock](https://docs.kernel.org/locking/mutex-design.html#implementation)
 - [Davidlohr Bueso: "Mutex: the sleeping lock"](https://lwn.net/Articles/575460/)
