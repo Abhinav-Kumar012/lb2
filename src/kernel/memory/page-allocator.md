@@ -721,6 +721,49 @@ module_exit(page_alloc_demo_exit);
 MODULE_LICENSE("GPL");
 ```
 
+## GFP Flags and Reclaim Behavior (from kernel docs)
+
+From the kernel documentation at `docs.kernel.org/core-api/memory-allocation.html`:
+
+### Recommended GFP Flag Usage
+
+- **`GFP_KERNEL`** is what you need most of the time. Memory for kernel data structures, DMAable memory, inode cache — all can use GFP_KERNEL. It implies `__GFP_RECLAIM`, so direct reclaim may be triggered; the caller must be allowed to sleep.
+
+- **`GFP_NOWAIT`** for atomic context (interrupt handler). Prevents direct reclaim and I/O. Under memory pressure, allocation is likely to fail — provide a suitable fallback.
+
+- **`GFP_ATOMIC`** when accessing memory reserves is justified and the kernel will be stressed unless allocation succeeds.
+
+- **`__GFP_ACCOUNT`** for untrusted allocations from userspace (kmem accounting). Use `GFP_KERNEL_ACCOUNT` as a shortcut.
+
+- **`GFP_USER`**, **`GFP_HIGHUSER`**, **`GFP_HIGHUSER_MOVABLE`** for userspace allocations. The longer the name, the less restrictive:
+  - `GFP_HIGHUSER_MOVABLE`: not required to be directly kernel-accessible, implies movable
+  - `GFP_HIGHUSER`: not movable, not required to be directly kernel-accessible
+  - `GFP_USER`: not movable, must be directly kernel-accessible
+
+### Reclaim Behavior Spectrum
+
+| GFP Flags | Behavior |
+|-----------|----------|
+| `GFP_KERNEL & ~__GFP_RECLAIM` | Optimistic, no reclaim at all, no kswapd |
+| `GFP_KERNEL & ~__GFP_DIRECT_RECLAIM` | No direct reclaim, can wake kswapd |
+| `GFP_ATOMIC` | Non-sleeping, can access memory reserves |
+| `GFP_KERNEL` | Both background and direct reclaim allowed |
+| `GFP_KERNEL | __GFP_NORETRY` | Fail early, no OOM killer |
+| `GFP_KERNEL | __GFP_RETRY_MAYFAIL` | Try hard, no OOM killer |
+| `GFP_KERNEL | __GFP_NOFAIL` | Never fail (retry forever) — use with caution |
+
+### Selecting an Allocator
+
+The kernel documentation recommends:
+
+1. Use `kzalloc(<size>, GFP_KERNEL)` as the default
+2. For arrays, use `kmalloc_array()` or `kcalloc()` with overflow-safe helpers
+3. For large allocations, use `vmalloc()` or `kvmalloc()` (tries kmalloc first, falls back to vmalloc)
+4. For many identical objects, use `kmem_cache_create()` + `kmem_cache_alloc()`
+5. Use `struct_size()`, `array_size()`, `array3_size()` for safe size calculations
+
+`kmalloc()` alignment: at least `ARCH_KMALLOC_MINALIGN` bytes. For power-of-two sizes, alignment is at least the size itself.
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
@@ -734,6 +777,8 @@ MODULE_LICENSE("GPL");
 - **Linux Kernel Development, 3rd Edition** — Chapter 12: Memory Management
 - [Kernel source: mm/page_alloc.c](https://elixir.bootlin.com/linux/latest/source/mm/page_alloc.c)
 - [Kernel documentation: Physical Memory](https://www.kernel.org/doc/html/latest/mm/)
+- [Kernel documentation: Memory Allocation Guide](https://docs.kernel.org/core-api/memory-allocation.html)
+- [Kernel documentation: page_alloc](https://docs.kernel.org/mm/page_alloc.html)
 - [LWN: Memory compaction](https://lwn.net/Articles/368869/)
 - [Mel Gorman: Understanding the Linux Virtual Memory Manager](https://www.kernel.org/doc/gorman/)
 

@@ -706,6 +706,14 @@ sync_file_range(fd, offset, count,
                 SYNC_FILE_RANGE_WAIT_AFTER);
 ```
 
+## Folios in the Page Cache
+
+From the kernel documentation at `docs.kernel.org/mm/page_cache.html`:
+
+The page cache is the primary way that the user and the rest of the kernel interact with filesystems. It can be bypassed (e.g., with `O_DIRECT`), but normal reads, writes, and mmaps go through the page cache.
+
+The **folio** is the unit of memory management within the page cache. A folio is a physically contiguous set of one or more pages, always at least `PAGE_SIZE`, never a tail page. The folio abstraction simplifies the page cache by eliminating the need to handle compound pages and tail pages separately.
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
@@ -720,6 +728,7 @@ sync_file_range(fd, offset, count,
 - [Kernel source: mm/filemap.c](https://elixir.bootlin.com/linux/latest/source/mm/filemap.c)
 - [Kernel source: mm/page-writeback.c](https://elixir.bootlin.com/linux/latest/source/mm/page-writeback.c)
 - [Kernel source: mm/readahead.c](https://elixir.bootlin.com/linux/latest/source/mm/readahead.c)
+- [Kernel documentation: Page Cache](https://docs.kernel.org/mm/page_cache.html)
 - [LWN: The XArray data structure](https://lwn.net/Articles/745073/)
 - [LWN: Folios](https://lwn.net/Articles/849538/)
 - [Mel Gorman: Understanding the Linux Virtual Memory Manager](https://www.kernel.org/doc/gorman/)

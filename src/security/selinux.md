@@ -524,6 +524,24 @@ sudo avcstat
 
 See [AppArmor](./apparmor.md) for detailed comparison and usage.
 
+## SELinux Kernel Architecture
+
+SELinux is implemented as a Linux Security Module (LSM). The kernel's LSM framework provides hooks at security-sensitive points (file access, socket operations, process creation, etc.) that SELinux implements to enforce its policy.
+
+### LSM Hooks
+
+The LSM framework includes hooks for:
+
+- **File operations**: `security_file_open()`, `security_file_read()`, `security_file_write()`
+- **Socket operations**: `security_socket_create()`, `security_socket_connect()`, `security_socket_bind()`
+- **Process operations**: `security_task_create()`, `security_task_kill()`, `security_bprm_committing_creds()`
+- **IPC operations**: `security_shm_alloc()`, `security_sem_alloc()`, `security_msg_alloc()`
+- **Network operations**: `security_inet_conn_request()`, `security_sock_rcv_skb()`
+
+### AVC (Access Vector Cache)
+
+The AVC caches access decisions to avoid repeated policy lookups. The default cache size is 512 entries. A high miss rate indicates the cache may be too small.
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
@@ -540,6 +558,7 @@ See [AppArmor](./apparmor.md) for detailed comparison and usage.
 - SELinux Notebook (Tresys): https://github.com/SELinuxProject/selinux-notebook
 - NSA SELinux Original Paper: https://www.nsa.gov/Research/Selinux/
 - Dan Walsh SELinux Blog: https://danwalsh.livejournal.com/
+- Kernel documentation: https://docs.kernel.org/security/selinux.html
 - `man 8 selinux` — SELinux overview
 - `man 8 semanage` — SELinux policy management tool
 - `man 8 sealert` — SELinux alert diagnosis tool

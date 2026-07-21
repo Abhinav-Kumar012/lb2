@@ -572,6 +572,100 @@ graph TB
     style STABLE fill:#bfb,stroke:#333
 ```
 
+## Patch Submission Best Practices
+
+Based on the kernel documentation at `docs.kernel.org/process/submitting-patches.html`:
+
+### Describing Changes
+
+1. **Describe the problem first**: Whether it's a one-line fix or 5000-line feature, there must be an underlying problem. Convince the reviewer it's worth fixing.
+
+2. **Describe user-visible impact**: Crashes and lockups are convincing, but describe subtler impacts too. Include provoking circumstances, dmesg excerpts, crash descriptions, performance regressions.
+
+3. **Quantify optimizations**: If claiming improvements in performance, memory, stack footprint, or binary size, include numbers. Describe non-obvious costs and trade-offs.
+
+4. **Use imperative mood**: "make xyzzy do frotz" not "[This patch] makes xyzzy do frotz" or "[I] changed xyzzy to do frotz".
+
+5. **Solve one problem per patch**: If the description gets long, split the patch.
+
+### Referencing Commits
+
+When referencing a specific commit, include both the SHA-1 ID (at least 12 characters) and the one-line summary:
+
+```
+Commit e21d2170f36602ae2708 ("video: remove unnecessary
+platform_set_drvdata()") removed the unnecessary
+platform_set_drvdata(), but left the variable "dev" unused,
+delete it.
+```
+
+### Using Tags
+
+```bash
+# Fixes tag (for bug fixes)
+Fixes: 54a4f0239f2e ("KVM: MMU: make kvm_mmu_zap_page() return the number of pages")
+
+# Link to mailing list discussion
+Link: https://lore.kernel.org/30th.anniversary.repost@klaava.Helsinki.FI
+
+# Closes tag (for bug tracker references)
+Closes: https://example.com/issues/1234
+```
+
+Git config for pretty-format output:
+```bash
+[core]
+  abbrev = 12
+[pretty]
+  fixes = Fixes: %h (\"%s\")
+```
+
+### Developer's Certificate of Origin
+
+All patches must be signed off with `Signed-off-by:` indicating agreement with the DCO 1.1:
+
+```
+Developer's Certificate of Origin 1.1
+
+By making a contribution to this project, I certify that:
+
+(a) The contribution was created in whole or in part by me and I
+    have the right to submit it under the open source license
+    indicated in the file; or
+
+(b) The contribution is based upon previous work that, to the best
+    of my knowledge, is covered under an appropriate open source
+    license and I have the right under that license to submit that
+    work with modifications, whether created in whole or in part
+    by me, under the same open source license (unless I am
+    permitted to submit under a different license), as indicated
+    in the file; or
+
+(c) The contribution was provided directly to me by some other
+    person who certified (a), (b) or (c) and I have not modified it.
+
+(d) I understand and agree that this project and the contribution
+    are public and that a record of the contribution (including all
+    personal information I submit with it, including my sign-off) is
+    maintained indefinitely and may be redistributed consistent with
+    this project or the open source license(s) involved.
+```
+
+### Review Tags
+
+Standard tags used in the review process:
+
+| Tag | Meaning |
+|-----|--------|
+| `Reviewed-by:` | Full review approval |
+| `Acked-by:` | Agreement, typically from maintainer |
+| `Tested-by:` | Patch was tested successfully |
+| `Reported-by:` | Bug was reported by this person |
+| `Cc:` | CC for awareness |
+| `Suggested-by:` | Idea came from this person |
+| `Co-developed-by:` | Joint authorship |
+| `Assisted-by:` | Non-author assistance |
+
 ## References and Further Reading
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
@@ -583,7 +677,8 @@ graph TB
 
 - Kroah-Hartman, Greg. "How the Linux Kernel is Developed." https://www.kernel.org/doc/html/latest/process/howto.html
 - Torvalds, Linus. "Linux Kernel Management Style." https://www.kernel.org/doc/html/latest/process/management-style.html
-- "Submitting Patches: The Essential Guide." https://www.kernel.org/doc/html/latest/process/submitting-patches.html
+- "Submitting Patches: The Essential Guide." https://docs.kernel.org/process/submitting-patches.html
+- "A Guide to the Kernel Development Process." https://docs.kernel.org/process/development-process.html
 - Linux kernel MAINTAINERS file: https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/MAINTAINERS
 - kernel.org Git repositories: https://git.kernel.org/
 - Kernel Newbies — First Kernel Patch: https://kernelnewbies.org/FirstKernelPatch

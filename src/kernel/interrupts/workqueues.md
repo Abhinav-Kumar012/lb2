@@ -511,6 +511,46 @@ graph LR
 7. **Avoid long-running work items** — they can starve other work on the same pool.
 8. **Use `queue_work_on()`** for CPU-local work to minimize cache misses.
 
+## CMWQ Design Details
+
+From the kernel documentation at `docs.kernel.org/core-api/workqueue.html`:
+
+### Why CMWQ Was Created
+
+The original workqueue implementation created one worker thread per CPU for each MT workqueue. Some systems saturated the default 32k PID space just booting up. Despite this resource waste, concurrency was unsatisfactory — each workqueue maintained its own worker pool, providing only one execution context per CPU.
+
+CMWQ (Concurrency Managed Workqueues) was reimplemented with these goals:
+
+1. **Maintain API compatibility** with the original workqueue API
+2. **Use per-CPU unified worker pools** shared by all workqueues for flexible concurrency on demand
+3. **Automatically regulate** worker pool size and concurrency level
+
+### Worker Pool Architecture
+
+CMWQ differentiates between user-facing workqueues and backend worker-pools:
+
+- Two worker-pools per CPU (normal + high priority)
+- Additional pools for unbound workqueues (dynamic count)
+- BH workqueues use the same framework with one pseudo worker per CPU (convenience interface to softirq)
+
+### Concurrency Management
+
+Each bound worker-pool implements concurrency management by hooking into the scheduler:
+
+- The pool tracks runnable workers via wake/sleep notifications
+- As long as one or more workers are runnable, new work items are not started
+- When the last worker goes to sleep, a new worker is immediately scheduled
+- This maintains minimal concurrency without losing execution bandwidth
+- Idle workers are kept for a while (300s default) before being destroyed
+
+### Forward Progress Guarantee
+
+Forward progress relies on workers being created when more execution contexts are necessary. This is guaranteed through rescue workers — all work items on code paths that handle memory reclaim must be queued on workqueues with a `WQ_MEM_RECLAIM` flag. Otherwise, the worker-pool could deadlock waiting for execution contexts.
+
+### BH Workqueues
+
+BH workqueues are a convenience interface to softirq. They are always per-CPU and execute in the queueing CPU's softirq context in queueing order. BH work items cannot sleep, but all other features (delayed queueing, flushing, canceling) are supported.
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
@@ -520,11 +560,11 @@ graph LR
 - [Planet GNU](https://planet.gnu.org/)
 - [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
 
-- [Linux Kernel Documentation: Workqueues](https://www.kernel.org/doc/html/latest/core-api/workqueue.html)
+- [Linux Kernel Documentation: Workqueues](https://docs.kernel.org/core-api/workqueue.html)
 - [LWN: "A new workqueue implementation"](https://lwn.net/Articles/403883/)
 - [LWN: "Concurrency-managed workqueues"](https://lwn.net/Articles/385586/)
 - [Tejun Heo: Workqueue design overview](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/kernel/workqueue.c)
-- [Kernel Workqueue API reference](https://www.kernel.org/doc/html/latest/driver-api/basics.html#workqueues)
+- [Kernel Workqueue API reference](https://docs.kernel.org/driver-api/basics.html#workqueues)
 
 ## Related Topics
 
