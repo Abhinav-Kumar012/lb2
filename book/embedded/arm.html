@@ -1,0 +1,742 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>ARM Architecture - The Linux Encyclopedia</title>
+
+
+        <!-- Custom HTML head -->
+        
+        <meta name="description" content="A comprehensive, continuously growing reference for Linux, Unix internals, kernel development, system programming, administration, networking, security, and beyond.">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon.svg">
+        <link rel="shortcut icon" href="../favicon.png">
+        <link rel="stylesheet" href="../css/variables.css">
+        <link rel="stylesheet" href="../css/general.css">
+        <link rel="stylesheet" href="../css/chrome.css">
+        <link rel="stylesheet" href="../css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="../highlight.css">
+        <link rel="stylesheet" href="../tomorrow-night.css">
+        <link rel="stylesheet" href="../ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+        <link rel="stylesheet" href="../custom.css">
+
+    </head>
+    <body class="sidebar-visible no-js">
+    <div id="body-container">
+        <!-- Provide site root to javascript -->
+        <script>
+            var path_to_root = "../";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('light')
+            html.classList.add(theme);
+            var body = document.querySelector('body');
+            body.classList.remove('no-js')
+            body.classList.add('js');
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            var body = document.querySelector('body');
+            var sidebar = null;
+            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+            }
+            sidebar_toggle.checked = sidebar === 'visible';
+            body.classList.remove('sidebar-visible');
+            body.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded affix "><li class="part-title">Linux Encyclopedia</li><li class="chapter-item expanded affix "><li class="spacer"></li><li class="chapter-item expanded affix "><li class="part-title">Virtualization</li><li class="chapter-item expanded "><a href="../virtualization/overview.html"><strong aria-hidden="true">1.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../virtualization/kvm.html"><strong aria-hidden="true">2.</strong> KVM Internals</a></li><li class="chapter-item expanded "><a href="../virtualization/qemu.html"><strong aria-hidden="true">3.</strong> QEMU</a></li><li class="chapter-item expanded "><a href="../virtualization/xen.html"><strong aria-hidden="true">4.</strong> Xen Hypervisor</a></li><li class="chapter-item expanded affix "><li class="spacer"></li><li class="chapter-item expanded affix "><li class="part-title">Containers</li><li class="chapter-item expanded "><a href="../containers/overview.html"><strong aria-hidden="true">5.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../containers/primitives.html"><strong aria-hidden="true">6.</strong> Container Primitives</a></li><li class="chapter-item expanded "><a href="../containers/docker-internals.html"><strong aria-hidden="true">7.</strong> Docker Internals</a></li><li class="chapter-item expanded "><a href="../containers/kubernetes.html"><strong aria-hidden="true">8.</strong> Kubernetes and Linux</a></li><li class="chapter-item expanded "><a href="../containers/cgroups-v2.html"><strong aria-hidden="true">9.</strong> cgroups v2</a></li><li class="chapter-item expanded affix "><li class="spacer"></li><li class="chapter-item expanded affix "><li class="part-title">Embedded Linux</li><li class="chapter-item expanded "><a href="../embedded/overview.html"><strong aria-hidden="true">10.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../embedded/cross-compilation.html"><strong aria-hidden="true">11.</strong> Cross-Compilation</a></li><li class="chapter-item expanded "><a href="../embedded/uboot.html"><strong aria-hidden="true">12.</strong> U-Boot</a></li><li class="chapter-item expanded "><a href="../embedded/device-tree.html"><strong aria-hidden="true">13.</strong> Device Tree</a></li><li class="chapter-item expanded "><a href="../embedded/arm.html" class="active"><strong aria-hidden="true">14.</strong> ARM Architecture</a></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <!-- Track and set sidebar scroll position -->
+        <script>
+            var sidebarScrollbox = document.querySelector('#sidebar .sidebar-scrollbox');
+            sidebarScrollbox.addEventListener('click', function(e) {
+                if (e.target.tagName === 'A') {
+                    sessionStorage.setItem('sidebar-scroll', sidebarScrollbox.scrollTop);
+                }
+            }, { passive: true });
+            var sidebarScrollTop = sessionStorage.getItem('sidebar-scroll');
+            sessionStorage.removeItem('sidebar-scroll');
+            if (sidebarScrollTop) {
+                // preserve sidebar scroll position when navigating via links within sidebar
+                sidebarScrollbox.scrollTop = sidebarScrollTop;
+            } else {
+                // scroll sidebar to current active section when navigating via "next/previous chapter" buttons
+                var activeSection = document.querySelector('#sidebar .active');
+                if (activeSection) {
+                    activeSection.scrollIntoView({ block: 'center' });
+                }
+            }
+        </script>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">The Linux Encyclopedia</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/Abhinav-Kumar012/lb2" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+                        <a href="https://github.com/Abhinav-Kumar012/lb2/edit/dev/src/embedded/arm.md" title="Suggest an edit" aria-label="Suggest an edit">
+                            <i id="git-edit-button" class="fa fa-edit"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="arm-architecture"><a class="header" href="#arm-architecture">ARM Architecture</a></h1>
+<h2 id="introduction"><a class="header" href="#introduction">Introduction</a></h2>
+<p>ARM (Advanced RISC Machine) is the most widely used processor architecture in the world. ARM processors power virtually all smartphones, tablets, and a growing share of servers, laptops, embedded systems, and IoT devices. Unlike x86, ARM uses a Reduced Instruction Set Computer (RISC) design philosophy — simpler instructions, fixed-length encoding, and a load/store architecture.</p>
+<p>This chapter covers the ARM architecture relevant to Linux: AArch64 (64-bit), exception levels, memory model, NEON SIMD, TrustZone security, and the big.LITTLE heterogeneous multiprocessing design.</p>
+<h2 id="arm-architecture-versions"><a class="header" href="#arm-architecture-versions">ARM Architecture Versions</a></h2>
+<pre><code class="language-mermaid">timeline
+    title ARM Architecture Evolution
+    1985 : ARM1 - First ARM processor
+    1990 : ARMv3 - 32-bit addressing
+    1993 : ARMv4 - Thumb instruction set
+    2001 : ARMv6 - SIMD, TrustZone
+    2005 : ARMv7 - NEON, Thumb-2, Cortex-A series
+    2011 : ARMv8-A - AArch64 (64-bit)
+    2015 : ARMv8.1-A - LSE atomics
+    2017 : ARMv8.2-A - SVE, half-precision
+    2019 : ARMv8.5-A - Memory Tagging Extension
+    2021 : ARMv9-A - SVE2, RME, Confidential Compute
+</code></pre>
+<h3 id="armv8-a-overview"><a class="header" href="#armv8-a-overview">ARMv8-A Overview</a></h3>
+<p>ARMv8-A introduced the 64-bit AArch64 execution state while maintaining backward compatibility with 32-bit AArch32:</p>
+<div class="table-wrapper"><table><thead><tr><th>Feature</th><th>AArch32 (ARMv7)</th><th>AArch64 (ARMv8-A)</th></tr></thead><tbody>
+<tr><td>Registers</td><td>16 × 32-bit (R0-R15)</td><td>31 × 64-bit (X0-X30)</td></tr>
+<tr><td>Program counter</td><td>R15</td><td>PC (not directly accessible)</td></tr>
+<tr><td>Stack pointer</td><td>SP (R13)</td><td>SP (dedicated)</td></tr>
+<tr><td>Link register</td><td>LR (R14)</td><td>LR (X30)</td></tr>
+<tr><td>SIMD</td><td>NEON (128-bit)</td><td>NEON (128-bit), SVE (scalable)</td></tr>
+<tr><td>Address space</td><td>32-bit (4 GB)</td><td>48/52-bit (256 TB / 4 PB)</td></tr>
+<tr><td>Privilege levels</td><td>User, FIQ, IRQ, SVC, Abort, Undef, System</td><td>EL0-EL3</td></tr>
+<tr><td>Page sizes</td><td>4 KB, 64 KB, 1 MB (sections)</td><td>4 KB, 16 KB, 64 KB</td></tr>
+<tr><td>Exception handling</td><td>Complex (banked registers)</td><td>Simplified</td></tr>
+</tbody></table>
+</div>
+<h2 id="exception-levels"><a class="header" href="#exception-levels">Exception Levels</a></h2>
+<p>ARMv8-A defines four exception levels (EL0-EL3), each with increasing privilege:</p>
+<pre><code class="language-mermaid">graph TB
+    subgraph Exception Levels
+        EL3["EL3 (Secure Monitor)&lt;br/&gt;TrustZone, firmware&lt;br/&gt;Highest privilege"]
+        EL2["EL2 (Hypervisor)&lt;br/&gt;KVM, Xen&lt;br/&gt;Virtualization"]
+        EL1["EL1 (OS Kernel)&lt;br/&gt;Linux kernel&lt;br/&gt;Kernel mode"]
+        EL0["EL0 (Application)&lt;br/&gt;User processes&lt;br/&gt;Lowest privilege"]
+    end
+    EL0 --&gt; EL1
+    EL1 --&gt; EL2
+    EL2 --&gt; EL3
+</code></pre>
+<h3 id="exception-level-mapping"><a class="header" href="#exception-level-mapping">Exception Level Mapping</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Exception Level</th><th>Typical Use</th><th>Linux Use</th><th>Examples</th></tr></thead><tbody>
+<tr><td><strong>EL3</strong></td><td>Secure Monitor</td><td>ARM Trusted Firmware (ATF/TF-A)</td><td>PSCI, Secure boot</td></tr>
+<tr><td><strong>EL2</strong></td><td>Hypervisor</td><td>KVM hypervisor module</td><td>Virtualization</td></tr>
+<tr><td><strong>EL1</strong></td><td>OS Kernel</td><td>Linux kernel</td><td>Kernel mode</td></tr>
+<tr><td><strong>EL0</strong></td><td>Application</td><td>User-space processes</td><td>Applications, libraries</td></tr>
+</tbody></table>
+</div>
+<pre><code class="language-bash"># Check current exception level (from kernel)
+# Reading CurrentEL register
+cat /proc/cpuinfo | head -20
+# processor       : 0
+# BogoMIPS        : 48.00
+# Features        : fp asimd evtstrm aes pmull sha1 sha2 crc32 cpuid
+
+# Kernel runs at EL1
+# KVM runs at EL2
+# ATF runs at EL3
+
+# Exception level transitions:
+# EL0 → EL1: System call (SVC instruction)
+# EL1 → EL2: Trap (if configured)
+# EL2 → EL3: Secure Monitor Call (SMC instruction)
+</code></pre>
+<h3 id="exception-handling-in-aarch64"><a class="header" href="#exception-handling-in-aarch64">Exception Handling in AArch64</a></h3>
+<pre><code class="language-asm">/* AArch64 exception vectors */
+/* Vector table is 128-byte aligned, 16 entries × 128 bytes */
+
+/* Vector table layout:
+ * 0x000: Synchronous, from current EL with SP0
+ * 0x080: IRQ, from current EL with SP0
+ * 0x100: FIQ, from current EL with SP0
+ * 0x180: SError, from current EL with SP0
+ * 0x200: Synchronous, from current EL with SPx
+ * 0x280: IRQ, from current EL with SPx
+ * 0x300: FIQ, from current EL with SPx
+ * 0x380: SError, from current EL with SPx
+ * 0x400: Synchronous, from lower EL (AArch64)
+ * 0x480: IRQ, from lower EL (AArch64)
+ * 0x500: FIQ, from lower EL (AArch64)
+ * 0x580: SError, from lower EL (AArch64)
+ * 0x600: Synchronous, from lower EL (AArch32)
+ * 0x680: IRQ, from lower EL (AArch32)
+ * 0x700: FIQ, from lower EL (AAArch32)
+ * 0x780: SError, from lower EL (AAArch32)
+ */
+
+.align 12
+vector_table:
+    /* Synchronous from EL0 (system call) */
+    b el0_sync_handler
+    .align 7
+    /* IRQ from EL0 */
+    b el0_irq_handler
+    .align 7
+    /* Synchronous from EL1 (kernel trap) */
+    b el1_sync_handler
+    .align 7
+    /* IRQ from EL1 */
+    b el1_irq_handler
+</code></pre>
+<h2 id="registers"><a class="header" href="#registers">Registers</a></h2>
+<h3 id="general-purpose-registers"><a class="header" href="#general-purpose-registers">General-Purpose Registers</a></h3>
+<pre><code class="language-bash"># AArch64 has 31 general-purpose 64-bit registers
+# X0-X30: 64-bit views
+# W0-W30: 32-bit views (lower 32 bits of X0-X30)
+
+# Register conventions (AAPCS64):
+# X0-X7:   Arguments and return values
+# X8:      Indirect result location
+# X9-X15:  Temporary registers (caller-saved)
+# X16-X17: IP0/IP1 (intra-procedure call, PLT)
+# X18:     Platform register (reserved by OS/ABI)
+# X19-X28: Callee-saved registers
+# X29:     Frame pointer (FP)
+# X30:     Link register (LR)
+# SP:      Stack pointer
+# PC:      Program counter (not directly accessible)
+# PSTATE:  Processor state (NZCV, DAIF, etc.)
+</code></pre>
+<h3 id="system-registers"><a class="header" href="#system-registers">System Registers</a></h3>
+<pre><code class="language-bash"># Key system registers in AArch64
+# SCTLR_EL1: System Control Register (MMU, caches, alignment)
+# TCR_EL1: Translation Control Register (page table config)
+# TTBR0_EL1, TTBR1_EL1: Translation Table Base Registers
+# VBAR_EL1: Vector Base Address Register
+# ESR_EL1: Exception Syndrome Register
+# FAR_EL1: Fault Address Register
+# DAIF: Debug, SError, IRQ, FIQ mask bits
+# CurrentEL: Current Exception Level
+# SPSR_EL1: Saved Program Status Register
+# ELR_EL1: Exception Link Register
+# CNTFRQ_EL0: Counter Frequency Register
+
+# Read CurrentEL from kernel
+# mrs x0, CurrentEL
+# x0 = 4 (EL1), 8 (EL2), etc.
+</code></pre>
+<h2 id="memory-model"><a class="header" href="#memory-model">Memory Model</a></h2>
+<h3 id="virtual-memory"><a class="header" href="#virtual-memory">Virtual Memory</a></h3>
+<pre><code class="language-bash"># AArch64 virtual address space (48-bit):
+# 0x0000_0000_0000_0000 — 0x0000_FFFF_FFFF_FFFF: User space (lower VA)
+# 0xFFFF_0000_0000_0000 — 0xFFFF_FFFF_FFFF_FFFF: Kernel space (upper VA)
+
+# Linux uses two translation table base registers:
+# TTBR0_EL1: User space page tables
+# TTBR1_EL1: Kernel space page tables
+
+# Page sizes: 4 KB, 16 KB, 64 KB
+# Linux uses 4 KB pages by default on ARM64
+
+# Translation levels (4KB pages, 48-bit VA):
+# Level 0: 512 GB per entry (1 entry for 48-bit VA)
+# Level 1: 1 GB per entry (512 entries)
+# Level 2: 2 MB per entry (512 entries per L1)
+# Level 3: 4 KB per entry (512 entries per L2)
+</code></pre>
+<h3 id="translation-tables"><a class="header" href="#translation-tables">Translation Tables</a></h3>
+<pre><code class="language-mermaid">graph TB
+    subgraph Virtual Address
+        VA[VA 48-bit]
+        L0_IDX[L0: bits 47:39&lt;br/&gt;9 bits = 512 entries]
+        L1_IDX[L1: bits 38:30&lt;br/&gt;9 bits = 512 entries]
+        L2_IDX[L2: bits 29:21&lt;br/&gt;9 bits = 512 entries]
+        L3_IDX[L3: bits 20:12&lt;br/&gt;9 bits = 512 entries]
+        OFFSET[Offset: bits 11:0&lt;br/&gt;12 bits = 4KB]
+    end
+    subgraph Page Table
+        L0[Level 0 Table&lt;br/&gt;TTBR0_EL1]
+        L1[Level 1 Table&lt;br/&gt;1GB entries]
+        L2[Level 2 Table&lt;br/&gt;2MB entries]
+        L3[Level 3 Table&lt;br/&gt;4KB entries]
+        PAGE[Physical Page&lt;br/&gt;4KB]
+    end
+    VA --&gt; L0
+    L0 --&gt; L0_IDX
+    L0_IDX --&gt; L1
+    L1 --&gt; L1_IDX
+    L1_IDX --&gt; L2
+    L2 --&gt; L2_IDX
+    L2_IDX --&gt; L3
+    L3 --&gt; L3_IDX
+    L3 --&gt; PAGE
+</code></pre>
+<h3 id="memory-types-and-attributes"><a class="header" href="#memory-types-and-attributes">Memory Types and Attributes</a></h3>
+<pre><code class="language-bash"># ARM memory types:
+# Normal memory: Cachable, used for code and data
+# Device memory: Non-cachable, for memory-mapped I/O
+
+# Cacheability attributes (MAIR_EL1):
+# Attr0: Device-nGnRnE (most restrictive device memory)
+# Attr1: Device-nGnRE
+# Attr2: Device-GRE
+# Attr3: Normal NC (non-cacheable)
+# Attr4: Normal WT (write-through)
+# Attr5: Normal WB (write-back)
+
+# Linux memory attributes:
+# __io(vaddr)    — Device memory (uncached)
+# __mem(vaddr)   — Normal memory (cached)
+</code></pre>
+<h2 id="cache-architecture"><a class="header" href="#cache-architecture">Cache Architecture</a></h2>
+<pre><code class="language-bash"># ARM cache hierarchy
+# L1: Split I-cache (instruction) and D-cache (data), per core
+# L2: Unified, per core or shared (implementation defined)
+# L3: Shared among all cores (some SoCs)
+
+# Cache line size: typically 64 bytes
+getconf LEVEL1_DCACHE_LINESIZE
+# 64
+
+# Cache sizes
+getconf LEVEL1_DCACHE_SIZE
+# 32768  (32KB)
+getconf LEVEL2_CACHE_SIZE
+# 262144 (256KB)
+
+# Cache operations (from kernel):
+# dc civac, &lt;addr&gt;  — Clean and Invalidate by VA to PoC
+# dc cvac, &lt;addr&gt;   — Clean by VA to PoC
+# dc ivac, &lt;addr&gt;   — Invalidate by VA to PoC
+# ic iallu          — Invalidate all instruction caches
+
+# Linux cache management API:
+# __flush_dcache_area(addr, size)
+# __invalidate_icache_all()
+</code></pre>
+<h2 id="neon-advanced-simd"><a class="header" href="#neon-advanced-simd">NEON (Advanced SIMD)</a></h2>
+<p>NEON is ARM's SIMD (Single Instruction, Multiple Data) extension, providing 128-bit vector operations:</p>
+<pre><code class="language-bash"># NEON registers:
+# V0-V31: 128-bit vector registers
+# Can be viewed as:
+# 16 × 8-bit lanes (16B)
+# 8 × 16-bit lanes (8H)
+# 4 × 32-bit lanes (4S)
+# 2 × 64-bit lanes (2D)
+# 1 × 128-bit (1Q)
+
+# NEON features:
+# Integer and floating-point operations
+# Saturating arithmetic
+# Table lookups (TBL/TBX)
+# Polynomial multiplication (for crypto)
+</code></pre>
+<pre><code class="language-c">/* NEON intrinsics example: vector addition */
+#include &lt;arm_neon.h&gt;
+
+void add_vectors(float *a, float *b, float *result, int n) {
+    for (int i = 0; i &lt; n; i += 4) {
+        float32x4_t va = vld1q_f32(&amp;a[i]);
+        float32x4_t vb = vld1q_f32(&amp;b[i]);
+        float32x4_t vr = vaddq_f32(va, vb);
+        vst1q_f32(&amp;result[i], vr);
+    }
+}
+
+/* NEON image processing: grayscale conversion */
+void rgb_to_gray(uint8_t *rgb, uint8_t *gray, int pixels) {
+    /* Fixed-point weights: 0.299*256=77, 0.587*256=150, 0.114*256=29 */
+    uint8x8_t r_weight = vdup_n_u8(77);
+    uint8x8_t g_weight = vdup_n_u8(150);
+    uint8x8_t b_weight = vdup_n_u8(29);
+    
+    for (int i = 0; i &lt; pixels; i += 8) {
+        uint8x8x3_t pixel = vld3_u8(&amp;rgb[i * 3]);
+        uint16x8_t sum = vmull_u8(pixel.val[0], r_weight);
+        sum = vmlal_u8(sum, pixel.val[1], g_weight);
+        sum = vmlal_u8(sum, pixel.val[2], b_weight);
+        vst1_u8(&amp;gray[i], vshrn_n_u16(sum, 8));
+    }
+}
+</code></pre>
+<pre><code class="language-bash"># Check NEON support
+cat /proc/cpuinfo | grep -i neon
+# Features: ... asimd evtstrm aes pmull sha1 sha2 crc32 ...
+
+# Compile with NEON
+aarch64-linux-gnu-gcc -O2 -march=armv8-a+simd -o app app.c
+
+# Auto-vectorization
+aarch64-linux-gnu-gcc -O2 -march=armv8-a -ftree-vectorize -fopt-info-vec app.c
+</code></pre>
+<h3 id="sve-scalable-vector-extension"><a class="header" href="#sve-scalable-vector-extension">SVE (Scalable Vector Extension)</a></h3>
+<pre><code class="language-bash"># SVE extends NEON with scalable vector lengths (128-2048 bits)
+# SVE2 is part of ARMv9-A
+
+# SVE register:
+# Z0-Z31: Scalable vector registers (128-2048 bits)
+# P0-P15: Predicate registers (one bit per vector element)
+
+# Check SVE support
+cat /proc/cpuinfo | grep -i sve
+# svei8mm svebf16 i8mm bf16
+
+# SVE intrinsics
+#include &lt;arm_sve.h&gt;
+
+void sve_add(float *a, float *b, float *c, int n) {
+    for (int i = 0; i &lt; n; i += svcntw()) {
+        svbool_t pred = svwhilelt_b32(i, n);
+        svfloat32_t va = svld1(pred, &amp;a[i]);
+        svfloat32_t vb = svld1(pred, &amp;b[i]);
+        svfloat32_t vc = svadd_f32_m(pred, va, vb);
+        svst1(pred, &amp;c[i], vc);
+    }
+}
+</code></pre>
+<h2 id="trustzone"><a class="header" href="#trustzone">TrustZone</a></h2>
+<p>TrustZone is ARM's hardware security technology that creates a secure world and a normal world:</p>
+<pre><code class="language-mermaid">graph TB
+    subgraph Secure World
+        SEC_EL3["EL3: Secure Monitor&lt;br/&gt;(ATF/OP-TEE)"]
+        SEC_EL1["EL1: Secure OS&lt;br/&gt;(OP-TEE, Trusty)"]
+        SEC_EL0["EL0: Trusted Apps"]
+    end
+    subgraph Normal World
+        NORM_EL2["EL2: Hypervisor&lt;br/&gt;(KVM/Xen)"]
+        NORM_EL1["EL1: Linux Kernel"]
+        NORM_EL0["EL0: Applications"]
+    end
+    SEC_EL3 &lt;--&gt;|SMC| NORM_EL2
+    SEC_EL3 &lt;--&gt;|SMC| NORM_EL1
+    SEC_EL1 &lt;--&gt;|Secure IPC| SEC_EL0
+</code></pre>
+<h3 id="trustzone-components"><a class="header" href="#trustzone-components">TrustZone Components</a></h3>
+<pre><code class="language-bash"># ARM Trusted Firmware (ATF/TF-A)
+# Runs at EL3, implements:
+# 1. PSCI (Power State Coordination Interface)
+#    - CPU on/off
+#    - System reset/shutdown
+#    - Suspend/resume
+# 2. Secure boot
+# 3. SMC (Secure Monitor Call) routing
+# 4. World switching
+
+# OP-TEE (Open Portable Trusted Execution Environment)
+# Runs at EL1 in Secure World
+# Provides:
+# 1. Trusted applications (TAs)
+# 2. Cryptographic services
+# 3. Secure storage
+# 4. Trusted UI
+
+# PSCI interface (Linux calls ATF)
+# Linux → SMC → ATF → Hardware
+# CPU_ON, CPU_OFF, CPU_SUSPEND, SYSTEM_RESET, SYSTEM_OFF
+
+# Check PSCI support
+dmesg | grep psci
+# psci: PSCIv1.1 detected in firmware.
+# psci: Using standard PSCI v0.2 function IDs
+</code></pre>
+<h2 id="biglittle-and-dynamiq"><a class="header" href="#biglittle-and-dynamiq">big.LITTLE and DynamIQ</a></h2>
+<p>ARM's heterogeneous multiprocessing combines high-performance and energy-efficient cores:</p>
+<pre><code class="language-mermaid">graph TB
+    subgraph big.LITTLE / DynamIQ Cluster
+        subgraph Performance Cores (Cortex-A78)
+            BIG0[Core 0&lt;br/&gt;Cortex-A78&lt;br/&gt;High performance]
+            BIG1[Core 1&lt;br/&gt;Cortex-A78]
+        end
+        subgraph Efficiency Cores (Cortex-A55)
+            LITTLE0[Core 2&lt;br/&gt;Cortex-A55&lt;br/&gt;Power efficient]
+            LITTLE1[Core 3&lt;br/&gt;Cortex-A55]
+            LITTLE2[Core 4&lt;br/&gt;Cortex-A55]
+        end
+    end
+</code></pre>
+<h3 id="biglittle-scheduling"><a class="header" href="#biglittle-scheduling">big.LITTLE Scheduling</a></h3>
+<pre><code class="language-bash"># Linux Energy-Aware Scheduler (EAS)
+# Considers CPU capacity and energy cost when placing tasks
+
+# CPU capacity (from DT or firmware)
+cat /sys/devices/system/cpu/cpu0/cpu_capacity
+# 1024  (efficiency core)
+cat /sys/devices/system/cpu/cpu2/cpu_capacity
+# 446   (performance core, higher capacity)
+
+# Energy model
+cat /sys/kernel/debug/energy_model/cpu0/current_frequency
+cat /sys/kernel/debug/energy_model/cpu0/*/power
+
+# Task placement hints:
+# Utilization: scheduler places compute-heavy tasks on big cores
+# uclamp_min: guarantee minimum capacity (big core)
+# uclamp_max: cap capacity (little core)
+
+# Check which cluster a CPU belongs to
+ls /sys/devices/system/cpu/cpu0/
+# cpu_capacity, cpufreq/, topology/
+</code></pre>
+<h3 id="cpu-frequency-scaling"><a class="header" href="#cpu-frequency-scaling">CPU Frequency Scaling</a></h3>
+<pre><code class="language-bash"># big.LITTLE cores have different frequency ranges
+cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_available_frequencies
+# 408000 600000 816000 1008000 1200000 1368000 1512000 1608000 1704000
+
+cat /sys/devices/system/cpu/cpu2/cpufreq/scaling_available_frequencies
+# 600000 800000 1000000 1200000 1400000 1600000 1800000 2000000 2200000 2400000
+
+# Governor: schedutil (recommended for big.LITTLE)
+cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
+# schedutil
+</code></pre>
+<h2 id="kvm-on-arm"><a class="header" href="#kvm-on-arm">KVM on ARM</a></h2>
+<pre><code class="language-bash"># KVM uses ARM virtualization extensions (EL2)
+# ARM provides hardware-assisted virtualization similar to Intel VT-x
+
+# Key ARM virtualization features:
+# Stage 2 translation (similar to EPT/NPT)
+# Virtual interrupt injection (GICv3/v4)
+# Timer virtualization
+# PMU virtualization
+
+# Check KVM support on ARM
+grep -E 'kvm|KVM' /proc/cpuinfo
+# Features: ... kvm ...
+
+# Create ARM64 VM with KVM
+qemu-system-aarch64 \
+  -enable-kvm \
+  -machine virt \
+  -cpu host \
+  -m 2048 \
+  -kernel Image \
+  -drive file=rootfs.ext4,if=virtio \
+  -append "root=/dev/vda console=ttyAMA0" \
+  -nographic
+</code></pre>
+<h2 id="debugging-arm-systems"><a class="header" href="#debugging-arm-systems">Debugging ARM Systems</a></h2>
+<pre><code class="language-bash"># JTAG debugging with OpenOCD
+# Connect JTAG probe (J-Link, CMSIS-DAP, etc.)
+openocd -f interface/jlink.cfg \
+        -f target/stm32mp15x.cfg
+
+# GDB remote debugging
+aarch64-linux-gnu-gdb vmlinux
+(gdb) target remote :3333
+(gdb) hbreak start_kernel
+(gdb) continue
+
+# ARM CoreSight tracing
+# Embedded Trace Macrocell (ETM) traces instruction execution
+# Trace data → CoreSight funnel → TPIU → trace port/USB
+
+# ARM Performance Monitoring Unit (PMU)
+perf stat -e cycles,instructions,cache-misses ./my_program
+# Performance counter hardware events
+# Common events: cycles, instructions, L1-dcache-load-misses,
+#                branch-misses, bus-cycles, stalled-cycles-frontend
+</code></pre>
+<h2 id="references"><a class="header" href="#references">References</a></h2>
+<ol>
+<li>ARM. "Arm Architecture Reference Manual for A-profile Architecture." <a href="https://developer.arm.com/documentation/ddi0487/latest">https://developer.arm.com/documentation/ddi0487/latest</a></li>
+<li>ARM. "Arm Architecture Registers." <a href="https://developer.arm.com/documentation/ddi0601/latest">https://developer.arm.com/documentation/ddi0601/latest</a></li>
+<li>ARM. "ARM Cortex-A Series Programmer's Guide for ARMv8-A." <a href="https://developer.arm.com/documentation/den0024/latest">https://developer.arm.com/documentation/den0024/latest</a></li>
+<li>Qualcomm. "big.LITTLE Technology: The Future of Mobile." Whitepaper.</li>
+</ol>
+<h2 id="further-reading"><a class="header" href="#further-reading">Further Reading</a></h2>
+<ul>
+<li>
+<p><a href="https://docs.kernel.org/">The Linux Kernel Documentation</a></p>
+</li>
+<li>
+<p><a href="https://lwn.net/">LWN.net - Linux and free software news</a></p>
+</li>
+<li>
+<p><a href="https://www.gnu.org/doc/doc.html">GNU Project Documentation</a></p>
+</li>
+<li>
+<p><a href="https://www.gnu.org/manual/manual.html">GNU Manuals</a></p>
+</li>
+<li>
+<p><a href="https://directory.fsf.org/wiki/Main_Page">Free Software Directory</a></p>
+</li>
+<li>
+<p><a href="https://planet.gnu.org/">Planet GNU</a></p>
+</li>
+<li>
+<p><a href="https://www.gnu.org/doc/other-free-books.html">Free Software Books</a></p>
+</li>
+<li>
+<p><a href="https://developer.arm.com/documentation/ddi0487/latest">ARM Architecture Reference Manual</a></p>
+</li>
+<li>
+<p><a href="https://developer.arm.com/documentation/den0024/latest">ARM Cortex-A Programmer's Guide</a></p>
+</li>
+<li>
+<p><a href="https://developer.arm.com/documentation/den0018/latest">ARM NEON Programmer's Guide</a></p>
+</li>
+<li>
+<p><a href="https://developer.arm.com/documentation/102131/latest">ARM SVE Programmer's Guide</a></p>
+</li>
+<li>
+<p><a href="https://www.kernel.org/doc/html/latest/arm64/">Linux ARM64 Documentation</a></p>
+</li>
+</ul>
+<h2 id="related-topics"><a class="header" href="#related-topics">Related Topics</a></h2>
+<ul>
+<li><a href="./overview.html">Embedded Linux Overview</a> — Embedded Linux fundamentals</li>
+<li><a href="./cross-compilation.html">Cross-Compilation</a> — Building for ARM</li>
+<li><a href="./device-tree.html">Device Tree</a> — ARM hardware description</li>
+<li><a href="./uboot.html">U-Boot</a> — ARM bootloader</li>
+<li><a href="../virtualization/overview.html">Virtualization Overview</a> — ARM virtualization</li>
+</ul>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../embedded/device-tree.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../embedded/device-tree.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+        <script src="../ace.js"></script>
+        <script src="../editor.js"></script>
+        <script src="../mode-rust.js"></script>
+        <script src="../theme-dawn.js"></script>
+        <script src="../theme-tomorrow_night.js"></script>
+
+        <script src="../elasticlunr.min.js"></script>
+        <script src="../mark.min.js"></script>
+        <script src="../searcher.js"></script>
+
+        <script src="../clipboard.min.js"></script>
+        <script src="../highlight.js"></script>
+        <script src="../book.js"></script>
+
+        <!-- Custom JS scripts -->
+        <script src="../custom.js"></script>
+
+
+    </div>
+    </body>
+</html>

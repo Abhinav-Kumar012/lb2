@@ -1,0 +1,709 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Cross-Compilation - The Linux Encyclopedia</title>
+
+
+        <!-- Custom HTML head -->
+        
+        <meta name="description" content="A comprehensive, continuously growing reference for Linux, Unix internals, kernel development, system programming, administration, networking, security, and beyond.">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon.svg">
+        <link rel="shortcut icon" href="../favicon.png">
+        <link rel="stylesheet" href="../css/variables.css">
+        <link rel="stylesheet" href="../css/general.css">
+        <link rel="stylesheet" href="../css/chrome.css">
+        <link rel="stylesheet" href="../css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="../highlight.css">
+        <link rel="stylesheet" href="../tomorrow-night.css">
+        <link rel="stylesheet" href="../ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+        <link rel="stylesheet" href="../custom.css">
+
+    </head>
+    <body class="sidebar-visible no-js">
+    <div id="body-container">
+        <!-- Provide site root to javascript -->
+        <script>
+            var path_to_root = "../";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('light')
+            html.classList.add(theme);
+            var body = document.querySelector('body');
+            body.classList.remove('no-js')
+            body.classList.add('js');
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            var body = document.querySelector('body');
+            var sidebar = null;
+            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+            }
+            sidebar_toggle.checked = sidebar === 'visible';
+            body.classList.remove('sidebar-visible');
+            body.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded affix "><li class="part-title">Linux Encyclopedia</li><li class="chapter-item expanded affix "><li class="spacer"></li><li class="chapter-item expanded affix "><li class="part-title">Virtualization</li><li class="chapter-item expanded "><a href="../virtualization/overview.html"><strong aria-hidden="true">1.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../virtualization/kvm.html"><strong aria-hidden="true">2.</strong> KVM Internals</a></li><li class="chapter-item expanded "><a href="../virtualization/qemu.html"><strong aria-hidden="true">3.</strong> QEMU</a></li><li class="chapter-item expanded "><a href="../virtualization/xen.html"><strong aria-hidden="true">4.</strong> Xen Hypervisor</a></li><li class="chapter-item expanded affix "><li class="spacer"></li><li class="chapter-item expanded affix "><li class="part-title">Containers</li><li class="chapter-item expanded "><a href="../containers/overview.html"><strong aria-hidden="true">5.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../containers/primitives.html"><strong aria-hidden="true">6.</strong> Container Primitives</a></li><li class="chapter-item expanded "><a href="../containers/docker-internals.html"><strong aria-hidden="true">7.</strong> Docker Internals</a></li><li class="chapter-item expanded "><a href="../containers/kubernetes.html"><strong aria-hidden="true">8.</strong> Kubernetes and Linux</a></li><li class="chapter-item expanded "><a href="../containers/cgroups-v2.html"><strong aria-hidden="true">9.</strong> cgroups v2</a></li><li class="chapter-item expanded affix "><li class="spacer"></li><li class="chapter-item expanded affix "><li class="part-title">Embedded Linux</li><li class="chapter-item expanded "><a href="../embedded/overview.html"><strong aria-hidden="true">10.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../embedded/cross-compilation.html" class="active"><strong aria-hidden="true">11.</strong> Cross-Compilation</a></li><li class="chapter-item expanded "><a href="../embedded/uboot.html"><strong aria-hidden="true">12.</strong> U-Boot</a></li><li class="chapter-item expanded "><a href="../embedded/device-tree.html"><strong aria-hidden="true">13.</strong> Device Tree</a></li><li class="chapter-item expanded "><a href="../embedded/arm.html"><strong aria-hidden="true">14.</strong> ARM Architecture</a></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <!-- Track and set sidebar scroll position -->
+        <script>
+            var sidebarScrollbox = document.querySelector('#sidebar .sidebar-scrollbox');
+            sidebarScrollbox.addEventListener('click', function(e) {
+                if (e.target.tagName === 'A') {
+                    sessionStorage.setItem('sidebar-scroll', sidebarScrollbox.scrollTop);
+                }
+            }, { passive: true });
+            var sidebarScrollTop = sessionStorage.getItem('sidebar-scroll');
+            sessionStorage.removeItem('sidebar-scroll');
+            if (sidebarScrollTop) {
+                // preserve sidebar scroll position when navigating via links within sidebar
+                sidebarScrollbox.scrollTop = sidebarScrollTop;
+            } else {
+                // scroll sidebar to current active section when navigating via "next/previous chapter" buttons
+                var activeSection = document.querySelector('#sidebar .active');
+                if (activeSection) {
+                    activeSection.scrollIntoView({ block: 'center' });
+                }
+            }
+        </script>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">The Linux Encyclopedia</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/Abhinav-Kumar012/lb2" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+                        <a href="https://github.com/Abhinav-Kumar012/lb2/edit/dev/src/embedded/cross-compilation.md" title="Suggest an edit" aria-label="Suggest an edit">
+                            <i id="git-edit-button" class="fa fa-edit"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="cross-compilation"><a class="header" href="#cross-compilation">Cross-Compilation</a></h1>
+<h2 id="introduction"><a class="header" href="#introduction">Introduction</a></h2>
+<p>Cross-compilation is the process of building software on one computing platform (the <strong>host</strong>) to run on a different platform (the <strong>target</strong>). In Embedded Linux development, this is essential because embedded targets (ARM, MIPS, RISC-V) typically lack the resources to compile their own software, and development workstations (x86_64) are far more powerful for building.</p>
+<p>Cross-compilation touches every layer of an embedded system: the bootloader, kernel, libraries, and applications. Understanding toolchains, sysroots, and the various configure/cmake integration patterns is critical for efficient embedded development.</p>
+<h2 id="host-vs-target"><a class="header" href="#host-vs-target">Host vs Target</a></h2>
+<pre><code class="language-mermaid">graph LR
+    subgraph Host (Build Machine)
+        HOST_ARCH[x86_64 Linux]
+        TOOLCHAIN[Cross Toolchain&lt;br/&gt;aarch64-linux-gnu-gcc]
+        SYSROOT[Sysroot&lt;br/&gt;Target libraries &amp; headers]
+    end
+    subgraph Target (Embedded Device)
+        TARGET_ARCH[ARM64 / ARM32 / RISC-V / MIPS]
+        BINARY[Cross-compiled Binary]
+    end
+    HOST_ARCH --&gt;|cross-compile| BINARY
+    TOOLCHAIN --&gt; BINARY
+    SYSROOT --&gt; TOOLCHAIN
+    BINARY --&gt;|deploy| TARGET_ARCH
+</code></pre>
+<h2 id="toolchain-components"><a class="header" href="#toolchain-components">Toolchain Components</a></h2>
+<p>A cross-compilation toolchain consists of:</p>
+<div class="table-wrapper"><table><thead><tr><th>Component</th><th>Purpose</th><th>Example</th></tr></thead><tbody>
+<tr><td><strong>Binutils</strong></td><td>Assembler, linker, object tools</td><td><code>aarch64-linux-gnu-ld</code>, <code>aarch64-linux-gnu-as</code></td></tr>
+<tr><td><strong>Compiler</strong></td><td>C/C++ compiler</td><td><code>aarch64-linux-gnu-gcc</code>, <code>aarch64-linux-gnu-g++</code></td></tr>
+<tr><td><strong>C Library</strong></td><td>Standard library</td><td>glibc, musl, uClibc-ng</td></tr>
+<tr><td><strong>Debugger</strong></td><td>Remote debugging</td><td><code>aarch64-linux-gnu-gdb</code></td></tr>
+<tr><td><strong>Sysroot</strong></td><td>Target headers and libraries</td><td><code>/opt/sysroot/usr/include/</code>, <code>/opt/sysroot/usr/lib/</code></td></tr>
+</tbody></table>
+</div>
+<h3 id="toolchain-naming-convention"><a class="header" href="#toolchain-naming-convention">Toolchain Naming Convention</a></h3>
+<pre><code>&lt;arch&gt;-&lt;vendor&gt;-&lt;os&gt;-&lt;libc&gt;-&lt;abi&gt;
+
+Examples:
+aarch64-linux-gnu-gcc          # ARM64, Linux, glibc, standard ABI
+arm-linux-gnueabihf-gcc        # ARM32, Linux, glibc, hard-float
+arm-none-eabi-gcc              # ARM32, bare-metal, no OS (for firmware)
+riscv64-linux-gnu-gcc          # RISC-V 64, Linux, glibc
+mipsel-linux-gnu-gcc           # MIPS little-endian, Linux, glibc
+aarch64-buildroot-linux-gnu-gcc # ARM64, Buildroot-built toolchain
+</code></pre>
+<h2 id="obtaining-toolchains"><a class="header" href="#obtaining-toolchains">Obtaining Toolchains</a></h2>
+<h3 id="pre-built-toolchains"><a class="header" href="#pre-built-toolchains">Pre-built Toolchains</a></h3>
+<pre><code class="language-bash"># Linaro toolchains (ARM, well-maintained)
+# https://developer.arm.com/tools-and-software/open-source-software/developer-tools/gnu-toolchain/downloads
+wget https://developer.arm.com/-/media/Files/downloads/gnu/13.2.rel1/binrel/arm-gnu-toolchain-13.2.rel1-x86_64-aarch64-none-linux-gnu.tar.xz
+tar xf arm-gnu-toolchain-*.tar.xz
+export PATH=$PWD/arm-gnu-toolchain-*/bin:$PATH
+
+# Verify
+aarch64-none-linux-gnu-gcc --version
+# aarch64-none-linux-gnu-gcc (Arm GNU Toolchain 13.2.rel1) 13.2.1
+
+# Debian/Ubuntu packages
+apt install gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+apt install gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf
+apt install gcc-riscv64-linux-gnu g++-riscv64-linux-gnu
+
+# Verify installation
+dpkg -L gcc-aarch64-linux-gnu
+# /usr/bin/aarch64-linux-gnu-gcc
+# /usr/bin/aarch64-linux-gnu-g++
+# /usr/bin/aarch64-linux-gnu-ld
+# ...
+</code></pre>
+<h3 id="building-a-toolchain-with-crosstool-ng"><a class="header" href="#building-a-toolchain-with-crosstool-ng">Building a Toolchain with crosstool-NG</a></h3>
+<pre><code class="language-bash"># crosstool-NG builds custom toolchains
+# https://crosstool-ng.github.io/
+
+git clone https://github.com/crosstool-ng/crosstool-ng.git
+cd crosstool-ng
+./bootstrap &amp;&amp; ./configure --prefix=$HOME/ct-ng &amp;&amp; make &amp;&amp; make install
+
+# Configure toolchain
+mkdir ~/ct-build &amp;&amp; cd ~/ct-build
+ct-ng aarch64-unknown-linux-gnu  # Start with a sample
+ct-ng menuconfig
+# Options:
+#   Operating System → Linux kernel version
+#   C library → glibc / musl / uClibc-ng
+#   C compiler → GCC version
+#   Debug facilities → gdb, strace, ltrace
+#   Companion libraries → zlib, expat, etc.
+
+# Build (takes 15-60 minutes)
+ct-ng build
+
+# Output in ~/x-tools/aarch64-unknown-linux-gnu/
+ls ~/x-tools/aarch64-unknown-linux-gnu/bin/
+# aarch64-unknown-linux-gnu-gcc
+# aarch64-unknown-linux-gnu-g++
+# aarch64-unknown-linux-gnu-ld
+# ...
+</code></pre>
+<h3 id="building-with-buildroot"><a class="header" href="#building-with-buildroot">Building with Buildroot</a></h3>
+<pre><code class="language-bash"># Buildroot can build a complete toolchain
+make menuconfig
+# Toolchain →
+#   Toolchain type → Buildroot toolchain
+#   C library → musl / glibc / uClibc-ng
+#   GCC compiler version → 13.x
+#   Enable C++ support
+#   Enable Fortran support (if needed)
+
+make toolchain
+# Output: output/host/bin/aarch64-linux-gnu-gcc
+</code></pre>
+<h2 id="sysroot"><a class="header" href="#sysroot">Sysroot</a></h2>
+<p>The sysroot is a directory containing the target system's headers and libraries. It provides the environment that the cross-compiler needs to find target libraries and headers.</p>
+<pre><code class="language-bash"># Typical sysroot structure
+/opt/sysroot/
+├── etc/
+│   └── ld.so.conf
+├── lib/
+│   ├── libc.so.6
+│   ├── libm.so.6
+│   ├── libpthread.so.0
+│   └── ld-linux-aarch64.so.1
+├── usr/
+│   ├── include/
+│   │   ├── stdio.h
+│   │   ├── linux/
+│   │   │   ├── kernel.h
+│   │   │   └── ...
+│   │   └── openssl/
+│   │       └── ssl.h
+│   ├── lib/
+│   │   ├── libssl.so
+│   │   ├── libcrypto.so
+│   │   └── pkgconfig/
+│   └── share/
+│       └── pkgconfig/
+└── opt/
+    └── vendor/
+        └── lib/
+</code></pre>
+<h3 id="using-sysroot-with-gcc"><a class="header" href="#using-sysroot-with-gcc">Using Sysroot with GCC</a></h3>
+<pre><code class="language-bash"># Specify sysroot
+aarch64-linux-gnu-gcc --sysroot=/opt/sysroot -o hello hello.c
+
+# The compiler will look for:
+# Headers: /opt/sysroot/usr/include/
+# Libraries: /opt/sysroot/usr/lib/
+# Dynamic linker: /opt/sysroot/lib/ld-linux-aarch64.so.1
+
+# Check default sysroot of toolchain
+aarch64-linux-gnu-gcc -print-sysroot
+# (empty if no default sysroot configured)
+
+# Set default sysroot when building toolchain
+# In crosstool-NG: Paths and misc options → Prefix directory
+# In Buildroot: output/host/aarch64-buildroot-linux-gnu/sysroot/
+</code></pre>
+<h3 id="creating-a-sysroot-from-a-target-system"><a class="header" href="#creating-a-sysroot-from-a-target-system">Creating a Sysroot from a Target System</a></h3>
+<pre><code class="language-bash"># Copy libraries and headers from a running target
+rsync -avz --include='*.so*' --include='*.h' \
+  --exclude='*' \
+  target:/usr/lib/ /opt/sysroot/usr/lib/
+rsync -avz target:/usr/include/ /opt/sysroot/usr/include/
+
+# Or use the target's root filesystem as sysroot
+# (common with Buildroot/Yocto)
+export SYSROOT=/path/to/buildroot/output/host/aarch64-buildroot-linux-gnu/sysroot
+aarch64-linux-gnu-gcc --sysroot=$SYSROOT -o app app.c
+</code></pre>
+<h2 id="cross-compiling-applications"><a class="header" href="#cross-compiling-applications">Cross-Compiling Applications</a></h2>
+<h3 id="simple-c-program"><a class="header" href="#simple-c-program">Simple C Program</a></h3>
+<pre><code class="language-bash"># hello.c
+#include &lt;stdio.h&gt;
+int main() {
+    printf("Hello from ARM64!\n");
+    return 0;
+}
+
+# Cross-compile
+aarch64-linux-gnu-gcc -o hello hello.c -static
+# -static links all libraries into the binary (no runtime dependencies)
+
+file hello
+# hello: ELF 64-bit LSB executable, ARM aarch64, version 1 (GNU/Linux),
+#         statically linked, for GNU/Linux 3.7.0, not stripped
+
+# Dynamic linking (needs sysroot with shared libraries)
+aarch64-linux-gnu-gcc -o hello hello.c
+# Needs ld-linux-aarch64.so.1 and libc.so.6 at runtime
+
+# Verify dependencies
+aarch64-linux-gnu-readelf -d hello | grep NEEDED
+# 0x00000001 (NEEDED) Shared library: [libc.so.6]
+</code></pre>
+<h3 id="autotools-projects"><a class="header" href="#autotools-projects">Autotools Projects</a></h3>
+<pre><code class="language-bash"># Many open-source projects use autotools (./configure &amp;&amp; make)
+
+# Create a cross-compilation config file
+cat &gt; aarch64-linux-gnu.txt &lt;&lt; 'EOF'
+[host_machine]
+system = 'linux'
+cpu_family = 'aarch64'
+cpu = 'aarch64'
+endian = 'little'
+
+[binaries]
+c = 'aarch64-linux-gnu-gcc'
+cpp = 'aarch64-linux-gnu-g++'
+ar = 'aarch64-linux-gnu-ar'
+strip = 'aarch64-linux-gnu-strip'
+pkgconfig = 'pkg-config'
+
+[built-in options]
+c_args = ['--sysroot=/opt/sysroot']
+c_link_args = ['--sysroot=/opt/sysroot']
+EOF
+
+# Autotools cross-compilation
+./configure \
+  --host=aarch64-linux-gnu \
+  --build=x86_64-linux-gnu \
+  --prefix=/usr \
+  --with-sysroot=/opt/sysroot \
+  CC=aarch64-linux-gnu-gcc \
+  CXX=aarch64-linux-gnu-g++ \
+  CFLAGS="--sysroot=/opt/sysroot" \
+  LDFLAGS="--sysroot=/opt/sysroot"
+
+make -j$(nproc)
+make install DESTDIR=/opt/output
+</code></pre>
+<h3 id="cmake-projects"><a class="header" href="#cmake-projects">CMake Projects</a></h3>
+<pre><code class="language-bash"># CMake toolchain file
+cat &gt; aarch64-toolchain.cmake &lt;&lt; 'EOF'
+set(CMAKE_SYSTEM_NAME Linux)
+set(CMAKE_SYSTEM_PROCESSOR aarch64)
+
+set(CMAKE_SYSROOT /opt/sysroot)
+set(CMAKE_STAGING_PREFIX /opt/output/usr)
+
+set(CMAKE_C_COMPILER aarch64-linux-gnu-gcc)
+set(CMAKE_CXX_COMPILER aarch64-linux-gnu-g++)
+
+set(CMAKE_FIND_ROOT_PATH /opt/sysroot)
+set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
+set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
+set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
+set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
+EOF
+
+# Build with CMake
+mkdir build &amp;&amp; cd build
+cmake -DCMAKE_TOOLCHAIN_FILE=../aarch64-toolchain.cmake ..
+make -j$(nproc)
+make install DESTDIR=/opt/output
+</code></pre>
+<h3 id="meson-projects"><a class="header" href="#meson-projects">Meson Projects</a></h3>
+<pre><code class="language-bash"># Meson cross file
+cat &gt; aarch64-cross.ini &lt;&lt; 'EOF'
+[host_machine]
+system = 'linux'
+cpu_family = 'aarch64'
+cpu = 'aarch64'
+endian = 'little'
+
+[binaries]
+c = 'aarch64-linux-gnu-gcc'
+cpp = 'aarch64-linux-gnu-g++'
+ar = 'aarch64-linux-gnu-ar'
+strip = 'aarch64-linux-gnu-strip'
+pkgconfig = 'pkg-config'
+
+[built-in options]
+c_args = ['--sysroot=/opt/sysroot']
+c_link_args = ['--sysroot=/opt/sysroot']
+
+[properties]
+sys_root = '/opt/sysroot'
+pkg_config_libdir = '/opt/sysroot/usr/lib/pkgconfig'
+EOF
+
+# Build with Meson
+meson setup --cross-file aarch64-cross.ini builddir/
+meson compile -C builddir/
+meson install -C builddir/ --destdir=/opt/output
+</code></pre>
+<h3 id="pkg-config-integration"><a class="header" href="#pkg-config-integration">pkg-config Integration</a></h3>
+<pre><code class="language-bash"># pkg-config needs to find target .pc files, not host ones
+export PKG_CONFIG_PATH=/opt/sysroot/usr/lib/pkgconfig:/opt/sysroot/usr/share/pkgconfig
+export PKG_CONFIG_SYSROOT_DIR=/opt/sysroot
+export PKG_CONFIG_LIBDIR=/opt/sysroot/usr/lib/pkgconfig
+
+# Or use a wrapper script
+cat &gt; /usr/local/bin/aarch64-pkg-config &lt;&lt; 'EOF'
+#!/bin/bash
+export PKG_CONFIG_PATH=/opt/sysroot/usr/lib/pkgconfig
+export PKG_CONFIG_SYSROOT_DIR=/opt/sysroot
+exec pkg-config "$@"
+EOF
+chmod +x /usr/local/bin/aarch64-pkg-config
+</code></pre>
+<h2 id="cross-compiling-the-linux-kernel"><a class="header" href="#cross-compiling-the-linux-kernel">Cross-Compiling the Linux Kernel</a></h2>
+<pre><code class="language-bash"># Download kernel source
+git clone --depth=1 https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
+cd linux
+
+# Configure for target
+# Use a defconfig as starting point
+make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- defconfig
+
+# Customize
+make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- menuconfig
+
+# Build kernel image
+make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- Image -j$(nproc)
+# Output: arch/arm64/boot/Image
+
+# Build compressed image (ARM)
+make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- Image.gz -j$(nproc)
+
+# Build device tree blobs
+make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- dtbs -j$(nproc)
+
+# Build kernel modules
+make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- modules -j$(nproc)
+
+# Install modules to sysroot
+make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
+  INSTALL_MOD_PATH=/opt/output modules_install
+</code></pre>
+<p>See <a href="./uboot.html">U-Boot</a> for kernel booting and <a href="./device-tree.html">Device Tree</a> for hardware description.</p>
+<h2 id="cross-compiling-u-boot"><a class="header" href="#cross-compiling-u-boot">Cross-Compiling U-Boot</a></h2>
+<pre><code class="language-bash"># Download U-Boot source
+git clone https://source.denx.de/u-boot/u-boot.git
+cd u-boot
+
+# Configure for target board
+make CROSS_COMPILE=aarch64-linux-gnu- rpi_4_defconfig
+
+# Customize
+make CROSS_COMPILE=aarch64-linux-gnu- menuconfig
+
+# Build
+make CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc)
+# Output: u-boot.bin, u-boot.img, u-boot.srec
+</code></pre>
+<h2 id="common-cross-compilation-issues"><a class="header" href="#common-cross-compilation-issues">Common Cross-Compilation Issues</a></h2>
+<h3 id="library-not-found"><a class="header" href="#library-not-found">Library Not Found</a></h3>
+<pre><code class="language-bash"># Error: /usr/bin/ld: cannot find -lssl
+# Solution: Ensure library is in sysroot
+ls /opt/sysroot/usr/lib/libssl*
+# If missing, cross-compile the library first
+
+# Cross-compile OpenSSL
+cd openssl
+./Configure linux-aarch64 \
+  --prefix=/opt/sysroot/usr \
+  --openssldir=/opt/sysroot/usr/ssl \
+  --cross-compile-prefix=aarch64-linux-gnu-
+make -j$(nproc)
+make install DESTDIR=/opt/sysroot
+</code></pre>
+<h3 id="wrong-headers"><a class="header" href="#wrong-headers">Wrong Headers</a></h3>
+<pre><code class="language-bash"># Error: fatal error: linux/spi/spidev.h: No such file or directory
+# Solution: Install kernel headers in sysroot
+
+cd linux
+make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
+  INSTALL_HDR_PATH=/opt/sysroot/usr headers_install
+</code></pre>
+<h3 id="endianness-issues"><a class="header" href="#endianness-issues">Endianness Issues</a></h3>
+<pre><code class="language-bash"># Cross-compiling for big-endian ARM
+aarch64_be-linux-gnu-gcc -o hello hello.c
+# Verify
+file hello
+# hello: ELF 64-bit MSB executable, ARM aarch64...
+
+# QEMU testing
+qemu-aarch64_be ./hello
+</code></pre>
+<h3 id="linker-script-issues"><a class="header" href="#linker-script-issues">Linker Script Issues</a></h3>
+<pre><code class="language-bash"># Some projects have hardcoded paths
+# Solution: Use sed to fix paths or set environment variables
+export CC="aarch64-linux-gnu-gcc --sysroot=/opt/sysroot"
+export LD="aarch64-linux-gnu-ld --sysroot=/opt/sysroot"
+</code></pre>
+<h2 id="distributed-cross-compilation"><a class="header" href="#distributed-cross-compilation">Distributed Cross-Compilation</a></h2>
+<pre><code class="language-bash"># distcc — distributed compilation
+# Install distcc on build nodes
+apt install distcc
+
+# Set up distcc
+export DISTCC_HOSTS="localhost/4 buildserver1/8 buildserver2/8"
+export CC="distcc aarch64-linux-gnu-gcc"
+
+# Use with make
+make -j32 CC="distcc aarch64-linux-gnu-gcc"
+
+# IceCream (openSUSE build system)
+# Similar concept with automatic load balancing
+</code></pre>
+<h2 id="testing-cross-compiled-binaries"><a class="header" href="#testing-cross-compiled-binaries">Testing Cross-Compiled Binaries</a></h2>
+<pre><code class="language-bash"># 1. QEMU user-mode emulation
+qemu-aarch64 -L /opt/sysroot ./hello
+# Or register binfmt_misc for transparent execution
+
+# 2. QEMU system emulation
+qemu-system-aarch64 -machine virt -cpu cortex-a72 -m 1024 \
+  -kernel Image -dtb virt.dtb \
+  -drive file=rootfs.ext4,if=virtio \
+  -append "root=/dev/vda console=ttyAMA0" \
+  -nographic
+
+# 3. Deploy to target hardware
+scp hello target:/tmp/
+ssh target /tmp/hello
+
+# 4. Run with strace (on target)
+strace ./hello
+</code></pre>
+<h2 id="references"><a class="header" href="#references">References</a></h2>
+<ol>
+<li>GCC Cross-Compiler Documentation. <a href="https://gcc.gnu.org/onlinedocs/gccint/Cross_002dCompilation.html">https://gcc.gnu.org/onlinedocs/gccint/Cross_002dCompilation.html</a></li>
+<li>crosstool-NG Documentation. <a href="https://crosstool-ng.github.io/docs/">https://crosstool-ng.github.io/docs/</a></li>
+<li>Bootlin Toolchains. <a href="https://toolchains.bootlin.com/">https://toolchains.bootlin.com/</a></li>
+<li>Yocto Project SDK Manual. <a href="https://docs.yoctoproject.org/sdk-manual/">https://docs.yoctoproject.org/sdk-manual/</a></li>
+</ol>
+<h2 id="further-reading"><a class="header" href="#further-reading">Further Reading</a></h2>
+<ul>
+<li>
+<p><a href="https://docs.kernel.org/">The Linux Kernel Documentation</a></p>
+</li>
+<li>
+<p><a href="https://lwn.net/">LWN.net - Linux and free software news</a></p>
+</li>
+<li>
+<p><a href="https://www.gnu.org/doc/doc.html">GNU Project Documentation</a></p>
+</li>
+<li>
+<p><a href="https://www.gnu.org/manual/manual.html">GNU Manuals</a></p>
+</li>
+<li>
+<p><a href="https://directory.fsf.org/wiki/Main_Page">Free Software Directory</a></p>
+</li>
+<li>
+<p><a href="https://planet.gnu.org/">Planet GNU</a></p>
+</li>
+<li>
+<p><a href="https://www.gnu.org/doc/other-free-books.html">Free Software Books</a></p>
+</li>
+<li>
+<p><a href="https://crosstool-ng.github.io/">crosstool-NG</a></p>
+</li>
+<li>
+<p><a href="https://toolchains.bootlin.com/">Bootlin Pre-built Toolchains</a></p>
+</li>
+<li>
+<p><a href="https://developer.arm.com/tools-and-software/open-source-software/developer-tools/gnu-toolchain/downloads">ARM GNU Toolchain Downloads</a></p>
+</li>
+<li>
+<p><a href="https://buildroot.org/downloads/manual/manual.html#_cross_compilation_toolchain">Buildroot Cross-Compilation</a></p>
+</li>
+<li>
+<p><a href="https://mesonbuild.com/Cross-compilation.html">Meson Cross Compilation</a></p>
+</li>
+</ul>
+<h2 id="related-topics"><a class="header" href="#related-topics">Related Topics</a></h2>
+<ul>
+<li><a href="./overview.html">Embedded Linux Overview</a> — Embedded Linux fundamentals</li>
+<li><a href="./uboot.html">U-Boot</a> — Bootloader cross-compilation</li>
+<li><a href="./device-tree.html">Device Tree</a> — Hardware description</li>
+<li><a href="./arm.html">ARM Architecture</a> — ARM-specific details</li>
+</ul>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../embedded/overview.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+                            <a rel="next prefetch" href="../embedded/uboot.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../embedded/overview.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+                    <a rel="next prefetch" href="../embedded/uboot.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+        <script src="../ace.js"></script>
+        <script src="../editor.js"></script>
+        <script src="../mode-rust.js"></script>
+        <script src="../theme-dawn.js"></script>
+        <script src="../theme-tomorrow_night.js"></script>
+
+        <script src="../elasticlunr.min.js"></script>
+        <script src="../mark.min.js"></script>
+        <script src="../searcher.js"></script>
+
+        <script src="../clipboard.min.js"></script>
+        <script src="../highlight.js"></script>
+        <script src="../book.js"></script>
+
+        <!-- Custom JS scripts -->
+        <script src="../custom.js"></script>
+
+
+    </div>
+    </body>
+</html>

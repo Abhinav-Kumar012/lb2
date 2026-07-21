@@ -1,0 +1,753 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Docker Internals - The Linux Encyclopedia</title>
+
+
+        <!-- Custom HTML head -->
+        
+        <meta name="description" content="A comprehensive, continuously growing reference for Linux, Unix internals, kernel development, system programming, administration, networking, security, and beyond.">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon.svg">
+        <link rel="shortcut icon" href="../favicon.png">
+        <link rel="stylesheet" href="../css/variables.css">
+        <link rel="stylesheet" href="../css/general.css">
+        <link rel="stylesheet" href="../css/chrome.css">
+        <link rel="stylesheet" href="../css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="../highlight.css">
+        <link rel="stylesheet" href="../tomorrow-night.css">
+        <link rel="stylesheet" href="../ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+        <link rel="stylesheet" href="../custom.css">
+
+    </head>
+    <body class="sidebar-visible no-js">
+    <div id="body-container">
+        <!-- Provide site root to javascript -->
+        <script>
+            var path_to_root = "../";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('light')
+            html.classList.add(theme);
+            var body = document.querySelector('body');
+            body.classList.remove('no-js')
+            body.classList.add('js');
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            var body = document.querySelector('body');
+            var sidebar = null;
+            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+            }
+            sidebar_toggle.checked = sidebar === 'visible';
+            body.classList.remove('sidebar-visible');
+            body.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded affix "><li class="part-title">Linux Encyclopedia</li><li class="chapter-item expanded affix "><li class="spacer"></li><li class="chapter-item expanded affix "><li class="part-title">Virtualization</li><li class="chapter-item expanded "><a href="../virtualization/overview.html"><strong aria-hidden="true">1.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../virtualization/kvm.html"><strong aria-hidden="true">2.</strong> KVM Internals</a></li><li class="chapter-item expanded "><a href="../virtualization/qemu.html"><strong aria-hidden="true">3.</strong> QEMU</a></li><li class="chapter-item expanded "><a href="../virtualization/xen.html"><strong aria-hidden="true">4.</strong> Xen Hypervisor</a></li><li class="chapter-item expanded affix "><li class="spacer"></li><li class="chapter-item expanded affix "><li class="part-title">Containers</li><li class="chapter-item expanded "><a href="../containers/overview.html"><strong aria-hidden="true">5.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../containers/primitives.html"><strong aria-hidden="true">6.</strong> Container Primitives</a></li><li class="chapter-item expanded "><a href="../containers/docker-internals.html" class="active"><strong aria-hidden="true">7.</strong> Docker Internals</a></li><li class="chapter-item expanded "><a href="../containers/kubernetes.html"><strong aria-hidden="true">8.</strong> Kubernetes and Linux</a></li><li class="chapter-item expanded "><a href="../containers/cgroups-v2.html"><strong aria-hidden="true">9.</strong> cgroups v2</a></li><li class="chapter-item expanded affix "><li class="spacer"></li><li class="chapter-item expanded affix "><li class="part-title">Embedded Linux</li><li class="chapter-item expanded "><a href="../embedded/overview.html"><strong aria-hidden="true">10.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../embedded/cross-compilation.html"><strong aria-hidden="true">11.</strong> Cross-Compilation</a></li><li class="chapter-item expanded "><a href="../embedded/uboot.html"><strong aria-hidden="true">12.</strong> U-Boot</a></li><li class="chapter-item expanded "><a href="../embedded/device-tree.html"><strong aria-hidden="true">13.</strong> Device Tree</a></li><li class="chapter-item expanded "><a href="../embedded/arm.html"><strong aria-hidden="true">14.</strong> ARM Architecture</a></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <!-- Track and set sidebar scroll position -->
+        <script>
+            var sidebarScrollbox = document.querySelector('#sidebar .sidebar-scrollbox');
+            sidebarScrollbox.addEventListener('click', function(e) {
+                if (e.target.tagName === 'A') {
+                    sessionStorage.setItem('sidebar-scroll', sidebarScrollbox.scrollTop);
+                }
+            }, { passive: true });
+            var sidebarScrollTop = sessionStorage.getItem('sidebar-scroll');
+            sessionStorage.removeItem('sidebar-scroll');
+            if (sidebarScrollTop) {
+                // preserve sidebar scroll position when navigating via links within sidebar
+                sidebarScrollbox.scrollTop = sidebarScrollTop;
+            } else {
+                // scroll sidebar to current active section when navigating via "next/previous chapter" buttons
+                var activeSection = document.querySelector('#sidebar .active');
+                if (activeSection) {
+                    activeSection.scrollIntoView({ block: 'center' });
+                }
+            }
+        </script>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">The Linux Encyclopedia</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/Abhinav-Kumar012/lb2" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+                        <a href="https://github.com/Abhinav-Kumar012/lb2/edit/dev/src/containers/docker-internals.md" title="Suggest an edit" aria-label="Suggest an edit">
+                            <i id="git-edit-button" class="fa fa-edit"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="docker-internals"><a class="header" href="#docker-internals">Docker Internals</a></h1>
+<h2 id="introduction"><a class="header" href="#introduction">Introduction</a></h2>
+<p>Docker popularized containers but is often misunderstood as being synonymous with containers. In reality, Docker is a platform built on top of Linux kernel primitives (namespaces, cgroups, union filesystems) and a layered architecture of components that have evolved significantly since Docker's initial release in 2013.</p>
+<p>This chapter dissects Docker's internal architecture: the container runtime stack, image format, storage drivers, networking implementation, and the standards (OCI) that enable interoperability.</p>
+<h2 id="docker-architecture"><a class="header" href="#docker-architecture">Docker Architecture</a></h2>
+<pre><code class="language-mermaid">graph TB
+    subgraph Client
+        CLI[docker CLI]
+        COMPOSE[docker compose]
+        BUILD[docker build]
+    end
+    subgraph Docker Engine
+        DOCKERD[dockerd&lt;br/&gt;Docker daemon&lt;br/&gt;REST API, image mgmt, volumes]
+        CONTAINERD[containerd&lt;br/&gt;Container lifecycle, snapshots]
+        SHIM[containerd-shim&lt;br/&gt;Per-container process]
+        RUNC[runc&lt;br/&gt;OCI runtime]
+    end
+    subgraph Kernel
+        NS[Namespaces]
+        CG[cgroups]
+        FS[Overlay FS]
+        SEC[Seccomp, Capabilities]
+    end
+
+    CLI --&gt;|REST API| DOCKERD
+    DOCKERD --&gt;|gRPC| CONTAINERD
+    CONTAINERD --&gt;|exec| SHIM
+    SHIM --&gt;|exec| RUNC
+    RUNC --&gt; NS
+    RUNC --&gt; CG
+    RUNC --&gt; FS
+    RUNC --&gt; SEC
+</code></pre>
+<h3 id="component-roles"><a class="header" href="#component-roles">Component Roles</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Component</th><th>PID</th><th>Lifetime</th><th>Role</th></tr></thead><tbody>
+<tr><td>dockerd</td><td>1 (systemd)</td><td>Daemon</td><td>API, images, networks, volumes</td></tr>
+<tr><td>containerd</td><td>1 (systemd)</td><td>Daemon</td><td>Container lifecycle, snapshots, content</td></tr>
+<tr><td>containerd-shim</td><td>Per container</td><td>Container lifetime</td><td>Keeps container alive if containerd restarts</td></tr>
+<tr><td>runc</td><td>Per create</td><td>Transient</td><td>Creates and starts container, then exits</td></tr>
+</tbody></table>
+</div>
+<h3 id="why-containerd-shim"><a class="header" href="#why-containerd-shim">Why containerd-shim?</a></h3>
+<pre><code class="language-mermaid">sequenceDiagram
+    participant dockerd
+    participant containerd
+    participant shim
+    participant runc
+    participant container
+
+    dockerd-&gt;&gt;containerd: Create container
+    containerd-&gt;&gt;shim: Start shim process
+    shim-&gt;&gt;runc: Create container
+    runc-&gt;&gt;container: Start container process
+    runc-&gt;&gt;runc: Exit (container runs under shim)
+
+    Note over containerd: containerd crashes/restarts!
+    
+    containerd-&gt;&gt;shim: Reconnect (shim still running)
+    shim-&gt;&gt;containerd: Report container status
+    
+    Note over container: Container still running!&lt;br/&gt;Shim maintains container I/O
+</code></pre>
+<p>The shim ensures containers survive daemon restarts (live-restore).</p>
+<h2 id="container-lifecycle"><a class="header" href="#container-lifecycle">Container Lifecycle</a></h2>
+<h3 id="creating-a-container"><a class="header" href="#creating-a-container">Creating a Container</a></h3>
+<pre><code class="language-bash"># What happens when you run: docker run -d nginx
+
+# 1. CLI sends REST API POST /containers/create
+#    Body: {"Image": "nginx", "Cmd": ["nginx", "-g", "daemon off;"], ...}
+
+# 2. dockerd pulls image if not present
+#    - Check local image store
+#    - Pull from registry if missing
+#    - Store layers in content-addressable store
+
+# 3. dockerd calls containerd to create container
+#    containerd pulls image from local store
+#    Creates snapshot (writable layer)
+#    Prepares OCI bundle
+
+# 4. containerd spawns containerd-shim
+#    shim sets up stdio pipes
+#    shim calls runc create
+
+# 5. runc creates the container:
+#    - Reads config.json (OCI runtime spec)
+#    - Creates namespaces (pid, net, mount, uts, ipc)
+#    - Sets up cgroups
+#    - Mounts rootfs (overlay)
+#    - Sets up seccomp filter
+#    - Drops capabilities
+#    - Sets up AppArmor/SELinux labels
+#    - Creates container process (paused)
+</code></pre>
+<h3 id="oci-bundle"><a class="header" href="#oci-bundle">OCI Bundle</a></h3>
+<pre><code class="language-json">// config.json (OCI Runtime Specification)
+{
+    "ociVersion": "1.0.2",
+    "process": {
+        "terminal": false,
+        "user": { "uid": 0, "gid": 0 },
+        "args": ["nginx", "-g", "daemon off;"],
+        "env": ["PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"],
+        "cwd": "/",
+        "capabilities": {
+            "bounding": ["CAP_NET_BIND_SERVICE", "CAP_CHOWN", "CAP_SETUID"],
+            "effective": ["CAP_NET_BIND_SERVICE", "CAP_CHOWN", "CAP_SETUID"],
+            "inheritable": ["CAP_NET_BIND_SERVICE"],
+            "permitted": ["CAP_NET_BIND_SERVICE", "CAP_CHOWN", "CAP_SETUID"],
+            "ambient": ["CAP_NET_BIND_SERVICE"]
+        },
+        "seccomp": {
+            "defaultAction": "SCMP_ACT_ERRNO",
+            "syscalls": [{"names": ["accept4","read","write"], "action": "SCMP_ACT_ALLOW"}]
+        },
+        "apparmorProfile": "docker-default",
+        "noNewPrivileges": true
+    },
+    "root": {
+        "path": "rootfs",
+        "readonly": false
+    },
+    "linux": {
+        "namespaces": [
+            {"type": "pid"},
+            {"type": "network"},
+            {"type": "ipc"},
+            {"type": "uts"},
+            {"type": "mount"},
+            {"type": "cgroup"}
+        ],
+        "resources": {
+            "memory": { "limit": 536870912 },
+            "cpu": { "quota": 100000, "period": 100000 }
+        },
+        "maskedPaths": ["/proc/kcore", "/proc/sysrq-trigger"],
+        "readonlyPaths": ["/proc/asound", "/proc/bus"]
+    }
+}
+</code></pre>
+<h2 id="image-layers"><a class="header" href="#image-layers">Image Layers</a></h2>
+<p>Docker images are composed of read-only layers stacked on top of each other:</p>
+<pre><code class="language-mermaid">graph TB
+    subgraph Image Layers (read-only)
+        L1[Layer 1: Ubuntu base&lt;br/&gt;77.8MB - apt-get install]
+        L2[Layer 2: Install deps&lt;br/&gt;12.3MB - apt-get install libssl]
+        L3[Layer 3: Copy app&lt;br/&gt;2.1MB - COPY . /app]
+        L4[Layer 4: Set config&lt;br/&gt;0.1KB - ENV, CMD]
+    end
+    subgraph Container (read-write)
+        RW[Writable Layer&lt;br/&gt;Container changes]
+    end
+    RW --&gt; L4 --&gt; L3 --&gt; L2 --&gt; L1
+</code></pre>
+<h3 id="content-addressable-storage"><a class="header" href="#content-addressable-storage">Content-Addressable Storage</a></h3>
+<p>Each layer is identified by a SHA256 digest of its content:</p>
+<pre><code class="language-bash"># Inspect image layers
+docker inspect nginx --format '{{.RootFS.Layers}}'
+# sha256:e4d0e95fdb2f... (layer 1)
+# sha256:ab6cc02b34bc... (layer 2)
+# sha256:4757a108af0a... (layer 3)
+
+# Image storage location
+ls /var/lib/docker/overlay2/
+# Each layer is a directory with diff/ and link files
+
+# Image manifest
+docker manifest inspect nginx:latest
+# {
+#   "schemaVersion": 2,
+#   "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+#   "config": {"digest": "sha256:abc123..."},
+#   "layers": [
+#     {"digest": "sha256:e4d0e95...", "size": 28948291},
+#     {"digest": "sha256:ab6cc02b...", "size": 12345678}
+#   ]
+# }
+</code></pre>
+<h3 id="layer-sharing"><a class="header" href="#layer-sharing">Layer Sharing</a></h3>
+<pre><code class="language-bash"># Two images sharing the same base layer only store it once
+docker images --tree  # (if using buildx with --metadata-file)
+
+# Example:
+# nginx:latest  ──┐
+#                  ├── ubuntu:22.04 (shared base)
+# myapp:latest  ──┘
+
+# Multi-stage builds reduce layers
+# FROM golang:1.21 AS builder
+# ... build ...
+# FROM alpine:3.19
+# COPY --from=builder /app/server /usr/local/bin/
+# Final image: only alpine layer + binary layer
+</code></pre>
+<h2 id="overlay2-storage-driver"><a class="header" href="#overlay2-storage-driver">Overlay2 Storage Driver</a></h2>
+<p>Overlay2 is the default storage driver for Docker on Linux:</p>
+<pre><code class="language-mermaid">graph TB
+    subgraph Container View
+        MOUNT[merged/&lt;br/&gt;Container sees unified filesystem]
+    end
+    subgraph Overlay2
+        UPPER[upper/&lt;br/&gt;Container writes go here]
+        WORK[work/&lt;br/&gt;Internal use only]
+        LOWER[lower/&lt;br/&gt;Image layers (read-only)]
+    end
+    MOUNT --&gt;|overlay mount| UPPER
+    MOUNT --&gt;|overlay mount| LOWER
+    UPPER --&gt; WORK
+</code></pre>
+<h3 id="how-overlay2-works"><a class="header" href="#how-overlay2-works">How Overlay2 Works</a></h3>
+<pre><code class="language-bash"># Docker's overlay2 storage
+ls /var/lib/docker/overlay2/
+# abc123.../  (image layer)
+#   diff/     (layer contents)
+#   link      (short name for this layer)
+# def456.../  (container layer)
+#   diff/     (container-specific changes)
+#   link
+#   merged/   (mount point - what container sees)
+#   work/     (overlay internal)
+
+# The overlay mount:
+mount -t overlay overlay \
+  -o lowerdir=/lower2:/lower1,upperdir=/upper,workdir=/work \
+  /merged
+
+# Copy-on-write behavior:
+# Read: file found in lower layer → served from there
+# Write: file copied to upper layer → modified in upper
+# Delete: "whiteout" file created in upper layer
+</code></pre>
+<h3 id="whiteout-files"><a class="header" href="#whiteout-files">Whiteout Files</a></h3>
+<pre><code class="language-bash"># When a container deletes a file from a lower layer:
+# overlay2 creates a "whiteout" file in the upper layer
+
+# Character device whiteout (0,0 major/minor)
+ls -la /var/lib/docker/overlay2/abc/merged/etc/deleted-file
+# c--------- 1 root root 0, 0 ...
+
+# Opaque directory whiteout (trusted.overlay.opaque xattr)
+getfattr -n trusted.overlay.opaque /var/lib/docker/overlay2/abc/merged/etc/dir
+# "y" (yes, opaque - hide lower dir contents)
+</code></pre>
+<h2 id="docker-networking"><a class="header" href="#docker-networking">Docker Networking</a></h2>
+<h3 id="bridge-network-default"><a class="header" href="#bridge-network-default">Bridge Network (Default)</a></h3>
+<pre><code class="language-mermaid">graph TB
+    subgraph Host
+        ETH0[eth0&lt;br/&gt;192.168.1.100]
+        DOCKER0[docker0&lt;br/&gt;172.17.0.1/16&lt;br/&gt;Linux bridge]
+        IPT[iptables NAT&lt;br/&gt;MASQUERADE]
+        VETH0[veth-abc&lt;br/&gt;Container 1 end]
+        VETH1[veth-def&lt;br/&gt;Container 2 end]
+    end
+    subgraph Container 1
+        C1[eth0&lt;br/&gt;172.17.0.2]
+    end
+    subgraph Container 2
+        C2[eth0&lt;br/&gt;172.17.0.3]
+    end
+    
+    ETH0 --&gt; IPT
+    DOCKER0 --&gt; VETH0
+    DOCKER0 --&gt; VETH1
+    VETH0 &lt;--&gt;|veth pair| C1
+    VETH1 &lt;--&gt;|veth pair| C2
+    IPT --&gt; DOCKER0
+</code></pre>
+<pre><code class="language-bash"># Docker creates a linux bridge
+ip link show docker0
+# docker0: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 ...
+
+# Each container gets a veth pair
+ip link show type veth
+# veth123@if4: &lt;BROADCAST,MULTICAST,UP&gt; ... master docker0
+# veth456@if6: &lt;BROADCAST,MULTICAST,UP&gt; ... master docker0
+
+# iptables rules for NAT
+iptables -t nat -L -n
+# Chain POSTROUTING
+# MASQUERADE  all  --  172.17.0.0/16  anywhere
+
+# Port publishing (-p 8080:80)
+iptables -t nat -L -n
+# DNAT  tcp  --  anywhere  anywhere  tcp dpt:8080 to:172.17.0.2:80
+
+# Docker iptables chain
+iptables -L DOCKER -n
+# ACCEPT  tcp  --  !172.17.0.0/16  172.17.0.2  tcp dpt:80
+</code></pre>
+<h3 id="network-drivers"><a class="header" href="#network-drivers">Network Drivers</a></h3>
+<pre><code class="language-bash"># List networks
+docker network ls
+# NETWORK ID     NAME      DRIVER    SCOPE
+# abc123...      bridge    bridge    local
+# def456...      host      host      local
+# ghi789...      none      null      local
+
+# Create custom bridge
+docker network create --driver bridge \
+  --subnet 10.0.2.0/24 \
+  --ip-range 10.0.2.128/25 \
+  --gateway 10.0.2.1 \
+  my-net
+
+# Docker creates a new bridge and iptables rules
+ip link show br-$(docker network inspect my-net --format '{{.Id}}' | head -c12)
+
+# Container on custom network
+docker run --network my-net --name web nginx
+</code></pre>
+<h3 id="dns-resolution"><a class="header" href="#dns-resolution">DNS Resolution</a></h3>
+<pre><code class="language-bash"># Docker runs an embedded DNS server (127.0.0.11)
+docker run --rm alpine cat /etc/resolv.conf
+# nameserver 127.0.0.11
+# options ndots:0
+
+# Docker DNS resolves container names within a network
+docker network create testnet
+docker run -d --network testnet --name db postgres
+docker run --rm --network testnet alpine nslookup db
+# Name:      db
+# Address:   10.0.3.2
+
+# Default bridge network does NOT resolve names
+docker run --rm alpine nslookup other_container
+# (fails - use custom networks)
+</code></pre>
+<h2 id="docker-storage"><a class="header" href="#docker-storage">Docker Storage</a></h2>
+<h3 id="volumes-vs-bind-mounts-vs-tmpfs"><a class="header" href="#volumes-vs-bind-mounts-vs-tmpfs">Volumes vs Bind Mounts vs tmpfs</a></h3>
+<pre><code class="language-bash"># Named volumes (managed by Docker)
+docker volume create mydata
+docker volume inspect mydata
+# {
+#     "Mountpoint": "/var/lib/docker/volumes/mydata/_data",
+#     "Driver": "local",
+#     "Scope": "local"
+# }
+
+# Bind mounts (host path)
+docker run -v /host/path:/container/path:ro nginx
+
+# tmpfs (in-memory)
+docker run --tmpfs /app/cache:rw,noexec,nosuid,size=100m nginx
+
+# Volume drivers for distributed storage
+docker volume create --driver local \
+  --opt type=nfs \
+  --opt o=addr=192.168.1.100,rw \
+  --opt device=:/exports/data \
+  nfs-data
+</code></pre>
+<h2 id="docker-build-system"><a class="header" href="#docker-build-system">Docker Build System</a></h2>
+<h3 id="buildkit"><a class="header" href="#buildkit">BuildKit</a></h3>
+<pre><code class="language-bash"># BuildKit is Docker's modern build engine
+# Enabled by default in Docker 23.0+
+
+# BuildKit features:
+# - Parallel build stages
+# - Build cache import/export
+# - Secret mounts (--mount=type=secret)
+# - SSH agent forwarding (--mount=type=ssh)
+# - Multi-platform builds
+
+# Build with BuildKit
+DOCKER_BUILDKIT=1 docker build -t myapp .
+
+# Multi-platform build
+docker buildx build --platform linux/amd64,linux/arm64 -t myapp .
+</code></pre>
+<h3 id="build-cache"><a class="header" href="#build-cache">Build Cache</a></h3>
+<pre><code class="language-bash"># Build cache is layer-based
+# Each instruction in Dockerfile creates a layer
+# If the instruction and context haven't changed, cached layer is used
+
+docker build -t myapp .
+# Step 1/5 : FROM alpine:3.19
+#  ---&gt; Using cache  (abc123)
+# Step 2/5 : RUN apk add --no-cache curl
+#  ---&gt; Using cache  (def456)
+# Step 3/5 : COPY . /app
+#  ---&gt; New layer    (ghi789)  # Context changed!
+
+# Cache invalidation:
+# COPY/ADD: invalidated if file content changes
+# RUN: NOT invalidated (use --no-cache to force)
+# ARG: invalidated if value changes
+</code></pre>
+<h2 id="docker-security"><a class="header" href="#docker-security">Docker Security</a></h2>
+<pre><code class="language-bash"># Security features applied to containers:
+# 1. Namespaces (pid, net, mount, uts, ipc, cgroup)
+# 2. Seccomp profile (default blocks ~44 of 300+ syscalls)
+# 3. Capabilities (drops ~14 of ~37 capabilities)
+# 4. AppArmor profile (docker-default)
+# 5. Read-only rootfs (--read-only)
+# 6. No new privileges (--security-opt no-new-privileges)
+# 7. User namespace remapping (--userns-remap)
+
+# Run with all security features
+docker run \
+  --security-opt seccomp=profile.json \
+  --security-opt apparmor=docker-default \
+  --cap-drop ALL \
+  --cap-add NET_BIND_SERVICE \
+  --read-only \
+  --tmpfs /tmp \
+  --security-opt no-new-privileges \
+  --user 1000:1000 \
+  nginx
+
+# Docker Content Trust (image signing)
+export DOCKER_CONTENT_TRUST=1
+docker pull nginx  # Only pulls signed images
+</code></pre>
+<h2 id="docker-context--info"><a class="header" href="#docker-context--info">Docker Context / Info</a></h2>
+<pre><code class="language-bash"># Docker system information
+docker system info
+# Server:
+#  Containers: 5
+#   Running: 3
+#   Paused: 0
+#   Stopped: 2
+#  Images: 12
+# Storage Driver: overlay2
+#  Backing Filesystem: ext4
+# Logging Driver: json-file
+# Cgroup Driver: systemd
+# Cgroup Version: 2
+# Kernel Version: 6.1.0
+# Operating System: Ubuntu 22.04
+# Architecture: x86_64
+
+# Disk usage
+docker system df
+# TYPE        ACTIVE   SIZE     RECLAIMABLE
+# Images      3        1.2GB    800MB (66%)
+# Containers  3        50MB     30MB (60%)
+# Local Volumes 2      500MB    200MB (40%)
+# Build Cache 5        2GB      2GB (100%)
+
+# Cleanup
+docker system prune -a --volumes  # Remove everything unused
+</code></pre>
+<h2 id="alternatives-to-docker"><a class="header" href="#alternatives-to-docker">Alternatives to Docker</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Tool</th><th>Architecture</th><th>Rootless</th><th>Notes</th></tr></thead><tbody>
+<tr><td><strong>Podman</strong></td><td>Daemonless</td><td>✅</td><td>Docker CLI compatible</td></tr>
+<tr><td><strong>containerd</strong></td><td>Daemon</td><td>✅</td><td>K8s CRI standard</td></tr>
+<tr><td><strong>CRI-O</strong></td><td>Daemon</td><td>✅</td><td>K8s-specific runtime</td></tr>
+<tr><td><strong>LXC/LXD</strong></td><td>Daemon</td><td>✅</td><td>System containers</td></tr>
+<tr><td><strong>runc</strong></td><td>Standalone</td><td>✅</td><td>Low-level runtime only</td></tr>
+</tbody></table>
+</div>
+<pre><code class="language-bash"># Podman is a drop-in Docker replacement
+alias docker=podman
+podman run --rm alpine echo "Hello from Podman"
+# No daemon needed!
+# Rootless by default
+</code></pre>
+<h2 id="references"><a class="header" href="#references">References</a></h2>
+<ol>
+<li>Docker Architecture Documentation. <a href="https://docs.docker.com/get-started/overview/">https://docs.docker.com/get-started/overview/</a></li>
+<li>OCI Runtime Specification. <a href="https://github.com/opencontainers/runtime-spec">https://github.com/opencontainers/runtime-spec</a></li>
+<li>OCI Image Specification. <a href="https://github.com/opencontainers/image-spec">https://github.com/opencontainers/image-spec</a></li>
+<li>containerd Documentation. <a href="https://containerd.io/docs/">https://containerd.io/docs/</a></li>
+</ol>
+<h2 id="further-reading"><a class="header" href="#further-reading">Further Reading</a></h2>
+<ul>
+<li>
+<p><a href="https://docs.kernel.org/">The Linux Kernel Documentation</a></p>
+</li>
+<li>
+<p><a href="https://lwn.net/">LWN.net - Linux and free software news</a></p>
+</li>
+<li>
+<p><a href="https://www.gnu.org/doc/doc.html">GNU Project Documentation</a></p>
+</li>
+<li>
+<p><a href="https://www.gnu.org/manual/manual.html">GNU Manuals</a></p>
+</li>
+<li>
+<p><a href="https://directory.fsf.org/wiki/Main_Page">Free Software Directory</a></p>
+</li>
+<li>
+<p><a href="https://planet.gnu.org/">Planet GNU</a></p>
+</li>
+<li>
+<p><a href="https://www.gnu.org/doc/other-free-books.html">Free Software Books</a></p>
+</li>
+<li>
+<p><a href="https://docs.docker.com/">Docker Documentation</a></p>
+</li>
+<li>
+<p><a href="https://github.com/containerd/containerd">containerd GitHub</a></p>
+</li>
+<li>
+<p><a href="https://github.com/opencontainers/runc">runc — OCI Runtime</a></p>
+</li>
+<li>
+<p><a href="https://github.com/moby/buildkit">BuildKit Documentation</a></p>
+</li>
+<li>
+<p><a href="https://docs.docker.com/network/">Docker Networking Deep Dive</a></p>
+</li>
+<li>
+<p><a href="https://podman.io/docs">Podman Documentation</a></p>
+</li>
+</ul>
+<h2 id="related-topics"><a class="header" href="#related-topics">Related Topics</a></h2>
+<ul>
+<li><a href="./overview.html">Container Overview</a> — container concepts</li>
+<li><a href="./primitives.html">Container Primitives</a> — kernel features used by Docker</li>
+<li><a href="./cgroups-v2.html">cgroups v2</a> — resource management</li>
+<li><a href="./kubernetes.html">Kubernetes and Linux</a> — container orchestration</li>
+</ul>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../containers/primitives.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+                            <a rel="next prefetch" href="../containers/kubernetes.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../containers/primitives.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+                    <a rel="next prefetch" href="../containers/kubernetes.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+        <script src="../ace.js"></script>
+        <script src="../editor.js"></script>
+        <script src="../mode-rust.js"></script>
+        <script src="../theme-dawn.js"></script>
+        <script src="../theme-tomorrow_night.js"></script>
+
+        <script src="../elasticlunr.min.js"></script>
+        <script src="../mark.min.js"></script>
+        <script src="../searcher.js"></script>
+
+        <script src="../clipboard.min.js"></script>
+        <script src="../highlight.js"></script>
+        <script src="../book.js"></script>
+
+        <!-- Custom JS scripts -->
+        <script src="../custom.js"></script>
+
+
+    </div>
+    </body>
+</html>

@@ -1,0 +1,687 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Overview - The Linux Encyclopedia</title>
+
+
+        <!-- Custom HTML head -->
+        
+        <meta name="description" content="A comprehensive, continuously growing reference for Linux, Unix internals, kernel development, system programming, administration, networking, security, and beyond.">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon.svg">
+        <link rel="shortcut icon" href="../favicon.png">
+        <link rel="stylesheet" href="../css/variables.css">
+        <link rel="stylesheet" href="../css/general.css">
+        <link rel="stylesheet" href="../css/chrome.css">
+        <link rel="stylesheet" href="../css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="../highlight.css">
+        <link rel="stylesheet" href="../tomorrow-night.css">
+        <link rel="stylesheet" href="../ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+        <link rel="stylesheet" href="../custom.css">
+
+    </head>
+    <body class="sidebar-visible no-js">
+    <div id="body-container">
+        <!-- Provide site root to javascript -->
+        <script>
+            var path_to_root = "../";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('light')
+            html.classList.add(theme);
+            var body = document.querySelector('body');
+            body.classList.remove('no-js')
+            body.classList.add('js');
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            var body = document.querySelector('body');
+            var sidebar = null;
+            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+            }
+            sidebar_toggle.checked = sidebar === 'visible';
+            body.classList.remove('sidebar-visible');
+            body.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded affix "><li class="part-title">Linux Encyclopedia</li><li class="chapter-item expanded affix "><li class="spacer"></li><li class="chapter-item expanded affix "><li class="part-title">Virtualization</li><li class="chapter-item expanded "><a href="../virtualization/overview.html" class="active"><strong aria-hidden="true">1.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../virtualization/kvm.html"><strong aria-hidden="true">2.</strong> KVM Internals</a></li><li class="chapter-item expanded "><a href="../virtualization/qemu.html"><strong aria-hidden="true">3.</strong> QEMU</a></li><li class="chapter-item expanded "><a href="../virtualization/xen.html"><strong aria-hidden="true">4.</strong> Xen Hypervisor</a></li><li class="chapter-item expanded affix "><li class="spacer"></li><li class="chapter-item expanded affix "><li class="part-title">Containers</li><li class="chapter-item expanded "><a href="../containers/overview.html"><strong aria-hidden="true">5.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../containers/primitives.html"><strong aria-hidden="true">6.</strong> Container Primitives</a></li><li class="chapter-item expanded "><a href="../containers/docker-internals.html"><strong aria-hidden="true">7.</strong> Docker Internals</a></li><li class="chapter-item expanded "><a href="../containers/kubernetes.html"><strong aria-hidden="true">8.</strong> Kubernetes and Linux</a></li><li class="chapter-item expanded "><a href="../containers/cgroups-v2.html"><strong aria-hidden="true">9.</strong> cgroups v2</a></li><li class="chapter-item expanded affix "><li class="spacer"></li><li class="chapter-item expanded affix "><li class="part-title">Embedded Linux</li><li class="chapter-item expanded "><a href="../embedded/overview.html"><strong aria-hidden="true">10.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../embedded/cross-compilation.html"><strong aria-hidden="true">11.</strong> Cross-Compilation</a></li><li class="chapter-item expanded "><a href="../embedded/uboot.html"><strong aria-hidden="true">12.</strong> U-Boot</a></li><li class="chapter-item expanded "><a href="../embedded/device-tree.html"><strong aria-hidden="true">13.</strong> Device Tree</a></li><li class="chapter-item expanded "><a href="../embedded/arm.html"><strong aria-hidden="true">14.</strong> ARM Architecture</a></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <!-- Track and set sidebar scroll position -->
+        <script>
+            var sidebarScrollbox = document.querySelector('#sidebar .sidebar-scrollbox');
+            sidebarScrollbox.addEventListener('click', function(e) {
+                if (e.target.tagName === 'A') {
+                    sessionStorage.setItem('sidebar-scroll', sidebarScrollbox.scrollTop);
+                }
+            }, { passive: true });
+            var sidebarScrollTop = sessionStorage.getItem('sidebar-scroll');
+            sessionStorage.removeItem('sidebar-scroll');
+            if (sidebarScrollTop) {
+                // preserve sidebar scroll position when navigating via links within sidebar
+                sidebarScrollbox.scrollTop = sidebarScrollTop;
+            } else {
+                // scroll sidebar to current active section when navigating via "next/previous chapter" buttons
+                var activeSection = document.querySelector('#sidebar .active');
+                if (activeSection) {
+                    activeSection.scrollIntoView({ block: 'center' });
+                }
+            }
+        </script>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">The Linux Encyclopedia</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/Abhinav-Kumar012/lb2" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+                        <a href="https://github.com/Abhinav-Kumar012/lb2/edit/dev/src/virtualization/overview.md" title="Suggest an edit" aria-label="Suggest an edit">
+                            <i id="git-edit-button" class="fa fa-edit"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="virtualization-overview"><a class="header" href="#virtualization-overview">Virtualization Overview</a></h1>
+<h2 id="introduction"><a class="header" href="#introduction">Introduction</a></h2>
+<p>Virtualization is the foundational technology that enables a single physical machine to run multiple isolated operating system instances simultaneously. It underpins modern cloud computing, data center consolidation, development workflows, and increasingly, desktop computing. Understanding virtualization requires grasping hardware architecture, CPU privilege rings, memory management, and the delicate dance between software and silicon.</p>
+<p>This chapter surveys the landscape of virtualization technologies on Linux, from full hardware emulation to lightweight paravirtualization, and examines the hypervisors that make it all possible.</p>
+<h2 id="historical-context"><a class="header" href="#historical-context">Historical Context</a></h2>
+<p>IBM pioneered virtualization in the 1960s with the CP-40 and CP-67 systems on mainframes. The idea lay largely dormant in the x86 world until the early 2000s, when VMware and the open-source Xen project brought it to commodity hardware. The x86 architecture was originally not designed to be virtualizable — a fact that shaped two decades of engineering workarounds.</p>
+<h3 id="the-x86-virtualization-problem"><a class="header" href="#the-x86-virtualization-problem">The x86 Virtualization Problem</a></h3>
+<p>Classic x86 has four privilege rings (Ring 0–3). The operating system runs in Ring 0 (kernel mode), and applications in Ring 3 (user mode). A hypervisor also needs Ring 0, creating a conflict. Popek and Goldberg's 1974 virtualization requirements state that a virtualizable architecture must trap all sensitive instructions — instructions that modify or query privileged state. On x86, 17 instructions are "sensitive but unprivileged" (e.g., <code>POPF</code>, <code>SGDT</code>), meaning they silently fail or behave differently in user mode rather than trapping to the hypervisor.</p>
+<p>This deficiency led to two solutions:</p>
+<ol>
+<li><strong>Binary translation</strong> — dynamically rewriting problematic instructions at runtime (VMware's original approach)</li>
+<li><strong>Paravirtualization</strong> — modifying the guest OS to explicitly call the hypervisor via hypercalls (Xen's approach)</li>
+<li><strong>Hardware-assisted virtualization</strong> — adding new CPU modes that resolve the conflict (Intel VT-x, AMD-V)</li>
+</ol>
+<pre><code class="language-mermaid">timeline
+    title x86 Virtualization Timeline
+    1964 : IBM CP-40 mainframe virtualization
+    1998 : VMware founded, binary translation
+    2003 : Xen paravirtualization released
+    2005 : Intel VT-x (Vanderpool) ships
+    2006 : AMD-V (Pacifica) ships
+    2006 : KVM merged into Linux kernel
+    2007 : Xen adds HVM support
+    2013 : Docker containers popularized
+    2016 : Kata Containers, Firecracker emerge
+</code></pre>
+<h2 id="types-of-virtualization"><a class="header" href="#types-of-virtualization">Types of Virtualization</a></h2>
+<h3 id="full-virtualization"><a class="header" href="#full-virtualization">Full Virtualization</a></h3>
+<p>Full virtualization presents a complete virtual hardware platform to the guest operating system. The guest is unmodified — it believes it is running on real hardware. All hardware devices are emulated in software.</p>
+<p><strong>Characteristics:</strong></p>
+<ul>
+<li>Guest OS is completely unmodified</li>
+<li>Full hardware emulation (CPU, memory, disk, network, display)</li>
+<li>Strong isolation between guest and host</li>
+<li>Higher overhead due to emulation</li>
+<li>Can run any operating system (including proprietary ones)</li>
+</ul>
+<p><strong>Approaches to full virtualization:</strong></p>
+<div class="table-wrapper"><table><thead><tr><th>Approach</th><th>Mechanism</th><th>Examples</th></tr></thead><tbody>
+<tr><td>Software emulation</td><td>Interpret or translate every instruction</td><td>QEMU (TCG), Bochs</td></tr>
+<tr><td>Binary translation</td><td>Rewrite sensitive instructions at runtime</td><td>VMware Workstation (legacy)</td></tr>
+<tr><td>Hardware-assisted</td><td>CPU provides native virtualization support</td><td>KVM, Hyper-V, modern VMware</td></tr>
+</tbody></table>
+</div>
+<p><strong>Software Emulation Example (QEMU TCG):</strong></p>
+<pre><code class="language-bash"># Run an ARM guest on an x86 host using QEMU's Tiny Code Generator
+qemu-system-aarch64 \
+  -machine virt \
+  -cpu cortex-a72 \
+  -m 2048 \
+  -kernel Image \
+  -dtb virt.dtb \
+  -append "console=ttyAMA0" \
+  -nographic
+
+# The guest ARM instructions are translated to x86 at runtime
+# Performance: ~5-10x slower than native
+</code></pre>
+<h3 id="paravirtualization-pv"><a class="header" href="#paravirtualization-pv">Paravirtualization (PV)</a></h3>
+<p>Paravirtualization modifies the guest operating system kernel to replace privileged operations with explicit calls to the hypervisor (hypercalls). The guest "knows" it is virtualized and cooperates with the hypervisor.</p>
+<p><strong>Characteristics:</strong></p>
+<ul>
+<li>Guest OS is modified to use hypercalls</li>
+<li>No need for binary translation or hardware assist</li>
+<li>Better performance than software-based full virtualization</li>
+<li>Cannot run unmodified operating systems (Windows, proprietary OSes)</li>
+<li>Requires a paravirtualized frontend/backend driver model for I/O</li>
+</ul>
+<p><strong>Hypercall mechanism:</strong></p>
+<pre><code class="language-c">/* Xen hypercall example — guest requesting memory mapping */
+static inline int HYPERVISOR_update_va_mapping(
+    unsigned long va, pte_t new_val, unsigned long flags)
+{
+    struct mmuext_op op;
+    op.cmd = MMUEXT_UPDATE_ONLY_VA_MAPPING;
+    op.arg1.linear_addr = va;
+    op.arg2.pte = new_val;
+    return HYPERVISOR_mmuext_op(&amp;op, 1, NULL, DOMID_SELF);
+}
+
+/* The VMCALL/VMINSTRUCTION traps to the hypervisor */
+/* On x86: INT 0x82 (Xen) or VMCALL (KVM hypercall) */
+</code></pre>
+<p><strong>Paravirtualized I/O (virtio model):</strong></p>
+<pre><code class="language-mermaid">graph LR
+    subgraph Guest
+        APP[Application] --&gt; VFS[VFS/Block Layer]
+        VFS --&gt; FE[virtio-blk frontend]
+    end
+    subgraph Hypervisor
+        FE --&gt;|shared ring buffer| BE[virtio-blk backend]
+        BE --&gt; HOST[Host Block Device]
+    end
+</code></pre>
+<h3 id="hardware-assisted-virtualization"><a class="header" href="#hardware-assisted-virtualization">Hardware-Assisted Virtualization</a></h3>
+<p>Hardware-assisted virtualization adds new CPU operating modes that resolve the x86 virtualization deficiency. The CPU itself traps sensitive instructions, allowing the hypervisor to run in a new, more privileged mode.</p>
+<h4 id="intel-vt-x-virtualization-technology-for-x86"><a class="header" href="#intel-vt-x-virtualization-technology-for-x86">Intel VT-x (Virtualization Technology for x86)</a></h4>
+<p>Intel VT-x introduces two new CPU modes:</p>
+<ul>
+<li><strong>VMX root mode</strong> — for the hypervisor (host)</li>
+<li><strong>VMX non-root mode</strong> — for the guest</li>
+</ul>
+<p>The transition between these modes is managed by a data structure called the <strong>VMCS</strong> (Virtual Machine Control Structure).</p>
+<pre><code class="language-mermaid">graph TD
+    subgraph VMX Root Mode
+        HV[Hypervisor / Host]
+    end
+    subgraph VMX Non-Root Mode
+        G[Guest OS]
+    end
+    HV --&gt;|VM Entry| G
+    G --&gt;|VM Exit| HV
+    G --&gt;|VM Exit on sensitive instruction| HV
+</code></pre>
+<p><strong>Key VT-x features:</strong></p>
+<ul>
+<li><strong>VMCS</strong> — 4KB page per vCPU storing guest/host state, exit controls</li>
+<li><strong>VM Entry/Exit</strong> — hardware-managed transitions between root and non-root mode</li>
+<li><strong>EPT</strong> (Extended Page Tables) — hardware-assisted two-level address translation for guest physical → host physical</li>
+<li><strong>VPID</strong> (Virtual Processor ID) — avoids TLB flushes on VM entry/exit</li>
+<li><strong>VMFUNC</strong> — allows guest to perform certain operations without VM exit</li>
+</ul>
+<h4 id="amd-v-amd-virtualization--svm"><a class="header" href="#amd-v-amd-virtualization--svm">AMD-V (AMD Virtualization / SVM)</a></h4>
+<p>AMD-V provides similar functionality with different terminology:</p>
+<ul>
+<li><strong>VMCB</strong> (Virtual Machine Control Block) — analogous to Intel's VMCS</li>
+<li><strong>NPT</strong> (Nested Page Tables) — analogous to Intel's EPT</li>
+<li><strong>ASID</strong> (Address Space ID) — analogous to Intel's VPID</li>
+</ul>
+<pre><code class="language-bash"># Check if hardware virtualization is available
+# Intel:
+grep -c vmx /proc/cpuinfo
+# AMD:
+grep -c svm /proc/cpuinfo
+
+# Check kernel module loaded
+lsmod | grep kvm
+# Expected output:
+# kvm_intel              380928  0
+# kvm                   1089536  1 kvm_intel
+# or
+# kvm_amd                151552  0
+# kvm                   1089536  1 kvm_amd
+</code></pre>
+<h2 id="hypervisor-classification"><a class="header" href="#hypervisor-classification">Hypervisor Classification</a></h2>
+<h3 id="type-1-bare-metal-hypervisors"><a class="header" href="#type-1-bare-metal-hypervisors">Type 1 (Bare-Metal) Hypervisors</a></h3>
+<p>Type 1 hypervisors run directly on hardware without a host operating system. The hypervisor itself IS the operating system (or runs alongside a minimal management partition).</p>
+<pre><code class="language-mermaid">graph TB
+    subgraph Type 1 Hypervisor
+        VM1[VM 1] --&gt; HV[Hypervisor]
+        VM2[VM 2] --&gt; HV
+        VM3[VM 3] --&gt; HV
+        HV --&gt; HW[Hardware]
+    end
+</code></pre>
+<p><strong>Examples:</strong></p>
+<div class="table-wrapper"><table><thead><tr><th>Hypervisor</th><th>License</th><th>Notes</th></tr></thead><tbody>
+<tr><td>VMware ESXi</td><td>Proprietary</td><td>Dominant in enterprise data centers</td></tr>
+<tr><td>Xen</td><td>GPL v2</td><td>Used by AWS, many cloud providers</td></tr>
+<tr><td>Hyper-V</td><td>Proprietary</td><td>Microsoft's hypervisor, runs Windows/Linux guests</td></tr>
+<tr><td>KVM</td><td>GPL v2</td><td>Part of Linux kernel, often categorized as Type 1</td></tr>
+</tbody></table>
+</div>
+<blockquote>
+<p><strong>Note:</strong> KVM's classification is debated. Since it turns the Linux kernel itself into a hypervisor, and Linux has a full host OS stack, some classify it as Type 2. However, since KVM runs in kernel mode and the host OS is not a prerequisite for VM execution, others consider it Type 1.</p>
+</blockquote>
+<h3 id="type-2-hosted-hypervisors"><a class="header" href="#type-2-hosted-hypervisors">Type 2 (Hosted) Hypervisors</a></h3>
+<p>Type 2 hypervisors run as applications on a conventional host operating system.</p>
+<pre><code class="language-mermaid">graph TB
+    subgraph Type 2 Hypervisor
+        VM1[VM 1] --&gt; HV[Hypervisor App]
+        VM2[VM 2] --&gt; HV
+        HV --&gt; HOST[Host OS]
+        HOST --&gt; HW[Hardware]
+    end
+</code></pre>
+<p><strong>Examples:</strong></p>
+<div class="table-wrapper"><table><thead><tr><th>Hypervisor</th><th>License</th><th>Notes</th></tr></thead><tbody>
+<tr><td>VirtualBox</td><td>GPL v2</td><td>Oracle-maintained, cross-platform</td></tr>
+<tr><td>VMware Workstation</td><td>Proprietary</td><td>Desktop virtualization, VMware Fusion for macOS</td></tr>
+<tr><td>QEMU (standalone)</td><td>GPL v2</td><td>Full software emulation, no host kernel module</td></tr>
+<tr><td>Parallels</td><td>Proprietary</td><td>macOS-focused</td></tr>
+</tbody></table>
+</div>
+<h2 id="hypervisor-comparison"><a class="header" href="#hypervisor-comparison">Hypervisor Comparison</a></h2>
+<h3 id="feature-matrix"><a class="header" href="#feature-matrix">Feature Matrix</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Feature</th><th>KVM</th><th>Xen</th><th>VMware ESXi</th><th>VirtualBox</th><th>Hyper-V</th></tr></thead><tbody>
+<tr><td>Type</td><td>1 (kernel module)</td><td>1 (bare-metal)</td><td>1 (bare-metal)</td><td>2 (hosted)</td><td>1 (bare-metal)</td></tr>
+<tr><td>License</td><td>GPL v2</td><td>GPL v2</td><td>Proprietary</td><td>GPL v2</td><td>Proprietary</td></tr>
+<tr><td>Full virtualization</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
+<tr><td>Paravirtualization</td><td>✅ (virtio)</td><td>✅ (native PV)</td><td>✅ (PV drivers)</td><td>✅ (virtio)</td><td>✅ (Enlighten)</td></tr>
+<tr><td>Hardware assist</td><td>VT-x/AMD-V</td><td>VT-x/AMD-V</td><td>VT-x/AMD-V</td><td>VT-x/AMD-V</td><td>VT-x/AMD-V</td></tr>
+<tr><td>Nested virtualization</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
+<tr><td>Live migration</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
+<tr><td>Hot-plug CPU/RAM</td><td>✅</td><td>✅</td><td>✅</td><td>❌</td><td>✅</td></tr>
+<tr><td>SR-IOV</td><td>✅</td><td>✅</td><td>✅</td><td>❌</td><td>✅</td></tr>
+<tr><td>GPU passthrough</td><td>✅</td><td>✅</td><td>✅</td><td>Limited</td><td>✅</td></tr>
+<tr><td>Max vCPUs per VM</td><td>710+</td><td>512+</td><td>768</td><td>32</td><td>2048</td></tr>
+<tr><td>Memory overhead</td><td>Low</td><td>Low</td><td>Low</td><td>Medium</td><td>Low</td></tr>
+</tbody></table>
+</div>
+<h3 id="performance-considerations"><a class="header" href="#performance-considerations">Performance Considerations</a></h3>
+<pre><code class="language-bash"># Benchmarking virtualization overhead with UnixBench
+# Native:
+./Run -c 1 -c $(nproc) dhry2reg whetstone-double
+
+# Inside KVM VM:
+# Typical overhead: 2-5% for CPU-bound workloads
+# Typical overhead: 5-15% for I/O-bound workloads (without virtio)
+# Typical overhead: 1-3% for I/O-bound workloads (with virtio)
+</code></pre>
+<h2 id="kvm-architecture-overview"><a class="header" href="#kvm-architecture-overview">KVM Architecture Overview</a></h2>
+<p>KVM (Kernel-based Virtual Machine) is the primary virtualization technology in Linux. It transforms the Linux kernel into a hypervisor by leveraging hardware-assisted virtualization.</p>
+<pre><code class="language-mermaid">graph TB
+    subgraph User Space
+        QEMU[QEMU / qemu-system-x86_64]
+        LIBVIRT[libvirt]
+        APP[Management Tools]
+        LIBVIRT --&gt; QEMU
+        APP --&gt; LIBVIRT
+    end
+    subgraph Kernel Space
+        KVM[kvm.ko / kvm-intel.ko / kvm-amd.ko]
+        VFIO[VFIO - Device Passthrough]
+        VHOST[vhost / vhost-net]
+    end
+    subgraph Hardware
+        CPU[CPU with VT-x/AMD-V]
+        IOMMU[VT-d / AMD-Vi]
+        NIC[Network Interface]
+    end
+    QEMU --&gt;|/dev/kvm ioctl| KVM
+    KVM --&gt; CPU
+    QEMU --&gt; VFIO
+    VFIO --&gt; IOMMU
+    IOMMU --&gt; NIC
+    QEMU --&gt; VHOST
+</code></pre>
+<h3 id="the-devkvm-interface"><a class="header" href="#the-devkvm-interface">The <code>/dev/kvm</code> Interface</a></h3>
+<p>KVM exposes a character device <code>/dev/kvm</code> that provides the userspace API:</p>
+<pre><code class="language-bash"># KVM device permissions
+ls -la /dev/kvm
+# crw-rw----+ 1 root kvm 10, 232 Jul 21 10:00 /dev/kvm
+
+# System call flow for creating a VM:
+# 1. open("/dev/kvm")           → get KVM file descriptor
+# 2. ioctl(kvm_fd, KVM_GET_API_VERSION) → verify API version (12)
+# 3. ioctl(kvm_fd, KVM_CREATE_VM)       → create a VM instance
+# 4. ioctl(vm_fd, KVM_SET_USER_MEMORY_REGION) → map guest memory
+# 5. ioctl(vm_fd, KVM_CREATE_VCPU)      → create a virtual CPU
+# 6. mmap(vcpu_fd, KVM_RUN)             → enter guest mode
+# 7. ioctl(vcpu_fd, KVM_RUN)            → run the vCPU
+</code></pre>
+<p><strong>Minimal KVM example in C:</strong></p>
+<pre><code class="language-c">#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;fcntl.h&gt;
+#include &lt;sys/ioctl.h&gt;
+#include &lt;sys/mman.h&gt;
+#include &lt;linux/kvm.h&gt;
+
+int main() {
+    int kvm_fd = open("/dev/kvm", O_RDWR | O_CLOEXEC);
+    int api_ver = ioctl(kvm_fd, KVM_GET_API_VERSION, 0);
+    printf("KVM API version: %d\n", api_ver);
+
+    int vm_fd = ioctl(kvm_fd, KVM_CREATE_VM, 0);
+
+    // Allocate 4KB of guest memory
+    void *mem = mmap(NULL, 0x1000, PROT_READ | PROT_WRITE,
+                     MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+
+    // Map guest physical address 0x0 to our memory
+    struct kvm_userspace_memory_region region = {
+        .slot = 0,
+        .guest_phys_addr = 0,
+        .memory_size = 0x1000,
+        .userspace_addr = (__u64)mem,
+    };
+    ioctl(vm_fd, KVM_SET_USER_MEMORY_REGION, &amp;region);
+
+    // Write x86 HLT instruction at guest address 0x0
+    // This is the simplest possible guest program
+    char *code = (char *)mem;
+    code[0] = 0xF4; // HLT
+
+    int vcpu_fd = ioctl(vm_fd, KVM_CREATE_VCPU, 0);
+
+    // Map the kvm_run structure
+    struct kvm_run *run = mmap(NULL, sizeof(struct kvm_run),
+                               PROT_READ | PROT_WRITE, MAP_SHARED,
+                               vcpu_fd, 0);
+
+    // Configure segment registers for flat real mode
+    struct kvm_sregs sregs;
+    ioctl(vcpu_fd, KVM_GET_SREGS, &amp;sregs);
+    sregs.cs.base = 0;
+    sregs.cs.selector = 0;
+    ioctl(vcpu_fd, KVM_SET_SREGS, &amp;sregs);
+
+    struct kvm_regs regs = {
+        .rip = 0,
+        .rflags = 0x2, // bit 1 always set
+    };
+    ioctl(vcpu_fd, KVM_SET_REGS, &amp;regs);
+
+    // Run the VM
+    ioctl(vcpu_fd, KVM_RUN, 0);
+
+    printf("VM exit reason: %d\n", run-&gt;exit_reason);
+    // Expected: KVM_EXIT_HLT (5)
+
+    return 0;
+}
+</code></pre>
+<h2 id="virtualization-use-cases"><a class="header" href="#virtualization-use-cases">Virtualization Use Cases</a></h2>
+<h3 id="cloud-computing"><a class="header" href="#cloud-computing">Cloud Computing</a></h3>
+<pre><code class="language-mermaid">graph TB
+    subgraph Cloud Provider
+        LB[Load Balancer] --&gt; WEB1[Web VM 1]
+        LB --&gt; WEB2[Web VM 2]
+        WEB1 --&gt; DB[DB VM]
+        WEB2 --&gt; DB
+        WEB1 --&gt; VM_NET[Virtual Network]
+        WEB2 --&gt; VM_NET
+        DB --&gt; VM_NET
+        VM_NET --&gt; PHYS[Physical Network]
+    end
+</code></pre>
+<ul>
+<li><strong>IaaS</strong> — AWS EC2, GCP Compute Engine, Azure VMs</li>
+<li><strong>Multi-tenancy</strong> — strong isolation between customers</li>
+<li><strong>Elastic scaling</strong> — spin up/down VMs on demand</li>
+</ul>
+<h3 id="development-and-testing"><a class="header" href="#development-and-testing">Development and Testing</a></h3>
+<pre><code class="language-bash"># Quick VM for testing with libvirt
+virt-install \
+  --name test-vm \
+  --ram 2048 \
+  --vcpus 2 \
+  --disk size=20 \
+  --os-variant ubuntu22.04 \
+  --network default \
+  --graphics none \
+  --console pty,target_type=serial \
+  --location 'http://archive.ubuntu.com/ubuntu/dists/jammy/main/installer-amd64/' \
+  --extra-args 'console=ttyS0,115200n8 serial'
+
+# Snapshot before risky changes
+virsh snapshot-create-as test-vm pre-change "Before risky update"
+# ... make changes ...
+# Rollback if needed
+virsh snapshot-revert test-vm pre-change
+</code></pre>
+<h3 id="security-isolation"><a class="header" href="#security-isolation">Security Isolation</a></h3>
+<ul>
+<li><strong>Sandboxing</strong> — run untrusted code in isolated VMs</li>
+<li><strong>Confidential computing</strong> — AMD SEV, Intel TDX encrypt VM memory</li>
+<li><strong>MicroVMs</strong> — Firecracker, Kata Containers for lightweight isolation</li>
+</ul>
+<h2 id="modern-trends"><a class="header" href="#modern-trends">Modern Trends</a></h2>
+<h3 id="microvms"><a class="header" href="#microvms">MicroVMs</a></h3>
+<p>MicroVMs strip down the traditional VM to essentials, trading device flexibility for speed:</p>
+<pre><code class="language-bash"># Firecracker microVM startup time: ~125ms
+# Memory overhead: ~5MB per VM
+# Designed for serverless (AWS Lambda uses Firecracker)
+
+# Kata Containers: VM isolation with container semantics
+# Each container runs in its own lightweight VM
+</code></pre>
+<h3 id="confidential-computing"><a class="header" href="#confidential-computing">Confidential Computing</a></h3>
+<pre><code class="language-bash"># AMD SEV (Secure Encrypted Virtualization)
+# Encrypts VM memory with per-VM keys
+# Hypervisor cannot read guest memory
+qemu-system-x86_64 \
+  -machine q35,confidential-guest-support=sev0 \
+  -object sev-guest,id=sev0,cbitpos=47,reduced-phys-bits=1 \
+  ...
+
+# Intel TDX (Trust Domain Extensions)
+# Similar concept, different implementation
+# Hardware-enforced memory encryption and integrity
+</code></pre>
+<h3 id="container-vs-vm-convergence"><a class="header" href="#container-vs-vm-convergence">Container vs VM Convergence</a></h3>
+<pre><code class="language-mermaid">graph LR
+    subgraph Traditional Stack
+        APP1[App] --&gt; OS1[Full OS] --&gt; HV[Hypervisor] --&gt; HW[Hardware]
+    end
+    subgraph Container Stack
+        APP2[App] --&gt; CONT[Container Runtime] --&gt; HOST[Host OS] --&gt; HW
+    end
+    subgraph MicroVM Stack
+        APP3[App] --&gt; MINI_OS[Minimal Kernel] --&gt; MICRO[MicroVM] --&gt; HW
+    end
+</code></pre>
+<h2 id="references"><a class="header" href="#references">References</a></h2>
+<ol>
+<li>Popek, G. J., &amp; Goldberg, R. P. (1974). "Formal Requirements for Virtualizable Third Generation Architectures." <em>Communications of the ACM</em>, 17(7).</li>
+<li>Adams, K., &amp; Agesen, O. (2006). "A Comparison of Software and Hardware Techniques for x86 Virtualization." <em>ASPLOS '06</em>.</li>
+<li>Intel. "Intel® 64 and IA-32 Architectures Software Developer's Manual, Volume 3C." <a href="https://www.intel.com/sdm">https://www.intel.com/sdm</a></li>
+<li>AMD. "AMD64 Architecture Programmer's Manual, Volume 2: System Programming." <a href="https://www.amd.com/en/support/tech-docs">https://www.amd.com/en/support/tech-docs</a></li>
+<li>KVM Documentation. <a href="https://www.kernel.org/doc/html/latest/virt/kvm/">https://www.kernel.org/doc/html/latest/virt/kvm/</a></li>
+</ol>
+<h2 id="further-reading"><a class="header" href="#further-reading">Further Reading</a></h2>
+<ul>
+<li>
+<p><a href="https://docs.kernel.org/">The Linux Kernel Documentation</a></p>
+</li>
+<li>
+<p><a href="https://lwn.net/">LWN.net - Linux and free software news</a></p>
+</li>
+<li>
+<p><a href="https://www.gnu.org/doc/doc.html">GNU Project Documentation</a></p>
+</li>
+<li>
+<p><a href="https://www.gnu.org/manual/manual.html">GNU Manuals</a></p>
+</li>
+<li>
+<p><a href="https://directory.fsf.org/wiki/Main_Page">Free Software Directory</a></p>
+</li>
+<li>
+<p><a href="https://planet.gnu.org/">Planet GNU</a></p>
+</li>
+<li>
+<p><a href="https://www.gnu.org/doc/other-free-books.html">Free Software Books</a></p>
+</li>
+<li>
+<p><a href="https://www.kernel.org/doc/html/latest/virt/kvm/">KVM Documentation — kernel.org</a></p>
+</li>
+<li>
+<p><a href="https://wiki.xenproject.org/">Xen Project Wiki</a></p>
+</li>
+<li>
+<p><a href="https://www.qemu.org/docs/master/">QEMU Documentation</a></p>
+</li>
+<li>
+<p><a href="https://firecracker-microvm.github.io/">Firecracker Design</a></p>
+</li>
+<li>
+<p><a href="https://confidentialcomputing.io/">Confidential Computing Consortium</a></p>
+</li>
+<li>
+<p><a href="https://www.vmware.com/topics/glossary/content/virtualization">VMware Virtualization Basics</a></p>
+</li>
+</ul>
+<h2 id="related-topics"><a class="header" href="#related-topics">Related Topics</a></h2>
+<ul>
+<li><a href="./kvm.html">KVM Internals</a> — deep dive into KVM's kernel implementation</li>
+<li><a href="./qemu.html">QEMU</a> — device emulation and VM management</li>
+<li><a href="./xen.html">Xen Hypervisor</a> — paravirtualization and the Xen architecture</li>
+<li><a href="../containers/overview.html">Container Overview</a> — lightweight virtualization alternatives</li>
+<li><a href="../embedded/overview.html">Embedded Linux</a> — virtualization in embedded contexts</li>
+</ul>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+
+                            <a rel="next prefetch" href="../virtualization/kvm.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+
+                    <a rel="next prefetch" href="../virtualization/kvm.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+        <script src="../ace.js"></script>
+        <script src="../editor.js"></script>
+        <script src="../mode-rust.js"></script>
+        <script src="../theme-dawn.js"></script>
+        <script src="../theme-tomorrow_night.js"></script>
+
+        <script src="../elasticlunr.min.js"></script>
+        <script src="../mark.min.js"></script>
+        <script src="../searcher.js"></script>
+
+        <script src="../clipboard.min.js"></script>
+        <script src="../highlight.js"></script>
+        <script src="../book.js"></script>
+
+        <!-- Custom JS scripts -->
+        <script src="../custom.js"></script>
+
+
+    </div>
+    </body>
+</html>

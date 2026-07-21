@@ -1,0 +1,840 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>cgroups v2 - The Linux Encyclopedia</title>
+
+
+        <!-- Custom HTML head -->
+        
+        <meta name="description" content="A comprehensive, continuously growing reference for Linux, Unix internals, kernel development, system programming, administration, networking, security, and beyond.">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon.svg">
+        <link rel="shortcut icon" href="../favicon.png">
+        <link rel="stylesheet" href="../css/variables.css">
+        <link rel="stylesheet" href="../css/general.css">
+        <link rel="stylesheet" href="../css/chrome.css">
+        <link rel="stylesheet" href="../css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="../highlight.css">
+        <link rel="stylesheet" href="../tomorrow-night.css">
+        <link rel="stylesheet" href="../ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+        <link rel="stylesheet" href="../custom.css">
+
+    </head>
+    <body class="sidebar-visible no-js">
+    <div id="body-container">
+        <!-- Provide site root to javascript -->
+        <script>
+            var path_to_root = "../";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('light')
+            html.classList.add(theme);
+            var body = document.querySelector('body');
+            body.classList.remove('no-js')
+            body.classList.add('js');
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            var body = document.querySelector('body');
+            var sidebar = null;
+            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+            }
+            sidebar_toggle.checked = sidebar === 'visible';
+            body.classList.remove('sidebar-visible');
+            body.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded affix "><li class="part-title">Linux Encyclopedia</li><li class="chapter-item expanded affix "><li class="spacer"></li><li class="chapter-item expanded affix "><li class="part-title">Virtualization</li><li class="chapter-item expanded "><a href="../virtualization/overview.html"><strong aria-hidden="true">1.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../virtualization/kvm.html"><strong aria-hidden="true">2.</strong> KVM Internals</a></li><li class="chapter-item expanded "><a href="../virtualization/qemu.html"><strong aria-hidden="true">3.</strong> QEMU</a></li><li class="chapter-item expanded "><a href="../virtualization/xen.html"><strong aria-hidden="true">4.</strong> Xen Hypervisor</a></li><li class="chapter-item expanded affix "><li class="spacer"></li><li class="chapter-item expanded affix "><li class="part-title">Containers</li><li class="chapter-item expanded "><a href="../containers/overview.html"><strong aria-hidden="true">5.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../containers/primitives.html"><strong aria-hidden="true">6.</strong> Container Primitives</a></li><li class="chapter-item expanded "><a href="../containers/docker-internals.html"><strong aria-hidden="true">7.</strong> Docker Internals</a></li><li class="chapter-item expanded "><a href="../containers/kubernetes.html"><strong aria-hidden="true">8.</strong> Kubernetes and Linux</a></li><li class="chapter-item expanded "><a href="../containers/cgroups-v2.html" class="active"><strong aria-hidden="true">9.</strong> cgroups v2</a></li><li class="chapter-item expanded affix "><li class="spacer"></li><li class="chapter-item expanded affix "><li class="part-title">Embedded Linux</li><li class="chapter-item expanded "><a href="../embedded/overview.html"><strong aria-hidden="true">10.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../embedded/cross-compilation.html"><strong aria-hidden="true">11.</strong> Cross-Compilation</a></li><li class="chapter-item expanded "><a href="../embedded/uboot.html"><strong aria-hidden="true">12.</strong> U-Boot</a></li><li class="chapter-item expanded "><a href="../embedded/device-tree.html"><strong aria-hidden="true">13.</strong> Device Tree</a></li><li class="chapter-item expanded "><a href="../embedded/arm.html"><strong aria-hidden="true">14.</strong> ARM Architecture</a></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <!-- Track and set sidebar scroll position -->
+        <script>
+            var sidebarScrollbox = document.querySelector('#sidebar .sidebar-scrollbox');
+            sidebarScrollbox.addEventListener('click', function(e) {
+                if (e.target.tagName === 'A') {
+                    sessionStorage.setItem('sidebar-scroll', sidebarScrollbox.scrollTop);
+                }
+            }, { passive: true });
+            var sidebarScrollTop = sessionStorage.getItem('sidebar-scroll');
+            sessionStorage.removeItem('sidebar-scroll');
+            if (sidebarScrollTop) {
+                // preserve sidebar scroll position when navigating via links within sidebar
+                sidebarScrollbox.scrollTop = sidebarScrollTop;
+            } else {
+                // scroll sidebar to current active section when navigating via "next/previous chapter" buttons
+                var activeSection = document.querySelector('#sidebar .active');
+                if (activeSection) {
+                    activeSection.scrollIntoView({ block: 'center' });
+                }
+            }
+        </script>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">The Linux Encyclopedia</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/Abhinav-Kumar012/lb2" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+                        <a href="https://github.com/Abhinav-Kumar012/lb2/edit/dev/src/containers/cgroups-v2.md" title="Suggest an edit" aria-label="Suggest an edit">
+                            <i id="git-edit-button" class="fa fa-edit"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="cgroups-v2"><a class="header" href="#cgroups-v2">cgroups v2</a></h1>
+<h2 id="introduction"><a class="header" href="#introduction">Introduction</a></h2>
+<p>Control groups (cgroups) are a Linux kernel feature for organizing processes into hierarchical groups and applying resource limits, accounting, and control. cgroups v2 (also called "unified hierarchy") is the second, improved version of the cgroups API, addressing many design issues in cgroups v1.</p>
+<p>cgroups v2 is the foundation of container resource management — every container runtime (Docker, Podman, containerd, CRI-O) uses cgroups to enforce CPU, memory, I/O, and other resource limits. Understanding cgroups v2 is essential for container performance tuning, debugging resource issues, and building container orchestration systems.</p>
+<h2 id="cgroups-v1-vs-v2"><a class="header" href="#cgroups-v1-vs-v2">cgroups v1 vs v2</a></h2>
+<pre><code class="language-mermaid">graph TB
+    subgraph cgroups v1 - Multiple Hierarchies
+        V1_CPU[/sys/fs/cgroup/cpu/]
+        V1_MEM[/sys/fs/cgroup/memory/]
+        V1_BLKIO[/sys/fs/cgroup/blkio/]
+        V1_NETCLS[/sys/fs/cgroup/net_cls/]
+        V1_PIDS[/sys/fs/cgroup/pids/]
+    end
+    subgraph cgroups v2 - Unified Hierarchy
+        V2_ROOT[/sys/fs/cgroup/]
+        V2_CPU[cpu controller]
+        V2_MEM[memory controller]
+        V2_IO[io controller]
+        V2_PID[pids controller]
+        V2_RDMA[rdma controller]
+    end
+</code></pre>
+<div class="table-wrapper"><table><thead><tr><th>Aspect</th><th>cgroups v1</th><th>cgroups v2</th></tr></thead><tbody>
+<tr><td>Hierarchy</td><td>Multiple (per-controller)</td><td>Single unified</td></tr>
+<tr><td>Processes</td><td>In multiple groups simultaneously</td><td>Only leaf nodes</td></tr>
+<tr><td>Thread control</td><td>Limited</td><td>Full threaded mode</td></tr>
+<tr><td>Delegation</td><td>Complex, unsafe</td><td>Simple, safe</td></tr>
+<tr><td>Memory accounting</td><td>Separate hierarchies</td><td>Unified</td></tr>
+<tr><td>PSI</td><td>❌</td><td>✅ (Pressure Stall Information)</td></tr>
+<tr><td>BPF integration</td><td>Limited</td><td>✅ (bpf-based controllers)</td></tr>
+</tbody></table>
+</div>
+<pre><code class="language-bash"># Check which cgroup version is in use
+stat -fc %T /sys/fs/cgroup/
+# cgroup2fs  (v2)
+# tmpfs      (v1)
+
+# Or:
+mount | grep cgroup
+# cgroup2 on /sys/fs/cgroup type cgroup2 (rw,nosuid,nodev,noexec,relatime,nsdelegate,memory_recursiveprot)
+</code></pre>
+<h2 id="unified-hierarchy"><a class="header" href="#unified-hierarchy">Unified Hierarchy</a></h2>
+<p>In cgroups v2, all controllers exist in a single hierarchy rooted at <code>/sys/fs/cgroup/</code>:</p>
+<pre><code class="language-bash"># cgroups v2 hierarchy
+ls /sys/fs/cgroup/
+# cgroup.controllers      # Available controllers
+# cgroup.subtree_control  # Enabled controllers for children
+# cgroup.procs            # Processes in this cgroup
+# cgroup.threads          # Threads in this cgroup
+# cgroup.type             # domain or threaded
+# system.slice/           # systemd managed
+# user.slice/
+# init.scope/
+
+# Available controllers
+cat /sys/fs/cgroup/cgroup.controllers
+# cpuset cpu io memory hugetlb pids rdma misc
+
+# Enabled for children
+cat /sys/fs/cgroup/cgroup.subtree_control
+# cpuset cpu io memory pids
+
+# Enable a controller for children
+echo "+memory +io" &gt; /sys/fs/cgroup/cgroup.subtree_control
+</code></pre>
+<h3 id="cgroup-directory-structure"><a class="header" href="#cgroup-directory-structure">Cgroup Directory Structure</a></h3>
+<pre><code class="language-bash"># Each cgroup directory contains control files
+mkdir /sys/fs/cgroup/my-group
+
+ls /sys/fs/cgroup/my-group/
+# cgroup.controllers      # What controllers are available
+# cgroup.events           # populated: 0/1, frozen: 0/1
+# cgroup.freeze           # Freeze/thaw the group
+# cgroup.kill             # Kill all processes (write 1)
+# cgroup.max.depth        # Max nesting depth
+# cgroup.max.descendants  # Max number of child cgroups
+# cgroup.procs            # Member processes (PIDs)
+# cgroup.stat             # nr_descendants, nr_dying_descendants
+# cgroup.subtree_control  # Controllers enabled for children
+# cgroup.threads          # Member threads (TIDs)
+# cgroup.type             # domain / domain threaded / threaded
+
+# cpu.max
+# cpu.max.burst
+# cpu.stat
+# cpu.weight
+# cpu.weight.nice
+# cpu.pressure
+# cpu.uclamp.min
+# cpu.uclamp.max
+
+# memory.current
+# memory.min
+# memory.low
+# memory.high
+# memory.max
+# memory.swap.current
+# memory.swap.max
+# memory.pressure
+# memory.stat
+# memory.events
+
+# io.max
+# io.latency
+# io.cost.qos
+# io.cost.model
+# io.stat
+# io.pressure
+# io.weight
+</code></pre>
+<h2 id="cpu-controller"><a class="header" href="#cpu-controller">CPU Controller</a></h2>
+<p>The CPU controller manages CPU bandwidth and scheduling:</p>
+<pre><code class="language-mermaid">graph TB
+    subgraph /sys/fs/cgroup/
+        ROOT_CPU[cpu.max: "max 100000"]
+        ROOT_WEIGHT[cpu.weight: 100]
+    end
+    subgraph my-app/
+        APP_CPU[cpu.max: "50000 100000"&lt;br/&gt;50% of one CPU]
+        APP_WEIGHT[cpu.weight: 200]
+        APP_STAT[cpu.stat]
+    end
+    subgraph my-worker/
+        WORK_CPU[cpu.max: "200000 100000"&lt;br/&gt;2 CPUs]
+        WORK_WEIGHT[cpu.weight: 100]
+    end
+    ROOT_CPU --&gt; APP_CPU
+    ROOT_CPU --&gt; WORK_CPU
+</code></pre>
+<h3 id="cpumax--bandwidth-limiting"><a class="header" href="#cpumax--bandwidth-limiting">cpu.max — Bandwidth Limiting</a></h3>
+<pre><code class="language-bash"># cpu.max format: "$MAX $PERIOD"
+# $MAX: max microseconds per period (or "max" for unlimited)
+# $PERIOD: period length in microseconds (default 100000 = 100ms)
+
+# Limit to 50% of one CPU
+echo "50000 100000" &gt; /sys/fs/cgroup/my-app/cpu.max
+
+# Limit to 2 full CPUs
+echo "200000 100000" &gt; /sys/fs/cgroup/my-worker/cpu.max
+
+# Unlimited (default)
+echo "max 100000" &gt; /sys/fs/cgroup/my-app/cpu.max
+
+# Read current setting
+cat /sys/fs/cgroup/my-app/cpu.max
+# 50000 100000
+
+# Check CPU throttling statistics
+cat /sys/fs/cgroup/my-app/cpu.stat
+# usage_usec 12345678
+# user_usec 10000000
+# system_usec 2345678
+# nr_periods 1000
+# nr_throttled 50
+# throttled_usec 1234567
+# nr_bursts 0
+# burst_usec 0
+</code></pre>
+<h3 id="cpuweight--proportional-share"><a class="header" href="#cpuweight--proportional-share">cpu.weight — Proportional Share</a></h3>
+<pre><code class="language-bash"># cpu.weight: 1-10000 (default 100)
+# Relative share of CPU time when under contention
+
+# Container with double priority
+echo "200" &gt; /sys/fs/cgroup/my-app/cpu.weight
+
+# Container with half priority
+echo "50" &gt; /sys/fs/cgroup/my-worker/cpu.weight
+
+# Under contention:
+# my-app gets 200/(200+50) = 80% of CPU
+# my-worker gets 50/(200+50) = 20% of CPU
+
+# With no contention, both can use 100% CPU
+</code></pre>
+<h3 id="cpu-throttling-example"><a class="header" href="#cpu-throttling-example">CPU Throttling Example</a></h3>
+<pre><code class="language-bash"># Create a CPU-limited cgroup
+mkdir /sys/fs/cgroup/stress-test
+
+# Limit to 10% of one CPU
+echo "10000 100000" &gt; /sys/fs/cgroup/stress-test/cpu.max
+
+# Run a CPU-heavy process
+stress-ng --cpu 4 &amp;
+echo $! &gt; /sys/fs/cgroup/stress-test/cgroup.procs
+
+# Monitor throttling
+watch -n1 cat /sys/fs/cgroup/stress-test/cpu.stat
+# nr_throttled increases rapidly
+# The process only gets 10ms of CPU per 100ms period
+</code></pre>
+<h3 id="cpuuclamp--utilization-clamping"><a class="header" href="#cpuuclamp--utilization-clamping">cpu.uclamp — Utilization Clamping</a></h3>
+<pre><code class="language-bash"># cpu.uclamp.min: minimum utilization percentage (0-100)
+# cpu.uclamp.max: maximum utilization percentage (0-100)
+
+# Ensure a container gets at least 25% CPU capacity
+echo "25.00" &gt; /sys/fs/cgroup/my-app/cpu.uclamp.min
+
+# Cap reported utilization at 75% (prevents frequency boost)
+echo "75.00" &gt; /sys/fs/cgroup/my-app/cpu.uclamp.max
+</code></pre>
+<h2 id="memory-controller"><a class="header" href="#memory-controller">Memory Controller</a></h2>
+<p>The memory controller tracks and limits memory usage:</p>
+<h3 id="memory-limits"><a class="header" href="#memory-limits">Memory Limits</a></h3>
+<pre><code class="language-bash"># Create memory-limited cgroup
+mkdir /sys/fs/cgroup/mem-test
+
+# Set memory limit to 256MB
+echo "268435456" &gt; /sys/fs/cgroup/mem-test/memory.max
+
+# Set memory high (soft limit — triggers reclaim)
+echo "201326592" &gt; /sys/fs/cgroup/mem-test/memory.high
+
+# Set memory min (guaranteed minimum)
+echo "67108864" &gt; /sys/fs/cgroup/mem-test/memory.min  # 64MB guaranteed
+
+# Set swap limit
+echo "134217728" &gt; /sys/fs/cgroup/mem-test/memory.swap.max  # 128MB swap
+
+# Disable swap entirely
+echo "0" &gt; /sys/fs/cgroup/mem-test/memory.swap.max
+
+# Read current usage
+cat /sys/fs/cgroup/mem-test/memory.current
+# 134217728  (128MB)
+</code></pre>
+<h3 id="memory-thresholds"><a class="header" href="#memory-thresholds">Memory Thresholds</a></h3>
+<pre><code class="language-mermaid">graph TB
+    subgraph Memory Pressure Response
+        LOW["memory.low (128MB)&lt;br/&gt;No reclaim, protected"]
+        HIGH["memory.high (192MB)&lt;br/&gt;Throttle + reclaim"]
+        MAX["memory.max (256MB)&lt;br/&gt;OOM kill"]
+    end
+    LOW --&gt; HIGH --&gt; MAX
+</code></pre>
+<div class="table-wrapper"><table><thead><tr><th>Threshold</th><th>Behavior</th><th>Analogy</th></tr></thead><tbody>
+<tr><td><code>memory.min</code></td><td>Guaranteed memory, never reclaimed</td><td>Reservation</td></tr>
+<tr><td><code>memory.low</code></td><td>Best-effort protection</td><td>Soft guarantee</td></tr>
+<tr><td><code>memory.high</code></td><td>Throttle processes, trigger reclaim</td><td>Soft limit</td></tr>
+<tr><td><code>memory.max</code></td><td>Hard limit, OOM kill if exceeded</td><td>Hard limit</td></tr>
+<tr><td><code>memory.swap.max</code></td><td>Maximum swap usage</td><td>Swap limit</td></tr>
+</tbody></table>
+</div>
+<h3 id="memory-statistics"><a class="header" href="#memory-statistics">Memory Statistics</a></h3>
+<pre><code class="language-bash">cat /sys/fs/cgroup/mem-test/memory.stat
+# anon 134217728          # Anonymous memory (heap, stack)
+# file 0                  # Page cache
+# kernel 4194304          # Kernel memory (slab, stack)
+# kernel_stack 262144     # Kernel stack
+# pagetables 1048576      # Page table overhead
+# sec_pagetables 0        # Secondary page tables
+# percpu 0                # Per-CPU allocations
+# sock 0                  # Network socket buffers
+# vmalloc 0               # vmalloc allocations
+# shmem 0                 # Shared memory (tmpfs, shm)
+# zswap 0                 # Compressed swap
+# zswapped 0
+# file_mapped 0           # Memory-mapped files
+# file_dirty 0            # Dirty pages
+# file_writeback 0        # Pages being written to disk
+# swapcached 0            # Swap cache
+# anon_thp 0              # Transparent huge pages
+# file_thp 0              # File-backed huge pages
+# shmem_thp 0             # Shared memory huge pages
+# inactive_anon 0         # LRU: inactive anonymous
+# active_anon 134217728   # LRU: active anonymous
+# inactive_file 0         # LRU: inactive file cache
+# active_file 0           # LRU: active file cache
+# unevictable 0           # Cannot be reclaimed
+# slab_reclaimable 0      # Reclaimable slab
+# slab_unreclaimable 0    # Unreclaimable slab
+# pgfault 1234            # Page faults
+# pgmajfault 0            # Major page faults (disk I/O)
+# workingset_refault_anon 0
+# workingset_refault_file 0
+# workingset_activate_anon 0
+# workingset_activate_file 0
+# workingset_restore_anon 0
+# workingset_restore_file 0
+# workingset_nodereclaim 0
+# pgscan 0                # Pages scanned by reclaim
+# pgsteal 0               # Pages reclaimed
+# pgscan_kswapd 0         # Background reclaim scans
+# pgscan_direct 0         # Direct reclaim scans
+# pgsteal_kswapd 0
+# pgsteal_direct 0
+# pgactivate 0
+# pgdeactivate 0
+# pglazyfree 0
+# pglazyfreed 0
+# thp_fault_alloc 0
+# thp_collapse_alloc 0
+</code></pre>
+<h3 id="memory-events"><a class="header" href="#memory-events">Memory Events</a></h3>
+<pre><code class="language-bash"># Memory pressure events
+cat /sys/fs/cgroup/mem-test/memory.events
+# low 5           # Times memory.low was breached
+# high 12         # Times memory.high was breached
+# max 2           # Times memory.max was breached (OOM)
+# oom 1           # Times OOM killer was invoked
+# oom_group_kill 0 # Times entire group was killed
+# oom_group_oom 0
+
+# Event counts (persists even when empty)
+cat /sys/fs/cgroup/mem-test/memory.events.local
+</code></pre>
+<h2 id="io-controller"><a class="header" href="#io-controller">I/O Controller</a></h2>
+<p>The I/O controller manages block I/O bandwidth:</p>
+<pre><code class="language-bash"># io.max format: "$MAJOR:$MINOR rbps=$RBPS wbps=$WBPS riops=$RIOPS wiops=$WIOPS"
+
+# Limit read to 10MB/s, write to 5MB/s
+echo "8:0 rbps=10485760 wbps=5242880" &gt; /sys/fs/cgroup/my-app/io.max
+
+# Limit IOPS
+echo "8:0 riops=1000 wiops=500" &gt; /sys/fs/cgroup/my-app/io.max
+
+# Combine bandwidth and IOPS limits
+echo "8:0 rbps=10485760 wbps=5242880 riops=1000 wiops=500" &gt; /sys/fs/cgroup/my-app/io.max
+
+# Read current settings
+cat /sys/fs/cgroup/my-app/io.max
+# 8:0 rbps=10485760 wbps=5242880 riops=1000 wiops=500
+
+# I/O statistics
+cat /sys/fs/cgroup/my-app/io.stat
+# 8:0 rbytes=1073741824 wbytes=536870912 rios=10000 wios=5000 dbytes=0 dios=0
+
+# I/O cost QoS (proportional I/O when multiple cgroups compete)
+echo "8:0 enable=1" &gt; /sys/fs/cgroup/my-app/io.cost.qos
+</code></pre>
+<h3 id="iolatency"><a class="header" href="#iolatency">io.latency</a></h3>
+<pre><code class="language-bash"># io.latency: target latency guarantee
+# Format: "$MAJOR:$MINOR target=$TARGET_US"
+# If I/O latency exceeds target, throttle other cgroups
+
+echo "8:0 target=5000" &gt; /sys/fs/cgroup/important-app/io.latency
+# Guarantee &lt; 5ms I/O latency for important-app
+</code></pre>
+<h2 id="pids-controller"><a class="header" href="#pids-controller">PIDs Controller</a></h2>
+<pre><code class="language-bash"># Limit number of processes in a cgroup
+mkdir /sys/fs/cgroup/limited
+
+echo "100" &gt; /sys/fs/cgroup/limited/pids.max
+
+# Add a process
+sh -c 'echo $$ &gt; /sys/fs/cgroup/limited/cgroup.procs; sleep infinity' &amp;
+
+# Fork bomb protection
+echo "50" &gt; /sys/fs/cgroup/limited/pids.max
+# Fork bomb is contained within 50 processes
+
+# Check current count
+cat /sys/fs/cgroup/limited/pids.current
+# 3
+
+# Events
+cat /sys/fs/cgroup/limited/pids.events
+# max 0  # Times pids.max was hit
+</code></pre>
+<h2 id="pressure-stall-information-psi"><a class="header" href="#pressure-stall-information-psi">Pressure Stall Information (PSI)</a></h2>
+<p>PSI measures resource pressure — how much time tasks are stalled waiting for resources:</p>
+<pre><code class="language-mermaid">graph TB
+    subgraph PSI Metrics
+        SOME["some (avg10, avg60, avg300)&lt;br/&gt;At least one task stalled"]
+        FULL["full (avg10, avg60, avg300)&lt;br/&gt;All tasks stalled"]
+    end
+    subgraph Resources
+        CPU_PRESSURE["cpu.pressure"]
+        MEM_PRESSURE["memory.pressure"]
+        IO_PRESSURE["io.pressure"]
+    end
+</code></pre>
+<pre><code class="language-bash"># CPU pressure
+cat /sys/fs/cgroup/my-app/cpu.pressure
+# some avg10=2.50 avg60=1.20 avg300=0.80 total=12345678
+# full avg10=0.00 avg60=0.00 avg300=0.00 total=0
+
+# Memory pressure
+cat /sys/fs/cgroup/my-app/memory.pressure
+# some avg10=15.00 avg60=8.50 avg300=5.20 total=98765432
+# full avg10=5.00 avg60=2.10 avg300=1.00 total=45678901
+
+# I/O pressure
+cat /sys/fs/cgroup/my-app/io.pressure
+# some avg10=0.50 avg60=0.20 avg300=0.10 total=1234567
+# full avg10=0.00 avg60=0.00 avg300=0.00 total=0
+
+# Interpretation:
+# "some avg10=2.50" → 2.5% of the time, at least one task was stalled
+# "full avg10=5.00" → 5% of the time, ALL tasks were stalled (memory)
+# "full avg10=0.00" → Tasks never all stalled (CPU — expected)
+
+# PSI triggers (poll for pressure events)
+echo "some 50000 1000000" &gt; /sys/fs/cgroup/my-app/memory.pressure
+# Trigger event when some memory pressure exceeds 50ms in 1s window
+</code></pre>
+<h3 id="psi-in-container-orchestration"><a class="header" href="#psi-in-container-orchestration">PSI in Container Orchestration</a></h3>
+<pre><code class="language-bash"># Kubernetes can use PSI for scheduling decisions (alpha feature)
+# Docker/Podman can monitor PSI for resource management
+
+# Monitor PSI for all cgroups
+cat /proc/pressure/cpu
+cat /proc/pressure/memory
+cat /proc/pressure/io
+
+# System-wide PSI
+cat /proc/pressure/cpu
+# some avg10=1.20 avg60=0.80 avg300=0.50 total=567890123
+# full avg10=0.00 avg60=0.00 avg300=0.00 total=0
+</code></pre>
+<h2 id="delegation"><a class="header" href="#delegation">Delegation</a></h2>
+<p>Delegation allows unprivileged users to manage their own cgroup subtree:</p>
+<pre><code class="language-bash"># Delegate a cgroup subtree to a user
+# 1. Create the subtree
+mkdir /sys/fs/cgroup/user-workloads
+
+# 2. Set ownership
+chown user:user /sys/fs/cgroup/user-workloads
+
+# 3. Enable subtree_control for desired controllers
+echo "+cpu +memory +io +pids" &gt; /sys/fs/cgroup/cgroup.subtree_control
+
+# 4. Set delegation marker
+echo "1" &gt; /sys/fs/cgroup/user-workloads/cgroup.delegate
+
+# Now 'user' can:
+# - Create child cgroups
+# - Move their own processes into children
+# - Set resource limits on children
+# - Read resource statistics
+
+# As 'user':
+mkdir /sys/fs/cgroup/user-workloads/my-job
+echo "100000 100000" &gt; /sys/fs/cgroup/user-workloads/my-job/cpu.max
+echo $$ &gt; /sys/fs/cgroup/user-workloads/my-job/cgroup.procs
+</code></pre>
+<h3 id="delegation-in-container-runtimes"><a class="header" href="#delegation-in-container-runtimes">Delegation in Container Runtimes</a></h3>
+<pre><code class="language-bash"># Rootless containers delegate cgroups to unprivileged users
+# Docker rootless mode:
+# 1. dockerd creates cgroup under user's slice
+# 2. Uses systemd user instance for cgroup management
+
+# Podman rootless:
+# 1. Uses cgroupfs or systemd for cgroup management
+# 2. Delegates to user namespace root
+
+# systemd delegation:
+# /etc/systemd/system/user@.service.d/delegate.conf
+# [Service]
+# Delegate=cpu memory io pids
+</code></pre>
+<h2 id="threaded-cgroups"><a class="header" href="#threaded-cgroups">Threaded Cgroups</a></h2>
+<p>cgroups v2 supports threaded mode for per-thread resource control:</p>
+<pre><code class="language-bash"># Check cgroup type
+cat /sys/fs/cgroup/my-app/cgroup.type
+# domain  (default — process-level)
+
+# Enable threaded mode
+echo "threaded" &gt; /sys/fs/cgroup/my-app/cgroup.type
+
+# Create thread sub-cgroups
+mkdir /sys/fs/cgroup/my-app/thread-1
+mkdir /sys/fs/cgroup/my-app/thread-2
+
+# Set per-thread CPU limits
+echo "25000 100000" &gt; /sys/fs/cgroup/my-app/thread-1/cpu.max
+echo "75000 100000" &gt; /sys/fs/cgroup/my-app/thread-2/cpu.max
+
+# Thread cgroups can only contain threads, not processes
+# Only certain controllers work in threaded mode (cpu, cpuset)
+</code></pre>
+<h2 id="container-integration"><a class="header" href="#container-integration">Container Integration</a></h2>
+<h3 id="docker-cgroups-v2"><a class="header" href="#docker-cgroups-v2">Docker cgroups v2</a></h3>
+<pre><code class="language-bash"># Docker with cgroups v2
+docker info | grep "Cgroup Driver"
+# Cgroup Driver: systemd
+# Cgroup Version: 2
+
+# Container cgroup location
+docker run --name test --memory 256m --cpus 1.5 alpine sleep infinity
+
+# Find container cgroup
+docker inspect test --format '{{.State.Pid}}'
+# 12345
+
+cat /proc/12345/cgroup
+# 0::/system.slice/docker-&lt;container-id&gt;.scope
+
+# Check memory limits
+cat /sys/fs/cgroup/system.slice/docker-&lt;container-id&gt;.scope/memory.max
+# 268435456  (256MB)
+
+# Check CPU limits
+cat /sys/fs/cgroup/system.slice/docker-&lt;container-id&gt;.scope/cpu.max
+# 150000 100000  (1.5 CPUs)
+</code></pre>
+<h3 id="kubernetes-cgroups-v2"><a class="header" href="#kubernetes-cgroups-v2">Kubernetes cgroups v2</a></h3>
+<pre><code class="language-bash"># kubelet with cgroups v2
+# Uses systemd cgroup driver by default
+# cgroup root: /sys/fs/cgroup/kubepods/
+
+# Pod cgroup structure
+ls /sys/fs/cgroup/kubepods/burstable/pod&lt;uid&gt;/
+# &lt;container-id&gt;/  # One cgroup per container
+# cgroup.controllers
+# cgroup.procs
+# cpu.max
+# memory.max
+</code></pre>
+<h2 id="practical-examples"><a class="header" href="#practical-examples">Practical Examples</a></h2>
+<h3 id="resource-limited-container"><a class="header" href="#resource-limited-container">Resource-Limited Container</a></h3>
+<pre><code class="language-bash">#!/bin/bash
+# Create a fully resource-limited container using cgroups v2
+
+CGROUP="/sys/fs/cgroup/my-container"
+mkdir -p "$CGROUP"
+
+# Enable controllers
+echo "+cpu +memory +io +pids" &gt; /sys/fs/cgroup/cgroup.subtree_control
+
+# CPU: 50% of one core
+echo "50000 100000" &gt; "$CGROUP/cpu.max"
+echo "100" &gt; "$CGROUP/cpu.weight"
+
+# Memory: 256MB limit, 128MB high watermark
+echo "268435456" &gt; "$CGROUP/memory.max"
+echo "201326592" &gt; "$CGROUP/memory.high"
+echo "67108864" &gt; "$CGROUP/memory.min"  # 64MB guaranteed
+
+# I/O: 10MB/s read, 5MB/s write
+echo "8:0 rbps=10485760 wbps=5242880" &gt; "$CGROUP/io.max"
+
+# PIDs: max 50 processes
+echo "50" &gt; "$CGROUP/pids.max"
+
+# Freeze support
+echo "0" &gt; "$CGROUP/cgroup.freeze"  # Not frozen
+
+# Run process in cgroup
+echo $$ &gt; "$CGROUP/cgroup.procs"
+
+# Monitor
+watch -n1 "
+  echo '=== CPU ===' &amp;&amp; cat $CGROUP/cpu.stat &amp;&amp;
+  echo '=== Memory ===' &amp;&amp; echo current: \$(cat $CGROUP/memory.current) &amp;&amp;
+  echo '=== PSI ===' &amp;&amp; cat $CGROUP/memory.pressure
+"
+</code></pre>
+<h2 id="references"><a class="header" href="#references">References</a></h2>
+<ol>
+<li>cgroups v2 Documentation. <a href="https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html">https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html</a></li>
+<li><code>cgroups(7)</code> — Linux man page. <a href="https://man7.org/linux/man-pages/man7/cgroups.7.html">https://man7.org/linux/man-pages/man7/cgroups.7.html</a></li>
+<li>PSI Documentation. <a href="https://www.kernel.org/doc/html/latest/accounting/psi.html">https://www.kernel.org/doc/html/latest/accounting/psi.html</a></li>
+<li>Tejun Heo. "cgroup: Towards Unified Hierarchy." LPC 2014.</li>
+</ol>
+<h2 id="further-reading"><a class="header" href="#further-reading">Further Reading</a></h2>
+<ul>
+<li>
+<p><a href="https://docs.kernel.org/">The Linux Kernel Documentation</a></p>
+</li>
+<li>
+<p><a href="https://lwn.net/">LWN.net - Linux and free software news</a></p>
+</li>
+<li>
+<p><a href="https://www.gnu.org/doc/doc.html">GNU Project Documentation</a></p>
+</li>
+<li>
+<p><a href="https://www.gnu.org/manual/manual.html">GNU Manuals</a></p>
+</li>
+<li>
+<p><a href="https://directory.fsf.org/wiki/Main_Page">Free Software Directory</a></p>
+</li>
+<li>
+<p><a href="https://planet.gnu.org/">Planet GNU</a></p>
+</li>
+<li>
+<p><a href="https://www.gnu.org/doc/other-free-books.html">Free Software Books</a></p>
+</li>
+<li>
+<p><a href="https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html">cgroups v2 Kernel Documentation</a></p>
+</li>
+<li>
+<p><a href="https://facebookmicrosites.github.io/psi/docs/overview">PSI — Pressure Stall Information</a></p>
+</li>
+<li>
+<p><a href="https://www.freedesktop.org/software/systemd/man/systemd.resource-control.html">systemd Resource Control</a></p>
+</li>
+<li>
+<p><a href="https://docs.docker.com/config/containers/resource_constraints/">Docker cgroups v2</a></p>
+</li>
+<li>
+<p><a href="https://kubernetes.io/docs/concepts/architecture/nodes/">Kubernetes Node Resource Management</a></p>
+</li>
+</ul>
+<h2 id="related-topics"><a class="header" href="#related-topics">Related Topics</a></h2>
+<ul>
+<li><a href="./primitives.html">Container Primitives</a> — namespaces and other kernel features</li>
+<li><a href="./overview.html">Container Overview</a> — container concepts</li>
+<li><a href="./docker-internals.html">Docker Internals</a> — how Docker uses cgroups</li>
+<li><a href="./kubernetes.html">Kubernetes and Linux</a> — cgroups in orchestration</li>
+</ul>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../containers/kubernetes.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+                            <a rel="next prefetch" href="../embedded/overview.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../containers/kubernetes.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+                    <a rel="next prefetch" href="../embedded/overview.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+        <script src="../ace.js"></script>
+        <script src="../editor.js"></script>
+        <script src="../mode-rust.js"></script>
+        <script src="../theme-dawn.js"></script>
+        <script src="../theme-tomorrow_night.js"></script>
+
+        <script src="../elasticlunr.min.js"></script>
+        <script src="../mark.min.js"></script>
+        <script src="../searcher.js"></script>
+
+        <script src="../clipboard.min.js"></script>
+        <script src="../highlight.js"></script>
+        <script src="../book.js"></script>
+
+        <!-- Custom JS scripts -->
+        <script src="../custom.js"></script>
+
+
+    </div>
+    </body>
+</html>

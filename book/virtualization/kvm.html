@@ -1,0 +1,870 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>KVM Internals - The Linux Encyclopedia</title>
+
+
+        <!-- Custom HTML head -->
+        
+        <meta name="description" content="A comprehensive, continuously growing reference for Linux, Unix internals, kernel development, system programming, administration, networking, security, and beyond.">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon.svg">
+        <link rel="shortcut icon" href="../favicon.png">
+        <link rel="stylesheet" href="../css/variables.css">
+        <link rel="stylesheet" href="../css/general.css">
+        <link rel="stylesheet" href="../css/chrome.css">
+        <link rel="stylesheet" href="../css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="../highlight.css">
+        <link rel="stylesheet" href="../tomorrow-night.css">
+        <link rel="stylesheet" href="../ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+        <link rel="stylesheet" href="../custom.css">
+
+    </head>
+    <body class="sidebar-visible no-js">
+    <div id="body-container">
+        <!-- Provide site root to javascript -->
+        <script>
+            var path_to_root = "../";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('light')
+            html.classList.add(theme);
+            var body = document.querySelector('body');
+            body.classList.remove('no-js')
+            body.classList.add('js');
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            var body = document.querySelector('body');
+            var sidebar = null;
+            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+            }
+            sidebar_toggle.checked = sidebar === 'visible';
+            body.classList.remove('sidebar-visible');
+            body.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded affix "><li class="part-title">Linux Encyclopedia</li><li class="chapter-item expanded affix "><li class="spacer"></li><li class="chapter-item expanded affix "><li class="part-title">Virtualization</li><li class="chapter-item expanded "><a href="../virtualization/overview.html"><strong aria-hidden="true">1.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../virtualization/kvm.html" class="active"><strong aria-hidden="true">2.</strong> KVM Internals</a></li><li class="chapter-item expanded "><a href="../virtualization/qemu.html"><strong aria-hidden="true">3.</strong> QEMU</a></li><li class="chapter-item expanded "><a href="../virtualization/xen.html"><strong aria-hidden="true">4.</strong> Xen Hypervisor</a></li><li class="chapter-item expanded affix "><li class="spacer"></li><li class="chapter-item expanded affix "><li class="part-title">Containers</li><li class="chapter-item expanded "><a href="../containers/overview.html"><strong aria-hidden="true">5.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../containers/primitives.html"><strong aria-hidden="true">6.</strong> Container Primitives</a></li><li class="chapter-item expanded "><a href="../containers/docker-internals.html"><strong aria-hidden="true">7.</strong> Docker Internals</a></li><li class="chapter-item expanded "><a href="../containers/kubernetes.html"><strong aria-hidden="true">8.</strong> Kubernetes and Linux</a></li><li class="chapter-item expanded "><a href="../containers/cgroups-v2.html"><strong aria-hidden="true">9.</strong> cgroups v2</a></li><li class="chapter-item expanded affix "><li class="spacer"></li><li class="chapter-item expanded affix "><li class="part-title">Embedded Linux</li><li class="chapter-item expanded "><a href="../embedded/overview.html"><strong aria-hidden="true">10.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../embedded/cross-compilation.html"><strong aria-hidden="true">11.</strong> Cross-Compilation</a></li><li class="chapter-item expanded "><a href="../embedded/uboot.html"><strong aria-hidden="true">12.</strong> U-Boot</a></li><li class="chapter-item expanded "><a href="../embedded/device-tree.html"><strong aria-hidden="true">13.</strong> Device Tree</a></li><li class="chapter-item expanded "><a href="../embedded/arm.html"><strong aria-hidden="true">14.</strong> ARM Architecture</a></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <!-- Track and set sidebar scroll position -->
+        <script>
+            var sidebarScrollbox = document.querySelector('#sidebar .sidebar-scrollbox');
+            sidebarScrollbox.addEventListener('click', function(e) {
+                if (e.target.tagName === 'A') {
+                    sessionStorage.setItem('sidebar-scroll', sidebarScrollbox.scrollTop);
+                }
+            }, { passive: true });
+            var sidebarScrollTop = sessionStorage.getItem('sidebar-scroll');
+            sessionStorage.removeItem('sidebar-scroll');
+            if (sidebarScrollTop) {
+                // preserve sidebar scroll position when navigating via links within sidebar
+                sidebarScrollbox.scrollTop = sidebarScrollTop;
+            } else {
+                // scroll sidebar to current active section when navigating via "next/previous chapter" buttons
+                var activeSection = document.querySelector('#sidebar .active');
+                if (activeSection) {
+                    activeSection.scrollIntoView({ block: 'center' });
+                }
+            }
+        </script>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">The Linux Encyclopedia</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/Abhinav-Kumar012/lb2" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+                        <a href="https://github.com/Abhinav-Kumar012/lb2/edit/dev/src/virtualization/kvm.md" title="Suggest an edit" aria-label="Suggest an edit">
+                            <i id="git-edit-button" class="fa fa-edit"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="kvm-internals"><a class="header" href="#kvm-internals">KVM Internals</a></h1>
+<h2 id="introduction"><a class="header" href="#introduction">Introduction</a></h2>
+<p>KVM (Kernel-based Virtual Machine) is the Linux kernel's native virtualization subsystem. Unlike traditional hypervisors that replace the operating system, KVM transforms the Linux kernel itself into a hypervisor by leveraging hardware-assisted virtualization extensions (Intel VT-x and AMD-V). This design means every Linux machine with appropriate hardware is a potential hypervisor, with no separate hypervisor layer to install or maintain.</p>
+<p>This chapter dives deep into KVM's kernel internals: how it manages virtual CPUs, handles memory virtualization, intercepts hardware access, and integrates with userspace emulators like QEMU.</p>
+<h2 id="kvm-module-architecture"><a class="header" href="#kvm-module-architecture">KVM Module Architecture</a></h2>
+<p>KVM is split into a hardware-agnostic core and architecture-specific modules:</p>
+<pre><code>kvm.ko              — Core KVM infrastructure (common code)
+kvm-intel.ko        — Intel VT-x implementation (VMX)
+kvm-amd.ko          — AMD-V implementation (SVM)
+</code></pre>
+<pre><code class="language-mermaid">graph TB
+    subgraph User Space
+        QEMU[QEMU / qemu-system-x86_64]
+    end
+    subgraph Kernel Space - KVM
+        KVM_CORE[kvm.ko - Core Module&lt;br/&gt;vcpu management, memory, irqchip, MMIO]
+        KVM_INTEL[kvm-intel.ko&lt;br/&gt;VMX operations, VMCS management]
+        KVM_AMD[kvm-amd.ko&lt;br/&gt;SVM operations, VMCB management]
+        VHOST[vhost-net.ko / vhost.ko&lt;br/&gt;In-kernel virtio backends]
+        IRQCHIP[irqchip.ko&lt;br/&gt;In-kernel PIC/IOAPIC/LAPIC]
+    end
+    subgraph Hardware
+        CPU[CPU with VT-x / AMD-V]
+        IOMMU[VT-d / AMD-Vi]
+    end
+    QEMU --&gt;|/dev/kvm ioctl| KVM_CORE
+    KVM_CORE --&gt; KVM_INTEL
+    KVM_CORE --&gt; KVM_AMD
+    KVM_INTEL --&gt; CPU
+    KVM_AMD --&gt; CPU
+    KVM_CORE --&gt; VHOST
+    KVM_CORE --&gt; IRQCHIP
+</code></pre>
+<h3 id="module-loading"><a class="header" href="#module-loading">Module Loading</a></h3>
+<pre><code class="language-bash"># Check loaded KVM modules
+lsmod | grep kvm
+# kvm_intel              380928  1
+# kvm                   1089536  1 kvm_intel
+
+# Module parameters (Intel)
+cat /sys/module/kvm_intel/parameters/nested
+# Y  (nested virtualization enabled)
+
+cat /sys/module/kvm_intel/parameters/enable_shadow_vmcs
+# Y
+
+# Module parameters (AMD)
+cat /sys/module/kvm_amd/parameters/nested
+# 1
+
+# Disable KVM (e.g., for debugging)
+# echo 0 &gt; /sys/module/kvm_intel/parameters/enable_unsafe_vm_shadow
+</code></pre>
+<h2 id="vmx-module-intel-vt-x"><a class="header" href="#vmx-module-intel-vt-x">VMX Module (Intel VT-x)</a></h2>
+<p>The VMX module (<code>kvm-intel.ko</code>) implements Intel's VT-x extensions. It manages the hardware virtualization state through the VMCS.</p>
+<h3 id="vmx-operation-modes"><a class="header" href="#vmx-operation-modes">VMX Operation Modes</a></h3>
+<pre><code class="language-mermaid">stateDiagram-v2
+    [*] --&gt; VMXOFF: CPU in real/protected mode
+    VMXOFF --&gt; VMXON: VMXON instruction
+    VMXON --&gt; VMCS_LAUNCH: VMLAUNCH
+    VMCS_LAUNCH --&gt; GUEST_RUNNING: VM Entry
+    GUEST_RUNNING --&gt; VMCS_LAUNCH: VM Exit (handle &amp; resume)
+    GUEST_RUNNING --&gt; VMXOFF: VMXOFF instruction
+    VMXOFF --&gt; [*]
+</code></pre>
+<p><strong>VMX root mode</strong> (hypervisor) and <strong>VMX non-root mode</strong> (guest) are the two operating modes introduced by VT-x. The CPU transitions between them via:</p>
+<ul>
+<li><strong>VM Entry</strong> (VMLAUNCH/VMRESUME) — root → non-root</li>
+<li><strong>VM Exit</strong> — non-root → root (triggered by sensitive instructions, interrupts, etc.)</li>
+</ul>
+<h3 id="vmcs-virtual-machine-control-structure"><a class="header" href="#vmcs-virtual-machine-control-structure">VMCS (Virtual Machine Control Structure)</a></h3>
+<p>The VMCS is a 4KB data structure in physical memory that holds the complete state of a virtual machine. Each vCPU has one active VMCS at a time.</p>
+<pre><code class="language-mermaid">graph TB
+    subgraph VMCS 4KB Page
+        subgraph Guest State Area
+            GREGS[Guest Registers&lt;br/&gt;CR0, CR3, CR4, RSP, RIP...]
+            GSEG[Guest Segments&lt;br/&gt;CS, DS, SS, ES, FS, GS, TR, LDTR]
+            GDTR[Guest GDTR, IDTR]
+            GMSR[Guest MSRs&lt;br/&gt;IA32_EFER, IA32_PAT...]
+        end
+        subgraph Host State Area
+            HREGS[Host Registers&lt;br/&gt;CR0, CR3, CR4, RSP, RIP]
+            HSEG[Host Segments&lt;br/&gt;CS, SS, DS, ES, FS, GS, TR]
+        end
+        subgraph VM-Execution Control Fields
+            PIN[PIN-Based Controls&lt;br/&gt;External interrupts, NMI]
+            PROC[Processor-Based Controls&lt;br/&gt;HLT, INVLPG, RDTSC, CR3-load]
+            EPTP[EPT Pointer&lt;br/&gt;Extended Page Tables root]
+            VPID_FIELD[VPID&lt;br/&gt;Virtual Processor ID]
+        end
+        subgraph VM-Exit Information Fields
+            EXIT_REASON[Exit Reason]
+            EXIT_QUAL[Exit Qualification]
+            IO_INFO[I/O Instruction Info]
+            IDT_INFO[IDT Vectoring Info]
+        end
+    end
+</code></pre>
+<p><strong>VMCS fields:</strong></p>
+<div class="table-wrapper"><table><thead><tr><th>Field Group</th><th>Examples</th><th>Purpose</th></tr></thead><tbody>
+<tr><td>Guest State</td><td>RSP, RIP, CR0, CR3, CS, SS</td><td>Loaded on VM entry, saved on VM exit</td></tr>
+<tr><td>Host State</td><td>RSP, RIP, CR0, CR3, CS</td><td>Loaded on VM exit</td></tr>
+<tr><td>VM-Execution Controls</td><td>EPTP, VPID, MSR bitmap</td><td>Configure what causes VM exits</td></tr>
+<tr><td>VM-Exit Controls</td><td>Exit reason, qualification</td><td>Information about why exit occurred</td></tr>
+<tr><td>VM-Entry Controls</td><td>Event injection, IDT vectoring</td><td>Inject interrupts/exceptions into guest</td></tr>
+</tbody></table>
+</div>
+<p><strong>VMCS shadowing</strong> allows nested virtualization to run more efficiently by letting L2 guest VM exits handled by L1 hypervisor without causing a full VM exit to host.</p>
+<pre><code class="language-c">/* KVM's VMCS field encoding (simplified) */
+#define VMCS_ENCODE(field, access, type, width) \
+    (((field) &lt;&lt; 13) | ((access) &lt;&lt; 10) | ((type) &lt;&lt; 8) | (width))
+
+/* Reading VMCS field */
+static inline u64 vmcs_read64(unsigned long field) {
+    u64 value;
+    asm volatile("vmread %1, %0" : "=rm"(value) : "r"(field));
+    return value;
+}
+
+/* Writing VMCS field */
+static inline void vmcs_write64(unsigned long field, u64 value) {
+    asm volatile("vmwrite %0, %1" :: "r"(value), "rm"(field));
+}
+</code></pre>
+<h3 id="vm-entry--exit-flow"><a class="header" href="#vm-entry--exit-flow">VM Entry / Exit Flow</a></h3>
+<pre><code class="language-mermaid">sequenceDiagram
+    participant QEMU
+    participant KVM
+    participant VMX
+    participant CPU
+
+    QEMU-&gt;&gt;KVM: ioctl(vcpu_fd, KVM_RUN)
+    KVM-&gt;&gt;VMX: Prepare VMCS (guest state)
+    VMX-&gt;&gt;CPU: VMLAUNCH / VMRESUME
+    CPU-&gt;&gt;CPU: Execute guest code (VMX non-root)
+
+    Note over CPU: Sensitive instruction executed!&lt;br/&gt;(e.g., CPUID, I/O port access)
+
+    CPU-&gt;&gt;VMX: VM Exit (hardware saves state to VMCS)
+    VMX-&gt;&gt;KVM: VM exit handler
+    KVM-&gt;&gt;KVM: Decode exit reason
+
+    alt I/O instruction
+        KVM-&gt;&gt;QEMU: Return to userspace (KVM_EXIT_IO)
+        QEMU-&gt;&gt;QEMU: Emulate I/O device
+        QEMU-&gt;&gt;KVM: ioctl(KVM_RUN) - resume
+    else MMIO access
+        KVM-&gt;&gt;QEMU: Return to userspace (KVM_EXIT_MMIO)
+        QEMU-&gt;&gt;QEMU: Emulate MMIO device
+    else External interrupt
+        KVM-&gt;&gt;KVM: Inject interrupt via virtual LAPIC
+        KVM-&gt;&gt;CPU: Resume guest
+    else HLT instruction
+        KVM-&gt;&gt;QEMU: Return (KVM_EXIT_HLT)
+    end
+</code></pre>
+<h2 id="vmcb-amd-svm"><a class="header" href="#vmcb-amd-svm">VMCB (AMD SVM)</a></h2>
+<p>AMD's SVM (Secure Virtual Machine) uses the VMCB (Virtual Machine Control Block) instead of Intel's VMCS. The VMCB is a 4KB structure stored in physical memory.</p>
+<pre><code class="language-c">/* Simplified VMCB control area layout */
+struct vmcb_control_area {
+    u32 intercept_cr;        /* CR read/write intercepts */
+    u32 intercept_dr;        /* DR read/write intercepts */
+    u32 intercept_exceptions; /* Exception intercepts */
+    u64 intercept_misc;      /* Misc instruction intercepts */
+    u8 reserved1[40];
+    u16 pause_filter_thresh;
+    u16 pause_filter_count;
+    u64 iopm_base_pa;        /* I/O permission map */
+    u64 msrpm_base_pa;       /* MSR permission map */
+    u64 tsc_offset;
+    u32 guest_asid;          /* Guest ASID */
+    u8 tlb_ctl;
+    u8 reserved2[3];
+    u32 v_tpr;               /* Virtual TPR */
+    /* ... more fields ... */
+    u64 exitcode;
+    u64 exitinfo1;
+    u64 exitinfo2;
+    /* ... */
+};
+</code></pre>
+<p><strong>Key differences from VMX:</strong></p>
+<div class="table-wrapper"><table><thead><tr><th>Feature</th><th>Intel VMX</th><th>AMD SVM</th></tr></thead><tbody>
+<tr><td>Control structure</td><td>VMCS (per-vCPU)</td><td>VMCB (per-vCPU)</td></tr>
+<tr><td>Nested page tables</td><td>EPT (Extended Page Tables)</td><td>NPT (Nested Page Tables)</td></tr>
+<tr><td>TLB tagging</td><td>VPID</td><td>ASID</td></tr>
+<tr><td>MSR filtering</td><td>MSR bitmap</td><td>MSR permission map</td></tr>
+<tr><td>Instruction</td><td>VMLAUNCH/VMRESUME</td><td>VMRUN</td></tr>
+<tr><td>Exit mechanism</td><td>Automatic VM exit</td><td>#VMEXIT</td></tr>
+</tbody></table>
+</div>
+<h2 id="vcpu-management"><a class="header" href="#vcpu-management">vCPU Management</a></h2>
+<p>A virtual CPU (vCPU) is KVM's representation of a single processor core within a guest VM. Each vCPU has:</p>
+<ul>
+<li>Its own VMCS/VMCB</li>
+<li>Its own <code>kvm_vcpu</code> kernel structure</li>
+<li>Its own thread in the host (typically 1:1 mapping)</li>
+<li>Its own register state and pending interrupts</li>
+</ul>
+<pre><code class="language-mermaid">graph TB
+    subgraph KVM VM Instance
+        VM[kvm struct&lt;br/&gt;memory regions, irqchip, devices]
+        VCPU0[kvm_vcpu #0&lt;br/&gt;Thread: TID 1001&lt;br/&gt;VMCS/VMCB, registers]
+        VCPU1[kvm_vcpu #1&lt;br/&gt;Thread: TID 1002&lt;br/&gt;VMCS/VMCB, registers]
+        VCPU2[kvm_vcpu #2&lt;br/&gt;Thread: TID 1003&lt;br/&gt;VMCS/VMCB, registers]
+        VM --&gt; VCPU0
+        VM --&gt; VCPU1
+        VM --&gt; VCPU2
+    end
+    subgraph Host Process (QEMU)
+        T0[Thread 0] --&gt;|KVM_RUN| VCPU0
+        T1[Thread 1] --&gt;|KVM_RUN| VCPU1
+        T2[Thread 2] --&gt;|KVM_RUN| VCPU2
+    end
+</code></pre>
+<h3 id="vcpu-creation"><a class="header" href="#vcpu-creation">vCPU Creation</a></h3>
+<pre><code class="language-c">/* KVM vCPU creation (simplified kernel path) */
+int kvm_vm_ioctl_create_vcpu(struct kvm *kvm, u32 id) {
+    struct kvm_vcpu *vcpu;
+    int r;
+
+    // Allocate vCPU structure
+    vcpu = kmem_cache_zalloc(kvm_vcpu_cache, GFP_KERNEL);
+
+    // Initialize vCPU (architecture-specific)
+    kvm_arch_vcpu_create(vcpu);
+
+    // Create VMCS/VMCB
+    kvm_x86_ops-&gt;vcpu_create(vcpu);
+
+    // Allocate page for kvm_run structure
+    vcpu-&gt;run = page_address(kvm_vcpu_alloc_page(vcpu));
+
+    // Add to VM's vCPU array
+    kvm-&gt;vcpus[id] = vcpu;
+
+    // Create eventfd for irqfd
+    kvm_arch_vcpu_postcreate(vcpu);
+
+    return 0;
+}
+</code></pre>
+<h3 id="vcpu-scheduling"><a class="header" href="#vcpu-scheduling">vCPU Scheduling</a></h3>
+<p>When a vCPU thread calls <code>ioctl(KVM_RUN)</code>, the kernel enters guest mode. The vCPU thread may be descheduled by the host scheduler, which effectively "pauses" the guest.</p>
+<pre><code class="language-bash"># Check vCPU thread mapping
+ps -eLo pid,tid,comm | grep "CPU"
+
+# Pin vCPU threads to physical cores for performance
+taskset -pc 0 $(pgrep -f "qemu.*vcpu 0")
+taskset -pc 1 $(pgrep -f "qemu.*vcpu 1")
+
+# KVM supports halt polling — briefly spinning when guest halts
+# to avoid the overhead of sleeping/waking
+cat /sys/module/kvm/parameters/halt_poll_ns
+# 100000  (100µs default)
+
+# Adjust halt polling (microseconds)
+echo 50000 &gt; /sys/module/kvm/parameters/halt_poll_ns
+</code></pre>
+<h2 id="irq-chip-in-kernel-interrupt-controller"><a class="header" href="#irq-chip-in-kernel-interrupt-controller">IRQ Chip (In-Kernel Interrupt Controller)</a></h2>
+<p>KVM can emulate interrupt controllers entirely in kernel space, avoiding expensive VM exits to userspace.</p>
+<h3 id="interrupt-architecture"><a class="header" href="#interrupt-architecture">Interrupt Architecture</a></h3>
+<pre><code class="language-mermaid">graph LR
+    subgraph Hardware
+        PHYS_LAPIC[Physical LAPIC]
+        PHYS_IOAPIC[Physical I/O APIC]
+    end
+    subgraph KVM Kernel
+        VLAPIC[Virtual LAPIC&lt;br/&gt;per vCPU]
+        VIOAPIC[Virtual I/O APIC]
+        VPIC[Virtual PIC&lt;br/&gt;8259A]
+        IRQ_ROUTING[IRQ Routing Table]
+    end
+    subgraph Guest
+        GUEST_IDT[Guest IDT]
+    end
+    PHYS_LAPIC --&gt;|APICv/AVIC| VLAPIC
+    IRQ_ROUTING --&gt; VIOAPIC
+    IRQ_ROUTING --&gt; VPIC
+    VIOAPIC --&gt;|vector injection| VLAPIC
+    VPIC --&gt;|vector injection| VLAPIC
+    VLAPIC --&gt;|VM entry injection| GUEST_IDT
+</code></pre>
+<h3 id="lapic-virtualization"><a class="header" href="#lapic-virtualization">LAPIC Virtualization</a></h3>
+<p>The Local APIC (Advanced Programmable Interrupt Controller) is virtualized per vCPU. KVM provides:</p>
+<ul>
+<li><strong>Virtual LAPIC</strong> — full software emulation of the LAPIC registers</li>
+<li><strong>APICv</strong> (Intel) / <strong>AVIC</strong> (AMD) — hardware-assisted LAPIC virtualization that reduces VM exits</li>
+</ul>
+<pre><code class="language-bash"># Check if APICv is available
+dmesg | grep -i apic
+# kvm: LAPIC enabled with APICv
+
+# In-kernel irqchip (created by QEMU)
+# QEMU command:
+qemu-system-x86_64 -enable-kvm -machine kernel-irqchip=on ...
+
+# PIC + IOAPIC + LAPIC are all emulated in kernel
+# Without this, every interrupt would cause a VM exit to QEMU
+</code></pre>
+<h3 id="irq-routing"><a class="header" href="#irq-routing">IRQ Routing</a></h3>
+<p>KVM maintains an IRQ routing table that maps guest IRQ numbers to interrupt sources:</p>
+<pre><code class="language-c">/* KVM IRQ routing entry */
+struct kvm_irq_routing_entry {
+    __u32 gsi;          /* Guest-side IRQ number */
+    __u32 type;         /* KVM_IRQ_ROUTING_IRQCHIP, MSI, etc. */
+    __u32 flags;
+    union {
+        struct kvm_irq_routing_irqchip irqchip;  /* PIC/IOAPIC pin */
+        struct kvm_irq_routing_msi msi;          /* MSI address/data */
+        struct kvm_irq_routing_s390_adapter adapter;
+        struct kvm_irq_routing_hv_sint hv_sint;  /* Hyper-V sint */
+    } u;
+};
+</code></pre>
+<h3 id="posted-interrupts"><a class="header" href="#posted-interrupts">Posted Interrupts</a></h3>
+<p>Intel's APICv introduces <strong>posted interrupts</strong>, allowing external interrupts to be delivered to a guest without a VM exit:</p>
+<pre><code class="language-mermaid">sequenceDiagram
+    participant Device as Physical Device
+    participant LAPIC as Physical LAPIC
+    participant PID as Posted Interrupt Descriptor
+    participant vCPU as vCPU (non-root mode)
+
+    Device-&gt;&gt;LAPIC: Interrupt (MSI)
+    LAPIC-&gt;&gt;PID: Set bit in PID (PI notification)
+    PID-&gt;&gt;vCPU: Hardware delivers directly
+    Note over vCPU: No VM exit needed!&lt;br/&gt;Interrupt injected at VM entry
+
+    alt vCPU running
+        vCPU-&gt;&gt;vCPU: Interrupt delivered in guest
+    else vCPU sleeping
+        PID-&gt;&gt;vCPU: Wake up vCPU
+    end
+</code></pre>
+<h2 id="memory-virtualization"><a class="header" href="#memory-virtualization">Memory Virtualization</a></h2>
+<p>KVM implements a two-level page table translation:</p>
+<ol>
+<li><strong>Guest page tables</strong> — managed by the guest OS (virtual → guest physical)</li>
+<li><strong>Extended Page Tables (EPT/NPT)</strong> — managed by KVM (guest physical → host physical)</li>
+</ol>
+<pre><code class="language-mermaid">graph LR
+    subgraph Guest Virtual Address
+        GVA[GVA]
+    end
+    subgraph Guest Page Tables
+        GVA --&gt;|Guest CR3| GPA[GPA - Guest Physical Address]
+    end
+    subgraph EPT/NPT
+        GPA --&gt;|EPT Pointer| HPA[HPA - Host Physical Address]
+    end
+</code></pre>
+<h3 id="shadow-page-tables-legacy"><a class="header" href="#shadow-page-tables-legacy">Shadow Page Tables (Legacy)</a></h3>
+<p>Before EPT/NPT, KVM used shadow page tables — maintaining a single-level page table mapping GVA → HPA directly. This was expensive because every guest page table modification required a VM exit.</p>
+<h3 id="ept-extended-page-tables"><a class="header" href="#ept-extended-page-tables">EPT (Extended Page Tables)</a></h3>
+<pre><code class="language-bash"># Check if EPT is available
+dmesg | grep -i ept
+# kvm: EPT enabled
+# kvm: EPT caps: 0x00000f7b
+
+# Check NPT (AMD)
+dmesg | grep -i npt
+# kvm: NPT enabled
+</code></pre>
+<h3 id="memory-slot-management"><a class="header" href="#memory-slot-management">Memory Slot Management</a></h3>
+<p>KVM manages guest memory through memory regions (slots):</p>
+<pre><code class="language-c">/* KVM memory region */
+struct kvm_userspace_memory_region {
+    __u32 slot;              /* Slot index (0-31 typical) */
+    __u32 flags;             /* KVM_MEM_LOG_DIRTY_PAGES, etc. */
+    __u64 guest_phys_addr;   /* Guest physical address start */
+    __u64 memory_size;       /* Size in bytes */
+    __u64 userspace_addr;    /* Host virtual address (mmap'd) */
+};
+
+/* Dirty page tracking for live migration */
+struct kvm_dirty_log {
+    __u32 slot;
+    __u32 padding;
+    union {
+        __u64 __user *dirty_bitmap;  /* One bit per page */
+        __u64 padding2;
+    };
+};
+</code></pre>
+<pre><code class="language-bash"># View KVM memory stats
+cat /proc/$(pidof qemu-system-x86_64)/status | grep -i mem
+# VmSize:  5242880 kB
+# VmRSS:   2097152 kB
+</code></pre>
+<h2 id="kvm-api"><a class="header" href="#kvm-api">KVM API</a></h2>
+<p>The KVM userspace API is exposed through <code>/dev/kvm</code> ioctl calls:</p>
+<h3 id="key-ioctls"><a class="header" href="#key-ioctls">Key ioctls</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>ioctl</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>KVM_GET_API_VERSION</code></td><td>Returns API version (currently 12)</td></tr>
+<tr><td><code>KVM_CREATE_VM</code></td><td>Creates a new VM instance</td></tr>
+<tr><td><code>KVM_SET_USER_MEMORY_REGION</code></td><td>Maps host memory to guest physical</td></tr>
+<tr><td><code>KVM_CREATE_VCPU</code></td><td>Creates a virtual CPU</td></tr>
+<tr><td><code>KVM_GET_SREGS</code> / <code>KVM_SET_SREGS</code></td><td>Get/set segment registers</td></tr>
+<tr><td><code>KVM_GET_REGS</code> / <code>KVM_SET_REGS</code></td><td>Get/set general registers</td></tr>
+<tr><td><code>KVM_RUN</code></td><td>Enter guest mode</td></tr>
+<tr><td><code>KVM_SET_CPUID2</code></td><td>Set CPUID leaves for vCPU</td></tr>
+<tr><td><code>KVM_SET_MSRS</code></td><td>Set Model-Specific Registers</td></tr>
+<tr><td><code>KVM_IRQFD</code></td><td>Attach eventfd to IRQ</td></tr>
+<tr><td><code>KVM_IOEVENTFD</code></td><td>Attach eventfd to I/O port</td></tr>
+<tr><td><code>KVM_CREATE_IRQCHIP</code></td><td>Create in-kernel interrupt controller</td></tr>
+<tr><td><code>KVM_CREATE_PIT2</code></td><td>Create in-kernel PIT</td></tr>
+<tr><td><code>KVM_SET_TSC_KHZ</code></td><td>Set vCPU TSC frequency</td></tr>
+</tbody></table>
+</div>
+<h3 id="kvm-run-structure"><a class="header" href="#kvm-run-structure">KVM Run Structure</a></h3>
+<pre><code class="language-c">struct kvm_run {
+    /* in */
+    __u8 request_interrupt_window;
+    __u8 immediate_exit;
+    __u8 padding1[6];
+
+    /* out */
+    __u32 exit_reason;
+    __u8 ready_for_interrupt_injection;
+    __u8 if_flag;
+    __u16 flags;
+
+    /* in (pre_kvm_run), out (post_kvm_run) */
+    __u64 cr8;
+    __u64 apic_base;
+
+    union {
+        /* KVM_EXIT_UNKNOWN */
+        struct { __u64 hardware_exit_reason; } hw;
+        /* KVM_EXIT_IO */
+        struct {
+            __u8 direction;  /* 0=out, 1=in */
+            __u8 size;       /* bytes */
+            __u16 port;
+            __u32 count;
+            __u64 data_offset;
+        } io;
+        /* KVM_EXIT_MMIO */
+        struct {
+            __u64 phys_addr;
+            __u8 data[8];
+            __u32 len;
+            __u8 is_write;
+        } mmio;
+        /* KVM_EXIT_HLT */
+        struct {} hlt;
+        /* KVM_EXIT_INTERNAL_ERROR */
+        struct {
+            __u32 suberror;
+            __u32 ndata;
+            __u64 data[16];
+        } internal;
+        /* ... more exit types ... */
+    };
+};
+</code></pre>
+<h2 id="qemu-integration"><a class="header" href="#qemu-integration">QEMU Integration</a></h2>
+<p>QEMU is the primary userspace component that works with KVM. It provides:</p>
+<ol>
+<li><strong>Device emulation</strong> — network cards, disk controllers, USB, graphics</li>
+<li><strong>Machine model</strong> — chipset, firmware (BIOS/UEFI), buses</li>
+<li><strong>Management interface</strong> — QMP (QEMU Machine Protocol) for control</li>
+<li><strong>Live migration</strong> — moving running VMs between hosts</li>
+</ol>
+<pre><code class="language-mermaid">graph TB
+    subgraph QEMU Process
+        MAIN[Main Loop]
+        DEV_MMIO[MMIO Dispatch Table]
+        DEV_IO[Port I/O Dispatch Table]
+        BLOCK[Block Layer]
+        NET[Network Backend]
+        CHAR[Chardev Backend]
+        MONITOR[QMP/HMP Monitor]
+    end
+    subgraph KVM Kernel
+        KVM_RUN[KVM_RUN ioctl]
+        EXIT[VM Exit Handler]
+    end
+    MAIN --&gt; KVM_RUN
+    KVM_RUN --&gt; EXIT
+    EXIT --&gt;|KVM_EXIT_IO| DEV_IO
+    EXIT --&gt;|KVM_EXIT_MMIO| DEV_MMIO
+    EXIT --&gt;|KVM_EXIT_HLT| MAIN
+    DEV_IO --&gt; MONITOR
+    BLOCK --&gt; NET
+</code></pre>
+<h3 id="qemu--kvm-execution-model"><a class="header" href="#qemu--kvm-execution-model">QEMU + KVM Execution Model</a></h3>
+<pre><code class="language-bash"># Typical QEMU command with KVM
+qemu-system-x86_64 \
+  -enable-kvm \
+  -machine q35,accel=kvm \
+  -cpu host \
+  -smp 4,sockets=1,cores=2,threads=2 \
+  -m 8G \
+  -device virtio-blk-pci,drive=drv0 \
+  -drive file=disk.qcow2,format=qcow2,if=none,id=drv0 \
+  -device virtio-net-pci,netdev=net0 \
+  -netdev user,id=net0,hostfwd=tcp::2222-:22 \
+  -device virtio-gpu-pci \
+  -display gtk \
+  -monitor stdio
+
+# Monitor the VM
+(qemu) info status
+(qemu) info cpus
+(qemu) info network
+(qemu) info block
+</code></pre>
+<h2 id="performance-tuning"><a class="header" href="#performance-tuning">Performance Tuning</a></h2>
+<h3 id="vm-exit-minimization"><a class="header" href="#vm-exit-minimization">VM Exit Minimization</a></h3>
+<p>Every VM exit is expensive (~1-2 microseconds). Minimizing exits is critical:</p>
+<pre><code class="language-bash"># Enable halt polling to reduce HLT exits
+echo 200000 &gt; /sys/module/kvm/parameters/halt_poll_ns
+
+# Use in-kernel irqchip (reduces interrupt-related exits)
+# Default in modern QEMU
+
+# Enable APICv/AVIC (reduces LAPIC access exits)
+# Check: dmesg | grep -i "virtual apic"
+
+# Use virtio for I/O (reduces I/O port exits)
+# virtio uses shared memory rings instead of port I/O
+
+# MSR filtering — avoid unnecessary MSR exits
+# KVM_SET_MSR_FILTER ioctl (Linux 5.2+)
+</code></pre>
+<h3 id="numa-and-cpu-pinning"><a class="header" href="#numa-and-cpu-pinning">NUMA and CPU Pinning</a></h3>
+<pre><code class="language-bash"># Check NUMA topology
+numactl --hardware
+
+# Pin vCPU to specific physical CPU
+# In libvirt XML:
+# &lt;vcpupin vcpu='0' cpuset='2'/&gt;
+# &lt;vcpupin vcpu='1' cpuset='3'/&gt;
+# &lt;emulatorpin cpuset='0-1'/&gt;
+
+# Or via QEMU command line:
+# taskset -c 2,3 qemu-system-x86_64 -enable-kvm -smp 2 ...
+</code></pre>
+<h3 id="huge-pages"><a class="header" href="#huge-pages">Huge Pages</a></h3>
+<pre><code class="language-bash"># Allocate 1GB huge pages for VM memory
+echo 8 &gt; /sys/kernel/mm/hugepages/hugepages-1048576kB/nr_hugepages
+
+# QEMU with hugepages
+qemu-system-x86_64 -enable-kvm -m 8G \
+  -object memory-backend-file,id=mem,size=8G,mem-path=/dev/hugepages \
+  -machine memory-backend=mem ...
+
+# Check hugepage allocation
+cat /proc/meminfo | grep -i huge
+</code></pre>
+<h2 id="nested-virtualization"><a class="header" href="#nested-virtualization">Nested Virtualization</a></h2>
+<p>KVM supports running a hypervisor inside a VM (L0 → L1 → L2):</p>
+<pre><code class="language-bash"># Enable nested virtualization (Intel)
+echo "options kvm_intel nested=Y" &gt; /etc/modprobe.d/kvm.conf
+modprobe -r kvm_intel &amp;&amp; modprobe kvm_intel
+
+# Enable nested virtualization (AMD)
+echo "options kvm_amd nested=1" &gt; /etc/modprobe.d/kvm.conf
+modprobe -r kvm_amd &amp;&amp; modprobe kvm_amd
+
+# Inside the VM, verify KVM is available
+grep -c vmx /proc/cpuinfo  # Should show &gt; 0
+</code></pre>
+<pre><code class="language-mermaid">graph TB
+    subgraph L0 Host
+        L0_KVM[KVM Module]
+    end
+    subgraph L1 VM (Nested Hypervisor)
+        L1_KVM[KVM Module]
+        L1_VM[L2 VM]
+        L1_KVM --&gt; L1_VM
+    end
+    L0_KVM --&gt;|VMCS shadowing| L1_KVM
+</code></pre>
+<h2 id="references"><a class="header" href="#references">References</a></h2>
+<ol>
+<li>KVM source code: <code>virt/kvm/</code> and <code>arch/x86/kvm/</code> in the Linux kernel tree</li>
+<li>Intel. "Intel® 64 and IA-32 Architectures Software Developer's Manual, Volume 3C: System Programming Guide, Part 3." Chapter 23-33: VMX.</li>
+<li>AMD. "AMD64 Architecture Programmer's Manual Volume 2: System Programming." Chapter 15: Secure Virtual Machine.</li>
+<li>KVM API documentation: <code>Documentation/virt/kvm/api.rst</code> in the Linux kernel tree.</li>
+<li>Laan, J. van der. "KVM and QEMU Integration." KVM Forum.</li>
+</ol>
+<h2 id="further-reading"><a class="header" href="#further-reading">Further Reading</a></h2>
+<ul>
+<li>
+<p><a href="https://docs.kernel.org/">The Linux Kernel Documentation</a></p>
+</li>
+<li>
+<p><a href="https://lwn.net/">LWN.net - Linux and free software news</a></p>
+</li>
+<li>
+<p><a href="https://www.gnu.org/doc/doc.html">GNU Project Documentation</a></p>
+</li>
+<li>
+<p><a href="https://www.gnu.org/manual/manual.html">GNU Manuals</a></p>
+</li>
+<li>
+<p><a href="https://directory.fsf.org/wiki/Main_Page">Free Software Directory</a></p>
+</li>
+<li>
+<p><a href="https://planet.gnu.org/">Planet GNU</a></p>
+</li>
+<li>
+<p><a href="https://www.gnu.org/doc/other-free-books.html">Free Software Books</a></p>
+</li>
+<li>
+<p><a href="https://www.kernel.org/doc/html/latest/virt/kvm/api.html">KVM API Documentation — kernel.org</a></p>
+</li>
+<li>
+<p><a href="https://www.linux-kvm.org/page/KVM_Forum">KVM Forum Presentations</a></p>
+</li>
+<li>
+<p><a href="https://www.intel.com/sdm">Intel SDM Volume 3C — VMX</a></p>
+</li>
+<li>
+<p><a href="https://www.qemu.org/docs/master/devel/">QEMU Internals Documentation</a></p>
+</li>
+<li>
+<p><a href="https://elixir.bootlin.com/linux/latest/source/virt/kvm">KVM Source Browser</a></p>
+</li>
+</ul>
+<h2 id="related-topics"><a class="header" href="#related-topics">Related Topics</a></h2>
+<ul>
+<li><a href="./overview.html">Virtualization Overview</a> — types and comparison of virtualization</li>
+<li><a href="./qemu.html">QEMU</a> — device emulation and VM management</li>
+<li><a href="./xen.html">Xen Hypervisor</a> — alternative virtualization approach</li>
+<li><a href="../containers/cgroups-v2.html">cgroups v2</a> — resource management used for VM scheduling</li>
+<li><a href="../embedded/arm.html">ARM Architecture</a> — KVM on ARM</li>
+</ul>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../virtualization/overview.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+                            <a rel="next prefetch" href="../virtualization/qemu.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../virtualization/overview.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+                    <a rel="next prefetch" href="../virtualization/qemu.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+        <script src="../ace.js"></script>
+        <script src="../editor.js"></script>
+        <script src="../mode-rust.js"></script>
+        <script src="../theme-dawn.js"></script>
+        <script src="../theme-tomorrow_night.js"></script>
+
+        <script src="../elasticlunr.min.js"></script>
+        <script src="../mark.min.js"></script>
+        <script src="../searcher.js"></script>
+
+        <script src="../clipboard.min.js"></script>
+        <script src="../highlight.js"></script>
+        <script src="../book.js"></script>
+
+        <!-- Custom JS scripts -->
+        <script src="../custom.js"></script>
+
+
+    </div>
+    </body>
+</html>
