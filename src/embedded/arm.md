@@ -419,11 +419,11 @@ ARM's heterogeneous multiprocessing combines high-performance and energy-efficie
 ```mermaid
 flowchart TB
     subgraph "big.LITTLE / DynamIQ Cluster"
-        subgraph "PC["Performance Cores (Cortex-A78)"]"
+        subgraph PC["Performance Cores (Cortex-A78)"]
             BIG0["Core 0<br>Cortex-A78<br>High performance"]
             BIG1["Core 1<br>Cortex-A78"]
         end
-        subgraph "EC["Efficiency Cores (Cortex-A55)"]"
+        subgraph EC["Efficiency Cores (Cortex-A55)"]
             LITTLE0["Core 2<br>Cortex-A55<br>Power efficient"]
             LITTLE1["Core 3<br>Cortex-A55"]
             LITTLE2["Core 4<br>Cortex-A55"]
