@@ -1,1 +1,432 @@
-# Mandatory Access Control
+# Mandatory Access Control (MAC) on Linux
+
+## Introduction
+
+Traditional Linux security uses **Discretionary Access Control (DAC)**—file owners decide who can access their files via permissions and ownership. This is insufficient for many security requirements because:
+
+- Root has unlimited power (a compromised root = total compromise).
+- Users can set permissions on their own files (data leakage).
+- No concept of least privilege for system services.
+- No protection against malicious software running as a legitimate user.
+
+**Mandatory Access Control (MAC)** adds a kernel-enforced policy layer that restricts what *every* process can do, regardless of its UID/GID. Even root is constrained by MAC policy. The Linux kernel implements MAC through the **Linux Security Module (LSM)** framework.
+
+## The LSM Framework
+
+LSM is the kernel's pluggable security architecture. It provides **hooks** at critical points in the kernel where security decisions are made:
+
+```mermaid
+graph TD
+    A[System Call] --> B[VFS / Kernel Subsystem]
+    B --> C{LSM Hook}
+    C -->|Allow| D[Execute operation]
+    C -->|Deny| E[Return -EACCES / -EPERM]
+    
+    F[LSM Module] --> C
+    G[SELinux] --> F
+    H[AppArmor] --> F
+    I[Smack] --> F
+    J[TOMOYO] --> F
+    K[BPF LSM] --> F
+```
+
+### LSM Hooks
+
+LSM hooks are called at key decision points:
+
+```c
+/* include/linux/lsm_hooks.h (examples) */
+
+/* File operations */
+security_file_open(file)          /* Before opening a file */
+security_file_read(file)          /* Before reading */
+security_file_write(file)         /* Before writing */
+
+/* Process operations */
+security_task_create(clone_flags) /* Before fork/clone */
+security_task_kill(task, sig)     /* Before sending signal */
+security_ptrace_access_check(task)/* Before ptrace */
+
+/* Network operations */
+security_socket_create(family)    /* Before creating socket */
+security_socket_connect(sock)     /* Before connecting */
+security_socket_bind(sock)       /* Before binding */
+
+/* IPC operations */
+security_shm_alloc(shp)          /* Before shared memory */
+security_msg_queue_msgsnd(msg)   /* Before message send */
+
+/* Kernel operations */
+security_kernel_load_data(id)    /* Before loading kernel data */
+security_bpf(cmd)                /* Before BPF operations */
+security_locked_down(what)       /* Kernel lockdown check */
+```
+
+### Available LSM Modules
+
+```bash
+# Check which LSM is active
+cat /sys/kernel/security/lsm
+
+# Output example:
+# lockdown,capability,yama,apparmor
+
+# List available LSMs
+ls /sys/kernel/security/
+
+# Boot parameter to select LSM
+# GRUB: security=selinux  or  security=apparmor
+```
+
+```mermaid
+graph TD
+    A[LSM Framework] --> B[Capability LSM]
+    A --> C[SELinux]
+    A --> D[AppArmor]
+    A --> E[Smack]
+    A --> F[TOMOYO]
+    A --> G[Yama]
+    A --> H[LoadPin]
+    A --> I[Lockdown]
+    A --> J[BPF LSM]
+    
+    B --> K[Always active: manages Linux capabilities]
+    C --> L[Label-based: every object has a security context]
+    D --> M[Path-based: profiles define allowed paths]
+    E --> N[Label-based: simplified, for embedded/IoT]
+    F --> O[Path-based: Japanese origin, learning mode]
+    G --> P[Ptrace restrictions]
+    G --> Q[Restrict who can ptrace whom]
+```
+
+## SELinux (Security-Enhanced Linux)
+
+SELinux is the most comprehensive MAC implementation for Linux, originally developed by the **NSA** and now maintained by Red Hat and the community.
+
+### Core Concepts
+
+**Type Enforcement (TE)**: Every process (subject) and every resource (object) has a **security context** (label). Policy rules define what types can access what.
+
+```
+Security Context Format:
+  user:role:type:level
+
+Example:
+  system_u:system_r:httpd_t:s0
+  system_u:object_r:httpd_sys_content_t:s0
+```
+
+```bash
+# View security contexts
+ls -Z /var/www/html/
+# -rw-r--r--. root root system_u:object_r:httpd_sys_content_t:s0 index.html
+
+ps -eZ | grep httpd
+# system_u:system_r:httpd_t:s0    1234 ?  httpd
+```
+
+### SELinux Modes
+
+```bash
+# Check current mode
+getenforce
+# Enforcing
+
+# Set mode
+setenforce 0    # Permissive (log only, don't deny)
+setenforce 1    # Enforcing (log and deny)
+
+# Configuration
+# /etc/selinux/config
+SELINUX=enforcing
+SELINUXTYPE=targeted
+```
+
+### Policy Types
+
+| Policy | Description |
+|--------|-------------|
+| **targeted** | Confine specific services (default on RHEL/Fedora) |
+| **minimum** | Subset of targeted |
+| **mls** | Multi-Level Security (strictest) |
+
+### SELinux Policy Rules
+
+```
+# Type Enforcement rule
+# allow <subject_type> <object_type>:<class> { <permissions> };
+
+allow httpd_t httpd_sys_content_t:file { read open getattr };
+allow httpd_t httpd_sys_content_t:dir { search getattr open };
+
+# Transition rule
+# When httpd_t executes httpd_exec_t, transition to httpd_t
+type_transition httpd_t httpd_exec_t:process httpd_t;
+
+# Never allow (even if other rules permit)
+neverallow httpd_t shadow_t:file { read write };
+```
+
+### Common SELinux Operations
+
+```bash
+# View denials (AVC messages)
+ausearch -m AVC
+# Or:
+journalctl -t setroubleshoot
+
+# Generate allow rules from denials
+audit2allow -M mymodule < /var/log/audit/audit.log
+semodule -i mymodule.pp
+
+# Relabel files
+restorecon -Rv /var/www/html/
+
+# Set persistent labels
+semanage fcontext -a -t httpd_sys_content_t "/data(/.*)?"
+restorecon -Rv /data/
+
+# Boolean toggles (quick policy adjustments)
+getsebool -a | grep httpd
+setsebool -P httpd_can_network_connect on
+
+# Manage ports
+semanage port -l | grep http
+semanage port -a -t http_port_t -p tcp 8080
+```
+
+### SELinux Architecture
+
+```mermaid
+graph TD
+    A[Process] --> B{SELinux Hook}
+    B --> C[AVC Cache]
+    C -->|Cache hit| D{Allow/Deny}
+    C -->|Cache miss| E[Policy Server]
+    E --> F[Policy Database]
+    F --> E
+    E --> C
+    D -->|Allow| G[Proceed]
+    D -->|Deny| H[AVC Denial + audit]
+```
+
+## AppArmor
+
+AppArmor is the default MAC on **Ubuntu**, **SUSE**, and **Debian**. It uses **path-based** confinement rather than labels.
+
+### Core Concepts
+
+- **Profiles** define what a program can access.
+- Profiles are path-based (easier to understand than SELinux labels).
+- Two modes: **enforce** (deny) and **complain** (log only).
+- Simpler than SELinux but less granular.
+
+```bash
+# Check AppArmor status
+aa-status
+
+# Profile modes
+# enforce — actively restricts
+# complain — logs violations but allows
+# unconfined — no restrictions
+```
+
+### AppArmor Profile Example
+
+```bash
+# /etc/apparmor.d/usr.sbin.nginx
+#include <tunables/global>
+
+/usr/sbin/nginx {
+  #include <abstractions/apache2-common>
+  #include <abstractions/base>
+  #include <abstractions/nis>
+
+  capability net_bind_service,
+  capability setgid,
+  capability setuid,
+
+  # Network access
+  network inet stream,
+  network inet dgram,
+  network inet6 stream,
+
+  # Configuration files
+  /etc/nginx/** r,
+  /etc/mime.types r,
+
+  # Content directories
+  /var/www/html/** r,
+  /var/log/nginx/** rw,
+
+  # PID file
+  /run/nginx.pid rw,
+
+  # Deny access to sensitive files
+  deny /etc/shadow r,
+  deny /etc/passwd w,
+}
+```
+
+### AppArmor Operations
+
+```bash
+# Load a profile
+apparmor_parser -r /etc/apparmor.d/usr.sbin.nginx
+
+# Set to complain mode
+aa-complain /usr/sbin/nginx
+
+# Set to enforce mode
+aa-enforce /usr/sbin/nginx
+
+# Disable a profile
+ln -s /etc/apparmor.d/usr.sbin.nginx /etc/apparmor.d/disable/
+apparmor_parser -R /usr/sbin/nginx
+
+# Generate profile (learning mode)
+aa-genprof /usr/sbin/nginx
+# Runs the program, monitors access, suggests rules
+
+# Update existing profile
+aa-logprof
+# Analyzes logs and suggests rule changes
+
+# Auto-profile
+aa-autodep /usr/sbin/nginx
+```
+
+## Smack (Simplified Mandatory Access Control)
+
+Smack is designed for **embedded systems** and **IoT devices**. It uses a simple label-based model:
+
+```bash
+# Smack labels are simple strings
+# Access rules: Subject Label Object Label Access
+
+# Set Smack label on a file
+chsmack -a "MyLabel" /data/file.txt
+
+# View Smack labels
+ls -M /data/
+
+# Set process label
+smackcipso -l "MyLabel"
+
+# Access rule format in /sys/fs/smackfs/load
+# SubjectLabel ObjectLabel Access
+# Access: r (read), w (write), x (execute), a (append)
+```
+
+Smack is used in **Tizen** (Samsung's mobile/IoT OS) and some automotive Linux distributions.
+
+## TOMOYO
+
+TOMOYO is a **path-based** MAC from Japan, focused on **learning mode**:
+
+```bash
+# TOMOYO learns from normal system behavior
+# Then generates a policy based on observed patterns
+
+# View policy
+cat /sys/kernel/security/tomoyo/domain_policy
+
+# Example policy:
+# <kernel> /sbin/init
+# allow_read /etc/passwd
+# allow_read /etc/shadow
+# allow_execute /bin/bash
+# allow_network inet stream connect 0.0.0.0/0:80
+
+# TOMOYO domains correspond to process execution chains
+# /sbin/init -> /usr/sbin/nginx -> worker process
+```
+
+TOMOYO is included in the mainline kernel (since 2.6.30).
+
+## Comparison
+
+| Feature | SELinux | AppArmor | Smack | TOMOYO |
+|---------|---------|----------|-------|--------|
+| **Default distro** | RHEL, Fedora, Android | Ubuntu, SUSE, Debian | Tizen | Embedded |
+| **Labeling** | Security contexts (user:role:type:level) | Path-based | Simple labels | Path-based |
+| **Complexity** | High | Medium | Low | Medium |
+| **Learning mode** | `audit2allow` | `aa-genprof` | Manual | Built-in |
+| **Granularity** | Very fine | Fine | Moderate | Moderate |
+| **Network control** | Yes (labeled networking) | Yes (socket rules) | Yes | Yes |
+| **Container support** | Excellent (MCS) | Good (profile stacking) | Basic | Basic |
+| **File system support** | Requires labeling (xattr) | Any | Any | Any |
+| **Android** | Yes (main MAC) | No | No | No |
+
+### When to Choose Which
+
+```mermaid
+graph TD
+    A{Choose MAC} --> B{What distro?}
+    B -->|RHEL/Fedora| C[SELinux]
+    B -->|Ubuntu/Debian| D[AppArmor]
+    B -->|Embedded/IoT| E{Need labels?}
+    E -->|Yes| F[Smack]
+    E -->|No, path-based OK| G[TOMOYO]
+    B -->|Android| C
+    B -->|Need maximum control| C
+    B -->|Need simplicity| D
+```
+
+## BPF LSM
+
+Linux 5.7+ supports **BPF LSM**—using eBPF programs as LSM hooks:
+
+```c
+/* BPF LSM program (skeleton) */
+SEC("lsm/file_open")
+int BPF_PROG(restrict_open, struct file *file, int ret) {
+    /* Check the file path */
+    char path[256];
+    bpf_d_path(&file->f_path, path, sizeof(path));
+    
+    /* Deny access to /etc/shadow */
+    if (bpf_strncmp(path, 11, "/etc/shadow") == 0) {
+        return -EACCES;
+    }
+    
+    return ret;  /* Allow */
+}
+```
+
+BPF LSM is programmable and safe, making it ideal for runtime security policies.
+
+## Combining MAC with Other Security Layers
+
+```mermaid
+graph TD
+    A[Application] --> B{BPF LSM}
+    B --> C{LSM Hook}
+    C --> D{SELinux/AppArmor}
+    D --> E{Capabilities}
+    E --> F{DAC Permissions}
+    F --> G[Access Granted/Denied]
+    
+    H[Seccomp] -.-> A
+    I[Namespaces] -.-> A
+    J[cgroups] -.-> A
+```
+
+Modern container security uses multiple layers:
+1. **Namespaces** (isolation)
+2. **cgroups** (resource limits)
+3. **Seccomp** (syscall filtering)
+4. **MAC** (SELinux/AppArmor profiles)
+5. **Capabilities** (fine-grained root powers)
+
+## Further Reading
+
+- [SELinux Documentation](https://selinuxproject.org/page/Main_Page) — SELinux project
+- [AppArmor Wiki](https://gitlab.com/apparmor/apparmor/-/wikis/home) — AppArmor documentation
+- [Kernel LSM docs](https://docs.kernel.org/security/lsm.html) — LSM framework
+- [LWN: LSM](https://lwn.net/Articles/635771/) — LSM overview
+- [SELinux Coloring Book](https://people.redhat.com/duffy/selinux/selinux-coloring-book_A4-Stapled.pdf) — Visual SELinux guide
+- [man7.org: selinux](https://man7.org/linux/man-pages/man8/selinux.8.html) — SELinux man pages
+- [Kernel docs: Smack](https://docs.kernel.org/security/smack.html) — Smack documentation
+- [Kernel docs: TOMOYO](https://docs.kernel.org/security/tomoyo.html) — TOMOYO documentation
+- [BPF LSM](https://docs.kernel.org/bpf/progs/lsm.html) — BPF LSM documentation
