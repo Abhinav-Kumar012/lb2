@@ -477,6 +477,130 @@ echo 'p:myprobe do_sys_open filename=+0(%si):string flags=%dx:x32' > /sys/kernel
 echo 'p:myprobe do_sys_open stack=%bp:x64' > /sys/kernel/tracing/kprobe_events
 ```
 
+## Kprobe-based Event Tracing (from kernel docs)
+
+The following details are drawn from the official [Kprobe-based Event Tracing](https://docs.kernel.org/trace/kprobetrace.html) documentation by Masami Hiramatsu.
+
+### Overview
+
+Kprobe-based events are similar to tracepoint-based events but are based on kprobes (kprobe and kretprobe). They can probe wherever kprobes can probe — all functions except those with `__kprobes`/`nokprobe_inline` annotation and those marked `NOKPROBE_SYMBOL`. Unlike tracepoint-based events, kprobe events can be **added and removed dynamically, on the fly**.
+
+Enable with `CONFIG_KPROBE_EVENTS=y`.
+
+### Synopsis of kprobe_events
+
+```
+p[:[GRP/][EVENT]] [MOD:]SYM[+offs]|MEMADDR [FETCHARGS]  : Set a probe
+r[MAXACTIVE][:[GRP/][EVENT]] [MOD:]SYM[+0] [FETCHARGS]  : Set a return probe
+p[:[GRP/][EVENT]] [MOD:]SYM[+0]%return [FETCHARGS]       : Set a return probe
+-:[GRP/][EVENT]                                          : Clear a probe
+
+GRP      : Group name (default: "kprobes")
+EVENT    : Event name (auto-generated if omitted)
+MOD      : Module name containing SYM
+SYM[+offs] : Symbol + offset for probe placement
+MAXACTIVE  : Max concurrent instances for return probes
+```
+
+### Fetch Arguments
+
+Each probe can have up to **128 arguments**:
+
+| Syntax | Description |
+|--------|-------------|
+| `%REG` | Fetch register REG |
+| `@ADDR` | Fetch memory at ADDR (kernel address) |
+| `@SYM[+\|-offs]` | Fetch memory at SYM + offset |
+| `$stackN` | Fetch Nth entry of stack (N ≥ 0) |
+| `$stack` | Fetch stack address |
+| `$argN` | Fetch Nth function argument (N ≥ 1, entry probe only, best effort) |
+| `$retval` | Fetch return value (return probe only, best effort) |
+| `$comm` | Fetch current task comm |
+| `+\|-OFFS(FETCHARG)` | Fetch at offset from FETCHARG |
+| `\IMM` | Store immediate value |
+| `NAME=FETCHARG` | Name the argument |
+| `FETCHARG:TYPE` | Cast to type |
+
+### Supported Types
+
+| Type | Description |
+|------|-------------|
+| `u8/u16/u32/u64` | Unsigned integers |
+| `s8/s16/s32/s64` | Signed integers |
+| `x8/x16/x32/x64` | Hexadecimal |
+| `char` | Character value |
+| `string` | Null-terminated kernel string |
+| `ustring` | Null-terminated user-space string |
+| `symbol` | Pointer as symbol+offset |
+| `symstr` | Symbol+offset as string (for filtering) |
+| `%pd/%pD` | VFS dentry/file name |
+| `b<w>@<o>/<c>` | Bitfield: width @ offset / container-size |
+| `<type>[N]` | Array of N elements |
+
+### Function Arguments at kretprobe
+
+Function arguments can be accessed at kretprobe using `$arg<N>` fetcharg. This is useful to record function parameters and return values at once, and trace differences in structure fields.
+
+### Per-Probe Event Filtering
+
+Each probe event has its own directory under `tracing/events/kprobes/<EVENT>/` with:
+
+- **`enable`** — Write 1/0 to enable/disable
+- **`format`** — Shows the event format
+- **`filter`** — Write filtering rules
+- **`id`** — Event ID
+- **`trigger`** — Install trigger commands (stacktrace, snapshot, etc.)
+
+### Event Profiling
+
+Check probe hit counts via `/sys/kernel/tracing/kprobe_profile`:
+```bash
+cat /sys/kernel/tracing/kprobe_profile
+# myprobe  1234  0    (hits  misses)
+# myretprobe  5678  2
+```
+
+### Kernel Boot Parameter
+
+Add and enable kprobe events at boot time:
+```
+kprobe_event=p:myprobe,do_sys_open,dfd=%ax,filename=%dx,flags=%cx
+```
+(Parameters are comma-delimited instead of space-delimited.)
+
+### User Memory Access
+
+Kprobe events support user-space memory access via:
+- **`u` prefix on dereference**: `+u4(%si)` reads from user-space address in `%si + 4`
+- **`ustring` type**: `+0(%si):ustring` reads a user-space string
+
+### Example: Tracing do_sys_open
+
+```bash
+# Set kprobe on do_sys_open
+echo 'p:myprobe do_sys_open dfd=%ax filename=%dx flags=%cx mode=+4($stack)' > /sys/kernel/tracing/kprobe_events
+
+# Set kretprobe
+echo 'r:myretprobe do_sys_open $retval' >> /sys/kernel/tracing/kprobe_events
+
+# Enable both
+echo 1 > /sys/kernel/tracing/events/kprobes/myprobe/enable
+echo 1 > /sys/kernel/tracing/events/kprobes/myretprobe/enable
+
+# Trace
+echo 1 > /sys/kernel/tracing/tracing_on
+# ... do something ...
+echo 0 > /sys/kernel/tracing/tracing_on
+cat /sys/kernel/tracing/trace
+# <...>-1447 [001] 1038282.286875: myprobe: (do_sys_open+0x0/0xd6) dfd=3 filename=7fffd1ec4440 flags=8000 mode=0
+# <...>-1447 [001] 1038282.286915: myretprobe: (sys_open+0x1b/0x1d <- do_sys_open) $retval=3
+
+# Clear all probes
+echo > /sys/kernel/tracing/kprobe_events
+# Or selectively
+echo '-:myprobe' >> /sys/kernel/tracing/kprobe_events
+```
+
 ## uprobes — User-Space Dynamic Tracing
 
 From `docs.kernel.org/trace/uprobetracer.html`, uprobes are the user-space counterpart of kprobes. They allow dynamic insertion of tracepoints at any instruction in user-space executables and libraries.
@@ -1132,6 +1256,7 @@ For full details, see [Hardware Latency Detector — docs.kernel.org](https://do
 - [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
 
 - [ftrace - Function Tracer — docs.kernel.org](https://docs.kernel.org/trace/ftrace.html) — Official ftrace documentation (comprehensive file reference, options, filter commands)
+- [Kprobe-based Event Tracing — docs.kernel.org](https://docs.kernel.org/trace/kprobetrace.html) — Official kprobe event tracing reference
 - [ftrace Documentation](https://www.kernel.org/doc/html/latest/trace/ftrace.html)
 - [trace-cmd man page](https://man7.org/linux/man-pages/man1/trace-cmd.1.html)
 - [KernelShark](https://kernelshark.org/)

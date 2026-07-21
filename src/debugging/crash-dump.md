@@ -325,6 +325,116 @@ crash> struct request.data ffff9a7c0f567800
 # data = 0x0
 ```
 
+## Ramoops / pstore (from kernel docs)
+
+The following details are drawn from the official [Ramoops oops/panic logger](https://docs.kernel.org/admin-guide/ramoops.html) kernel documentation.
+
+### How Ramoops Works
+
+Ramoops is an oops/panic logger that writes logs to RAM before the system crashes. It works by logging oopses and panics in a **circular buffer** in a predefined memory area. Ramoops needs a system with **persistent RAM** so that the content survives after a restart.
+
+### Memory Area Configuration
+
+Ramoops uses a predefined memory area with three key parameters:
+
+- **`mem_address`** — Start of the memory area
+- **`mem_size`** — Size (rounded down to power of two)
+- **`mem_type`** — Memory mapping type:
+  - `0` (default): `pgprot_writecombine` — recommended for most platforms
+  - `1`: `pgprot_noncached` — only works on some platforms (causes strongly ordered memory on ARM, breaking atomic operations)
+  - `2`: Normal memory with full cache — better performance
+
+The memory area is divided into `record_size` chunks (also rounded to power of two), and each kmsg dump writes one `record_size` chunk.
+
+### Controlling Dump Types
+
+The `max_reason` parameter limits which kinds of kmsg dumps are stored:
+
+| Value | Constant | Meaning |
+|-------|----------|--------|
+| 0 | `KMSG_DUMP_UNDEF` | Controlled by `printk.always_kmsg_dump` boot param |
+| 1 | `KMSG_DUMP_PANIC` | Store only panics |
+| 2 | `KMSG_DUMP_OOPS` | Store oopses and panics |
+
+### Software ECC Protection
+
+Ramoops supports **software ECC protection** of persistent memory regions. This is useful when a hardware reset (e.g., watchdog trigger) brings the machine back — RAM may be somewhat corrupt but usually restorable.
+
+### Setting Parameters
+
+**Method 1: Module parameters**
+```bash
+# Reserve 128MB boundary with ECC
+mem=128M ramoops.mem_address=0x8000000 ramoops.ecc=1
+```
+
+**Method 2: Device Tree**
+```dts
+reserved-memory {
+    #address-cells = <2>;
+    #size-cells = <2>;
+    ranges;
+    ramoops@8f000000 {
+        compatible = "ramoops";
+        reg = <0 0x8f000000 0 0x100000>;
+        record-size = <0x4000>;
+        console-size = <0x4000>;
+    };
+};
+```
+
+**Method 3: Platform device** — Set `ramoops_platform_data` and register a platform device.
+
+**Method 4: `reserve_mem` command line**
+```bash
+reserve_mem=2M:4096:oops ramoops.mem_name=oops
+```
+
+### Reading Dump Data
+
+Dump data is read from the **pstore filesystem**:
+
+```bash
+# Mount pstore
+mount -t pstore pstore /sys/fs/pstore/
+
+# Dump files are named dmesg-ramoops-N
+ls /sys/fs/pstore/
+# dmesg-ramoops-0  dmesg-ramoops-1
+
+# Delete a stored record by unlinking the file
+rm /sys/fs/pstore/dmesg-ramoops-0
+```
+
+### Persistent Function Tracing
+
+Ramoops supports persistent function tracing for debugging hardware/software hangs. The function call chain is stored in `ftrace-ramoops`:
+
+```bash
+# Enable persistent ftrace
+echo 1 > /sys/kernel/debug/pstore/record_ftrace
+
+# After crash and reboot:
+mount -t pstore pstore /mnt/
+tail /mnt/ftrace-ramoops
+# 0 ffffffff8101ea64 ffffffff8101bcda native_apic_mem_read <- disconnect_bsp_APIC+0x6a/0xc0
+# 0 ffffffff81020084 ffffffff8101a4b5 hpet_disable <- native_machine_shutdown+0x75/0x90
+```
+
+### pstore Block Backend
+
+The `pstore_blk` backend allows ramoops to use block devices instead of persistent RAM:
+
+```bash
+# Use a block device for pstore
+# Kernel config: CONFIG_PSTORE_BLK=y
+# Boot param: pstore_blk.backend=block_device_name
+```
+
+### Dump Format
+
+The data dump begins with a header (`====` followed by a timestamp and newline), followed by the actual kmsg data.
+
 ## Generating Dumps Without kdump
 
 ### Panic on NMI
@@ -448,6 +558,8 @@ graph TB
 - [crash utility](https://github.com/crash-utility/crash) — GitHub repository
 - [makedumpfile](https://github.com/makedumpfile/makedumpfile) — dump compression tool
 - [kexec man page](https://man7.org/linux/man-pages/man8/kexec.8.html)
+- [Ramoops oops/panic logger — docs.kernel.org](https://docs.kernel.org/admin-guide/ramoops.html) — Official ramoops/pstore documentation
+- [pstore block oops/panic logger — docs.kernel.org](https://docs.kernel.org/admin-guide/pstore-blk.html)
 - [Red Hat: Kernel crash dump guide](https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/9/html/managing_monitoring_and_updating_the_kernel/configuring-kdump_managing-monitoring-and-updating-the-kernel)
 - [LWN: Kernel crash dumps](https://lwn.net/Articles/kdump/) — overview
 - [man7.org: core(5)](https://man7.org/linux/man-pages/man5/core.5.html) — core dump format
