@@ -872,6 +872,78 @@ Common subsystems and their events:
 | `irq` | `irq_handler_entry`, `softirq_entry` | Interrupt handling |
 | `syscalls` | `sys_enter_*`, `sys_exit_*` | System calls |
 
+## hwlat_detector — Hardware Latency Detector
+
+The `hwlat_detector` is a special-purpose ftrace tracer that detects large system latencies caused by hardware or firmware behavior, independent of Linux itself. From the kernel documentation at `docs.kernel.org/trace/hwlat_detector.html`:
+
+> *"The code was developed originally to detect SMIs (System Management Interrupts) on x86 systems, however there is nothing x86 specific about this patchset."*
+
+SMIs are not serviced by the Linux kernel — they are set up and serviced by BIOS code, usually for thermal management and fan control. Sometimes SMI handlers spend an inordinate amount of time (measured in milliseconds), which is catastrophic for latency-sensitive workloads.
+
+### How It Works
+
+The hwlat detector works by:
+1. **Hogging a CPU** with interrupts disabled for a configurable period
+2. **Polling the CPU Time Stamp Counter (TSC)** continuously
+3. **Looking for gaps** in the TSC data — any gap indicates the polling was interrupted by an SMI or hardware hiccup
+
+Since interrupts are disabled during polling, only an SMI, NMI, or hardware event could cause a gap.
+
+### Usage
+
+```bash
+# Enable the hwlat detector
+$ echo hwlat > /sys/kernel/tracing/current_tracer
+
+# Set the threshold (µs) — only report latencies above this
+$ echo 10 > /sys/kernel/tracing/tracing_thresh
+
+# Configure the detector
+$ echo 500000 > /sys/kernel/tracing/hwlat_detector/width    # Spin time (µs)
+$ echo 1000000 > /sys/kernel/tracing/hwlat_detector/window  # Total period (µs)
+
+# Read detected latencies
+$ cat /sys/kernel/tracing/trace
+```
+
+Default configuration: `width=500000` (500ms spin) and `window=1000000` (1s period). The detector spins for 500ms, sleeps for 500ms, and repeats. Minimum sleep between periods is 1ms.
+
+### Configuration Files
+
+| File | Description |
+|------|-------------|
+| `hwlat_detector/width` | Time to spin with CPUs held (µs) |
+| `hwlat_detector/window` | Total sampling period (µs) |
+| `hwlat_detector/mode` | Thread migration mode |
+| `tracing_thresh` | Minimum latency to report (µs, default 10) |
+| `tracing_max_latency` | Maximum observed hardware latency (µs) |
+| `tracing_cpumask` | CPUs to move the hwlat thread across |
+
+### Thread Modes
+
+The detector thread can migrate across CPUs in different modes:
+
+- **`none`**: Do not force migration
+- **`round-robin`**: Migrate across CPUs in `tracing_cpumask` each window (default)
+- **`per-cpu`**: Create one thread per CPU in `tracing_cpumask`
+
+```bash
+# Set per-CPU mode
+$ echo per-cpu > /sys/kernel/tracing/hwlat_detector/mode
+
+# Restrict to specific CPUs
+$ echo 0-3 > /sys/kernel/tracing/tracing_cpumask
+```
+
+### Important Notes
+
+- **Never use in production** — it disables interrupts on a CPU for extended periods
+- Intended for manual diagnosis of hardware/firmware latency issues
+- If `tracing_thresh` was 0 when hwlat was started, it resets to 0 when another tracer takes over
+- The last `tracing_thresh` value is saved and restored if hwlat is restarted
+
+For full details, see [Hardware Latency Detector — docs.kernel.org](https://docs.kernel.org/trace/hwlat_detector.html).
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
@@ -888,6 +960,7 @@ Common subsystems and their events:
 - [Steven Rostedt's ftrace tutorial](https://lwn.net/Articles/370423/)
 - [Kernel documentation: Kprobes](https://docs.kernel.org/trace/kprobes.html) — Full kprobe/kretprobe reference and internals
 - [Brendan Gregg's ftrace page](https://www.brendangregg.com/blog/2014-07-01/perf-ftrace.html)
+- [Hardware Latency Detector — docs.kernel.org](https://docs.kernel.org/trace/hwlat_detector.html)
 - [Event Tracing Documentation](https://docs.kernel.org/trace/events.html) — Official event tracing reference (format files, filters, triggers, boot options)
 
 ## Related Topics

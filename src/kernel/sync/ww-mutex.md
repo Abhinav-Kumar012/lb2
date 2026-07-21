@@ -76,7 +76,6 @@ struct ww_acquire_ctx {
     unsigned int done_acquire;   /* Set when all locks acquired */
     unsigned int contending;     /* Set if we were wounded */
     struct task_struct *task;    /* Owning task */
-    struct ww_class *ww_class;
     /* ... internal fields ... */
 };
 ```

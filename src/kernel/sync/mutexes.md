@@ -210,7 +210,11 @@ static noinline void __sched __mutex_unlock_slow(struct mutex *lock)
 
 ## Optimistic Spinning
 
-The mutex subsystem includes an **optimistic spinning** optimization. Instead of immediately going to sleep when the mutex is contended, the waiting task spins for a short time, hoping the lock holder will release it soon:
+The mutex subsystem includes an **optimistic spinning** optimization (enabled by `CONFIG_MUTEX_SPIN_ON_OWNER=y`). Instead of immediately going to sleep when the mutex is contended, the waiting task spins for a short time, hoping the lock holder will release it soon.
+
+This is the **midpath** in the mutex acquisition strategy (between the fastpath `cmpxchg` and the slowpath that sleeps on a wait-queue). From the kernel documentation at `docs.kernel.org/locking/mutex-design.html`:
+
+> *"If the lock owner is running, it is likely to release the lock soon."*
 
 ```mermaid
 graph TD
@@ -220,7 +224,7 @@ graph TD
     D --> E{Owner released lock?}
     E -->|Yes| F[Acquire lock — no context switch!]
     E -->|No — owner scheduled out| C
-    D --> G{Spinning too long?}
+    D --> G{need_resched set?}
     G -->|Yes| C
 ```
 
@@ -228,9 +232,53 @@ graph TD
 
 1. No other task is already waiting in the wait_list (first waiter only)
 2. The mutex owner is currently running on a CPU (not sleeping)
-3. The `MUTEX_SPIN_ON_OWNER` flag is set
+3. No higher-priority task is ready to run (`!need_resched`)
+4. The `MUTEX_SPIN_ON_OWNER` flag is set
 
-This optimization is highly effective for short critical sections — it avoids the expensive context switch overhead when the lock is about to be released.
+### MCS Lock for Fair Spinning
+
+When multiple tasks are optimistic spinning, they use an **MCS lock** (Mellor-Crummey and Scott) to queue up fairly. The MCS lock is a custom spinlock where each CPU spins on a **local variable** rather than a shared atomic, avoiding expensive cacheline bouncing:
+
+```c
+/* Optimistic spinning queue (osq) — per-CPU nodes */
+struct optimistic_spin_queue {
+    struct optimistic_spin_node *nodes[NR_CPUS];
+};
+
+struct optimistic_spin_node {
+    struct optimistic_spin_node *next, *prev;
+    int locked;     /* 1 = lock acquired */
+    int cpu;        /* CPU this node represents */
+};
+```
+
+Key properties of the MCS-based optimistic spinning:
+- **Fair**: Tasks acquire in FIFO order
+- **Local spinning**: Each CPU spins on its own `locked` variable (cache-line local)
+- **Preemption-aware**: A spinner can exit the MCS queue if it needs to reschedule, avoiding the case where a task that needs to reschedule continues spinning only to go directly to slowpath
+
+This is the same MCS lock used for qspinlock in the kernel, adapted for mutex optimistic spinning.
+
+### Performance Impact
+
+Optimistic spinning is highly effective for **short critical sections** where the lock holder releases quickly. It avoids the expensive context switch overhead (~1-5 µs) when the lock is about to be released. The technique is also used for **rw-semaphores**.
+
+```mermaid
+graph LR
+    subgraph "Without optimistic spinning"
+        A1[Task A holds lock] --> B1[Task B: sleep]
+        B1 --> C1[Task A releases]
+        C1 --> D1[Task B: wake up]
+        D1 --> E1[Task B acquires]
+        Note1[Cost: context switch ~1-5µs]
+    end
+    subgraph "With optimistic spinning"
+        A2[Task A holds lock] --> B2[Task B: spin]
+        B2 --> C2[Task A releases]
+        C2 --> D2[Task B acquires immediately]
+        Note2[Cost: zero context switch]
+    end
+```
 
 ## rt_mutex (Priority-Inheriting Mutex)
 
@@ -476,6 +524,7 @@ $ sudo cat /proc/lock_stat
 - [Kernel documentation: RT-mutex subsystem with PI support](https://docs.kernel.org/locking/rt-mutex.html)
 - [Kernel documentation: RT-mutex implementation design](https://docs.kernel.org/locking/rt-mutex-design.html)
 - [Kernel documentation: Generic Mutex Subsystem](https://docs.kernel.org/locking/mutex-design.html)
+- [Kernel documentation: Optimistic spinning and MCS lock](https://docs.kernel.org/locking/mutex-design.html#implementation)
 - [Davidlohr Bueso: "Mutex: the sleeping lock"](https://lwn.net/Articles/575460/)
 - [Thomas Gleixner: rt_mutex implementation](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/kernel/locking/rtmutex.c)
 - [Wikipedia: Priority Inversion](https://en.wikipedia.org/wiki/Priority_inversion)

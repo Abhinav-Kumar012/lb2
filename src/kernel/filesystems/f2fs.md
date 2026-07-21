@@ -80,7 +80,15 @@ This separation reduces write amplification during garbage collection: cold data
 
 ## Checkpointing
 
-F2FS uses a **checkpoint** mechanism for crash consistency:
+F2FS uses a **checkpoint** mechanism for crash consistency. From the kernel documentation:
+
+> *"F2FS supports a roll-forward recovery routine which is similar to journaling file systems. The checkpoint guarantees consistency of the filesystem metadata."*
+
+Key checkpoint behaviors:
+- **checkpoint_ver** in the checkpoint footer tracks the version; the latest valid checkpoint is used on mount
+- **Roll-forward recovery** replays node/data logs after the last checkpoint to recover uncommitted data
+- The `disable_roll_forward` mount option disables recovery (useful for read-only mounts via `norecovery`)
+- `data_flush` forces data of regular files and symlinks to be persisted before checkpoint
 
 ```mermaid
 sequenceDiagram
@@ -101,6 +109,8 @@ sequenceDiagram
 ```
 
 ### Checkpoint Structure
+
+The checkpoint is written as a pair of checkpoint packs (CP1 and CP2) for atomicity. Each pack includes:
 
 ```c
 /* Simplified from fs/f2fs/f2fs.h */
@@ -128,6 +138,8 @@ struct cp_footer {
 };
 ```
 
+The checkpoint writes the **Node Address Table (NAT)** and **Segment Information Table (SIT)** roots, cutting off the wandering tree update propagation — this is a key F2FS design innovation.
+
 ### Checkpoint Commands
 
 ```bash
@@ -143,7 +155,16 @@ $ sync; echo 1 > /sys/fs/f2fs/<dev>/cp_interval
 
 ## Garbage Collection
 
-F2FS performs garbage collection (GC) to reclaim segments with invalidated blocks:
+F2FS performs garbage collection (GC) to reclaim segments with invalidated blocks. From the kernel documentation at `docs.kernel.org/filesystems/f2fs.html`:
+
+> *"A victim segment is selected through referencing segment usage table. It loads parent index structures of all the data in the victim identified by segment summary blocks. It checks the cross-reference between the data and its parent index structure. It moves valid data selectively. This cleaning job may cause unexpected long delays, so the most important goal is to hide the latencies to users."*
+
+### GC Algorithms
+
+F2FS supports two victim selection policies:
+
+- **Greedy**: Selects the segment with the **most garbage** (fewest valid blocks to move). Minimizes I/O cost per segment reclaimed.
+- **Cost-Benefit**: Considers both the amount of garbage and the **age** of valid data. Prefers segments where valid data is cold (less likely to become garbage soon), reducing future GC work.
 
 ### GC Algorithm
 
@@ -178,6 +199,8 @@ $ echo 1 > /sys/fs/f2fs/<dev>/gc_idle
 # Trigger urgent GC (SSD maintenance)
 $ echo 1 > /sys/fs/f2fs/<dev>/gc_urgent
 ```
+
+The `gc_merge` mount option (enabled by default) allows the background GC thread to handle foreground GC requests, eliminating the sluggishness caused by slow foreground GC when triggered from a process with limited I/O and CPU resources.
 
 ### Foreground vs Background GC
 
@@ -313,7 +336,7 @@ struct f2fs_sm_info {
 - [Planet GNU](https://planet.gnu.org/)
 - [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
 
-- https://www.kernel.org/doc/html/latest/filesystems/f2fs.html
+- [F2FS documentation — docs.kernel.org](https://docs.kernel.org/filesystems/f2fs.html)
 - https://man7.org/linux/man-pages/man8/mkfs.f2fs.8.html
 - https://lwn.net/Articles/518936/ — "The F2FS filesystem"
 - https://lwn.net/Articles/806930/ — "F2FS compression"

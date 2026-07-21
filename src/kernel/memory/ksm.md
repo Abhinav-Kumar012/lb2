@@ -179,6 +179,59 @@ Shared_Dirty:          0 kB
 | `max_page_sharing` | `/sys/kernel/mm/ksm/max_page_sharing` | 256 | Max pages sharing a single KSM page |
 | `use_zero_pages` | `/sys/kernel/mm/ksm/use_zero_pages` | 0 | Special handling for zero-filled pages |
 
+### merge_across_nodes
+
+By default (`merge_across_nodes=1`), KSM merges pages across all NUMA nodes, treating physical memory as a single pool. This maximizes deduplication but can increase remote NUMA access latency when a process on node 0 accesses a KSM-merged page physically located on node 1.
+
+Setting `merge_across_nodes=0` causes KSM to maintain **separate stable and unstable trees per NUMA node**. Pages are only merged with other pages on the same NUMA node. This sacrifices some deduplication ratio for better NUMA locality:
+
+```bash
+# Disable cross-NUMA merging for NUMA-sensitive workloads
+$ echo 0 > /sys/kernel/mm/ksm/merge_across_nodes
+
+# Verify per-node trees are active
+$ cat /sys/kernel/mm/ksm/merge_across_nodes
+0
+```
+
+When `merge_across_nodes=0`, each NUMA node gets its own pair of stable/unstable red-black trees. The KSM daemon scans each node's trees independently, and pages are only merged within the same node. This is important for:
+- **Latency-sensitive workloads** where remote NUMA access adds measurable overhead
+- **Large NUMA systems** (4+ nodes) where cross-node memory traffic saturates interconnects
+- **VM hosts** where guest vCPU pinning to NUMA nodes is important
+
+### KSM Advisor
+
+The KSM advisor is an automated tuning mechanism (available since Linux 5.12) that dynamically adjusts KSM scanning parameters based on the current state of memory deduplication. It monitors the ratio of shared vs. unshared pages and tunes `sleep_millisecs` and `pages_to_scan` automatically.
+
+The advisor mode is controlled via `/sys/kernel/mm/ksm/advisor`:
+
+```bash
+# Enable the KSM advisor (auto-tune scanning parameters)
+$ echo scan-time > /sys/kernel/mm/ksm/advisor
+
+# Disable the advisor (manual tuning)
+$ echo off > /sys/kernel/mm/ksm/advisor
+```
+
+The advisor has two modes:
+- **`scan-time`**: Optimizes to achieve a target scan time (full scan within a reasonable period). It increases `pages_to_scan` when scanning is too slow and decreases it when the system is under memory pressure.
+- **`off`**: Manual tuning — parameters are controlled by the administrator.
+
+When the advisor is active, it overrides manual settings for `sleep_millisecs` and `pages_to_scan`. The advisor considers:
+- Current `pages_sharing` / `pages_shared` ratio (deduplication effectiveness)
+- CPU usage of ksmd
+- Memory pressure signals
+
+```bash
+# Check advisor status
+$ cat /sys/kernel/mm/ksm/advisor
+scan-time
+
+# View current auto-tuned values
+$ cat /sys/kernel/mm/ksm/sleep_millisecs
+$ cat /sys/kernel/mm/ksm/pages_to_scan
+```
+
 ### Tuning for Different Workloads
 
 ```bash
@@ -386,14 +439,8 @@ struct ksm_stable_node {
 
 ## Further Reading
 
-- [The Linux Kernel Documentation](https://docs.kernel.org/)
-- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
-- [GNU Manuals](https://www.gnu.org/manual/manual.html)
-- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
-- [Planet GNU](https://planet.gnu.org/)
-- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
-
-- [Kernel documentation: KSM](https://docs.kernel.org/mm/ksm.html)
+- [Kernel Samepage Merging — docs.kernel.org](https://docs.kernel.org/mm/ksm.html)
+- [KSM admin-guide — docs.kernel.org](https://docs.kernel.org/admin-guide/mm/ksm.html)
 - [LWN: KSM: sharing memory between virtual machines](https://lwn.net/Articles/306704/)
 - [LWN: KSM part 2](https://lwn.net/Articles/330589/)
 

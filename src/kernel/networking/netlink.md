@@ -673,6 +673,91 @@ int subscribe_events(int fd, int family_id)
 | Performance | Good | Good | Good for small | Good for small |
 | Complexity | High | Medium | Low | Low |
 
+## Ethtool Netlink Interface
+
+Modern ethtool operations use a **netlink-based interface** (`ETHTOOL_GENL_*`) instead of the legacy `ioctl` path. From the kernel documentation at `docs.kernel.org/networking/ethtool-netlink.html`:
+
+The ethtool netlink family uses `Generic Netlink` (family name `ethtool`, version from `<linux/ethtool_netlink.h>`). It provides structured, extensible messages with TLV attributes, notifications for configuration changes, and better support for modern NIC features.
+
+### Request Categories
+
+- **GET**: Retrieve information (usually allowed for anyone)
+- **SET**: Set parameters (requires `CAP_NET_ADMIN`)
+- **ACT**: Invoke an action (requires `CAP_NET_ADMIN`)
+
+### Request Header
+
+Every message contains a nested header attribute:
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `ETHTOOL_A_HEADER_DEV_INDEX` | u32 | Device ifindex |
+| `ETHTOOL_A_HEADER_DEV_NAME` | string | Device name |
+| `ETHTOOL_A_HEADER_FLAGS` | u32 | Request flags |
+| `ETHTOOL_A_HEADER_PHY_INDEX` | u32 | PHY device index |
+
+Common flags:
+- `ETHTOOL_FLAG_COMPACT_BITSETS` — Use compact bitset format in replies
+- `ETHTOOL_FLAG_OMIT_REPLY` — Omit optional reply for SET/ACT
+- `ETHTOOL_FLAG_STATS` — Include device statistics
+
+### Bit Sets
+
+Ethtool netlink uses **bit sets** for representing link modes, features, and other bitmap data. Two formats:
+
+- **Compact**: Binary value/mask bitmaps (efficient for long-running apps)
+- **Verbose/bit-by-bit**: Named bits with symbolic names (convenient for one-shot tools)
+
+Notifications always use compact form.
+
+### Key Message Types
+
+The ethtool netlink API covers a wide range of NIC configuration:
+
+| Message | Purpose |
+|---------|---------|
+| `ETHTOOL_MSG_LINKINFO_GET/SET` | Link settings (speed, duplex, autoneg) |
+| `ETHTOOL_MSG_LINKMODES_GET/SET` | Link modes (advertised, supported) |
+| `ETHTOOL_MSG_LINKSTATE_GET` | Current link state |
+| `ETHTOOL_MSG_FEATURES_GET/SET` | Device features (offloads) |
+| `ETHTOOL_MSG_COALESCE_GET/SET` | Interrupt coalescing parameters |
+| `ETHTOOL_MSG_PAUSE_GET/SET` | Pause frame parameters |
+| `ETHTOOL_MSG_CHANNELS_GET/SET` | Channel counts (RX/TX) |
+| `ETHTOOL_MSG_RINGS_GET/SET` | Ring sizes |
+| `ETHTOOL_MSG_WOL_GET/SET` | Wake-on-LAN settings |
+| `ETHTOOL_MSG_DEBUG_GET/SET` | Debugging settings |
+| `ETHTOOL_MSG_FEC_GET/SET` | Forward Error Correction |
+| `ETHTOOL_MSG_EEE_GET/SET` | Energy Efficient Ethernet |
+| `ETHTOOL_MSG_RSS_GET/SET` | Receive Side Scaling settings |
+| `ETHTOOL_MSG_MODULE_GET/SET` | Transceiver module parameters |
+| `ETHTOOL_MSG_CABLE_TEST_ACT` | Start cable test |
+| `ETHTOOL_MSG_STATS_GET` | Standard statistics |
+| `ETHTOOL_MSG_MM_GET/SET` | MAC merge layer (802.3) |
+| `ETHTOOL_MSG_PHC_VCLOCKS_GET` | PHC virtual clocks |
+| `ETHTOOL_MSG_TSCONFIG_GET/SET` | HW timestamping config |
+| `ETHTOOL_MSG_MODULE_FW_FLASH_ACT` | Flash transceiver firmware |
+
+### Notifications
+
+Configuration changes trigger multicast notifications (e.g., `ETHTOOL_MSG_LINKMODES_NTF`), allowing monitoring daemons to subscribe and react to NIC configuration changes in real-time.
+
+### Example: Using ethtool Netlink with iproute2
+
+```bash
+# Modern ethtool uses netlink internally
+$ ethtool eth0
+Settings for eth0:
+    Speed: 10000Mb/s
+    Duplex: Full
+    Auto-negotiation: off
+    Link detected: yes
+
+# ethtool monitor (subscribe to notifications)
+$ ethtool monitor
+```
+
+For the complete message specification, see [Netlink interface for ethtool — docs.kernel.org](https://docs.kernel.org/networking/ethtool-netlink.html).
+
 ## References
 
 - [Kernel Netlink Documentation: Introduction](https://docs.kernel.org/userspace-api/netlink/intro.html)
@@ -682,6 +767,7 @@ int subscribe_events(int fd, int family_id)
 - [LWN: Generic netlink](https://lwn.net/Articles/208755/)
 - [libnl documentation](https://www.infradead.org/~tgr/libnl/)
 - [Netlink protocol spec](https://docs.kernel.org/userspace-api/netlink/netlink-raw.html)
+- [Netlink interface for ethtool — docs.kernel.org](https://docs.kernel.org/networking/ethtool-netlink.html)
 
 ## Related Topics
 

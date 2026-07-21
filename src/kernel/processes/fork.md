@@ -221,8 +221,8 @@ static vm_fault_t do_wp_page(struct vm_fault *vmf)
 {
     struct page *old_page = vmf->page;
 
-    /* If only one reference, just make it writable */
-    if (page_mapcount(old_page) == 1 && !PageAnon(old_page)) {
+    /* If only one reference and anonymous, just make it writable */
+    if (page_mapcount(old_page) == 1 && PageAnon(old_page)) {
         pte_t pte = pte_mkdirty(*vmf->pte);
         set_pte_at(vmf->vma->vm_mm, vmf->address, vmf->pte, pte_mkyoung(pte));
         return 0;  /* No copy needed */

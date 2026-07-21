@@ -215,7 +215,8 @@ static vm_fault_t kfence_handle_page_fault(unsigned long addr,
     if (!meta)
         return VM_FAULT_SIGBUS;  /* Not a KFENCE page */
 
-    is_write = regs->ip & 2;  /* Check write access */
+    /* is_write is provided by the architecture-specific fault handler */
+    /* (passed as parameter, not derived from regs->ip) */
 
     if (meta->is_redzone) {
         if (meta->freed_by)

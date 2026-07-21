@@ -205,7 +205,6 @@ static int seccomp_do_user_notification(int this_syscall,
 | `SECCOMP_IOCTL_NOTIF_SEND` | Send a response to a notification |
 | `SECCOMP_IOCTL_NOTIF_ID_VALID` | Check if a notification ID is still valid |
 | `SECCOMP_IOCTL_NOTIF_ADDFD` | Add a file descriptor to the target process |
-| `SECCOMP_IOCTL_NOTIF_SET_LISTENER` | Set the notification FD for a filter |
 
 ### Adding File Descriptors (SECCOMP_IOCTL_NOTIF_ADDFD)
 

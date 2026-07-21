@@ -987,6 +987,72 @@ sudo bpftool prog load prog.o /sys/fs/bpf/prog 2>&1 | head -50
 # - "back-edge from insn X to Y" → loop without provable bound
 ```
 
+## BPF Helper Functions
+
+BPF helper functions are kernel functions callable from eBPF programs. They provide the primary interface between BPF programs and the kernel, enabling map operations, time queries, packet manipulation, tracing output, and more. The authoritative reference is the `bpf-helpers(7)` man page.
+
+From the kernel documentation at `docs.kernel.org/bpf/helpers.html`:
+
+> *"bpf-helpers(7) maintains a list of helpers available to eBPF programs."*
+
+### Key Helper Categories
+
+**Map operations** (available to all program types):
+- `bpf_map_lookup_elem(map, key)` — Lookup entry in a map
+- `bpf_map_update_elem(map, key, value, flags)` — Add/update entry (`BPF_ANY`, `BPF_NOEXIST`, `BPF_EXIST`)
+- `bpf_map_delete_elem(map, key)` — Delete entry
+
+**Time and randomness**:
+- `bpf_ktime_get_ns()` — Nanoseconds since boot (monotonic)
+- `bpf_get_smp_processor_id()` — Current CPU number (stable during BPF execution)
+- `bpf_get_prandom_u32()` — Pseudo-random 32-bit value (not cryptographic)
+
+**Tracing and debugging**:
+- `bpf_trace_printk(fmt, fmt_size, ...)` — Write to `/sys/kernel/tracing/trace_pipe` (max 3 args, debugging only)
+- `bpf_get_current_pid_tgid()` — Returns `(tgid << 32) | pid`
+- `bpf_get_current_comm(buf, size)` — Current process name
+- `bpf_get_current_task()` — Pointer to current `task_struct`
+- `bpf_probe_read(dst, size, unsafe_ptr)` — Safely read kernel memory
+- `bpf_probe_read_user(dst, size, unsafe_ptr)` — Safely read user memory
+- `bpf_probe_read_kernel(dst, size, unsafe_ptr)` — Safely read kernel memory
+- `bpf_probe_read_user_str(dst, size, unsafe_ptr)` — Read user string
+
+**Packet manipulation** (XDP/TC programs):
+- `bpf_skb_store_bytes(skb, offset, from, len, flags)` — Write bytes to packet
+- `bpf_l3_csum_replace(skb, offset, from, to, size)` — Recompute L3 checksum
+- `bpf_l4_csum_replace(skb, offset, from, to, flags)` — Recompute L4 checksum
+- `bpf_skb_load_bytes(skb, offset, to, len)` — Read bytes from packet
+- `bpf_skb_pull_data(skb, len)` — Pull data into linear region
+
+**Ring buffer** (preferred for event streaming):
+- `bpf_ringbuf_reserve(ringbuf, size, flags)` — Reserve space
+- `bpf_ringbuf_submit(data, flags)` — Submit reserved space
+- `bpf_ringbuf_discard(data, flags)` — Discard reserved space
+- `bpf_ringbuf_output(ringbuf, data, size, flags)` — Copy and submit
+
+**Tail calls and program flow**:
+- `bpf_tail_call(ctx, prog_array_map, index)` — Tail call into another BPF program
+- `bpf_get_stackid(ctx, stackmap, flags)` — Get user/kernel stack ID
+- `bpf_perf_event_output(ctx, map, flags, data, size)` — Output to perf event buffer
+
+### Helper Availability by Program Type
+
+Not all helpers are available to all program types. For example:
+- `bpf_probe_read*()` is only available to tracing programs (kprobe, tracepoint, etc.)
+- `bpf_skb_store_bytes()` is only available to TC and XDP programs
+- `bpf_ringbuf_reserve()` is available to most program types
+- `bpf_trace_printk()` is available to tracing programs (debugging only, not for production)
+
+### Calling Convention
+
+eBPF helpers follow strict conventions:
+- Maximum **5 arguments** (eBPF calling convention: R1–R5)
+- Single return value in R0
+- Calls go directly into compiled kernel functions (no FFI overhead)
+- Each program type has its own whitelist of callable helpers
+
+For the complete list, see `man 7 bpf-helpers` or [bpf-helpers(7) online](https://man7.org/linux/man-pages/man7/bpf-helpers.7.html).
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
@@ -1006,6 +1072,8 @@ sudo bpftool prog load prog.o /sys/fs/bpf/prog 2>&1 | head -50
 - [XDP Project](https://www.iovisor.org/technology/xdp)
 - [BPF Standardization (kernel docs)](https://docs.kernel.org/bpf/standardization/index.html)
 - [BPF Design Q&A (kernel docs)](https://docs.kernel.org/bpf/bpf_design_QA.html)
+- [BPF Helper Functions — docs.kernel.org](https://docs.kernel.org/bpf/helpers.html)
+- [bpf-helpers(7) man page](https://man7.org/linux/man-pages/man7/bpf-helpers.7.html)
 - [eBPF Verifier Documentation](https://docs.kernel.org/bpf/verifier.html) — Official verifier internals (register tracking, bounds, direct packet access)
 
 ## Related Topics

@@ -359,6 +359,8 @@ inotify_add_watch(ifd,
 
 ## Memory Overcommit and OOM
 
+The overcommit policy directly affects when the OOM killer is triggered. From the kernel documentation at `docs.kernel.org/mm/overcommit-accounting.html`:
+
 ### Overcommit Modes
 
 ```bash
@@ -368,9 +370,30 @@ $ cat /proc/sys/vm/overcommit_memory
 
 | Mode | Behavior | OOM Risk |
 |------|----------|----------|
-| **0** | Heuristic: refuse obviously excessive allocations | Medium |
-| **1** | Always allow: all allocations succeed | High |
-| **2** | Strict: commit limited to swap + RAM × ratio | Low |
+| **0** | Heuristic: Obvious overcommits of address space are refused. Ensures seriously wild allocations fail while allowing overcommit to reduce swap usage. | Medium |
+| **1** | Always overcommit. Appropriate for scientific applications using sparse arrays relying on virtual memory consisting almost entirely of zero pages. | High |
+| **2** | Don't overcommit. Total address space commit for the system is not permitted to exceed swap + a configurable amount (default 50%) of physical RAM. Processes will receive errors on memory allocation rather than being killed. | Low |
+
+### Overcommit Accounting Details
+
+The overcommit cost is calculated as follows:
+
+- **File-backed maps**: SHARED or READ-ONLY = 0 cost (the file IS the backing). PRIVATE WRITABLE = size of mapping per instance.
+- **Anonymous / /dev/zero maps**: SHARED = size of mapping. PRIVATE READ-ONLY = 0 cost. PRIVATE WRITABLE = size of mapping per instance.
+- **Additional accounting**: Pages made writable copies by `mmap()`, shmfs memory drawn from the same pool.
+
+The current overcommit limit and amount committed are visible in `/proc/meminfo`:
+```bash
+$ grep -i commit /proc/meminfo
+Committed_AS:   25165824 kB    # Total committed address space
+CommitLimit:    24772608 kB    # Maximum allowed (mode 2 only)
+```
+
+### Overcommit Gotchas
+
+- **C stack growth**: Does an implicit `mremap()`. If running close to the edge in mode 2, you MUST `mmap()` your stack for the largest size you expect.
+- **MAP_NORESERVE**: Ignored in mode 2.
+- **Mode 1 risk**: With `overcommit_memory=1`, the OOM killer will be invoked more frequently since the kernel never refuses allocations upfront.
 
 ### Mode 2 (Strict) Configuration
 
@@ -378,8 +401,11 @@ $ cat /proc/sys/vm/overcommit_memory
 # Set strict overcommit
 $ echo 2 > /proc/sys/vm/overcommit_memory
 
-# Allow up to swap + 50% of RAM
+# Allow up to swap + 50% of RAM (default)
 $ echo 50 > /proc/sys/vm/overcommit_ratio
+
+# Or set an absolute limit in KB
+$ echo 8388608 > /proc/sys/vm/overcommit_kbytes
 
 # Check limits
 $ cat /proc/meminfo | grep Commit
@@ -585,6 +611,7 @@ MODULE_LICENSE("GPL");
 - [LWN: Better OOM killing](https://lwn.net/Articles/689898/)
 - [LWN: Toward more-precise OOM killing](https://lwn.net/Articles/743680/)
 - [earlyoom: Early OOM Daemon](https://github.com/rfjakob/earlyoom)
+- [Overcommit Accounting — docs.kernel.org](https://docs.kernel.org/mm/overcommit-accounting.html)
 
 ## Related Topics
 
