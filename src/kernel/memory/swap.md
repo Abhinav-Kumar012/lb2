@@ -847,6 +847,134 @@ Writing to `drop_caches` is a **non-destructive** operation — it will not free
 
 The `compaction_proactiveness` tunable (range 0–100, default 20) controls background compaction aggressiveness. Writing a non-zero value immediately triggers proactive compaction. The kernel uses heuristics to avoid wasting CPU if proactive compaction isn't effective. Values above 80 make compaction more sensitive to fragmentation increases but reduce fragmentation less per run. Values like 100 can cause excessive background compaction.
 
+## Page Reclaim Algorithm (from kernel docs)
+
+The following details are drawn from the kernel's memory management documentation at [docs.kernel.org/mm/](https://docs.kernel.org/mm/page_reclaim.html) and the vmscan implementation.
+
+### Overview
+
+The page reclaim algorithm decides which pages to evict from memory when the system is under pressure. The kernel maintains LRU (Least Recently Used) lists and uses a two-handed clock algorithm to age pages and reclaim the least recently used ones.
+
+### LRU List Architecture
+
+The kernel maintains five LRU lists per NUMA node:
+
+```c
+enum lru_list {
+    LRU_INACTIVE_ANON,   /* Old anonymous pages (swap candidates) */
+    LRU_ACTIVE_ANON,     /* Recently used anonymous pages */
+    LRU_INACTIVE_FILE,   /* Old file pages (page cache) */
+    LRU_ACTIVE_FILE,     /* Recently used file pages */
+    LRU_UNEVICTABLE,     /* mlock'd pages */
+    NR_LRU_LISTS
+};
+```
+
+### Page Aging (Two-Handed Clock)
+
+The reclaim algorithm uses a two-handed clock approach:
+
+1. **Active → Inactive demotion**: Pages on the active list that haven't been referenced are moved to the inactive list. The kernel scans the active list and checks the referenced bit — if a page was referenced, it stays active (bit cleared); if not, it's demoted.
+2. **Inactive → Freed**: Pages on the inactive list that aren't referenced are reclaimed. Referenced pages are promoted back to active.
+
+```c
+/* Simplified aging logic from mm/vmscan.c */
+static void shrink_active_list(unsigned long nr_to_scan, struct lruvec *lruvec)
+{
+    list_for_each_entry_safe(folio, ..., &l_hold, lru) {
+        if (folio_test_referenced(folio) || folio_test_workingset(folio)) {
+            /* Still active: put back on active list, clear reference */
+            list_move(&folio->lru, &lruvec->lists[LRU_ACTIVE_FILE]);
+            folio_clear_referenced(folio);
+        } else {
+            /* Demote to inactive list */
+            list_move(&folio->lru, &lruvec->lists[LRU_INACTIVE_FILE]);
+        }
+    }
+}
+```
+
+### Reclaim Decision for Inactive Pages
+
+For each page on the inactive list, the reclaimer checks:
+
+1. **Referenced PTEs or folio**: Page was accessed → promote back to active
+2. **Dirty and not in writeback**: Write back to disk before reclaiming
+3. **Clean file page or swapbacked**: Can reclaim immediately
+
+### Watermark-Based Activation
+
+The kernel uses three watermarks per zone to control reclaim:
+
+- **`WMARK_HIGH`**: kswapd sleeps (plenty of free memory)
+- **`WMARK_LOW`**: kswapd wakes and starts background reclaim
+- **`WMARK_MIN`**: Direct reclaim begins (synchronous, allocation blocks)
+
+```bash
+# View zone watermarks
+cat /proc/zoneinfo | grep -E "min|low|high"
+# min      1024
+# low      1280
+# high     1536
+```
+
+Watermarks are scaled by `watermark_scale_factor` (÷10000 of total memory). Higher values increase the gap between watermarks, reducing direct reclaim frequency but reserving more memory.
+
+### kswapd (Background Reclaim)
+
+`kswapd` is a per-NUMA-node kernel thread that performs background page reclaim when memory drops below the low watermark:
+
+```c
+static int kswapd(void *p) {
+    pg_data_t *pgdat = p;
+    for (;;) {
+        wait_event_interruptible(pgdat->kswapd_wait, kswapd_wait_event(pgdat));
+        balance_pgdat(pgdat, 0, &highest_zoneidx);
+    }
+}
+```
+
+### Direct Reclaim (Synchronous)
+
+When allocations cannot proceed (below min watermark), the calling process enters direct reclaim:
+
+```c
+static unsigned long try_to_free_pages(struct zonelist *zonelist, int order, gfp_t gfp_mask)
+{
+    struct scan_control sc = {
+        .gfp_mask = gfp_mask,
+        .order = order,
+        .priority = DEF_PRIORITY,
+        .may_writepage = !laptop_mode,
+        .may_unmap = 1,
+        .may_swap = 1,
+    };
+    do {
+        shrink_zones(&sc);
+        if (sc.nr_reclaimed >= SWAP_CLUSTER_MAX) break;
+        sc.priority--;
+    } while (sc.priority >= 1);
+    return sc.nr_reclaimed;
+}
+```
+
+### Swappiness and Anon vs File Scanning
+
+The `swappiness` parameter (0–200) controls the scanning ratio between anonymous and file LRU lists:
+
+```c
+ap = swappiness * (inactive_anon + active_anon);
+fp = (200 - swappiness) * (inactive_file + active_file);
+/* Scan anon and file lists proportionally */
+```
+
+- Higher swappiness → more anonymous scanning → more swapping
+- Lower swappiness → more file scanning → keep page cache
+
+### Compaction
+
+Memory compaction runs alongside reclaim to create contiguous free blocks for huge page allocation. The `compaction_proactiveness` tunable (0–100, default 20) controls background compaction aggressiveness.
+
 ## Swap Optimization
 
 The Linux kernel provides several mechanisms to optimize swap performance, reducing I/O overhead and improving responsiveness under memory pressure.
@@ -1008,6 +1136,7 @@ $ cat /proc/sys/vm/zone_reclaim_mode
 - [Kernel source: mm/swapfile.c](https://elixir.bootlin.com/linux/latest/source/mm/swapfile.c)
 - [Kernel source: mm/vmscan.c](https://elixir.bootlin.com/linux/latest/source/mm/vmscan.c)
 - [Kernel source: mm/swap_state.c](https://elixir.bootlin.com/linux/latest/source/mm/swap_state.c)
+- [Kernel documentation: Page Reclaim — docs.kernel.org](https://docs.kernel.org/mm/page_reclaim.html)
 - [Kernel documentation: Swap](https://www.kernel.org/doc/html/latest/admin-guide/mm/concepts.html)
 - [LWN: Zram](https://lwn.net/Articles/545216/)
 - [LWN: THP swap](https://lwn.net/Articles/703927/)

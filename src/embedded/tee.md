@@ -141,16 +141,14 @@ static void optee_smccc_smc(unsigned long func_id, unsigned long a1,
 Communication between normal and secure worlds uses ARM SMC (Secure Monitor
 Call) convention:
 
-| Function ID  | Description                          |
-|-------------|--------------------------------------|
-| `0xBF000001`| OPTEE_SMC_CALLS_UID                  |
-| `0xBF000002`| OPTEE_SMC_CALLS_REVISION             |
-| `0xBF000003`| OPTEE_SMC_CALLS_OS_UUID              |
-| `0xBF000004`| OPTEE_SMC_CALLS_OS_REVISION          |
-| `0xBF000005`| OPTEE_SMC_RETURN_DONE                |
-| `0xBF000006`| OPTEE_SMC_RETURN_RPC_CMD             |
-| `0xBF000007`| OPTEE_SMC_RETURN_IS_RPC_PARAM        |
-| `0xBF00000F`| OPTEE_SMC_CALL_WITH_ARG              |
+| Function ID     | Description                          |
+|-----------------|--------------------------------------|
+| `0xBF00FF01`    | OPTEE_SMC_CALLS_UID                  |
+| `0xBF00FF03`    | OPTEE_SMC_CALLS_REVISION             |
+| `0xB2000000`    | OPTEE_SMC_CALL_GET_OS_UUID           |
+| `0xB2000001`    | OPTEE_SMC_CALL_GET_OS_REVISION       |
+| `0xFFFF0005`    | OPTEE_SMC_RETURN_RPC_CMD             |
+| `0xB2000004`    | OPTEE_SMC_CALL_WITH_ARG              |
 
 ## Trusted Applications
 
