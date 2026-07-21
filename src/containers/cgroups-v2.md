@@ -135,12 +135,12 @@ flowchart TB
         ROOT_WEIGHT[cpu.weight: 100]
     end
     subgraph my_app["my-app/"]
-        APP_CPU["cpu.max: "50000 100000"<br>50% of one CPU"]
+        APP_CPU["cpu.max: #quot;50000 100000#quot;<br>50% of one CPU"]
         APP_WEIGHT[cpu.weight: 200]
         APP_STAT[cpu.stat]
     end
     subgraph my_worker["my-worker/"]
-        WORK_CPU["cpu.max: "200000 100000"<br>2 CPUs"]
+        WORK_CPU["cpu.max: #quot;200000 100000#quot;<br>2 CPUs"]
         WORK_WEIGHT[cpu.weight: 100]
     end
     ROOT_CPU --> APP_CPU
