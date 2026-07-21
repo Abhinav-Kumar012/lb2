@@ -562,6 +562,88 @@ CONFIG_DEBUG_ATOMIC_SLEEP=y
 $ sudo cat /proc/lock_stat
 ```
 
+## Robust Futexes
+
+From the [kernel robust futexes documentation](https://docs.kernel.org/locking/robust-futexes.html), robust futexes solve the problem of a process dying while holding a futex-based lock. Without robust futexes, if a process crashes (e.g., `kill -9` or SEGFAULT) while holding a `pthread_mutex_t` shared with another process, the lock is permanently stuck — the kernel destroys the task but cannot clean up the lock (since there may be no in-kernel futex queue), and userspace has no chance to clean up because it crashed. A system reboot was historically required to release such locks.
+
+### The Problem
+
+Normal futexes are lightweight locks that in the non-contended case operate entirely in userspace (atomic `cmpxchg`). The kernel only becomes involved when there is contention (via `FUTEX_WAIT` / `FUTEX_WAKE`). The kernel has no persistent record of which futexes a process holds. If the process dies:
+- **Userspace** cannot clean up (it crashed).
+- **Kernel** cannot clean up (it doesn't know about the lock).
+
+### The Solution: Per-Thread Robust List
+
+The solution uses a **per-thread private list of robust locks** maintained by glibc in userspace, registered with the kernel via `sys_set_robust_list()`. At `do_exit()` time, the kernel walks this list and marks owned locks with `FUTEX_OWNER_DIED`, waking one waiter.
+
+**Key syscalls:**
+
+```c
+/* Register the robust futex list (once per thread lifetime) */
+asmlinkage long sys_set_robust_list(struct robust_list_head __user *head, size_t len);
+
+/* Query the registered list pointer */
+asmlinkage long sys_get_robust_list(int pid, struct robust_list_head __user **head_ptr, size_t __user *len_ptr);
+```
+
+**How it works:**
+
+1. glibc registers the robust list with the kernel once per thread (fast — pointer stored in `current->futex.robust_list`).
+2. glibc maintains a linked list of `pthread_mutex_t` locks held by the thread.
+3. A `list_op_pending` field protects the window between acquiring a lock and adding it to the list.
+4. At `do_exit()`, the kernel checks if a list is registered and, if non-empty, walks it carefully (not trusting userspace pointers), setting `FUTEX_OWNER_DIED` on owned locks and waking waiters.
+5. The remaining cleanup is done in userspace — the new owner sees the `FUTEX_OWNER_DIED` bit and can decide whether to recover the protected data.
+
+**Futex word encoding:**
+
+```c
+#define FUTEX_OWNER_DIED  0x40000000  /* Owner exited while holding lock */
+#define FUTEX_WAITERS     0x80000000  /* Waiters are pending */
+/* Remaining bits = TID of the owner */
+```
+
+### Advantages Over VMA-Based Approach
+
+The earlier approach attached robust futexes to VMAs and scanned all VMAs at exit time. The per-thread list approach is superior:
+
+| Aspect | VMA-based (old) | Per-thread list (current) |
+|--------|----------------|--------------------------|
+| Exit overhead | Scan every VMA per thread | Check one pointer (NULL or not) |
+| Scalability | `pthread_exit` takes ~1ms with thousands of VMAs | Nearly zero cost if no list |
+| Per-lock syscalls | `FUTEX_REGISTER` / `FUTEX_DEREGISTER` per lock | None (glibc manages list) |
+| Kernel memory | Per-lock kernel allocation | None |
+| VM changes | Required | None |
+
+### Performance
+
+Benchmarked with 1 million held locks (2 GHz CPU):
+- Contended mutexes (`FUTEX_WAIT` set): **130 ms**
+- Uncontended mutexes: **30 ms**
+
+In practice, a process holds a handful of locks at most, making this effectively instantaneous.
+
+### Architecture Support
+
+Architectures must implement `futex_atomic_cmpxchg_inatomic()` to support robust futexes. The syscall is wired up for x86, x86_64, and most other architectures.
+
+### Userspace Usage
+
+Robust mutexes are used transparently via glibc's `pthread_mutex_t` with `PTHREAD_MUTEX_ROBUST`:
+
+```c
+pthread_mutexattr_t attr;
+pthread_mutexattr_init(&attr);
+pthread_mutexattr_setrobust(&attr, PTHREAD_MUTEX_ROBUST);
+pthread_mutex_init(&mutex, &attr);
+
+/* After owner dies, next lock returns EOWNERDEAD */
+int ret = pthread_mutex_lock(&mutex);
+if (ret == EOWNERDEAD) {
+    /* Previous owner died — recover data, then mark consistent */
+    pthread_mutex_consistent(&mutex);
+}
+```
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)

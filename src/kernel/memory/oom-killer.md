@@ -666,6 +666,109 @@ $ dmesg | grep -i edac
 # EDAC MC0: 1 CE on mc#0csrow#0channel#0 (page:0x12345, offset:0x0)
 ```
 
+## Hardware Poisoning (HWPOISON)
+
+From the [kernel hwpoison documentation](https://docs.kernel.org/mm/hwpoison.html), the hwpoison subsystem handles pages reported by hardware as corrupted, typically due to 2-bit ECC memory or cache failures. It integrates with the OOM killer to manage uncorrectable memory errors.
+
+### Overview
+
+Modern CPUs (Intel with MCA recovery, AMD with similar features) can detect uncorrectable memory errors. Without OS intervention, accessing a poisoned page causes an unrecoverable machine check. The hwpoison subsystem:
+
+1. **Isolates** the poisoned page — prevents future allocations
+2. **Kills** processes that have the page mapped
+3. **Recovers** when possible (clean file pages can be re-read from disk)
+
+### Recovery Modes
+
+Controlled by sysctls:
+
+```bash
+# Enable/disable memory failure recovery (default: 1)
+vm.memory_failure_recovery = 1
+# 0 = panic on all memory failures
+# 1 = attempt recovery
+
+# Early kill mode (default: 0)
+vm.memory_failure_early_kill = 0
+# 0 = collect all tasks sharing the page, then kill
+# 1 = send SIGBUS immediately when error is detected
+```
+
+**Per-process control via prctl:**
+
+```c
+/* Set early kill for this process */
+prctl(PR_MCE_KILL_SET, PR_MCE_KILL_EARLY, 0, 0, 0);
+
+/* Set late kill (default) */
+prctl(PR_MCE_KILL_SET, PR_MCE_KILL_LATE, 0, 0, 0);
+
+/* Revert to system default */
+prctl(PR_MCE_KILL_SET, PR_MCE_KILL_DEFAULT, 0, 0, 0);
+
+/* Query current mode */
+int mode = prctl(PR_MCE_KILL_GET, 0, 0, 0, 0);
+```
+
+For a dedicated SIGBUS handler thread, call `prctl(PR_MCE_KILL_EARLY)` on that thread. Otherwise, `SIGBUS(BUS_MCEERR_AO)` goes to the main thread.
+
+### Soft Offline vs Hard Offline
+
+| Type | Trigger | Action | Page State After |
+|------|---------|--------|------------------|
+| **Soft offline** | Corrected error (CE) | Migrate page contents to healthy page, poison original | Page isolated, no data loss |
+| **Hard offline** | Uncorrectable error (UCE) | Kill page immediately, kill process if in use | Page poisoned, process may die |
+
+### Signal Delivery
+
+Affected processes receive `SIGBUS` with:
+- `BUS_MCEERR_AR` (async) — for pages not currently being accessed
+- `BUS_MCEERR_AO` (sync) — for pages being accessed at error time
+
+Applications can handle these signals to perform graceful recovery (e.g., drop the affected object, re-read from backup).
+
+### Testing
+
+```bash
+# Inject a hwpoison fault (requires root)
+echo <pfn> > /sys/kernel/debug/hwpoison/corrupt-pfn
+
+# Software-unpoison a page (Linux-injected failures only)
+echo <pfn> > /sys/kernel/debug/hwpoison/unpoison-pfn
+
+# Test with madvise (requires root)
+madvise(addr, len, MADV_HWPOISON);
+
+# Filter injection by device
+echo <major> > /sys/kernel/debug/hwpoison/corrupt-filter-dev-major
+echo <minor> > /sys/kernel/debug/hwpoison/corrupt-filter-dev-minor
+
+# Filter by memcg
+echo <memcg_ino> > /sys/kernel/debug/hwpoison/corrupt-filter-memcg
+
+# Filter by page flags
+echo <mask> > /sys/kernel/debug/hwpoison/corrupt-filter-flags-mask
+echo <value> > /sys/kernel/debug/hwpoison/corrupt-filter-flags-value
+```
+
+### Limitations
+
+- Only LRU pages are supported for recovery — kernel internal objects (slab, page tables) cannot be recovered
+- Once a real hardware memory failure occurs, the software unpoison feature is disabled
+- Injection interfaces are not stable across kernel versions
+
+### KVM Integration
+
+KVM uses a special `SIGBUS` signal type so that QEMU can inject machine checks into the guest with the correct address. This allows guest OSes to handle memory failures using their own hwpoison-equivalent mechanisms.
+
+```bash
+# Check for memory failure events
+dmesg | grep -i "memory failure\|hwpoison"
+
+# View poisoned page count
+cat /proc/vmstat | grep -i poison
+```
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)

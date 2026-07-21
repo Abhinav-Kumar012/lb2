@@ -1189,6 +1189,113 @@ The TIPC implementation lives in `net/tipc/` and uses these key data structures:
 - `struct name_table` — hash table of all published services
 - `struct tipc_subscription` — topology event subscription
 
+## Switchdev — Ethernet Switch Device Driver Model
+
+From the [kernel switchdev documentation](https://docs.kernel.org/networking/switchdev.html), switchdev is an in-kernel driver model for switch devices that offload the forwarding (data) plane from the kernel to hardware.
+
+### Architecture
+
+```
+ User-space tools
+      │
+ ─────┼────── user space ──────────────────────
+      │
+ ┌────┴────────────────────────────────┐
+ │ Network stack (Linux)               │
+ │     Netlink                         │
+ └─────────────────────────────────────┘
+      │
+ ┌────┴────────────────────────────────┐
+ │ Switch driver (switchdev)           │
+ │  sw1p1 sw1p2 sw1p3 ...             │
+ └─────────────────────────────────────┘
+      │
+ ─────┼────── kernel | HW bus (PCI) ──────────
+      │
+ ┌────┴────────────────────────────────┐
+ │ Switch ASIC (sw1)                   │
+ │  [offloaded data path]              │
+ └─────────────────────────────────────┘
+```
+
+### Key Concepts
+
+**Switch Ports**: Each physical switch port is represented as a `struct net_device` (port netdev). Ports can be organized into bridges, bonds, VLANs, and tunnels using standard Linux tools (`iproute2`, bridge driver).
+
+**Switch ID**: Each switch has a unique physical ID (`ndo_get_port_parent_id`). All ports on the same switch share the same ID. Used to identify which ports belong to which switch.
+
+**Port Naming Convention**: `swXpYsZ` where X = switch ID, Y = port, Z = sub-port. Managed via udev rules using `phys_switch_id` and `phys_port_name`.
+
+### L2 Forwarding Offload
+
+Switchdev offloads bridge FDB (Forwarding Database) entries to hardware:
+
+```bash
+# Add a static FDB entry (offloaded to hardware)
+bridge fdb add dev sw1p1 00:11:22:33:44:55 master static
+
+# Show FDB with offload status
+bridge fdb show dev sw1p1
+# 00:11:22:33:44:55 master br0 offload    # "offload" = in hardware
+# 00:11:22:33:44:55 self                  # hardware FDB
+
+# Enable VLAN filtering on bridge
+echo 1 > /sys/class/net/br0/bridge/vlan_filtering
+```
+
+### Learning and FDB Sync
+
+The switch hardware learns source MAC/VLAN on ingress and notifies the kernel:
+
+```bash
+# Enable hardware learning with sync to kernel bridge
+bridge link set dev sw1p1 learning on self
+bridge link set dev sw1p1 learning_sync on self
+
+# Disable software learning on bridge port (hardware handles it)
+bridge link set dev sw1p1 learning off
+```
+
+The driver uses `call_switchdev_notifiers(SWITCHDEV_FDB_ADD, ...)` to notify the bridge of learned entries. Entries are marked `NTF_EXT_LEARNED` and displayed as `offload` in `bridge fdb` output.
+
+### FDB Ageing
+
+For hardware-learned entries, the switch device handles ageing. When an entry expires, the driver notifies the bridge with `SWITCHDEV_FDB_DEL`. If the hardware doesn't support ageing, the driver can use a garbage collection timer (see the `rocker` driver for an example).
+
+To keep entries alive, the driver refreshes them by re-announcing `SWITCHDEV_FDB_ADD` (rate-limited to ~1/second).
+
+### STP State Changes
+
+The bridge driver notifies switchdev of STP state changes:
+
+| State | Description |
+|-------|-------------|
+| `BR_STATE_DISABLED` | No packets pass |
+| `BR_STATE_LISTEN` | STP BPDUs only |
+| `BR_STATE_LEARN` | Learn MACs, don't forward |
+| `BR_STATE_FORWARD` | Full forwarding |
+| `BR_STATE_BLOCKING` | STP BPDUs + link-local multicast only |
+
+### Topology Awareness
+
+Switchdev drivers track port topology via `NETDEV_CHANGEUPPER` notifications:
+- Port moved into a bond → upper master changes
+- Bond moved into a bridge → bond's upper master changes
+- This allows the driver to program hardware based on the full network topology
+
+### Configuration
+
+```kconfig
+# In driver Kconfig
+depends NET_SWITCHDEV
+```
+
+### Use Cases
+
+- **Data center switches**: Offload OVS or Linux bridge forwarding to switch ASIC
+- **Embedded routers**: OpenWrt with hardware switch offload
+- **Smart NICs**: Offload host networking to NIC hardware
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)

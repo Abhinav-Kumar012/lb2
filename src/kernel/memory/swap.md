@@ -1010,6 +1010,86 @@ $ grep -r . /sys/kernel/debug/zswap/
 
 Zswap differs from Zram in that zswap is a swap *cache* (works with an existing swap device), while zram *is* the swap device.
 
+### Zswap Internals (from kernel docs)
+
+From the [kernel zswap documentation](https://docs.kernel.org/mm/zswap.html), zswap is a lightweight compressed write-back cache that sits in front of the swap device. When a page is candidate for swapping, zswap compresses it and stores it in a dynamically allocated RAM-based memory pool. If the compressed page fits, no disk I/O is needed. If the pool is full or compression fails, the least recently used (LRU) page is written to the backing swap device.
+
+**Key design properties:**
+
+- **Write-back policy**: zswap does not write through to the backing device. Pages are stored in the compressed pool and only written to swap when the pool is full or under memory pressure.
+- **LRU-based eviction**: When the pool reaches `max_pool_percent`, the oldest entry is evicted to the backing swap device.
+- **Same-filled page optimization**: Pages filled entirely with the same byte value are not compressed — instead, zswap records the fill value and size, using zero additional memory.
+- **Compression algorithm selection**: The compressor can be changed at runtime (requires all existing pages to be re-compressed or evicted first).
+- **zpool backend**: zswap uses zpool as its compressed page storage abstraction. Available backends include `zbud` (2 pages per 1 compressed page), `z3fold` (3 pages per 1), and `zsmalloc` (variable ratio, better for larger compressed objects).
+
+**Architecture flow:**
+
+```
+Page to be swapped out
+        │
+        ▼
+   ┌─────────┐     compressed?    ┌──────────────┐
+   │  zswap   │ ──── yes ────────▶│ Compressed   │
+   │  compress│                    │ Pool (zpool)  │
+   └─────────┘                    └──────────────┘
+        │                                │
+        │ no / pool full                 │ pool full / evict
+        ▼                                ▼
+   ┌──────────────┐              ┌──────────────┐
+   │ Write to     │◀─────────────│ LRU eviction │
+   │ backing swap │              └──────────────┘
+   └──────────────┘
+```
+
+**Runtime tunables (all under `/sys/module/zswap/parameters/`):**
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `enabled` | Y | Enable/disable zswap |
+| `max_pool_percent` | 20 | Max % of total RAM for compressed pool |
+| `compressor` | depends on config | Compression algorithm (lz4, zstd, lzo, etc.) |
+| `zpool` | zbud | Compressed page storage backend |
+| `accept_threshold_percent` | 90 | Pool fullness % at which pages are rejected |
+| `non_same_filled_pages_enabled` | Y | Disable to store only same-filled pages (debug) |
+
+**Disabling zswap:** Set `enabled=N` or pass `zswap.enabled=0` on the kernel command line.
+
+**Interaction with swap devices:** zswap works with any swap device (disk, partition, or zram). It caches pages before they reach the swap device, reducing I/O. If the swap device is zram, pages go through two levels of compression — zswap's pool first, then zram if evicted. This is generally not recommended (choose one or the other).
+
+**Statistics (under `/sys/kernel/debug/zswap/`):**
+
+```bash
+$ grep -r . /sys/kernel/debug/zswap/
+same_filled_pages: 0
+stored_pages: 12345
+pool_total_size: 45678900
+writeback: 100
+reject_compress_poor: 50
+reject_alloc_fail: 0
+reject_kmemcache_fail: 0
+reject_reclaim_fail: 0
+duplicate_entry: 0
+```
+
+| Statistic | Meaning |
+|-----------|---------|
+| `same_filled_pages` | Pages stored as fill-value (zero-cost) |
+| `stored_pages` | Pages currently in the compressed pool |
+| `pool_total_size` | Current pool memory usage (bytes) |
+| `writeback` | Pages evicted to backing swap device |
+| `reject_compress_poor` | Pages rejected (compression ratio too low) |
+| `reject_alloc_fail` | Pages rejected (pool allocation failed) |
+
+**zswap vs zram decision:**
+
+| Aspect | zswap | zram |
+|--------|-------|-----|
+| Role | Swap *cache* (in front of existing swap) | Swap *device* (replaces disk swap) |
+| Needs backing swap | Yes (optional but recommended) | No |
+| Eviction | Writes to backing swap device | None (compressed in RAM) |
+| Best for | Systems with disk swap | Systems without disk swap (embedded, containers) |
+| Double compression risk | Yes, if used with zram | No |
+
 ### Zram: In-Memory Compressed Swap
 
 Zram creates a block device that compresses data in RAM, effectively expanding available memory:

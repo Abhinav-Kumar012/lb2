@@ -1193,6 +1193,146 @@ eBPF helpers follow strict conventions:
 
 For the complete list, see `man 7 bpf-helpers` or [bpf-helpers(7) online](https://man7.org/linux/man-pages/man7/bpf-helpers.7.html).
 
+## BPF Iterators
+
+From the [kernel BPF iterators documentation](https://docs.kernel.org/bpf/bpf_iterators.html), BPF iterators are a mechanism for iterating over kernel data structures from BPF programs. There are two forms: **BPF iterator programs** (stand-alone programs that generate seq_file output) and **open-coded BPF iterators** (in-kernel iteration APIs usable from any BPF program type).
+
+### BPF Iterator Programs
+
+A BPF iterator program is attached and activated by userspace. When read, it generates output for each entity in a kernel data structure (tasks, cgroups, BPF maps, TCP sockets, etc.). The output is formatted by the BPF program and delivered as a seq_file.
+
+**How to use (userspace):**
+
+```c
+/* 1. Load BPF iterator program */
+struct bpf_object *obj = bpf_object__open("my_iter.bpf.o");
+bpf_object__load(obj);
+
+/* 2. Create a link */
+int prog_fd = bpf_program__fd(bpf_object__find_program_by_name(obj, "my_iter"));
+int link_fd = bpf_link_create(prog_fd, 0, BPF_TRACE_ITER, NULL);
+
+/* 3. Create an iterator fd */
+int iter_fd = bpf_iter_create(link_fd);
+
+/* 4. Read output (like reading a file) */
+char buf[4096];
+while (read(iter_fd, buf, sizeof(buf)) > 0) {
+    printf("%s", buf);
+}
+
+/* 5. Cleanup */
+close(iter_fd);
+close(link_fd);
+```
+
+### Open-Coded BPF Iterators
+
+Open-coded iterators are kfunc-based APIs that allow iteration from within any BPF program. They use a constructor/next/destructor pattern:
+
+```c
+/* Open-coded iterator usage (BPF program side) */
+#include <vmlinux.h>
+#include <bpf/bpf_helpers.h>
+
+SEC("iter/task")
+int dump_tasks(struct bpf_iter__task *ctx) {
+    struct seq_file *seq = ctx->meta->seq;
+    struct task_struct *task = ctx->task;
+
+    if (!task)
+        return 0;
+
+    BPF_SEQ_PRINTF(seq, "pid=%d comm=%s\n", task->pid, task->comm);
+    return 0;
+}
+```
+
+**Open-coded iterator pattern (for custom iterators):**
+
+Each open-coded iterator implements three kfuncs:
+
+```c
+/* Constructor — initialize iterator state on BPF stack */
+bpf_iter_<type>_new(/* args */);
+
+/* Next — return next element (NULL when exhausted) */
+struct <element> *bpf_iter_<type>_next(struct bpf_iter_<type> *iter);
+
+/* Destructor — cleanup resources */
+void bpf_iter_<type>_destroy(struct bpf_iter_<type> *iter);
+```
+
+The BPF verifier ensures:
+- Destructor is always called (even if constructor fails or next returns nothing)
+- Next method eventually returns NULL (guaranteed termination)
+- Iterator state is not tampered with outside constructor/next/destructor
+
+**Using `bpf_for_each()` macro (libbpf):**
+
+```c
+/* Convenient macro for open-coded iteration */
+struct task_struct *task;
+bpf_for_each(task, task_iter, /* constructor args */) {
+    /* process task */
+    /* loop body runs for each task */
+}
+/* destructor called automatically */
+```
+
+### Available Iterator Types
+
+| Iterator | Data Structure | Key Use Case |
+|----------|---------------|-------------|
+| `task` | `task_struct` | List all processes/threads |
+| `task_file` | `task_struct` + `file` | List open files per process |
+| `task_vma` | `task_struct` + `vm_area_struct` | List VMAs per process |
+| `bpf_map` | `bpf_map` | Dump BPF map contents |
+| `bpf_map_elem` | BPF map entries | Iterate map key-value pairs |
+| `bpf_link` | `bpf_link` | List attached BPF programs |
+| `tcp4` / `tcp6` | TCP sockets | Dump TCP connection table |
+| `udp4` / `udp6` | UDP sockets | Dump UDP sockets |
+| `netlink` | Netlink sockets | Dump netlink socket table |
+| `cgroup` | `cgroup` | List cgroup hierarchy |
+| `cgroup_hierarchy` | Cgroup tree | Walk cgroup tree |
+| `css_task` | `css` + `task` | List tasks in cgroup |
+
+### Why BPF Iterators?
+
+Traditional approaches to dumping kernel data (e.g., `/proc`) have fixed output formats. To add new fields, you must patch the kernel. Tools like `ss` need kernel support for new socket options.
+
+BPF iterators solve this by letting the BPF program control what data is collected and how it's formatted. You can add new fields, filter entries, compute statistics — all without kernel changes.
+
+**Example: Custom TCP socket dump with BPF:**
+
+```c
+SEC("iter/tcp4")
+int dump_tcp(struct bpf_iter__tcp4 *ctx) {
+    struct sock_common *sk_common = ctx->sk_common;
+    struct seq_file *seq = ctx->meta->seq;
+
+    if (!sk_common)
+        return 0;
+
+    /* Only show established connections */
+    if (sk_common->skc_state != TCP_ESTABLISHED)
+        return 0;
+
+    BPF_SEQ_PRINTF(seq, "%pI4:%d -> %pI4:%d\n",
+                   &sk_common->skc_rcv_saddr, sk_common->skc_num,
+                   &sk_common->skc_daddr, ntohs(sk_common->skc_dport));
+    return 0;
+}
+```
+
+### Verifier Integration
+
+The verifier handles open-coded iterators by branching at each `next()` call:
+- **NULL path** (iteration complete): Simulated first, must reach exit without looping
+- **Non-NULL path** (new element): Validated with state equivalency check — if the verifier state after one iteration matches a previously validated state, the loop is proven safe (bounded by the guarantee that `next()` eventually returns NULL)
+
+This mechanism allows the verifier to accept loops without explicit loop bounds, relying on the iterator contract instead.
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)

@@ -1483,6 +1483,50 @@ This is critical for **live migration** — the destination VMM adjusts the TSC 
 to account for time elapsed during migration and TSC differences between source
 and destination hosts.
 
+## KVM Patch Review Checklist
+
+From the [kernel KVM review checklist](https://docs.kernel.org/virt/kvm/review-checklist.html), patches submitted to KVM must follow specific quality and testing standards. This checklist is useful both for KVM contributors and for understanding the quality bar of the subsystem.
+
+### Code Requirements
+
+1. **Coding style**: Must follow Linux kernel coding style and submitting patches guidelines
+2. **Branch target**: Patches should be against `kvm.git` master or next branches
+3. **User/kernel interfaces**: New or modified APIs must be documented in the KVM API docs and discoverable via `KVM_CHECK_EXTENSION`
+4. **Save/restore**: New state must include support for save/restore (live migration)
+5. **Default off**: New features must default to off — userspace must explicitly request them. Performance improvements should default to on.
+6. **CPU features**: New CPU features should be exposed via `KVM_GET_SUPPORTED_CPUID2` (or arch equivalent)
+7. **Vendor neutrality**: Changes should be vendor-neutral when possible. Prefer changes to common code over vendor-specific code.
+8. **64-bit clean**: User/kernel and guest/host interfaces must use specific types (`u64` rather than `ulong`), with natural alignment
+9. **Documentation**: New guest-visible features must be documented in a hardware manual or accompanied by kernel documentation
+
+### Testing Requirements
+
+All KVM features and most bugfixes should be accompanied by tests. The kernel provides multiple test frameworks:
+
+| Framework | Location | Description |
+|-----------|----------|-------------|
+| **Selftests** | `tools/testing/selftests/kvm/` | Low-level kernel API tests. Test API failure scenarios, specific guest instructions, multiple VM creation. Included in kernel tree. |
+| **kvm-unit-tests** | Separate repo | Small guest images testing CPU and device features from guest perspective. Runs under QEMU or kvmtool. Not KVM-specific — can compare across hypervisors. |
+| **Functional tests** | QEMU `tests/functional/`, avocado-vt | Full OS-level tests running in VMs. |
+
+### Testing Guidelines by Feature Type
+
+| Feature Type | Recommended Tests |
+|-------------|------------------|
+| New instructions (no new registers/APIs) | Make CPU features available in QEMU; add kvm-unit-tests or selftest coverage if KVM emulation is needed |
+| New hardware features (new registers, no APIs) | kvm-unit-tests; requires QEMU/kvmtool support; selftests for corner cases |
+| Bug fixes / performance | Share benchmarks; add regression tests to selftests or kvm-unit-tests |
+| Large internal changes | Ensure changed code is covered by existing or new tests; explain testing in cover letter |
+| New APIs | Demonstrate use case (proof-of-concept in userspace); selftests for API error cases and basic operation |
+| Big features (host + guest) | Linux guest support required; open source VMM support (QEMU/crosvm) strongly suggested; selftests for API errors; kvm-unit-tests for guest operation |
+
+### Best Practices
+
+- Selftests are preferred for regression tests (included directly in Linux tree)
+- kvm-unit-tests are preferred for cross-hypervisor feature testing
+- Strong selftest coverage can substitute for open source VMM implementation (but not recommended)
+- KVM maintainers may require additional tests or waive requirements
+
 ## Further Reading
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)

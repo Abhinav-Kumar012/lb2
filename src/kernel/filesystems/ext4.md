@@ -914,6 +914,92 @@ Modern kernels support hardware-wrapped keys where the master key never enters k
 - [fscrypt Documentation](https://docs.kernel.org/filesystems/fscrypt.html) — Filesystem-level encryption (kernel API and design)
 - [fscrypt Userspace Tool](https://github.com/google/fscrypt) — Recommended CLI for managing fscrypt
 
+## DAX (Direct Access) Mode
+
+From the [kernel DAX documentation](https://docs.kernel.org/filesystems/dax.html), DAX (Direct Access) bypasses the page cache entirely for block devices that are memory-like (e.g., NVDIMM persistent memory). Reads and writes go directly to the storage device, and file mappings place the storage device directly into userspace.
+
+### Why DAX?
+
+The page cache normally buffers reads/writes and provides pages for `mmap()`. For byte-addressable persistent memory (Intel Optane DCPMM, NVDIMMs), the page cache is an unnecessary copy — the storage is already at DRAM-like latency. DAX removes this copy:
+
+- **Read/write**: Data transferred directly between userspace and storage (no page cache intermediate)
+- **mmap()**: Storage device mapped directly into userspace (no page fault to read from disk)
+
+### Enabling DAX on ext4
+
+ext4 supports DAX with three mount options:
+
+```bash
+# Follow per-file FS_XFLAG_DAX flag (default)
+mount -o dax=inode /dev/pmem0 /mnt/pmem
+
+# Always enable DAX for all files
+mount -o dax=always /dev/pmem0 /mnt/pmem
+
+# Never enable DAX (ignore per-file flag)
+mount -o dax=never /dev/pmem0 /mnt/pmem
+
+# Legacy shorthand (equivalent to dax=always)
+mount -o dax /dev/pmem0 /mnt/pmem
+```
+
+**Per-file control via `FS_XFLAG_DAX`:**
+
+```bash
+# Enable DAX on a directory (new files inherit this)
+xfs_io -c 'chattr +x' /mnt/pmem/mydir
+
+# Enable DAX on a specific file
+xfs_io -c 'chattr +x' /mnt/pmem/myfile
+
+# Check DAX status via statx
+stat /mnt/pmem/myfile
+# Look for STATX_ATTR_DAX in attributes
+```
+
+**Inheritance rules:**
+- New files and directories inherit `FS_XFLAG_DAX` from their parent directory at creation time.
+- Changing the flag on a directory does NOT retroactively affect existing children.
+- The in-kernel `S_DAX` state is set when the inode is instantiated; changing `FS_XFLAG_DAX` on an existing file takes effect when the file is closed by all processes and re-opened.
+
+### Block Size Requirement
+
+DAX requires the filesystem block size to equal the kernel's `PAGE_SIZE`. On x86_64 with 4K pages, use `mkfs.ext4 -b 4096`. For 64K pages (ARM64), use `mkfs.ext4 -b 65536`.
+
+### Implementation Details for ext4
+
+ext4 DAX implementation consists of:
+
+1. **S_DAX flag**: Set on inodes based on `FS_XFLAG_DAX` + mount option + media support
+2. **DAX I/O**: `dax_iomap_rw()` handles read/write, bypassing the page cache
+3. **DAX faults**: `dax_iomap_fault()` handles page faults for mmap, mapping storage directly
+4. **Zeroing**: Allocated blocks must be zeroed and converted to written extents before returning (to prevent data exposure via mmap)
+
+```c
+/* ext4 read/write with DAX */
+ssize_t ext4_file_read_iter(struct kiocb *iocb, struct iov_iter *to)
+{
+    if (IS_DAX(iocb->ki_filp->f_mapping->host))
+        return dax_iomap_rw(iocb, to, &ext4_iomap_ops);
+    /* Normal buffered/cached I/O path */
+    return ext4_buffered_read_iter(iocb, to);
+}
+```
+
+### Media Error Handling
+
+DAX I/O does not go through the normal block/bio path. If a media error occurs:
+- Applications receive a `SIGBUS`
+- Recovery options: delete and restore the file, or hole-punch the affected region (which triggers writes through the driver, clearing bad sectors)
+- The `libnvdimm` subsystem tracks known bad blocks in `gendisk->badblocks`
+
+### Shortcomings
+
+- **Kernel/modules on DAX**: Still copied into RAM (not directly executed from pmem)
+- **Virtually mapped caches**: DAX does not work on ARM, MIPS, SPARC (virtually-indexed caches)
+- **No `struct page`**: Without `CONFIG_NVDIMM_PFN`, DAX pages have no `struct page`, preventing RDMA, `sendfile()`, and `splice()` on DAX memory ranges
+- **O_DIRECT of DAX files**: Works (direct access to pmem). O_DIRECT *from* DAX memory to non-DAX files: does not work without `struct page`.
+
 ## Related Topics
 
 - [VFS](./vfs.md) — The virtual filesystem layer

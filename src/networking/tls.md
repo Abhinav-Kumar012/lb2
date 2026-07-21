@@ -585,6 +585,140 @@ ssl_dhparam /etc/ssl/dhparam.pem;
 $ openssl dhparam -out /etc/ssl/dhparam.pem 4096
 ```
 
+## Kernel TLS (kTLS)
+
+From the [kernel TLS documentation](https://docs.kernel.org/networking/tls.html), the Linux kernel supports TLS as an Upper Layer Protocol (ULP) over TCP. Kernel TLS (kTLS) handles symmetric encryption/decryption in the kernel, while the TLS handshake remains in userspace. This offloads the data path from userspace TLS libraries, reducing system call overhead and enabling zero-copy optimizations.
+
+### Why Kernel TLS?
+
+Userspace TLS implementations (OpenSSL, GnuTLS) require:
+1. Reading encrypted data from the socket into userspace
+2. Decrypting in userspace
+3. Copying plaintext to the application buffer
+
+kTLS eliminates copies 1 and 3 by decrypting directly into the application buffer and encrypting directly from the application buffer.
+
+### Creating a kTLS Connection
+
+```c
+/* 1. Create and connect a TCP socket */
+int sock = socket(AF_INET, SOCK_STREAM, 0);
+connect(sock, addr, addrlen);
+
+/* 2. Set the TLS ULP (after handshake completes in userspace) */
+setsockopt(sock, SOL_TCP, TCP_ULP, "tls", sizeof("tls"));
+
+/* 3. Configure TX and/or RX crypto parameters */
+struct tls12_crypto_info_aes_gcm_128 crypto_info = {
+    .info.version = TLS_1_2_VERSION,
+    .info.cipher_type = TLS_CIPHER_AES_GCM_128,
+};
+memcpy(crypto_info.iv, iv_write, TLS_CIPHER_AES_GCM_128_IV_SIZE);
+memcpy(crypto_info.key, cipher_key, TLS_CIPHER_AES_GCM_128_KEY_SIZE);
+memcpy(crypto_info.salt, implicit_iv, TLS_CIPHER_AES_GCM_128_SALT_SIZE);
+memcpy(crypto_info.rec_seq, seq_number, TLS_CIPHER_AES_GCM_128_REC_SEQ_SIZE);
+
+/* Enable TX encryption */
+setsockopt(sock, SOL_TLS, TLS_TX, &crypto_info, sizeof(crypto_info));
+/* Enable RX decryption */
+setsockopt(sock, SOL_TLS, TLS_RX, &crypto_info, sizeof(crypto_info));
+```
+
+### Sending and Receiving
+
+After setting `TLS_TX`, all `send()` data is automatically encrypted. After setting `TLS_RX`, all `recv()` data is automatically decrypted.
+
+```c
+/* Send encrypted data — encryption happens in kernel */
+send(sock, msg, strlen(msg));
+
+/* sendfile() — zero-copy file transfer over TLS */
+int file = open(filename, O_RDONLY);
+struct stat st;
+fstat(file, &st);
+sendfile(sock, file, &offset, st.st_size);
+
+/* Receive decrypted data */
+char buffer[16384];
+recv(sock, buffer, sizeof(buffer));
+```
+
+`sendfile()` with kTLS achieves true zero-copy: file data is encrypted directly from the page cache without intermediate copies.
+
+### Control Messages (Alerts, Handshake)
+
+TLS control messages (alerts, handshake re-key) are sent via `sendmsg()` with `SOL_TLS` / `TLS_SET_RECORD_TYPE` cmsg:
+
+```c
+struct msghdr msg = {0};
+struct cmsghdr *cmsg;
+char buf[CMSG_SPACE(sizeof(unsigned char))];
+
+msg.msg_control = buf;
+msg.msg_controllen = sizeof(buf);
+cmsg = CMSG_FIRSTHDR(&msg);
+cmsg->cmsg_level = SOL_TLS;
+cmsg->cmsg_type = TLS_SET_RECORD_TYPE;
+cmsg->cmsg_len = CMSG_LEN(sizeof(unsigned char));
+*CMSG_DATA(cmsg) = 21;  /* TLS alert record type */
+msg.msg_controllen = cmsg->cmsg_len;
+
+struct iovec iov = { .iov_base = alert_data, .iov_len = alert_len };
+msg.msg_iov = &iov;
+msg.msg_iovlen = 1;
+sendmsg(sock, &msg, 0);
+```
+
+Receiving control messages uses `TLS_GET_RECORD_TYPE` cmsg to distinguish alerts from application data.
+
+### TLS 1.3 Key Updates
+
+In TLS 1.3, `KeyUpdate` handshake messages signal key rotation. The kernel pauses RX decryption when a KeyUpdate is received until new keys are provided via `TLS_RX` setsockopt. Reads during this window fail with `EKEYEXPIRED`. TX is not paused.
+
+### Optional Optimizations
+
+| Option | Description |
+|--------|-------------|
+| `TLS_TX_ZEROCOPY_RO` | Device offload: sendfile() data transmitted directly to NIC without kernel copy (read-only data only) |
+| `TLS_RX_EXPECT_NO_PAD` | TLS 1.3: expect no padding, enabling direct decryption into userspace buffers |
+| `TLS_TX_MAX_PAYLOAD_LEN` | Limit plaintext payload size per record (RFC 8449 Record Size Limit) |
+
+### Statistics
+
+Per-namespace stats available at `/proc/net/tls_stat`:
+
+| Statistic | Description |
+|-----------|-------------|
+| `TlsCurrTxSw` / `TlsCurrRxSw` | Active software-encrypted sessions |
+| `TlsCurrTxDevice` / `TlsCurrRxDevice` | Active NIC-offloaded sessions |
+| `TlsTxSw` / `TlsRxSw` | Total software sessions opened |
+| `TlsDecryptError` | Failed decryptions (bad auth tag) |
+| `TlsDeviceRxResync` | RX resyncs sent to offloading NICs |
+| `TlsDecryptRetry` | Records re-decrypted due to `TLS_RX_EXPECT_NO_PAD` misprediction |
+| `TlsTxRekeyOk` / `TlsRxRekeyOk` | Successful TLS 1.3 key updates |
+| `TlsRxRekeyReceived` | KeyUpdate handshake messages received |
+
+### NIC Hardware Offload
+
+Modern NICs (Mellanox ConnectX-6, Intel E810) can offload TLS encryption/decryption entirely to hardware:
+
+```bash
+# Check if NIC supports TLS offload
+ethtool -k eth0 | grep tls
+# tx-udp_tnl-segmentation: on
+
+# Enable TLS offload (driver-dependent)
+# Typically enabled automatically when kTLS is used with capable NIC
+```
+
+With NIC offload, TLS sessions use `TlsCurrTxDevice` / `TlsCurrRxDevice` instead of software crypto.
+
+### Integration with Userspace TLS Libraries
+
+kTLS replaces the **record layer** of a userspace TLS library. The handshake (certificate verification, key exchange) still happens in userspace. After the handshake, the library passes crypto parameters to the kernel and all subsequent data path is kernel-handled.
+
+OpenSSL supports kTLS via the `SSL_sendfile()` API and automatic detection when `TCP_ULP` is available.
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)

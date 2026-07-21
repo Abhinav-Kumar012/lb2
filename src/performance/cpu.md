@@ -601,6 +601,112 @@ perf stat -e amd_l3/event=0x01/ ./myapp
 perf stat -e armv8_pmuv3/event=0x08/ ./myapp
 ```
 
+## CPU Idle Time Management (cpuidle)
+
+From the [kernel cpuidle documentation](https://docs.kernel.org/admin-guide/pm/cpuidle.html), the CPUIdle subsystem manages transitions to processor idle states (C-states) to save energy when a CPU has no tasks to run.
+
+### How It Works
+
+When the CPU scheduler has no runnable tasks for a CPU, the special "idle" task runs. The idle loop:
+1. Calls the **governor** to select the optimal idle state
+2. Calls the **driver** to ask the hardware to enter that state
+
+```mermaid
+graph TD
+    A[CPU idle — no tasks] --> B[Governor selects idle state]
+    B --> C[Driver enters idle state]
+    C --> D[Hardware in low-power state]
+    D --> E[Wakeup event (timer, interrupt)]
+    E --> F[CPU resumes execution]
+```
+
+### Idle State Properties
+
+Each idle state is characterized by:
+
+| Property | Description |
+|----------|-------------|
+| **Target residency** | Minimum time in state to save more energy than a shallower state (includes entry time) |
+| **Exit latency** | Maximum time to execute first instruction after wakeup |
+| **Power** | Power drawn in this state (deeper = less power) |
+
+### C-State Hierarchy
+
+```bash
+# List available idle states
+cat /sys/devices/system/cpu/cpu0/cpuidle/state0/name  # POLL (not a real C-state)
+cat /sys/devices/system/cpu/cpu0/cpuidle/state1/name  # C1
+cat /sys/devices/system/cpu/cpu0/cpuidle/state2/name  # C1E (Intel)
+cat /sys/devices/system/cpu/cpu0/cpuidle/state3/name  # C6
+cat /sys/devices/system/cpu/cpu0/cpuidle/state4/name  # C7+
+
+# View latency and residency
+for state in /sys/devices/system/cpu/cpu0/cpuidle/state*/; do
+    echo "$(cat $state/name): latency=$(cat $state/latency)µs residency=$(cat $state/residency)µs"
+done
+# POLL: latency=0µs residency=0µs
+# C1: latency=2µs residency=2µs
+# C1E: latency=10µs residency=20µs
+# C6: latency=150µs residency=600µs
+# C7: latency=200µs residency=1000µs
+```
+
+### Governors
+
+The governor predicts how long the CPU will be idle and selects the deepest state whose target residency fits:
+
+| Governor | Algorithm | Default |
+|----------|-----------|---------|
+| **menu** | Heuristic-based prediction using past idle duration, timer events, and CPU load | Yes (most configs) |
+| **TEO** (Timer Events Oriented) | Focuses on timer-driven wakeups; more accurate for timer-heavy workloads | Yes (some configs) |
+| **ladder** | Stepped progression through C-states | Legacy, non-tickless |
+| **haltpoll** | Polls briefly before entering deep C-states (for virtualization) | Optional |
+
+```bash
+# View/change governor
+cat /sys/devices/system/cpu/cpuidle/current_governor_ro
+# menu
+
+# View available governors
+cat /sys/devices/system/cpu/cpuidle/available_governors
+# menu teo
+```
+
+### Drivers
+
+| Driver | Platform | Notes |
+|--------|----------|-------|
+| `intel_idle` | Intel | Auto-detects C-states, hardcoded tables |
+| `acpi_idle` | Generic ACPI | Reads C-states from ACPI tables |
+| `amd_pstate` | AMD | Integrated with cpufreq |
+
+```bash
+# View active driver
+cat /sys/devices/system/cpu/cpuidle/current_driver
+# intel_idle
+```
+
+### Scheduler Tick and Idle
+
+The periodic scheduler tick prevents CPUs from entering deep idle states. When the tick is stopped (tickless kernel, `CONFIG_NO_HZ_FULL`), CPUs can stay in deep C-states longer. The governor uses `predicted_idle_duration - exit_latency` to select the deepest profitable state.
+
+### Performance Impact
+
+| Deeper C-states save more power but increase wakeup latency. For latency-sensitive workloads:
+
+```bash
+# Limit maximum C-state (prevents deep states)
+echo 1 > /sys/devices/system/cpu/cpu0/cpuidle/state3/disable  # Disable C6
+echo 1 > /sys/devices/system/cpu/cpu0/cpuidle/state4/disable  # Disable C7+
+
+# Or via kernel parameter
+# intel_idle.max_cstate=1
+```
+
+### Interaction with cpufreq
+
+cpuidle and cpufreq work together: cpufreq adjusts frequency/voltage while running (P-states), cpuidle selects power states when idle (C-states). The `intel_pstate` driver can coordinate both.
+
 ## References
 
 - Gregg, B. *Systems Performance: Enterprise and the Cloud*, 2nd Edition.

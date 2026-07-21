@@ -1246,6 +1246,91 @@ $ echo 0-3 > /sys/kernel/tracing/tracing_cpumask
 
 For full details, see [Hardware Latency Detector — docs.kernel.org](https://docs.kernel.org/trace/hwlat_detector.html).
 
+## Boot-Time Tracing
+
+ftrace supports tracing during kernel boot via kernel command-line parameters. This is essential for debugging early-boot issues that occur before userspace is available and tracefs can be mounted.
+
+### Kernel Command-Line Parameters
+
+```bash
+# Enable specific events at boot
+trace_event=sched_switch,sched_wakeup
+trace_event=block:*                    # All block subsystem events
+trace_event=irq:*                      # All IRQ events
+
+# Set a tracer at boot
+trace_buf_size=4M                      # Ring buffer size per CPU
+trace_options=overwrite                # Enable overwrite option
+
+# Function tracing at boot
+ftrace=function                        # Enable function tracer
+ftrace_filter=do_sys_open*             # Filter to specific functions
+ftrace_notrace=*lock*                  # Exclude lock functions
+
+# Boot-time kprobe events
+kprobe_event=p:myprobe,do_sys_open,filename=%si
+
+# Combine for comprehensive boot tracing
+trace_event=sched_switch,sched_wakeup,irq:* ftrace_filter=sched_*
+```
+
+### Boot Trace Analysis Workflow
+
+```bash
+# 1. Add trace parameters to kernel command line (GRUB)
+# Edit /etc/default/grub:
+# GRUB_CMDLINE_LINUX="trace_event=sched_switch trace_buf_size=8M"
+
+# 2. Boot with modified command line
+# sudo update-grub && reboot
+
+# 3. After boot, read the trace buffer
+cat /sys/kernel/tracing/trace > /tmp/boot_trace.txt
+
+# 4. Or use trace-cmd to read
+cat /sys/kernel/tracing/per_cpu/cpu0/trace > /tmp/cpu0_boot_trace.txt
+
+# 5. Analyze with KernelShark
+kernelshark /tmp/boot_trace.txt
+```
+
+### Early Boot Considerations
+
+- **Buffer size**: Set `trace_buf_size` large enough (default 1KB per CPU is too small for boot tracing; use 4M-16M)
+- **Overwrite mode**: Use `trace_options=overwrite` to keep the most recent events if the buffer fills
+- **Function tracing overhead**: Boot-time function tracing adds significant overhead; use `ftrace_filter` to limit scope
+- **`trace_event` vs `ftrace`**: `trace_event` enables specific tracepoints (lower overhead); `ftrace=function` traces all function calls (very verbose)
+- **Boot delay measurement**: Use `initcall_debug` alongside tracing to correlate init function timing with scheduler events
+
+### Example: Tracing Boot-Time Scheduler Activity
+
+```bash
+# Kernel command line:
+trace_event=sched_switch,sched_wakeup,sched_process_fork
+trace_buf_size=8M
+trace_options=overwrite
+
+# After boot:
+cat /sys/kernel/tracing/trace | head -100
+#           <idle>-0     [000]  0.000000: sched_switch: prev_comm=swapper/0 ...
+#           <idle>-0     [000]  0.001234: sched_wakeup: comm=init pid=1 ...
+#              init-1     [000]  0.002345: sched_process_fork: comm=init pid=1 child_comm=... child_pid=2
+```
+
+### Example: Tracing Initcall Timing
+
+```bash
+# Kernel command line:
+initcall_debug
+trace_event=initcall:* ftrace_filter=*_initcall*
+trace_buf_size=4M
+
+# After boot, correlate initcall durations with kernel log
+dmesg | grep initcall
+# [    0.123456] calling  pci_driver_init+0x0/0x100 @ 1
+# [    0.125678] initcall pci_driver_init+0x0/0x100 returned 0 after 2134 usecs
+```
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
