@@ -23,8 +23,8 @@ Where:
 - `NICE_0_LOAD` — weight of nice-0 task (1024)
 - `task_weight` — weight based on the task's nice value
 
-Tasks with **higher nice** (lower priority) have **higher weight divisor**, so their `vruntime` grows faster — they get less CPU time.
-Tasks with **lower nice** (higher priority) have **lower weight divisor**, so their `vruntime` grows slower — they get more CPU time.
+Tasks with **higher nice** (lower priority) have a **smaller weight** (higher weight divisor), so their `vruntime` grows faster — they get less CPU time.
+Tasks with **lower nice** (higher priority) have a **larger weight** (lower weight divisor), so their `vruntime` grows slower — they get more CPU time.
 
 ### Nice-to-Weight Mapping
 
@@ -231,6 +231,25 @@ struct sched_entity *__pick_first_entity(struct cfs_rq *cfs_rq)
 
 ## Scheduling Granularity
 
+### Scheduling Latency and Granularity
+
+CFS uses three key tunable parameters that control scheduling behavior:
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `sysctl_sched_latency` | 6ms | Target scheduling period — all tasks should run within this window |
+| `sysctl_sched_min_granularity` | 0.75ms | Minimum time each task runs before being preempted |
+| `sysctl_sched_wakeup_granularity` | 1ms | Minimum vruntime gap required for a waking task to preempt the current task |
+
+The number of tasks that fit within the latency target without violating the minimum granularity is:
+
+```
+sched_nr_latency = sysctl_sched_latency / sysctl_sched_min_granularity
+                 = 6ms / 0.75ms = 8
+```
+
+When the number of runnable tasks exceeds `sched_nr_latency`, the scheduling period grows to `nr_running * sysctl_sched_min_granularity`, ensuring each task still gets at least the minimum granularity.
+
 ### Time Slice Calculation
 
 CFS doesn't assign fixed time slices. Instead, it calculates how long a task should run before being preempted:
@@ -369,7 +388,7 @@ static void check_preempt_tick(struct cfs_rq *cfs_rq, struct sched_entity *curr)
     ideal_runtime = sched_slice(cfs_rq, curr);
 
     /* How long has this task actually run? */
-    delta_exec = curr->exec_start - rq_clock_task(rq_of(cfs_rq));
+    delta_exec = rq_clock_task(rq_of(cfs_rq)) - curr->exec_start;
 
     /* If exceeded ideal runtime, reschedule */
     if (delta_exec > ideal_runtime)
@@ -508,8 +527,8 @@ static void update_min_vruntime(struct cfs_rq *cfs_rq)
     if (cfs_rq->curr)
         vruntime = cfs_rq->curr->vruntime;
 
-    if (cfs_rq->rb_leftmost) {
-        struct sched_entity *se = rb_entry(cfs_rq->rb_leftmost,
+    if (cfs_rq->tasks_timeline.rb_root.rb_node) {
+        struct sched_entity *se = rb_entry(rb_first_cached(&cfs_rq->tasks_timeline),
                                            struct sched_entity, run_node);
         if (!cfs_rq->curr)
             vruntime = se->vruntime;
@@ -557,6 +576,7 @@ This prevents the "thundering herd" problem where many sleeping tasks wake up si
 
 ```bash
 # CFS tunables (under /proc/sys/kernel/)
+# Note: these were removed in Linux 6.6+ with EEVDF; shown for historical reference
 $ sysctl kernel.sched_latency_ns
 kernel.sched_latency_ns = 6000000
 
