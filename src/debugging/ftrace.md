@@ -344,6 +344,17 @@ echo 0 > /sys/kernel/tracing/events/sched/sched_switch/filter
 kprobes allow you to dynamically insert tracepoints at almost any kernel function
 address. They are the foundation for dynamic kernel tracing.
 
+### How Kprobes Work
+
+When a kprobe is registered, the kernel:
+1. Saves a copy of the probed instruction
+2. Replaces the first byte(s) with a breakpoint instruction (e.g., `int3` on x86)
+3. When the breakpoint fires, the CPU's registers are saved and control passes to the kprobe handler
+4. The original instruction is single-stepped (from the copied instruction, not in-place)
+5. The post-handler runs, then execution continues at the instruction after the probe
+
+This mechanism works for virtually any kernel instruction, though some code regions are blacklisted (e.g., the kprobe infrastructure itself, interrupt entry/exit paths).
+
 ### Types of Probes
 
 ```
@@ -359,6 +370,31 @@ address. They are the foundation for dynamic kernel tracing.
 │         └──────────┘                        │
 └─────────────────────────────────────────────┘
 ```
+
+### Kprobe Jump Optimization
+
+On x86 with `CONFIG_OPTPROBES=y`, kprobes can replace breakpoint instructions with jump instructions for lower overhead. The optimization process:
+
+1. A safety check verifies the probe region is safe for replacement
+2. A "detour" buffer is prepared with: register save → handler call → register restore → original instruction → jump back
+3. After `synchronize_rcu()`, the breakpoint is replaced with a `jmp` to the detour buffer
+4. This reduces probe-hit overhead from ~1µs (int3 trap) to ~0.1µs (direct jump)
+
+Jump optimization is not possible when:
+- The probe has a post_handler
+- Other instructions in the optimized region are probed
+- The probe region spans multiple functions
+- The kernel is compiled with `CONFIG_PREEMPT=y`
+
+### Kretprobes (Return Probes)
+
+Kretprobes fire when a function returns. The mechanism:
+1. A kprobe at function entry saves the return address and replaces it with a trampoline
+2. When the function returns, control goes to the trampoline
+3. The user's return handler runs with access to the return value
+4. The saved return address is restored
+
+The `maxactive` field controls how many concurrent invocations can be probed (default: `max(10, 2*NR_CPUS)`). Setting it too low causes missed probes (tracked in `nmissed`).
 
 ### Using kprobes with tracefs
 
@@ -754,6 +790,7 @@ echo 'snapshot:prev_pid==1234' > /sys/kernel/tracing/events/sched/sched_switch/t
 - [trace-cmd man page](https://man7.org/linux/man-pages/man1/trace-cmd.1.html)
 - [KernelShark](https://kernelshark.org/)
 - [Steven Rostedt's ftrace tutorial](https://lwn.net/Articles/370423/)
+- [Kernel documentation: Kprobes](https://docs.kernel.org/trace/kprobes.html) — Full kprobe/kretprobe reference and internals
 - [Brendan Gregg's ftrace page](https://www.brendangregg.com/blog/2014-07-01/perf-ftrace.html)
 
 ## Related Topics

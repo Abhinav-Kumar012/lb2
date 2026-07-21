@@ -642,7 +642,49 @@ int main(int argc, char **argv)
 }
 ```
 
-## XDP Multi-Buffer (MB)
+## XDP Program Types
+
+XDP programs are eBPF programs of type `BPF_PROG_TYPE_XDP`. They are attached to network interfaces and invoked for every incoming packet before any `sk_buff` allocation. The kernel's XDP infrastructure supports several program types and attachment mechanisms:
+
+### Native XDP Programs
+
+The standard XDP program type (`SEC("xdp")`) runs in the NIC driver's receive path. It receives an `xdp_md` context:
+
+```c
+struct xdp_md {
+    __u32 data;         /* Start of packet data */
+    __u32 data_end;     /* End of packet data */
+    __u32 data_meta;    /* Start of metadata (prependended to data) */
+    __u32 ingress_ifindex;  /* Ingress interface index */
+    __u32 rx_queue_index;   /* RX queue index */
+    __u32 egress_ifindex;   /* Egress interface index (for XDP_REDIRECT) */
+};
+```
+
+### XDP Attachment Modes
+
+| Mode | Description | Performance |
+|------|-------------|-------------|
+| **Native** | Runs in NIC driver (requires driver support) | Best (line rate) |
+| **Offloaded** | Runs on NIC hardware (SmartNICs like Netronome) | Wire speed |
+| **Generic** | Runs after sk_buff allocation (all drivers) | Slower |
+
+```bash
+# Attach in native mode (default when driver supports it)
+sudo ip link set dev eth0 xdp obj prog.o sec xdp
+
+# Force generic mode
+sudo ip link set dev eth0 xdp obj prog.o sec xdp generic
+
+# Offloaded mode (requires hardware support)
+sudo ip link set dev eth0 xdp obj prog.o sec xdp offloaded
+
+# Check which mode is active
+ip link show eth0
+# prog/xdp id 123 tag abc123:xyz
+```
+
+### XDP Multi-Buffer (MB)
 
 Starting with Linux 5.18, XDP supports multi-buffer packets (packets larger than a single page):
 
@@ -724,6 +766,7 @@ A BPF map of type `BPF_MAP_TYPE_XSKMAP` distributes packets to XSKs. The XDP pro
 2. **Linux Kernel Source** — `net/core/xdp.c`, `include/net/xdp.h`
 3. **XDP Tutorial** — [github.com/xdp-project/xdp-tutorial](https://github.com/xdp-project/xdp-tutorial)
 4. **AF_XDP Documentation** — [docs.kernel.org/networking/af_xdp.html](https://docs.kernel.org/networking/af_xdp.html)
+4b. **XDP Documentation** — [docs.kernel.org/networking/xdp.html](https://docs.kernel.org/networking/xdp.html)
 5. **LWN: Accelerating networking with AF_XDP** — [lwn.net/Articles/750845/](https://lwn.net/Articles/750845/)
 6. *Linux Kernel Networking* by Rami Rosen (Apress)
 

@@ -309,7 +309,110 @@ kmem_cache_destroy(my_cache);
 #define SLAB_TRACE           0x00200000  /* Trace allocations */
 ```
 
-## kmalloc Family
+## kmalloc API
+
+`kmalloc()` is the primary small-object allocator in the Linux kernel. It allocates physically contiguous memory backed by size-indexed slab caches (e.g., kmalloc-8, kmalloc-16, …, kmalloc-8k). For allocations larger than `KMALLOC_MAX_CACHE_SIZE`, kmalloc falls back directly to the page allocator.
+
+### Core Functions
+
+```c
+#include <linux/slab.h>
+
+/* Allocate size bytes. Returns NULL on failure. */
+void *kmalloc(size_t size, gfp_t flags);
+
+/* Free kmalloc'd memory. NULL is safe. */
+void kfree(const void *ptr);
+
+/* Allocate zero-initialized memory */
+void *kzalloc(size_t size, gfp_t flags);
+
+/* Allocate an array (overflow-safe multiplication) */
+void *kmalloc_array(size_t n, size_t size, gfp_t flags);
+
+/* Allocate zero-initialized array */
+void *kcalloc(size_t n, size_t size, gfp_t flags);
+
+/* Reallocate to new size (may copy data) */
+void *krealloc(const void *p, size_t new_size, gfp_t flags);
+
+/* Allocate with NUMA node affinity */
+void *kmalloc_node(size_t size, gfp_t flags, int node);
+
+/* Allocate with vmalloc fallback for large sizes */
+void *kvmalloc(size_t size, gfp_t flags);
+void *kvmalloc_node(size_t size, gfp_t flags, int node);
+void *kvfree(const void *addr);
+
+/* Track actual caller (for debugging) */
+void *kmalloc_track_caller(size_t size, gfp_t flags);
+```
+
+### Size Classes and Rounding
+
+kmalloc rounds the requested size up to the nearest power-of-2 size class. On a typical system:
+
+| Requested Size | Cache Used | Actual Allocation |
+|----------------|-----------|------------------|
+| 1–8 bytes | kmalloc-8 | 8 bytes |
+| 9–16 bytes | kmalloc-16 | 16 bytes |
+| 17–32 bytes | kmalloc-32 | 32 bytes |
+| 33–64 bytes | kmalloc-64 | 64 bytes |
+| 65–128 bytes | kmalloc-128 | 128 bytes |
+| 129–256 bytes | kmalloc-256 | 256 bytes |
+| 257–512 bytes | kmalloc-512 | 512 bytes |
+| 513–1024 bytes | kmalloc-1k | 1024 bytes |
+| 1025–2048 bytes | kmalloc-2k | 2048 bytes |
+| 2049–4096 bytes | kmalloc-4k | 4096 bytes |
+| 4097–8192 bytes | kmalloc-8k | 8192 bytes |
+| >8192 bytes | Page allocator | Order-N pages |
+
+The `kmalloc_index()` function maps sizes to cache indices. The maximum kmalloc size is `KMALLOC_MAX_SIZE` (typically 8192 or 32768 depending on config).
+
+### GFP Flags for kmalloc
+
+```c
+/* Common GFP flags */
+GFP_KERNEL      /* May sleep, may reclaim — normal kernel allocation */
+GFP_ATOMIC      /* Cannot sleep — interrupt/atomic context */
+GFP_NOWAIT      /* Don't wait at all */
+GFP_NOIO        /* May sleep, no I/O initiated (avoid recursion) */
+GFP_NOFS        /* May sleep, no filesystem operations */
+GFP_DMA         /* Allocate from DMA zone (< 16MB on x86) */
+GFP_DMA32       /* Allocate from DMA32 zone (< 4GB) */
+GFP_USER        /* For user-space allocations */
+GFP_HIGHUSER    /* Like GFP_USER but from high memory */
+GFP_ZERO        /* Zero-fill the allocation (combined with above) */
+```
+
+### kvmalloc — Flexible Allocation
+
+`kvmalloc()` tries kmalloc first and falls back to vmalloc for large allocations:
+
+```c
+void *kvmalloc(size_t size, gfp_t flags)
+{
+    void *ret;
+
+    /* Try physically contiguous first */
+    ret = kmalloc(size, flags | __GFP_NOWARN);
+    if (ret)
+        return ret;
+
+    /* Fall back to virtually contiguous */
+    if (size > PAGE_SIZE)
+        return vmalloc(size);
+
+    return NULL;
+}
+```
+
+Use `kvmalloc()` when:
+- The allocation might be large but you'd prefer contiguous memory
+- You don't need physically contiguous memory (just virtually contiguous)
+- You want to avoid vmalloc overhead for small allocations
+
+Always free with `kvfree()` — it detects whether the pointer was kmalloc'd or vmalloc'd.
 
 ### kmalloc — The Primary Small Allocator
 
@@ -686,6 +789,7 @@ MODULE_LICENSE("GPL");
 - [Christoph Lameter: SLUB — The Unqueued Slab Allocator](https://www.kernel.org/doc/gorman/html/understand/understand011.html)
 
 - [Kernel documentation: SLUB allocator](https://docs.kernel.org/mm/slub.html)
+- [Kernel documentation: kmalloc API](https://docs.kernel.org/core-api/kmalloc.html)
 
 ## Related Topics
 

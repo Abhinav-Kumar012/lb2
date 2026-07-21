@@ -789,6 +789,100 @@ qemu-system-x86_64 -enable-kvm -m 8G \
 cat /proc/meminfo | grep -i huge
 ```
 
+## Shadow Page Tables and EPT
+
+KVM implements two-level page table translation for memory virtualization:
+
+1. **Guest page tables** — managed by the guest OS (GVA → GPA)
+2. **Extended Page Tables (EPT/NPT)** — managed by KVM (GPA → HPA)
+
+```mermaid
+graph LR
+    GVA[GVA] -->|Guest CR3| GPA[GPA]
+    GPA -->|EPT Pointer| HPA[HPA]
+```
+
+### Shadow Page Tables (Legacy)
+
+Before hardware-assisted paging (EPT/NPT), KVM used **shadow page tables** — maintaining a single-level page table mapping GVA → HPA directly. This was expensive because:
+
+- Every guest page table modification required a VM exit
+- KVM had to intercept guest CR3 writes and INVLPG instructions
+- Each vCPU maintained shadow PTs separate from the guest's own PTs
+- TLB flushes were frequent and costly
+
+Shadow page tables are still used as a fallback when EPT/NPT is unavailable, and for certain nested virtualization scenarios.
+
+### EPT (Extended Page Tables) — Intel
+
+EPT adds a second level of address translation in hardware. The EPT root is stored in the VMCS `EPT_POINTER` (EPTP) field:
+
+```c
+/* EPT page walk: 4-level on x86-64 */
+GPA → EPT PML4 → EPT PDPT → EPT PD → EPT PT → HPA
+```
+
+EPT violations cause VM exits that KVM handles by:
+1. Checking if the GPA is backed by guest memory
+2. Allocating/allocating a host physical page if needed
+3. Installing EPT entries
+4. Resuming the guest
+
+```bash
+# Check EPT support
+dmesg | grep -i ept
+# kvm: EPT enabled
+# kvm: EPT caps: 0x00000f7b
+
+# EPT reduces VM exits significantly compared to shadow PTs
+# — No exit on guest page table writes
+# — No exit on INVLPG
+# — Hardware handles GVA→HPA translation autonomously
+```
+
+### NPT (Nested Page Tables) — AMD
+
+AMD's equivalent is NPT (Nested Page Tables), stored in the VMCB's `nCR3` field. The mechanism is analogous to EPT:
+
+```bash
+# Check NPT support
+dmesg | grep -i npt
+# kvm: NPT enabled
+```
+
+### EPT vs Shadow Page Tables
+
+| Aspect | Shadow PTs | EPT/NPT |
+|--------|-----------|----------|
+| Hardware support | Not required | Requires VT-x/EPT or AMD-V/NPT |
+| Guest PT modifications | VM exit every time | No exit (hardware handles) |
+| INVLPG | VM exit | No exit |
+| TLB flush cost | High (shadow + guest) | Lower (hardware tagging via VPID/ASID) |
+| Memory overhead | Shadow PTs per vCPU | EPT tables per VM |
+| Nested virtualization | Complex | VMCS shadowing reduces exits |
+
+### Nested Page Table Flushing
+
+KVM must flush EPT/NPT entries when:
+- Guest memory is remapped or unmapped
+- `KVM_SET_USER_MEMORY_REGION` changes memory layout
+- Guest migration invalidates mappings
+
+The `INVEPT` (Intel) and `VMGEXIT` (AMD) instructions invalidate EPT/NPT translations:
+
+```c
+/* Intel: invalidate all EPT entries */
+static inline void ept_sync_global(void) {
+    if (cpu_has_vmx_invept_global())
+        __invept(VMX_EPT_EXTENT_GLOBAL, 0, 0);
+}
+
+/* AMD: invalidate NPT entries */
+static inline void npt_flush(struct vcpu_svm *svm) {
+    svm->vmcb->control.tlb_ctl = TLB_CONTROL_FLUSH_ASID;
+}
+```
+
 ## Nested Virtualization
 
 KVM supports running a hypervisor inside a VM (L0 → L1 → L2):
@@ -896,6 +990,7 @@ The IPA size must be between 32 and the host's `Host_IPA_Limit`. This affects st
 - [Intel SDM Volume 3C — VMX](https://www.intel.com/sdm)
 - [QEMU Internals Documentation](https://www.qemu.org/docs/master/devel/)
 - [KVM Source Browser](https://elixir.bootlin.com/linux/latest/source/virt/kvm)
+- [KVM MMU Documentation](https://docs.kernel.org/virt/kvm/mmu.html) — Shadow and EPT page table internals
 
 ## Related Topics
 

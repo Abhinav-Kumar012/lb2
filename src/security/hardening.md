@@ -760,6 +760,127 @@ sudo auditctl -l
         - xinetd
 ```
 
+## Hardware Vulnerability Mitigations
+
+Modern CPUs are affected by speculative execution and microarchitectural side-channel attacks. The Linux kernel provides mitigations for each known vulnerability class. These are documented in the kernel's hardware vulnerabilities guide.
+
+### Spectre Family
+
+| Variant | CVE | Attack | Mitigation |
+|---------|-----|--------|------------|
+| **Spectre v1** (Bounds Check Bypass) | CVE-2017-5753 | Speculative out-of-bounds read | `array_index_nospec()` barrier |
+| **Spectre v2** (Branch Target Injection) | CVE-2017-5715 | Indirect branch misdirection | Retpolines, IBRS, IBPB, eIBRS |
+| **Spectre-RSB** | — | Return Stack Buffer underfill | RSB stuffing on context switch |
+| **Spectre v2 (BTB)** | — | Branch Target Buffer poisoning | STIBP (cross-HT protection) |
+
+```bash
+# Check Spectre mitigations
+grep . /sys/devices/system/cpu/vulnerabilities/spectre_v*
+# spectre_v1: Mitigation: usercopy/swapgs barriers and __user pointer sanitization
+# spectre_v2: Mitigation: Retpolines; IBPB: conditional; IBRS_FW; STIBP: conditional; RSB filling
+```
+
+### Meltdown (Variant 3)
+
+| CVE | Attack | Mitigation |
+|-----|--------|------------|
+| CVE-2017-5754 | Rogue Data Cache Load (user reads kernel memory) | KPTI (Kernel Page Table Isolation) |
+
+KPTI separates user-space and kernel-space page tables so that kernel memory is not mapped during user-mode execution.
+
+```bash
+# Check Meltdown mitigation
+cat /sys/devices/system/cpu/vulnerabilities/meltdown
+# Mitigation: PTI  (or "Not affected" on newer CPUs)
+
+# Disable KPTI (NOT recommended, for benchmarking only)
+# Add to kernel cmdline: nopti
+```
+
+### L1TF (L1 Terminal Fault)
+
+| CVE | Attack | Mitigation |
+|-----|--------|------------|
+| CVE-2018-3620 | L1 data cache speculative read across privilege boundaries | Flush L1D on VM entry, disable SMT |
+
+```bash
+cat /sys/devices/system/cpu/vulnerabilities/l1tf
+# Mitigation: PTE Inversion; VMX: conditional cache flushes, SMT vulnerable
+```
+
+### MDS (Microarchitectural Data Sampling)
+
+| Variant | CVE | Attack | Mitigation |
+|---------|-----|--------|------------|
+| **MFBDS** (Fallout) | CVE-2018-12130 | Fill buffer data sampling | Microcode + `VERW` flush |
+| **MLPDS** | CVE-2018-12127 | Load port data sampling | Same |
+| **MSBDS** | CVE-2018-12126 | Store buffer data sampling | Same |
+| **MDSUM** | CVE-2019-11091 | Uncacheable memory data sampling | Same |
+
+```bash
+cat /sys/devices/system/cpu/vulnerabilities/mds
+# Mitigation: Clear CPU buffers; SMT vulnerable
+```
+
+### TAA (TSX Asynchronous Abort)
+
+CVE-2019-11135: Aborted TSX transaction leaks data. Mitigated by disabling TSX or using the same MDS mitigation (`VERW` buffer clearing).
+
+### MMIO Stale Data
+
+CVE-2022-21123, CVE-2022-21125, CVE-2022-21166: Stale data in CPU buffers after MMIO reads. Mitigated by buffer overwriting on transitions.
+
+### SRSO (Speculative Return Stack Overflow)
+
+CVE-2023-20569: Speculative return address stack overflow allows branch target injection. Mitigated by IBPB on kernel entry and return stack address sanitization.
+
+### GDS (Gather Data Sampling)
+
+CVE-2022-40982: Gather instructions may leak stale vector register data. Mitigated by disabling AVX gather or using microcode-based data clearing.
+
+### RFDS (Register File Data Sampling)
+
+CVE-2023-28748: Stale register file data from previous security domains. Mitigated by `VERW` after VM exit.
+
+### Checking All Vulnerabilities
+
+```bash
+# List all vulnerability mitigations
+grep . /sys/devices/system/cpu/vulnerabilities/*
+# /sys/devices/system/cpu/vulnerabilities/gather_data_sampling: Not affected
+# /sys/devices/system/cpu/vulnerabilities/itlb_multihit: Not affected
+# /sys/devices/system/cpu/vulnerabilities/l1tf: Not affected
+# /sys/devices/system/cpu/vulnerabilities/mds: Not affected
+# /sys/devices/system/cpu/vulnerabilities/meltdown: Not affected
+# /sys/devices/system/cpu/vulnerabilities/mmio_stale_data: Not affected
+# /sys/devices/system/cpu/vulnerabilities/reg_file_data_sampling: Not affected
+# /sys/devices/system/cpu/vulnerabilities/retbleed: Mitigation: ...
+# /sys/devices/system/cpu/vulnerabilities/spec_rstack_overflow: Not affected
+# /sys/devices/system/cpu/vulnerabilities/spec_store_bypass: Mitigation: ...
+# /sys/devices/system/cpu/vulnerabilities/spectre_v1: Mitigation: ...
+# /sys/devices/system/cpu/vulnerabilities/spectre_v2: Mitigation: ...
+# /sys/devices/system/cpu/vulnerabilities/srbds: Not affected
+# /sys/devices/system/cpu/vulnerabilities/tsx_async_abort: Not affected
+
+# Disable all mitigations (MAXIMUM PERFORMANCE, MINIMUM SECURITY)
+# Kernel cmdline: mitigations=off
+
+# Enable all mitigations (default)
+# Kernel cmdline: mitigations=auto
+```
+
+### Attack Vector Controls
+
+The kernel provides sysfs controls to fine-tune which attack vectors are mitigated:
+
+```bash
+# Disable specific mitigations (not recommended for production)
+echo 0 > /proc/sys/kernel/spectre_v2_user  # Disable STIBP/IBPB for user space
+
+# Core scheduling (mitigate SMT-based attacks without disabling HT)
+echo 1 > /sys/kernel/debug/sched/domains/cpu0/domain1/core_ctl/enable
+```
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
@@ -783,6 +904,10 @@ sudo auditctl -l
 - systemd Security Features: https://systemd.io/EXEC/
 - GCC Hardening Options: https://wiki.debian.org/Hardening
 - Kernel Self Protection Project: https://kernsec.org/wiki/index.php/Kernel_Self_Protection_Project
+- Kernel Hardware Vulnerabilities Guide: https://docs.kernel.org/admin-guide/hw-vuln/index.html
+- Spectre mitigations: https://docs.kernel.org/admin-guide/hw-vuln/spectre.html
+- L1TF mitigations: https://docs.kernel.org/admin-guide/hw-vuln/l1tf.html
+- MDS mitigations: https://docs.kernel.org/admin-guide/hw-vuln/mds.html
 
 ## Related Topics
 

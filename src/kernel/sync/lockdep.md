@@ -384,6 +384,65 @@ if (lockdep_is_held(&my_lock)) {
 lockdep_assert_held_write(&my_rwsem);
 ```
 
+## Lockdep Validation Rules
+
+Lockdep enforces several classes of validation rules beyond simple cycle detection:
+
+### Single-Lock State Rules
+
+For any single lock class, the following states are mutually exclusive:
+
+- **hardirq-safe** vs **hardirq-unsafe** — if a lock is ever acquired in hardirq context, it must never be acquired with hardirqs enabled (and vice versa)
+- **softirq-safe** vs **softirq-unsafe** — same rule for softirq context
+
+A softirq-unsafe lock is automatically treated as hardirq-unsafe as well. When a lock class changes state, lockdep retroactively validates that no conflicting usage exists in its history.
+
+### Multi-Lock Dependency Rules
+
+- **No lock recursion** — the same lock class must not be acquired twice
+- **No lock inversion** — if dependency A → B exists, acquiring B while holding A is forbidden
+- **IRQ context mixing** — `<hardirq-safe> → <hardirq-unsafe>` dependency is forbidden
+- **Softirq context mixing** — `<softirq-safe> → <softirq-unsafe>` dependency is forbidden
+
+### Lock State Annotation Characters
+
+The `{+.+.}` notation in lockdep reports encodes IRQ context:
+
+| Character | Meaning |
+|-----------|--------|
+| `.` | Acquired with IRQs disabled, not in IRQ context |
+| `-` | Acquired in IRQ context |
+| `+` | Acquired with IRQs enabled |
+| `?` | Acquired in IRQ context with IRQs enabled (impossible) |
+
+Bit positions from left to right: hardirq-context write-lock, read-lock, softirq-context write-lock, read-lock.
+
+### Dependency Graph Search
+
+Each lock class maintains a list of forward dependencies (locks that must be acquired after it). Lockdep performs a **breadth-first search** from each newly added dependency to detect cycles. The BFS distance is recorded so that reports can show the shortest dependency chain.
+
+```c
+/* kernel/locking/lockdep.c — cycle detection */
+static int check_noncircular(struct lock_class *prev,
+                              struct lock_class *next,
+                              struct lock_list **chain_out)
+{
+    /* BFS from next to prev; if prev is reachable, cycle exists */
+    return check_path(prev, &next->locks_after, chain_out);
+}
+```
+
+### Chain Key Hashing
+
+Each lock chain (the set of currently held locks) is hashed to a **chain key** for fast repeated-chain detection:
+
+```c
+#define MAX_LOCKDEP_CHAINS 16384
+static struct lock_chain lock_chains[MAX_LOCKDEP_CHAINS];
+```
+
+When a chain key matches an existing entry, lockdep skips the full validation — the chain has already been checked.
+
 ## Lockdep Internals
 
 ### Lock Classes Hash Table
@@ -550,6 +609,7 @@ For rwlocks, lockdep tracks:
 
 - [Kernel documentation: Runtime locking correctness validator](https://docs.kernel.org/locking/lockdep-design.html)
 - [Kernel documentation: Lockdep](https://docs.kernel.org/locking/lockdep.html)
+- [Kernel documentation: Lockdep design](https://docs.kernel.org/locking/lockdep-design.html)
 - [Ingo Molnár: "Runtime lock dependency validator" (original patch)](https://lwn.net/Articles/185500/)
 - [LWN: "Lockdep: the Linux lock validator"](https://lwn.net/Articles/185500/)
 - [Linux Kernel Source: kernel/locking/lockdep.c](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/kernel/locking/lockdep.c)

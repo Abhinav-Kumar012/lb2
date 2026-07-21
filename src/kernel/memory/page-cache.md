@@ -1018,6 +1018,87 @@ The page cache is the primary way that the user and the rest of the kernel inter
 
 The **folio** is the unit of memory management within the page cache. A folio is a physically contiguous set of one or more pages, always at least `PAGE_SIZE`, never a tail page. The folio abstraction simplifies the page cache by eliminating the need to handle compound pages and tail pages separately.
 
+## Multi-Gen LRU (MGLRU)
+
+The traditional active/inactive LRU lists have long been a bottleneck in page reclaim — they provide only a coarse two-bin approximation of access recency. The **Multi-Gen LRU** (MGLRU), merged in Linux 6.1, replaces this with a multi-generational sliding window that dramatically improves reclaim accuracy and reduces kswapd CPU usage.
+
+### Design Objectives
+
+- **Good representation of access recency** — multiple generations (typically 4) provide finer granularity than the active/inactive binary split
+- **Spatial locality exploitation** — combines rmap walks with page table walks, using Bloom filters to avoid redundant rmap lookups
+- **Fast paths** — unmapped pages skip TLB flushes; clean pages skip writeback
+- **Self-correcting heuristics** — a PID controller–style feedback loop monitors refault rates across types (anon vs file) and tiers to balance eviction decisions
+
+### Generations and Tiers
+
+Evictable pages are divided into multiple **generations** per `lruvec`. The youngest generation number (`max_seq`) and oldest (`min_seq`) are monotonically increasing. Pages are promoted to the youngest generation when the aging path finds them accessed (via page table or rmap walks).
+
+Each generation is further divided into **tiers** based on access frequency through file descriptors. A page accessed N times through file descriptors sits in tier `order_base_2(N)`. Moving across tiers is lock-free (atomic flag operations only), while moving across generations requires the LRU lock.
+
+```
+min_seq ──────────────────────────────────── max_seq
+  Gen 0         Gen 1         Gen 2         Gen 3
+(coldest)                                (youngest)
+
+  Tier 0: single-use, unmapped clean pages (best eviction candidate)
+  Tier 1: accessed 1-2 times through file descriptors
+  Tier 2: accessed 3-4 times
+  ...
+```
+
+### Aging and Eviction
+
+The aging and eviction form a **producer-consumer model**:
+
+- **Aging** (producer): Increments `max_seq` when the generation count approaches `MIN_NR_GENS`. Uses page table walks (iterating `lruvec_memcg()->mm_list`) and rmap walks to find young PTEs, promoting hot pages to the youngest generation.
+- **Eviction** (consumer): Increments `min_seq` when the oldest generation's folio list empties. Selects which type (anon/file) and tier to evict based on the PID controller feedback.
+
+### Bloom Filter Feedback
+
+When the eviction path discovers a PTE table with many hot pages, it inserts the PMD entry into a **Bloom filter**. The aging path checks this filter to decide which PTE ranges to scan, forming a feedback loop that focuses scanning effort on productive areas.
+
+### PID Controller for Refault Balancing
+
+A feedback loop modeled after a **PID (Proportional-Integral-Derivative) controller** monitors refault rates across anon and file types. It uses generations (not wall clock) as the time domain and computes moving averages per generation. The goal is to balance refault percentages between anon and file types proportional to the swappiness level.
+
+### Working Set Protection
+
+If `lru_gen_min_ttl` is set, an lruvec's oldest generation is protected from eviction if it was born within that many milliseconds. This time-based approach is agnostic to application behavior and memory sizes, and is directly wired to the OOM killer.
+
+### Memcg LRU
+
+For global reclaim, MGLRU maintains a per-node LRU of memcgs (an "LRU of LRUs"). It provides:
+
+- **Sharding** — each thread starts at a random memcg in the old generation for better parallelism
+- **Eventual fairness** — direct reclaim can bail out early, reducing latency without affecting fairness over time
+- **Sublinear complexity** — best case O(1) for traversing memcgs during global reclaim (improved from O(n))
+
+### Enabling MGLRU
+
+```bash
+# MGLRU is enabled by default since Linux 6.1
+# Check status:
+cat /sys/kernel/mm/lru_gen/enabled
+# 0x0007 (all features enabled)
+
+# Disable (bit 0 = MGLRU, bit 1 = working set protection, bit 2 = cgroup reclaim)
+echo 0 > /sys/kernel/mm/lru_gen/enabled
+
+# Set minimum TTL for working set protection (milliseconds)
+echo 1000 > /sys/kernel/mm/lru_gen/min_ttl
+```
+
+### MGLRU vs Traditional LRU
+
+| Aspect | Traditional LRU | MGLRU |
+|--------|----------------|-------|
+| Generations | 2 (active/inactive) | 4+ (sliding window) |
+| Access tracking | Binary (referenced bit) | Multi-generational + tiers |
+| Reclaim selection | Scan ratio heuristics | PID controller feedback |
+| rmap overhead | Full rmap walks | Bloom filter–guided walks |
+| Working set protection | Rough heuristics | Time-based TTL |
+| kswapd CPU usage | High under pressure | Significantly reduced |
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
@@ -1038,6 +1119,8 @@ The **folio** is the unit of memory management within the page cache. A folio is
 - [Mel Gorman: Understanding the Linux Virtual Memory Manager](https://www.kernel.org/doc/gorman/)
 
 - [Kernel documentation: Page Cache](https://docs.kernel.org/mm/page_cache.html)
+- [Kernel documentation: Multi-Gen LRU](https://docs.kernel.org/mm/multigen_lru.html)
+- [LWN: Multi-Gen LRU](https://lwn.net/Articles/856931/)
 
 ## Related Topics
 

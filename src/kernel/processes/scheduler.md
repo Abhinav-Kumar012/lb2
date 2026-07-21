@@ -1048,6 +1048,80 @@ A task enters "BPF scheduler custody" when dispatched to a user DSQ or stored in
 
 ---
 
+## Completions — "Wait for Completion" Barrier APIs
+
+The kernel provides a synchronization primitive called **completions** that allows one thread to signal another that a task has finished. This is commonly used in the scheduler subsystem for coordinating initialization and shutdown sequences.
+
+```c
+#include <linux/completion.h>
+
+DECLARE_COMPLETION(my_completion);
+
+/* Thread A: wait for completion */
+wait_for_completion(&my_completion);
+
+/* Thread B: signal completion */
+complete(&my_completion);
+```
+
+Completions are preferred over semaphores for one-shot signaling because they are more efficient and avoid the "missed wakeup" problem. The scheduler uses completions internally for CPU hotplug and subsystem initialization.
+
+## membarrier() — Memory Barrier System Call
+
+The `membarrier()` system call helps user-space applications issue memory barriers across CPUs with reduced overhead. It is particularly useful for implementing user-space RCU (Read-Copy-Update) and other lock-free data structures.
+
+```c
+#include <sys/syscall.h>
+#include <linux/membarrier.h>
+
+/* Register the process for membarrier */
+syscall(__NR_membarrier, MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED, 0, 0);
+
+/* Issue a memory barrier across all CPUs running threads of this process */
+syscall(__NR_membarrier, MEMBARRIER_CMD_PRIVATE_EXPEDITED, 0, 0);
+```
+
+The scheduler supports `membarrier` by issuing the necessary memory barriers during context switches, allowing user-space to piggyback on the scheduler's existing barrier operations.
+
+## CFS Bandwidth Control
+
+CFS bandwidth control allows administrators to limit the CPU bandwidth consumed by groups of tasks (cgroups). This uses the `cpu.max` interface in cgroup v2:
+
+```bash
+# Limit group to 50% of one CPU (50ms per 100ms period)
+echo "50000 100000" > /sys/fs/cgroup/mygroup/cpu.max
+
+# Unlimited (default)
+echo "max 100000" > /sys/fs/cgroup/mygroup/cpu.max
+```
+
+Internally, the scheduler tracks bandwidth consumption per-cfs_rq and throttles tasks when their quota is exhausted. Tasks are unthrottled at the start of each new period.
+
+## Schedutil — Scheduler-Driven CPU Frequency
+
+`schedutil` is a CPUFreq governor that uses scheduler utilization data (PELT) to select CPU frequency. Unlike traditional governors (`ondemand`, `conservative`), schedutil has direct access to scheduler metrics and can react faster to load changes.
+
+```bash
+# Set schedutil as the governor
+echo schedutil > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
+```
+
+Key advantage: schedutil can change frequency at scheduler tick granularity rather than relying on periodic timer-based sampling, reducing latency between load changes and frequency adjustments.
+
+## Utilization Clamping
+
+Utilization clamping allows setting min/max utilization bounds for tasks or task groups, influencing the frequency selected by schedutil:
+
+```bash
+# Set via cgroup v2 (uclamp.min and uclamp.max)
+echo 256 > /sys/fs/cgroup/mygroup/cpu.uclamp.min   # 25% min utilization
+echo 768 > /sys/fs/cgroup/mygroup/cpu.uclamp.max   # 75% max utilization
+```
+
+This is useful for latency-sensitive workloads that need guaranteed minimum frequency, or background tasks that should not trigger high-frequency operation.
+
+---
+
 ## Further Reading
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
@@ -1057,6 +1131,17 @@ A task enters "BPF scheduler custody" when dispatched to a user DSQ or stored in
 - [Planet GNU](https://planet.gnu.org/)
 - [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
 
+- [Scheduler Documentation — docs.kernel.org](https://docs.kernel.org/scheduler/index.html) — Official kernel scheduler documentation index
+- [CFS Scheduler Design](https://docs.kernel.org/scheduler/sched-design-CFS.html) — CFS design document
+- [EEVDF Scheduler](https://docs.kernel.org/scheduler/sched-eevdf.html) — EEVDF scheduling algorithm
+- [Deadline Task Scheduling](https://docs.kernel.org/scheduler/sched-deadline.html) — SCHED_DEADLINE documentation
+- [Scheduler Domains](https://docs.kernel.org/scheduler/sched-domains.html) — CPU topology and domain construction
+- [Capacity Aware Scheduling](https://docs.kernel.org/scheduler/sched-capacity.html) — Asymmetric CPU capacity handling
+- [Energy Aware Scheduling](https://docs.kernel.org/scheduler/sched-energy.html) — Energy-efficient scheduling
+- [Schedutil](https://docs.kernel.org/scheduler/schedutil.html) — Scheduler-driven CPU frequency
+- [CFS Bandwidth Control](https://docs.kernel.org/scheduler/sched-bwc.html) — CPU bandwidth control
+- [Completions API](https://docs.kernel.org/scheduler/completion.html) — Completion barrier primitives
+- [membarrier() System Call](https://docs.kernel.org/scheduler/membarrier.html) — Memory barrier system call
 - [Linux kernel: kernel/sched/core.c](https://elixir.bootlin.com/linux/latest/source/kernel/sched/core.c)
 - [Linux kernel: kernel/sched/sched.h](https://elixir.bootlin.com/linux/latest/source/kernel/sched/sched.h)
 - [Linux man pages: sched(7)](https://man7.org/linux/man-pages/man7/sched.7.html)

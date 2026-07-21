@@ -1070,6 +1070,101 @@ $ sysctl -w net.ipv4.tcp_window_scaling=1
 $ sysctl -w net.ipv4.tcp_sack=1
 ```
 
+## Multipath TCP (MPTCP)
+
+MPTCP ([RFC 8684](https://www.rfc-editor.org/rfc/rfc8684.html)) extends TCP to allow a single connection to use multiple network paths simultaneously. The Linux kernel implementation was merged in Linux 5.6.
+
+### Architecture
+
+MPTCP creates a **subflow** (a regular TCP connection) for each network path. A control connection (initial subflow) negotiates MPTCP capability via the `MP_CAPABLE` TCP option. If the remote host or a middlebox does not support MPTCP, the connection falls back to regular TCP transparently.
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Server
+
+    Client->>Server: SYN + MP_CAPABLE (key)
+    Server->>Client: SYN+ACK + MP_CAPABLE (key)
+    Client->>Server: ACK + MP_CAPABLE (keys)
+    Note over Client,Server: MPTCP connection established (subflow 1)
+
+    Client->>Server: SYN + MP_JOIN (token, rand) on path 2
+    Server->>Client: SYN+ACK + MP_JOIN (HMAC)
+    Client->>Server: ACK + MP_JOIN (HMAC)
+    Note over Client,Server: Subflow 2 joined
+```
+
+### Key Components
+
+**Path Manager** — Controls subflow creation/deletion and address announcements:
+- In-kernel (`net.mptcp.path_manager=kernel`): uniform rules via `ip mptcp`
+- Userspace (`net.mptcp.path_manager=userspace`): per-connection rules via [mptcpd](https://mptcpd.mptcp.dev/)
+
+**Packet Scheduler** — Selects which subflow(s) to use for the next data packet. Configurable via `net.mptcp.scheduler` sysctl.
+
+### Creating MPTCP Sockets
+
+```c
+#include <sys/socket.h>
+#include <netinet/in.h>
+
+/* MPTCP is opt-in: use IPPROTO_MPTCP (262) */
+int sd = socket(AF_INET, SOCK_STREAM, IPPROTO_MPTCP);
+
+/* If MPTCP is unavailable:
+ * EINVAL    — kernel < 5.6
+ * ENOPROTOOPT — MPTCP disabled via net.mptcp.enabled=0
+ */
+```
+
+Applications can be forced to use MPTCP via:
+- `LD_PRELOAD` with `mptcpize`
+- eBPF with `mptcpify`
+- SystemTAP
+- `GODEBUG=multipathtcp=1` (Go)
+
+### MPTCP Socket Options
+
+| Option | Level | Description |
+|--------|-------|-------------|
+| `MPTCP_INFO` | `SOL_MPTCP` (284) | Get `struct mptcp_info` (connection stats) |
+| `MPTCP_TCPINFO` | `SOL_MPTCP` | Get per-subflow `tcp_info` arrays |
+| `MPTCP_SUBFLOW_ADDRS` | `SOL_MPTCP` | Get source/dest addresses of each subflow |
+| `TCP_IS_MPTCP` | `IPPROTO_TCP` | Query whether MPTCP is active (0 or 1) |
+
+### MPTCP Use Cases
+
+- **Seamless handover**: Mobile devices switch between Wi-Fi and cellular without dropping connections
+- **Network aggregation**: Combine multiple paths for higher throughput (e.g., Wi-Fi + cellular)
+- **Best path selection**: Use the lowest-latency or most reliable path
+
+### Configuring MPTCP
+
+```bash
+# Enable MPTCP (Linux 5.6+)
+sysctl net.mptcp.enabled=1
+
+# Configure endpoints (addresses available for subflows)
+ip mptcp endpoint add 192.168.1.10 dev eth0 subflow
+ip mptcp endpoint add 10.0.0.5 dev wlan0 signal
+
+# List endpoints
+ip mptcp endpoint show
+
+# Configure path manager
+sysctl net.mptcp.path_manager=kernel
+
+# Check MPTCP connections
+ss -M
+# or
+ss -i | grep mptcp
+
+# MPTCP sysctl tunables
+sysctl net.mptcp.pm_type          # 0=kernel, 1=userspace
+sysctl net.mptcp.scheduler         # Default scheduler
+sysctl net.mptcp.checksum_enabled  # Enable MPTCP checksum (interop compat)
+```
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
@@ -1087,6 +1182,9 @@ $ sysctl -w net.ipv4.tcp_sack=1
 5. **RFC 7567** — IETF Recommendations Regarding Active Queue Management
 6. *TCP/IP Illustrated, Volume 1* by W. Richard Stevens
 7. *TCP/IP Illustrated, Volume 2* by Gary R. Wright and W. Richard Stevens
+8. [Multipath TCP (MPTCP) — docs.kernel.org](https://docs.kernel.org/networking/mptcp.html)
+9. [RFC 8684 — MPTCP v1](https://www.rfc-editor.org/rfc/rfc8684.html)
+10. [mptcp.dev — MPTCP in the Linux kernel](https://www.mptcp.dev/)
 
 ## Related Topics
 

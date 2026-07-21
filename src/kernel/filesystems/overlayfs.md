@@ -57,6 +57,54 @@ mount -t overlay overlay \
 
 **Important**: The `workdir` must be on the same filesystem as `upperdir`, and must be empty. It cannot be shared between different overlay mounts.
 
+## Upper and Lower Layers in Detail
+
+OverlayFS combines two filesystem layers into a single merged view:
+
+- **Lower layer(s)**: One or more read-only directory trees. Multiple lower layers are stacked with the first listed being topmost (highest priority). The lower filesystem does not need to be writable and can even be another OverlayFS. It can be any filesystem supported by Linux that has the necessary features.
+- **Upper layer**: A single read-write directory tree that must support the creation of `trusted.*` and/or `user.*` extended attributes and must provide valid `d_type` in `readdir` responses (NFS is not suitable as upper). For a read-only overlay of two read-only filesystems, any filesystem type may be used.
+
+When a name exists in both upper and lower, the upper object is visible. For non-directories, the lower object is hidden. For directories, the upper and lower are **merged** — their name lists are combined, though only the upper directory's metadata and extended attributes are reported.
+
+### Merged Directory Behavior
+
+At mount time, the directories specified by `lowerdir` and `upperdir` are combined:
+
+```bash
+mount -t overlay overlay -o lowerdir=/lower,upperdir=/upper,workdir=/work /merged
+```
+
+On lookup in a merged directory, OverlayFS searches both actual directories and caches the combined result in the overlay dentry. If both lookups find directories, both are stored and a merged directory is created; otherwise only one is stored (upper takes priority).
+
+### Whiteouts and Opaque Directories
+
+Since lower layers are read-only, OverlayFS uses **whiteouts** and **opaque directories** to record deletions:
+
+- A **whiteout** is created as a character device with 0/0 device number (legacy) or a zero-size regular file with the `trusted.overlay.whiteout` xattr (Linux 5.11+). When found in the upper level, any matching name in the lower level is ignored.
+- A directory is made **opaque** by setting `trusted.overlay.opaque=y`. An opaque upper directory completely hides any same-named lower directory.
+
+### rename() and redirect_dir
+
+Renaming a lower-layer or merged directory is handled in two ways:
+
+1. **EXDEV** (default): `rename()` returns EXDEV, and applications (like `mv`) handle it by recursive copy
+2. **redirect_dir**: The directory is copied up and a `trusted.overlay.redirect` xattr stores the original path. Configurable via:
+   - Kernel config: `OVERLAY_FS_REDIRECT_DIR`
+   - Module param: `redirect_dir=BOOL`
+   - Mount option: `redirect_dir=on|follow|nofollow|off`
+
+### xino (Extended Inode Numbers)
+
+On 64-bit systems, the `xino` feature composes unique inode identifiers from the real `st_ino` and an underlying fsid, using high inode number bits for fsid. This makes overlay inodes distinguishable from underlying inodes:
+
+```bash
+# Enable xino
+mount -t overlay overlay -o xino=on,lowerdir=/lower,upperdir=/upper,workdir=/work /merged
+
+# Auto-enable only if persistent st_ino is guaranteed
+mount -t overlay overlay -o xino=auto,...
+```
+
 ## Copy-Up Mechanism
 
 The central operation in OverlayFS is **copy-up**: when a file in a lower layer is modified, OverlayFS first copies it to the upper layer, then applies the modification there. This preserves the read-only nature of lower layers.
@@ -315,6 +363,7 @@ struct ovl_inode {
 - [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
 
 - https://www.kernel.org/doc/html/latest/filesystems/overlayfs.html
+- https://docs.kernel.org/filesystems/overlayfs.html — Official kernel OverlayFS documentation
 - https://man7.org/linux/man-pages/man5/overlayfs.5.html (mount options)
 - https://lwn.net/Articles/396439/ — "An union filesystem for Linux"
 - https://lwn.net/Articles/612930/ — "Overlayfs: improvements and more"

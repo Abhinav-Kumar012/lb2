@@ -617,6 +617,103 @@ graph TB
     style LEGIT fill:#90EE90
 ```
 
+## BPF Filter Details
+
+Seccomp-BPF filters are classic BPF (cBPF) programs — the same bytecode format used by `socket()`. Each filter consists of an array of `struct sock_filter` instructions:
+
+### BPF Instruction Set for Seccomp
+
+```c
+struct sock_filter {
+    __u16 code;   /* Opcode */
+    __u8  jt;     /* Jump if true */
+    __u8  jf;     /* Jump if false */
+    __u32 k;      /* Generic field */
+};
+```
+
+Key BPF instructions used in seccomp filters:
+
+| Instruction | Code | Description |
+|-------------|------|-------------|
+| `BPF_LD+BPF_W+BPF_ABS` | 0x20 | Load 32-bit word from `seccomp_data` at offset `k` |
+| `BPF_JMP+BPF_JEQ+BPF_K` | 0x15 | Jump if A == k |
+| `BPF_JMP+BPF_JGE+BPF_K` | 0x35 | Jump if A >= k (unsigned) |
+| `BPF_JMP+BPF_JGT+BPF_K` | 0x25 | Jump if A > k (unsigned) |
+| `BPF_JMP+BPF_JSET+BPF_K` | 0x45 | Jump if A & k != 0 |
+| `BPF_RET+BPF_K` | 0x06 | Return constant k |
+| `BPF_RET+BPF_A` | 0x16 | Return value in accumulator |
+
+### The seccomp_data Structure
+
+The BPF program receives a `seccomp_data` structure as input:
+
+```c
+struct seccomp_data {
+    int nr;                   /* Syscall number */
+    __u32 arch;               /* AUDIT_ARCH_* value */
+    __u64 instruction_pointer; /* CPU instruction pointer */
+    __u64 args[6];            /* Syscall arguments */
+};
+```
+
+The program loads fields using `BPF_LD+BPF_W+BPF_ABS` with these offsets:
+
+```c
+offsetof(struct seccomp_data, nr)                    /* 0  */
+offsetof(struct seccomp_data, arch)                  /* 4  */
+offsetof(struct seccomp_data, instruction_pointer)   /* 8  */
+offsetof(struct seccomp_data, args[0])               /* 16 */
+```
+
+### BPF Filter Program Limits
+
+- Maximum program length: 4096 instructions (`BPF_MAXINSNS`)
+- Maximum call depth: 16 (for BPF-to-BPF calls)
+- No loops allowed (must be a DAG)
+- Return value must be a valid `SECCOMP_RET_*` action
+
+### Kernel Processing
+
+When a syscall is made, the kernel:
+
+1. Checks if `TIF_SECCOMP` is set for the current task
+2. Calls `__seccomp_filter()` which runs the BPF program(s)
+3. The program returns an action verdict
+4. Actions are processed in order: `SECCOMP_RET_KILL_PROCESS` > `SECCOMP_RET_KILL_THREAD` > `SECCOMP_RET_TRAP` > `SECCOMP_RET_ERRNO` > `SECCOMP_RET_USER_NOTIF` > `SECCOMP_RET_TRACE` > `SECCOMP_RET_LOG` > `SECCOMP_RET_ALLOW`
+5. If multiple filters are attached (via `prctl` and inherited), they are run in reverse order; the most restrictive result wins
+
+### Seccomp Notify (SECCOMP_RET_USER_NOTIF)
+
+Linux 5.0 introduced `SECCOMP_RET_USER_NOTIF`, which sends a file descriptor to a supervisor process:
+
+```c
+/* Supervisor side */
+int notify_fd = seccomp_notify_fd(ctx);
+struct seccomp_notif *req;
+seccomp_notify_alloc(ctx, &req, NULL);
+
+/* Receive notification */
+seccomp_notify_receive(notify_fd, req);
+
+/* The req contains:
+ *   req->pid          — PID of the sandboxed process
+ *   req->data.nr      — Syscall number
+ *   req->data.args[6] — Syscall arguments
+ */
+
+/* Respond with a return value */
+struct seccomp_notif_resp resp = {
+    .id = req->id,
+    .val = 0,           /* Return value */
+    .error = 0,         /* Or -EPERM, etc. */
+    .flags = 0,
+};
+seccomp_notify_respond(notify_fd, &resp);
+```
+
+This is used by container runtimes for flexible sandboxing decisions that cannot be expressed purely in BPF (e.g., path-based file access control).
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
@@ -632,6 +729,8 @@ graph TB
 - `man 3 seccomp_init` — libseccomp API
 - libseccomp project: https://github.com/seccomp/libseccomp
 - Seccomp BPF specification: https://www.kernel.org/doc/html/latest/networking/filter.html
+- Kernel seccomp documentation: https://docs.kernel.org/security/seccomp.html
+- seccomp_data structure: include/uapi/linux/seccomp.h
 - Chrome Sandbox Design: https://chromium.googlesource.com/chromium/src/+/HEAD/docs/design/sandbox.md
 - Docker Seccomp Profiles: https://docs.docker.com/engine/security/seccomp/
 - systemd.exec(5) — SystemCallFilter and related directives: https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html

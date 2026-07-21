@@ -275,6 +275,35 @@ graph TD
 
 Each node tracks which of its children have reported a quiescent state. When all leaves under the root have reported, the grace period is complete. This O(log N) structure is far more scalable than the old global flag approach.
 
+Tree RCU uses a tree of `rcu_node` structures. Each leaf node covers a small group of CPUs (typically 16-64 depending on `CONFIG_RCU_FANOUT`). The tree depth is `O(log N)` where N is the number of CPUs. Grace period detection proceeds bottom-up:
+
+```c
+/* kernel/rcu/tree.h */
+struct rcu_node {
+    raw_spin_lock_t lock;
+    unsigned long gp_seq;           /* Grace period sequence number */
+    unsigned long qsmask;           /* Bitmask of CPUs that haven't reported QS */
+    unsigned long qsmaskinit;       /* Initial mask (all online CPUs) */
+    struct rcu_node *parent;        /* Parent node in tree */
+    /* ... */
+};
+
+struct rcu_data {
+    unsigned long gp_seq;           /* Last seen grace period number */
+    bool cpu_no_qs;                 /* CPU hasn't been in quiescent state */
+    struct rcu_node *mynode;        /* Leaf node this CPU belongs to */
+    /* ... */
+};
+```
+
+Grace period detection flow:
+1. `rcu_gp_kthread` starts a new grace period (increments global `gp_seq`)
+2. Each CPU reports quiescent states via `rcu_note_context_switch()` or `rcu_idle_enter()`
+3. When a CPU reports QS, its bit is cleared in the leaf `rcu_node->qsmask`
+4. When all bits in a leaf are cleared, the leaf reports to its parent
+5. When all bits in the root are cleared, the grace period is complete
+6. Callbacks registered before the grace period are now safe to invoke
+
 ### Classic RCU vs Preemptible RCU
 
 | Variant | Config | Quiescent State | Preemptible? |

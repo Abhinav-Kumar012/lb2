@@ -874,6 +874,55 @@ The kernel supports extensive hardware offload capabilities:
 - **UFO (UDP Fragmentation Offload)**: Fragment large UDP datagrams
 - **Checksum offload**: TX and RX checksum computation in hardware
 
+## TIPC (Transparent Inter Process Communication)
+
+TIPC is a protocol specifically designed for **intra-cluster communication**. Unlike TCP/IP, which is designed for wide-area networking, TIPC is optimized for communication between nodes in a tightly-coupled cluster.
+
+### Key Features
+
+- **Cluster-wide IPC service**: Provides the convenience of Unix Domain Sockets across cluster nodes — no DNS lookups, no IP address management, no timer-based peer monitoring.
+- **Service Addressing**: Applications choose their own addresses (service addresses) rather than using IP:port pairs. Clients send messages using service addresses; the kernel handles routing.
+- **Service Tracking**: Clients subscribe for binding/unbinding events on service addresses, enabling automatic discovery of available servers.
+- **Multiple Transmission Modes**:
+  - **Datagram**: Connectionless message delivery
+  - **Connection-oriented**: Reliable, sequenced byte streams
+  - **Communication Groups**: Brokerless message bus with multicast
+- **Inter-Node Links**: Automatic link management between cluster nodes with guaranteed delivery, sequencing, and flow control.
+- **Cluster Scalability**: Uses Overlapping Ring Monitoring to scale up to 1000 nodes with 1-2 second failure detection.
+- **Neighbor Discovery**: Automatic discovery via Ethernet broadcast or UDP multicast.
+
+### Performance Characteristics
+
+TIPC message latency is lower than any other known protocol. Maximum byte throughput for inter-node connections is somewhat lower than TCP, but intra-node and inter-container throughput on the same host is superior.
+
+### Language Support
+
+The TIPC user API supports C, Python, Perl, Ruby, D, and Go.
+
+### TIPC Architecture
+
+```bash
+# TIPC is implemented as a kernel module
+modprobe tipc
+
+# Basic configuration (cluster mode)
+tipc bearer enable media udp ip:192.168.1.1
+tipc peer detect
+
+# Or Ethernet-based
+tipc bearer enable media eth dev eth0
+
+# View TIPC status
+tipc node show
+```
+
+The TIPC implementation lives in `net/tipc/` and uses these key data structures:
+- `struct tipc_bearer` — network interface abstraction (media-agnostic)
+- `struct tipc_media` — media-specific operations (Ethernet, UDP)
+- `struct publication` — published service address or range
+- `struct name_table` — hash table of all published services
+- `struct tipc_subscription` — topology event subscription
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
@@ -890,6 +939,10 @@ The kernel supports extensive hardware offload capabilities:
 4. **Linux Foundation Networking Training** — [training.linuxfoundation.org](https://training.linuxfoundation.org/)
 5. **kernel.org Documentation** — [www.kernel.org/doc/html/latest/networking/](https://www.kernel.org/doc/html/latest/networking/)
 6. [Linux Kernel Networking Documentation](https://docs.kernel.org/networking/index.html) — Official kernel networking subsystem index
+7. [TIPC Protocol Documentation — docs.kernel.org](https://docs.kernel.org/networking/tipc.html) — Official TIPC kernel documentation
+8. [TIPC Getting Started](http://tipc.io/getting_started.html) — TIPC setup guide
+9. [TIPC Programming Guide](http://tipc.io/programming.html) — TIPC API reference
+10. [TIPC Protocol Specification](http://tipc.io/protocol.html) — Protocol details
 
 ## Related Topics
 
