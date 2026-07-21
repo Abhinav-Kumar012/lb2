@@ -47,6 +47,51 @@ graph TB
 | containerd-shim | Per container | Container lifetime | Keeps container alive if containerd restarts |
 | runc | Per create | Transient | Creates and starts container, then exits |
 
+### The containerd-shim in Detail
+
+The shim is the key component that enables daemon-less container operation:
+
+```c
+/* containerd-shim process lifecycle */
+
+/* 1. containerd spawns shim for each container */
+/*    Shim inherits: containerd socket address, container ID, bundle path */
+
+/* 2. Shim creates a new TTRPC/GRPC server */
+/*    containerd connects to this server for container operations */
+
+/* 3. Shim calls runc create/start */
+/*    runc sets up namespaces, cgroups, mounts, then exec's container init */
+/*    runc exits immediately after starting container */
+
+/* 4. Shim reaps container process (waitpid) */
+/*    Shim becomes the parent of the container process */
+
+/* 5. Shim handles I/O */
+/*    stdin, stdout, stderr are piped through the shim */
+/*    Shim can buffer I/O even if containerd is down */
+```
+
+```bash
+# View shim processes
+ps aux | grep containerd-shim
+# root  1234  ... containerd-shim-runc-v2 -namespace default -id abc123 ...
+# root  5678  ... containerd-shim-runc-v2 -namespace default -id def456 ...
+
+# Each shim has its own socket
+ls /run/containerd/io.containerd.runtime.v2.task/default/
+# abc123/  (container ID)
+#   address    (shim socket address)
+#   config.json (OCI bundle)
+#   log         (shim log)
+#   process/    (process metadata)
+
+# Shim version (runc-v2 is current)
+# containerd-shim-runc-v2: uses containerd's v2 runtime API
+# containerd-shim-runc-v1: legacy (v1 API)
+# containerd-shim-kata-v2: Kata Containers integration
+```
+
 ### Why containerd-shim?
 
 ```mermaid
@@ -72,6 +117,53 @@ sequenceDiagram
 ```
 
 The shim ensures containers survive daemon restarts (live-restore).
+
+### containerd Architecture
+
+containerd itself is a modular container runtime:
+
+```bash
+# containerd's internal components:
+# - content store: stores image layers (content-addressable)
+# - snapshotter: manages overlay/other filesystem snapshots
+# - task service: manages running containers
+# - image service: manages image metadata
+# - namespace service: multi-tenant isolation
+
+# containerd namespaces
+ctr namespaces list
+# NAME    LABELS
+# default
+# k8s.io
+
+# containerd tasks (running containers)
+ctr tasks list
+# TASK      PID    STATUS
+# abc123    1234   RUNNING
+# def456    5678   RUNNING
+
+# containerd images
+ctr images list
+# REFERENCE                        TYPE
+# docker.io/library/nginx:latest   application/vnd.docker.distribution.manifest.v2+json
+```
+
+### containerd Snapshotter
+
+The snapshotter manages filesystem layers. For overlay2:
+
+```bash
+# View snapshots
+crictl inspect-container abc123 | grep -A5 snapshotter
+# "snapshotter": "overlayfs"
+# "snapshotKey": "abc123..."
+
+# Snapshot lifecycle:
+# 1. Prepare: create upper dir + work dir
+# 2. Mount: overlay mount of all layers
+# 3. Commit: make read-only (for image layers)
+# 4. Remove: cleanup
+```
 
 ## Container Lifecycle
 
@@ -266,6 +358,41 @@ mount -t overlay overlay \
 # Delete: "whiteout" file created in upper layer
 ```
 
+### Overlay2 Layer Internals
+
+The overlay filesystem uses the VFS `dentry` cache and page cache for performance:
+
+```c
+/* fs/overlayfs/super.c (simplified) */
+
+struct ovl_fs {
+    struct vfsmount *upper_mnt;     /* Upper layer mount */
+    struct vfsmount **lower_mnt;    /* Lower layer mounts */
+    int numlower;                   /* Number of lower layers */
+    struct dentry *workdir;         /* Work directory */
+    struct dentry *indexdir;        /* Index directory (for NFS export) */
+    /* ... */
+};
+
+/* Copy-up: when writing to a lower layer file */
+static int ovl_copy_up(struct dentry *dentry)
+{
+    /* 1. Create parent directories in upper layer */
+    /* 2. Copy file data from lower to upper */
+    /* 3. Copy file metadata (xattrs, permissions) */
+    /* 4. Set redirect xattr for NFS export */
+}
+
+/* Whiteout: when deleting a file from lower layer */
+static int ovl_whiteout(struct dentry *upper, struct dentry *dentry)
+{
+    /* Create character device (0,0) in upper layer */
+    /* This masks the lower layer file */
+    struct inode *inode = ovl_get_whiteout(dentry);
+    /* ... */
+}
+```
+
 ### Whiteout Files
 
 ```bash
@@ -280,6 +407,36 @@ ls -la /var/lib/docker/overlay2/abc/merged/etc/deleted-file
 getfattr -n trusted.overlay.opaque /var/lib/docker/overlay2/abc/merged/etc/dir
 # "y" (yes, opaque - hide lower dir contents)
 ```
+
+### Overlay2 Performance Characteristics
+
+```bash
+# Overlay2 read performance: nearly identical to native
+# - First read: lookup in upper, then lower layers
+# - Subsequent reads: served from page cache
+
+# Write performance: copy-on-write overhead
+# - First write to a file: full file copy from lower to upper
+# - Subsequent writes: direct to upper layer (fast)
+
+# Metadata operations (ls, stat):
+# - Must check all layers (upper + all lowers)
+# - More layers = slower metadata ops
+
+# Docker limits layers to 128 by default
+# Each layer adds overhead to lookups
+```
+
+### Overlay2 vs Other Storage Drivers
+
+| Driver | Type | Performance | Notes |
+|--------|------|-------------|-------|
+| overlay2 | Union FS | Good | Default, recommended |
+| devicemapper | Block | Moderate | Thin provisioning, deprecated |
+| btrfs | CoW FS | Good | Native CoW, no union needed |
+| zfs | CoW FS | Good | Deduplication, snapshots |
+| vfs | Copy | Slow | Full copy per layer (testing only) |
+| fuse-overlayfs | FUSE | Moderate | For rootless containers |
 
 ## Docker Networking
 
@@ -333,6 +490,59 @@ iptables -L DOCKER -n
 # ACCEPT  tcp  --  !172.17.0.0/16  172.17.0.2  tcp dpt:80
 ```
 
+### Bridge Network Internals
+
+Docker's bridge network uses Linux kernel networking primitives:
+
+```c
+/* When Docker creates a container: */
+
+/* 1. Create veth pair */
+/* ip link add veth-abc type veth peer name veth-def */
+
+/* 2. Move one end into container namespace */
+/* ip link set veth-def netns <container-pid> */
+
+/* 3. Attach host end to docker0 bridge */
+/* ip link set veth-abc master docker0 */
+
+/* 4. Configure container IP */
+/* ip addr add 172.17.0.2/16 dev veth-def */
+/* ip link set veth-def up */
+
+/* 5. Set up NAT for outbound */
+/* iptables -t nat -A POSTROUTING -s 172.17.0.0/16 ! -o docker0 -j MASQUERADE */
+
+/* 6. Set up port forwarding for published ports */
+/* iptables -t nat -A DOCKER -p tcp --dport 8080 -j DNAT --to 172.17.0.2:80 */
+/* iptables -A DOCKER -d 172.17.0.2 -p tcp --dport 80 -j ACCEPT */
+```
+
+### Container DNS Resolution
+
+Docker runs an embedded DNS server (127.0.0.11) that resolves container names:
+
+```bash
+# Docker DNS architecture:
+# Container → 127.0.0.11 (Docker DNS) → /etc/hosts + Docker network → External DNS
+
+# The DNS server is implemented by Docker's libnetwork
+# It intercepts DNS queries on the container's loopback interface
+
+# Custom DNS per container:
+docker run --dns 8.8.8.8 --dns-search example.com nginx
+
+# DNS entries for containers:
+docker run --network mynet --name web nginx
+docker run --network mynet alpine nslookup web
+# web.mynet → 10.0.3.2 (resolved by Docker DNS)
+
+# Docker also sets up /etc/hosts entries:
+docker exec web cat /etc/hosts
+# 172.17.0.2  web
+# (container's own IP with hostname)
+```
+
 ### Network Drivers
 
 ```bash
@@ -357,24 +567,56 @@ ip link show br-$(docker network inspect my-net --format '{{.Id}}' | head -c12)
 docker run --network my-net --name web nginx
 ```
 
-### DNS Resolution
+### Network Driver Internals
 
 ```bash
-# Docker runs an embedded DNS server (127.0.0.11)
-docker run --rm alpine cat /etc/resolv.conf
-# nameserver 127.0.0.11
-# options ndots:0
+# bridge driver: creates Linux bridge + veth pairs
+# - Uses iptables for NAT and port forwarding
+# - Docker DNS for container name resolution
+# - Supports ICC (inter-container communication) control
 
-# Docker DNS resolves container names within a network
-docker network create testnet
-docker run -d --network testnet --name db postgres
-docker run --rm --network testnet alpine nslookup db
-# Name:      db
-# Address:   10.0.3.2
+# host driver: container shares host network namespace
+# - No network isolation
+# - Best performance (no NAT overhead)
+# - Cannot publish ports (already on host)
 
-# Default bridge network does NOT resolve names
-docker run --rm alpine nslookup other_container
-# (fails - use custom networks)
+# none driver: no network at all
+# - Container has only loopback
+# - For isolated workloads
+
+# overlay driver: multi-host networking (Swarm)
+# - Uses VXLAN tunneling between hosts
+# - Requires Swarm or external KV store
+# - encrypt option for VXLAN encryption
+
+# macvlan driver: assign MAC address to container
+# - Container appears as physical device on network
+# - Requires promiscuous mode on host NIC
+# - Good for legacy applications
+```
+
+### Docker iptables Internals
+
+```bash
+# Docker creates its own iptables chains:
+# DOCKER     - filter table: container access control
+# DOCKER-NAT - nat table: port forwarding
+# DOCKER-ISOLATION-STAGE-1 - isolation between networks
+# DOCKER-ISOLATION-STAGE-2 - isolation between networks
+
+# View all Docker iptables rules
+iptables -L -n -v
+iptables -t nat -L -n -v
+
+# Port publishing creates DNAT + filter rules:
+# -p 8080:80 creates:
+#   1. NAT: DNAT from host:8080 to container:80
+#   2. Filter: ACCEPT to container:80 from outside
+#   3. NAT: MASQUERADE for container outbound
+
+# Disable Docker's iptables management (NOT recommended)
+# /etc/docker/daemon.json:
+# { "iptables": false }
 ```
 
 ## Docker Storage
