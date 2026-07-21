@@ -1156,6 +1156,7 @@ For the complete list, see `man 7 bpf-helpers` or [bpf-helpers(7) online](https:
 - [BPF Helper Functions — docs.kernel.org](https://docs.kernel.org/bpf/helpers.html)
 - [bpf-helpers(7) man page](https://man7.org/linux/man-pages/man7/bpf-helpers.7.html)
 - [eBPF Verifier Documentation](https://docs.kernel.org/bpf/verifier.html) — Official verifier internals (register tracking, bounds, direct packet access)
+- [BPF Map Types — docs.kernel.org](https://docs.kernel.org/bpf/map.html) — Complete map type reference
 - [BPF Program Types — docs.kernel.org](https://docs.kernel.org/bpf/prog_type.html)
 
 ## Related Topics
