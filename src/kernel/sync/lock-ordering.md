@@ -375,6 +375,100 @@ mutex_lock_nested(&parent->lock, SINGLE_DEPTH_NESTING);
 mutex_lock_nested(&child->lock, DOUBLE_DEPTH_NESTING);
 ```
 
+## Lock Statistics (lockstat)
+
+The kernel provides **lock statistics** (`lockstat`) to diagnose lock contention and hold times at runtime. This is invaluable for identifying performance bottlenecks caused by locks.
+
+### How lockstat Works
+
+Lockdep already hooks into lock acquisition functions and maps lock instances to lock classes. Lockstat builds on these hooks to collect timing and contention data:
+
+```
+ __acquire
+ |
+ lock _____
+ | \
+ | __contended
+ | |
+ | <wait>
+ | _______/
+|/ 
+|
+ __acquired
+|
+ .
+ <hold>
+ .
+|
+ __release
+|
+ unlock
+```
+
+### Statistics Collected
+
+Per lock class, lockstat tracks:
+
+| Metric | Description |
+|--------|-------------|
+| **con-bounces** | Number of contentions involving cross-CPU data |
+| **contentions** | Number of acquisitions that had to wait |
+| **wait time (min/max/total/avg)** | Time spent waiting for the lock (µs) |
+| **acq-bounces** | Number of acquisitions involving cross-CPU data |
+| **acquisitions** | Number of times the lock was taken |
+| **hold time (min/max/total/avg)** | Time the lock was held (µs) |
+
+It also tracks **4 contention points per class** — call sites that had to wait on lock acquisition.
+
+### Configuration and Usage
+
+```bash
+# Enable lockstat (requires CONFIG_LOCK_STAT)
+$ echo 1 > /proc/sys/kernel/lock_stat
+
+# View lock statistics
+$ cat /proc/lock_stat
+# lock_stat version 0.4
+# class name     con-bounces  contentions  waittime-min  waittime-max  ...
+# &mm->mmap_sem-W:    46         84         0.26        939.10       ...
+# &mm->mmap_sem-R:    37        100         1.31     299502.61       ...
+
+# View top contending locks
+$ grep : /proc/lock_stat | head
+# clockevents_lock: 2926159 2947636 0.15 46882.81 ...
+# &mapping->i_mmap_mutex: 203896 203899 3.36 645530.05 ...
+
+# Clear statistics
+$ echo 0 > /proc/lock_stat
+
+# Disable collection
+$ echo 0 > /proc/sys/kernel/lock_stat
+```
+
+### Interpreting lockstat Output
+
+The output has two parts separated by a dashed line: **acquisition statistics** (top) and **contention points** (bottom). The contention points show both the code trying to acquire the lock and the code holding it:
+
+```
+&mm->mmap_sem-W: 46 84 0.26 939.10 16371.53 194.90 47291 2922365 ...
+---------------
+&mm->mmap_sem 1 [<ffffffff811502a7>] khugepaged_scan_mm_slot+0x57/0x280
+&mm->mmap_sem 96 [<ffffffff815351c4>] __do_page_fault+0x1d4/0x510
+```
+
+- Line 1: Wait statistics for `mmap_sem` (write mode) — 84 contentions, avg wait 194.90µs
+- Lines 3-6: Code locations where contention occurred (the acquirers)
+- Lines 8-11: Code locations that were holding the lock during contention
+
+### Nested Lock Subclasses
+
+For locks acquired multiple times in nested fashion, lockstat shows separate entries with `/N` suffixes:
+
+```
+&rq->lock:   13128 13128 0.43 190.53 ...   # Base class
+&rq->lock/1:  1526 11488 0.33 388.73 ...   # Subclass 1 (nested)
+```
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
@@ -388,6 +482,7 @@ mutex_lock_nested(&child->lock, DOUBLE_DEPTH_NESTING);
 - [Jonathan Corbet: "Locking patterns"](https://lwn.net/Articles/185667/)
 - [Paul McKenney: "Lockdep: the Linux lock validator"](https://lwn.net/Articles/185500/)
 - [Robert Love: "Linux Kernel Development" — Chapter 10: Kernel Synchronization](https://www.oreilly.com/library/view/linux-kernel-development/9780768696974/)
+- [Kernel documentation: Lock Statistics](https://docs.kernel.org/locking/lockstat.html)
 
 ## Related Topics
 

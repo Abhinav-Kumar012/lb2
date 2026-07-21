@@ -42,8 +42,8 @@ int memfd_create(const char *name, unsigned int flags);
 | `MFD_CLOEXEC` | 0x0001 | Set close-on-exec on the new fd |
 | `MFD_ALLOW_SEALING` | 0x0002 | Allow file sealing operations on this fd |
 | `MFD_HUGETLB` | 0x0004 | Back with huge pages (since Linux 4.14) |
-| `MFD_HUGE_2MB` | 0x20 | Use 2 MB huge pages (since Linux 4.14) |
-| `MFD_HUGE_1GB` | 0x40 | Use 1 GB huge pages (since Linux 4.14) |
+| `MFD_HUGE_2MB` | 0x150 | Use 2 MB huge pages (since Linux 4.14) |
+| `MFD_HUGE_1GB` | 0x1E0 | Use 1 GB huge pages (since Linux 4.14) |
 
 ### Basic Usage
 

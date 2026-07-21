@@ -84,7 +84,7 @@ mkfs.erofs image.erofs /path/to/rootdir
 # Create with LZ4 compression
 mkfs.erofs -zlz4 image.erofs /path/to/rootdir
 
-# Create with LZMA compression (better ratio, slower)
+# Create with LZ4HC compression (better ratio, slower)
 mkfs.erofs -zlz4hc image.erofs /path/to/rootdir
 
 # Create with specific block size (default: 4096)

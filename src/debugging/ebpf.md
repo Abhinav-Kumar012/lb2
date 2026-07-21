@@ -52,19 +52,57 @@ execution speed).
 ### Program Types
 
 eBPF programs are attached to different hooks in the kernel. The program type
-determines what the program can do and where it can be attached:
+determines what the program can do and where it can be attached. From
+`docs.kernel.org/bpf/prog_type.html`, the kernel defines these program types:
 
 | Program Type | Attachment Point | Use Case |
 |-------------|-----------------|----------|
-| `BPF_PROG_TYPE_XDP` | Network driver | High-performance packet processing |
-| `BPF_PROG_TYPE_SCHED_CLS` | Traffic control | Packet classification |
-| `BPF_PROG_TYPE_KPROBE` | Kernel functions | Kernel tracing |
-| `BPF_PROG_TYPE_TRACEPOINT` | Tracepoints | Event tracing |
-| `BPF_PROG_TYPE_PERF_EVENT` | Perf events | Performance monitoring |
-| `BPF_PROG_TYPE_SOCKET_FILTER` | Sockets | Packet filtering |
-| `BPF_PROG_TYPE_CGROUP_SKB` | Cgroups | Container networking |
-| `BPF_PROG_TYPE_LSM` | Linux Security Module | Security policies |
-| `BPF_PROG_TYPE_SYSCALL` | System calls | Syscall filtering |
+| `BPF_PROG_TYPE_SOCKET_FILTER` | Sockets | Packet filtering (classic BPF successor) |
+| `BPF_PROG_TYPE_KPROBE` | Kernel functions | Kernel tracing via kprobes |
+| `BPF_PROG_TYPE_SCHED_CLS` | Traffic control (TC) | Packet classification and mangling |
+| `BPF_PROG_TYPE_SCHED_ACT` | Traffic control (TC) | Packet actions |
+| `BPF_PROG_TYPE_XDP` | Network driver RX | High-performance packet processing (before sk_buff) |
+| `BPF_PROG_TYPE_TRACEPOINT` | Kernel tracepoints | Static event tracing |
+| `BPF_PROG_TYPE_PERF_EVENT` | Perf events | Performance monitoring and sampling |
+| `BPF_PROG_TYPE_CGROUP_SKB` | Cgroups | Container network policy (ingress/egress) |
+| `BPF_PROG_TYPE_CGROUP_SOCK` | Cgroups | Socket-level cgroup policy |
+| `BPF_PROG_TYPE_LSM` | Linux Security Module | MAC security policies (BPF LSM) |
+| `BPF_PROG_TYPE_SK_SKB` | Sockets | Socket-level packet forwarding (sockmap) |
+| `BPF_PROG_TYPE_SK_MSG` | Sockets | sendmsg/sendfile redirection |
+| `BPF_PROG_TYPE_LWT_*` | Lightweight tunnels | MPLS/IP tunnel encapsulation |
+| `BPF_PROG_TYPE_FLOW_DISSECTOR` | Networking | Packet header parsing |
+| `BPF_PROG_TYPE_SYSCALL` | System calls | Syscall argument filtering |
+| `BPF_PROG_TYPE_STRUCT_OPS` | Kernel struct_ops | Replacing kernel function callbacks |
+| `BPF_PROG_TYPE_NETFILTER` | Netfilter hooks | Packet filtering with nftables integration |
+
+### Program Type Categories
+
+**Networking programs** (`XDP`, `TC`, `SK_SKB`, `LWT_*`):
+- Can inspect and modify packet data
+- Access to `skb->data` and `skb->data_end` for direct packet access
+- Helpers: `bpf_skb_load_bytes()`, `bpf_skb_store_bytes()`, `bpf_redirect()`
+- XDP runs before `sk_buff` allocation — highest performance
+
+**Tracing programs** (`KPROBE`, `TRACEPOINT`, `PERF_EVENT`, `RAW_TRACEPOINT`):
+- Can access kernel memory via `bpf_probe_read()`
+- Access to process context (`bpf_get_current_pid_tgid()`, `bpf_get_current_comm()`)
+- Can use `bpf_trace_printk()` for debugging
+- Cannot modify packet data
+
+**Cgroup programs** (`CGROUP_SKB`, `CGROUP_SOCK`, `CGROUP_SOCK_ADDR`):
+- Attach to cgroups for container network policy
+- Can allow/deny connections and packets
+- Used by Cilium, Calico for container networking
+
+**Security programs** (`LSM`):
+- Attach to LSM hooks for mandatory access control
+- Can deny operations by returning 0
+- Alternative to traditional LSM modules (AppArmor, SELinux)
+
+**Struct ops programs** (`STRUCT_OPS`):
+- Replace function pointers in kernel structs (e.g., TCP congestion control)
+- Allow implementing kernel subsystems in BPF
+- Used for custom TCP congestion algorithms, scheduler policies
 
 ### Writing BPF Programs
 
@@ -144,7 +182,50 @@ The eBPF verifier ensures program safety before loading:
 Maps are the primary data structure for BPF programs. They are key-value stores
 accessible from both BPF programs and user space.
 
-### Map Types
+### Map Types (Complete Reference)
+
+From the kernel documentation at `docs.kernel.org/bpf/map.html`, the following map types are available:
+
+| Type | Description | Use Case |
+|------|-------------|----------|
+| `BPF_MAP_TYPE_HASH` | Hash table | General key-value lookup |
+| `BPF_MAP_TYPE_ARRAY` | Fixed-size array | Index-based access, per-CPU stats |
+| `BPF_MAP_TYPE_PROG_ARRAY` | BPF programs | Tail calls between programs |
+| `BPF_MAP_TYPE_PERF_EVENT_ARRAY` | Perf events | Per-CPU event streaming |
+| `BPF_MAP_TYPE_PERCPU_HASH` | Per-CPU hash table | Lock-free counters |
+| `BPF_MAP_TYPE_PERCPU_ARRAY` | Per-CPU array | Per-CPU statistics |
+| `BPF_MAP_TYPE_STACK_TRACE` | Stack traces | Profiling |
+| `BPF_MAP_TYPE_CGROUP_ARRAY` | Cgroup refs | Cgroup-based filtering |
+| `BPF_MAP_TYPE_LRU_HASH` | LRU hash table | Bounded-size cache |
+| `BPF_MAP_TYPE_LRU_PERCPU_HASH` | Per-CPU LRU hash | Per-CPU bounded cache |
+| `BPF_MAP_TYPE_LPM_TRIE` | Longest prefix match | IP routing/CIDR lookup |
+| `BPF_MAP_TYPE_ARRAY_OF_MAPS` | Map-of-maps (array) | Map switching at runtime |
+| `BPF_MAP_TYPE_HASH_OF_MAPS` | Map-of-maps (hash) | Nested data structures |
+| `BPF_MAP_TYPE_DEVMAP` | Device map | XDP redirect targets |
+| `BPF_MAP_TYPE_SOCKMAP` | Socket map | Socket redirection |
+| `BPF_MAP_TYPE_CPUMAP` | CPU map | XDP CPU redirect |
+| `BPF_MAP_TYPE_XSKMAP` | AF_XDP socket map | XDP to userspace |
+| `BPF_MAP_TYPE_SOCKHASH` | Socket hash | Socket hash-based routing |
+| `BPF_MAP_TYPE_RINGBUF` | Ring buffer | High-throughput event streaming |
+| `BPF_MAP_TYPE_INODE_STORAGE` | Inode storage | Per-inode BPF local storage |
+| `BPF_MAP_TYPE_TASK_STORAGE` | Task storage | Per-task BPF local storage |
+| `BPF_MAP_TYPE_BLOOM_FILTER` | Bloom filter | Probabilistic membership test |
+
+#### Key Map Type Details
+
+**`BPF_MAP_TYPE_HASH`** — The workhorse map. O(1) average lookup. Supports `BPF_ANY`, `BPF_NOEXIST`, `BPF_EXIST` flags for update.
+
+**`BPF_MAP_TYPE_ARRAY`** — Fixed size at creation. Elements are always present (zero-initialized). No delete operation. O(1) index access.
+
+**`BPF_MAP_TYPE_RINGBUF`** — Replaced `BPF_MAP_TYPE_PERF_EVENT_ARRAY` for most event streaming. Multi-producer, single-consumer. Reserves/submit model avoids copies. `bpf_ringbuf_output()` can also be used.
+
+**`BPF_MAP_TYPE_LPM_TRIE`** — Stores IP prefixes. `bpf_map_lookup_elem()` returns the longest matching prefix. Used for CIDR-based routing in Cilium/Calico.
+
+**`BPF_MAP_TYPE_DEVMAP`** — Maps ifindex to `struct bpf_dentry`. Used with `bpf_redirect_map()` for XDP multi-redirect.
+
+**`BPF_MAP_TYPE_SOCKMAP`** — Stores socket references. Enables `bpf_msg_redirect_hash()` and `bpf_sk_redirect_map()` for kernel-level socket forwarding without touching userspace.
+
+### Map Operations
 
 | Type | Description | Use Case |
 |------|-------------|----------|
@@ -1075,6 +1156,7 @@ For the complete list, see `man 7 bpf-helpers` or [bpf-helpers(7) online](https:
 - [BPF Helper Functions — docs.kernel.org](https://docs.kernel.org/bpf/helpers.html)
 - [bpf-helpers(7) man page](https://man7.org/linux/man-pages/man7/bpf-helpers.7.html)
 - [eBPF Verifier Documentation](https://docs.kernel.org/bpf/verifier.html) — Official verifier internals (register tracking, bounds, direct packet access)
+- [BPF Program Types — docs.kernel.org](https://docs.kernel.org/bpf/prog_type.html)
 
 ## Related Topics
 

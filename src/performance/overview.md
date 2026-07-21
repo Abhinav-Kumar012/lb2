@@ -157,6 +157,144 @@ sar -n DEV 1 5
 
 ## Linux Performance Tools
 
+### Power Management and Performance
+
+From `docs.kernel.org/power/index.html`, the Linux kernel includes a comprehensive power management subsystem that directly impacts performance:
+
+#### CPU Frequency Scaling (cpufreq)
+
+The kernel can dynamically adjust CPU frequency to balance performance and power consumption:
+
+```bash
+# Check current governor
+cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
+# powersave | performance | schedutil | ondemand | conservative
+
+# Set performance governor (max frequency always)
+echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
+
+# Set schedutil governor (scheduler-driven, recommended)
+echo schedutil | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
+
+# Check current frequency
+cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq
+
+# Check available frequencies
+cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_available_frequencies
+```
+
+| Governor | Behavior | Best For |
+|----------|----------|----------|
+| `performance` | Always max frequency | Latency-sensitive workloads |
+| `powersave` | Always min frequency | Battery life |
+| `schedutil` | Frequency based on scheduler utilization | General use (default) |
+| `ondemand` | Frequency based on CPU idle time | Legacy systems |
+| `conservative` | Gradual frequency changes | Smooth scaling |
+
+#### CPU Idle States (cpuidle)
+
+Modern CPUs support multiple idle states (C-states) with different power/resume-latency tradeoffs:
+
+```bash
+# Check available idle states
+cat /sys/devices/system/cpu/cpu0/cpuidle/state0/name
+# POLL | C1 | C6 | C10
+
+# Disable deep idle states (for ultra-low latency)
+echo 1 > /sys/devices/system/cpu/cpu0/cpuidle/state3/disable  # Disable C10
+```
+
+| C-State | Description | Wake Latency | Power Savings |
+|---------|-------------|-------------|---------------|
+| POLL | Busy-wait (no idle) | 0 µs | None |
+| C1 | Halt | ~1 µs | Low |
+| C6 | Deep sleep | ~100 µs | High |
+| C10 | Deepest sleep | ~1 ms | Maximum |
+
+For latency-sensitive workloads (trading, HFT), disabling deep C-states can reduce tail latency significantly.
+
+#### Suspend and Hibernation
+
+The kernel supports system-wide power states:
+
+```bash
+# Suspend to RAM (S3)
+systemctl suspend
+
+# Hibernate (S4)
+systemctl hibernate
+
+# Hybrid sleep (suspend + hibernate backup)
+systemctl hybrid-sleep
+
+# Debug suspend issues
+# Add to kernel cmdline: no_console_suspend initcall_debug
+```
+
+#### Runtime PM for Devices
+
+Individual devices support runtime power management:
+
+```bash
+# Check device runtime PM status
+cat /sys/bus/pci/devices/0000:00:1f.2/power/runtime_status
+# active | suspended | suspending | resuming
+
+# Enable runtime PM for a device
+echo auto > /sys/bus/pci/devices/0000:00:1f.2/power/control
+
+# Disable runtime PM (always active)
+echo on > /sys/bus/pci/devices/0000:00:1f.2/power/control
+```
+
+#### Energy Model
+
+The kernel's Energy Model (EM) framework provides power cost information for scheduling decisions. The scheduler uses EM data to make energy-aware task placement decisions (EAS — Energy Aware Scheduling):
+
+```bash
+# View energy model for CPU domains
+cat /sys/devices/system/cpu/cpu0/cpufreq/energy_model/*/frequency
+```
+
+#### PM QoS (Quality of Service)
+
+Kernel subsystems and userspace can request PM QoS constraints:
+
+```bash
+# CPU latency constraint (prevent deep C-states)
+echo 100 > /dev/cpu_dma_latency  # Max 100µs resume latency
+
+# View current PM QoS constraints
+cat /sys/devices/system/cpu/cpu0/cpuidle/latency
+```
+
+#### Performance Impact of Power Management
+
+```mermaid
+graph TD
+    A[Power Management] --> B[CPU Frequency]
+    A --> C[CPU Idle States]
+    A --> D[Device Runtime PM]
+    B --> E{Governor?}
+    E -->|performance| F[Max throughput, max power]
+    E -->|powersave| G[Min power, high latency]
+    E -->|schedutil| H[Balanced, scheduler-aware]
+    C --> I{Deep C-states?}
+    I -->|Enabled| J[Good power savings, higher wake latency]
+    I -->|Disabled| K[Higher power, lowest latency]
+    D --> L{Runtime PM?}
+    L -->|auto| M[Device sleeps when idle]
+    L -->|on| N[Device always active]
+```
+
+For performance-critical workloads:
+1. Set `performance` governor or pin frequencies
+2. Disable deep C-states if tail latency matters
+3. Set `/dev/cpu_dma_latency` to prevent deep idle
+4. Disable runtime PM for critical I/O devices
+
+---
+
 ### The 60-Second Checklist
 
 Brendan Gregg's 60-second performance checklist:
@@ -352,6 +490,9 @@ Always express performance improvements in terms the business cares about:
 - <https://www.brendangregg.com/FlameGraphs/cpuflamegraphs.html> - Flame graphs
 - <https://lwn.net/Articles/608497/> - Performance analysis methodology
 - <https://netflixtechblog.com/linux-performance-analysis-in-60-instants-11c2c2f3a27f> - Netflix 60-second checklist
+- [Power Management — docs.kernel.org](https://docs.kernel.org/power/index.html)
+- [Laptop Drivers — docs.kernel.org](https://docs.kernel.org/admin-guide/laptops/index.html)
+- [Energy Model documentation](https://docs.kernel.org/power/energy-model.html)
 
 ## Related Topics
 

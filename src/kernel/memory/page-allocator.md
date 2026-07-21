@@ -617,6 +617,77 @@ $ cat /proc/zoneinfo | grep protection
 
 ## Monitoring the Page Allocator
 
+### page_owner — Tracking Who Allocated Each Page
+
+From `docs.kernel.org/mm/page_owner.html`, **page_owner** is a debugging feature that tracks which code path allocated each physical page. It records the call stack and allocation order for every page, enabling:
+
+- **Memory leak detection**: Find pages that are allocated but never freed
+- **Memory hogging identification**: Discover which subsystems consume the most memory
+- **Fragmentation analysis**: Obtain accurate fragmentation statistics via GFP flags
+
+#### Enabling page_owner
+
+```bash
+# Enable at boot (required)
+# Add to kernel command line:
+page_owner=on
+
+# Build userspace helper
+cd tools/mm && make page_owner_sort
+
+# After boot, analyze:
+cat /sys/kernel/debug/page_owner_stacks/show_stacks > stacks.txt
+```
+
+#### page_owner Output Format
+
+```
+ post_alloc_hook+0x177/0x1a0
+ get_page_from_freelist+0xd01/0xd80
+ __alloc_pages+0x39e/0x7e0
+ allocate_slab+0xbc/0x3f0
+ ___slab_alloc+0x528/0x8a0
+ kmem_cache_alloc+0x224/0x3b0
+ sk_prot_alloc+0x58/0x1a0
+ sk_alloc+0x32/0x4f0
+ inet_create+0x427/0xb50
+ __sock_create+0x2e4/0x650
+nr_base_pages: 16
+```
+
+#### Filtering by Threshold
+
+```bash
+# Show only stacks with >7000 base pages allocated
+echo 7000 > /sys/kernel/debug/page_owner_stacks/count_threshold
+cat /sys/kernel/debug/page_owner_stacks/show_stacks > stacks_7000.txt
+```
+
+#### Runtime Overhead
+
+When page_owner is compiled in but disabled at runtime (no `page_owner=on` boot param):
+- **No memory overhead**: Owner information storage is not allocated
+- **Minimal CPU overhead**: Only two unlikely branches in the page allocator hotpath (patched out with static keys when available)
+
+When enabled:
+- Increases kernel size by several kilobytes
+- Stores call stack and order per page in `struct page_extension`
+- Early-boot pages (before page extension init) are retroactively marked as allocated
+
+#### page_owner_sort Tool
+
+The `tools/mm/page_owner_sort` utility sorts page_owner output by allocation site:
+
+```bash
+# Sort by total pages allocated, descending
+cat /sys/kernel/debug/page_owner | ./tools/mm/page_owner_sort -m > sorted.txt
+
+# Sort by number of allocations
+cat /sys/kernel/debug/page_owner | ./tools/mm/page_owner_sort -pa > sorted.txt
+```
+
+---
+
 ### /proc/buddyinfo
 
 ```bash
@@ -807,6 +878,7 @@ The page allocator's `__alloc_pages()` function follows this path:
 - [Kernel documentation: Memory Allocation Guide](https://docs.kernel.org/core-api/memory-allocation.html)
 - [Kernel documentation: page_alloc](https://docs.kernel.org/mm/page_allocation.html)
 - [Kernel documentation: Page Allocation](https://docs.kernel.org/mm/page_allocation.html) — Official page allocator documentation
+- [Kernel documentation: page_owner](https://docs.kernel.org/mm/page_owner.html) — Page allocation tracking for debugging
 - [LWN: Memory compaction](https://lwn.net/Articles/368869/)
 - [Mel Gorman: Understanding the Linux Virtual Memory Manager](https://www.kernel.org/doc/gorman/)
 

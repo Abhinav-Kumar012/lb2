@@ -826,6 +826,101 @@ addr.sun_path[0] = '\0';  /* Abstract namespace */
 strcpy(addr.sun_path + 1, "mysocket");
 ```
 
+## TIPC (Transparent Inter Process Communication)
+
+TIPC is a protocol specifically designed for **intra-cluster communication**. It can transmit messages over UDP or directly via Ethernet, with sequence-guaranteed, loss-free, flow-controlled delivery and lower latency than any other known protocol.
+
+### TIPC Key Features
+
+- **Cluster-wide IPC**: Like Unix Domain Sockets but across cluster nodes — no DNS lookups, no IP address management, no timers to monitor peer existence
+- **Service Addressing**: Programmers choose their own addresses; clients use service addresses rather than IP:port
+- **Service Tracking**: Subscribe for binding/unbinding events, cluster topology changes, and link up/down events
+- **Transmission Modes**: Datagram, connection-oriented, and communication groups (brokerless message bus)
+- **Inter-Node Links**: Guaranteed data integrity and peer availability monitoring
+- **Scalability**: Up to 1000 nodes with 1-2 second neighbor failure discovery via Overlapping Ring Monitoring
+- **Neighbor Discovery**: Ethernet broadcast or UDP multicast (or configured peer addresses)
+- **Performance**: Better latency than TCP; superior intra-node and inter-container throughput
+
+### TIPC Socket Types
+
+TIPC supports several socket types via standard socket APIs:
+
+```c
+/* TIPC socket address structure */
+struct sockaddr_tipc {
+    unsigned short family;      /* AF_TIPC */
+    unsigned char addrtype;     /* TIPC_ADDR_NAME, TIPC_ADDR_MCAST, etc. */
+    int scope;                  /* TIPC_NODE_SCOPE or TIPC_CLUSTER_SCOPE */
+    union {
+        struct tipc_name name;  /* Service address */
+        struct tipc_name_seq nameseq; /* Name sequence (range) */
+    } addr;
+};
+
+/* Create TIPC socket */
+int fd = socket(AF_TIPC, SOCK_SEQPACKET, 0); /* Connection-oriented */
+int fd = socket(AF_TIPC, SOCK_RDM, 0);       /* Reliable datagram */
+int fd = socket(AF_TIPC, SOCK_DGRAM, 0);     /* Datagram */
+```
+
+### TIPC Internals (Kernel)
+
+TIPC is implemented as a kernel module in `net/tipc/`. Key structures:
+
+```c
+/* TIPC media abstraction */
+struct tipc_media {
+    int (*send_msg)(struct net *net, struct sk_buff *buf,
+                    struct tipc_bearer *b, struct tipc_media_addr *dest);
+    int (*enable_media)(struct net *net, struct tipc_bearer *b, struct nlattr *attr[]);
+    void (*disable_media)(struct tipc_bearer *b);
+    u32 tolerance;   /* Link failure detection time (ms) */
+    u32 min_win;     /* Min window before congestion */
+    u32 max_win;     /* Max window before congestion */
+    u32 mtu;         /* Max packet size */
+    char name[TIPC_MAX_MEDIA_NAME];
+};
+
+/* TIPC bearer — network interface abstraction */
+struct tipc_bearer {
+    struct tipc_media *media;
+    struct tipc_media_addr addr;
+    u32 priority;       /* Default link priority */
+    u32 tolerance;      /* Link failure tolerance (ms) */
+    u32 domain;         /* Network domain */
+    char net_plane;     /* Network plane ('A'-'H') */
+    u16 encap_hlen;     /* Encapsulation header length */
+};
+
+/* TIPC subscription for topology tracking */
+struct tipc_subscription {
+    struct tipc_subscr s;      /* User subscription */
+    struct tipc_event evt;     /* Event template */
+    struct net *net;            /* Network namespace */
+    struct timer_list timer;    /* Subscription duration timer */
+    spinlock_t lock;            /* Serialize events */
+};
+```
+
+### TIPC Configuration
+
+```bash
+# Load TIPC module
+$ modprobe tipc
+
+# Configure (single node — no configuration needed)
+# For cluster mode, minimum: node address + interface
+
+# Using the tipc tool
+$ tipc bearer enable media eth device eth0
+$ tipc node set addr 1.1.2
+
+# Check TIPC status
+$ tipc bearer list
+$ tipc link list
+$ tipc nametable show
+```
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
@@ -841,6 +936,7 @@ strcpy(addr.sun_path + 1, "mysocket");
 3. *The Linux Programming Interface* by Michael Kerrisk
 4. **man pages** — `socket(2)`, `bind(2)`, `listen(2)`, `accept(2)`, `connect(2)`
 5. **kernel.org Documentation** — [www.kernel.org/doc/html/latest/networking/](https://www.kernel.org/doc/html/latest/networking/)
+- [Kernel documentation: TIPC](https://docs.kernel.org/networking/tipc.html) — TIPC protocol internals and structures
 
 ## Related Topics
 

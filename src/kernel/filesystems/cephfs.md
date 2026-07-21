@@ -402,6 +402,93 @@ ceph osd pool set cephfs_data pgp_num 256
 mount -t ceph ... -o async_dirop
 ```
 
+## Ceph Architecture (Kernel Perspective)
+
+From the Linux kernel documentation, Ceph is designed to provide good performance, reliability, and scalability with these architectural properties:
+
+### Design Principles
+
+- **POSIX semantics**: Full compatibility with standard file operations
+- **Seamless scaling**: From 1 to many thousands of nodes without reconfiguration
+- **No single point of failure**: High availability through N-way replication
+- **Fast recovery**: Data is re-replicated by storage nodes themselves (minimal MDS coordination)
+- **Automatic rebalancing**: When nodes are added or removed, data migrates automatically
+- **Easy deployment**: Most components are userspace daemons
+
+### Metadata Server Design
+
+The MDS takes an unconventional approach to metadata storage:
+
+- **Embedded inodes**: Inodes with only a single link are embedded in directories, allowing entire directories of dentries and inodes to be loaded with a single I/O operation
+- **Dynamic redistribution**: Metadata is redistributed in response to workload changes
+- **Large directory fragmentation**: Extremely large directories can be fragmented and managed by independent metadata servers for scalable concurrent access
+- **Consistent distributed cache**: MDS nodes form a large, consistent, distributed in-memory cache above the file namespace
+
+### Data Placement with CRUSH
+
+Unlike cluster filesystems (GFS, OCFS2, GPFS) that rely on symmetric access to shared block devices, Ceph separates data and metadata management into independent server clusters. Data is striped across storage nodes in large chunks using the **CRUSH** algorithm:
+
+```python
+# CRUSH placement (simplified)
+def crush_place(object_name, osd_map):
+    hash_val = hash(object_name)
+    pg_id = hash_val % num_placement_groups
+    osds = osd_map.get_osds(pg_id)
+    return osds  # Primary, secondary, tertiary...
+```
+
+### Kernel Client Mount Options
+
+```bash
+# Basic mount syntax
+mount -t ceph user@fsid.fs_name=/[subdir] mnt -o mon_addr=monip1[:port]
+
+# Multiple monitors (slash-separated)
+mount -t ceph cephuser@cephfs=/ /mnt/ceph -o mon_addr=192.168.1.100/192.168.1.101
+
+# Key options:
+#   mon_addr=ip[:port]    — Monitor address (bootstraps connection)
+#   wsize=X               — Max write size (default: 64MB)
+#   rsize=X               — Max read size (default: 64MB)
+#   rasize=X              — Max readahead size (default: 8MB)
+#   mount_timeout=X       — Mount timeout in seconds (default: 60)
+#   caps_max=X            — Max caps to hold (0 = no limit)
+#   rbytes / norbytes    — Report directory size as sum of files or entry count
+#   nocrc                 — Disable CRC32C for data writes
+#   dcache / nodcache     — Use/avoid dcache for negative lookups
+#   recover_session=clean — Auto-reconnect after blocklisting
+```
+
+### Snapshots (Kernel Mechanism)
+
+CephFS snapshots use **copy-on-write** at the RADOS level:
+
+- Snapshot creation: `mkdir .snap/foo`
+- Snapshot deletion: `rmdir .snap/foo`
+- Snapshot names cannot start with `_` (reserved for MDS internal use)
+- Snapshot names limited to 240 characters (due to internal naming: `__.snap_<id>_<name>`)
+
+### Quotas (xattr-based)
+
+```bash
+# Set directory quota
+setfattr -n ceph.quota.max_bytes -v 100000000 /some/dir
+setfattr -n ceph.quota.max_files -v 100000 /some/dir
+
+# Recursive accounting (no du needed)
+getfattr -n ceph.dir.rfiles /some/dir    # Total nested files
+getfattr -n ceph.dir.rbytes /some/dir    # Total nested bytes
+```
+
+**Limitation**: Quotas rely on client cooperation — a modified or adversarial client cannot be prevented from writing.
+
+### recover_session Modes
+
+| Mode | Behavior |
+|------|----------|
+| `no` (default) | Never reconnect after blocklisting; operations fail |
+| `clean` | Auto-reconnect; drops dirty data/metadata, invalidates caches; stale file locks block read/write until released |
+
 ## Further Reading
 
 - [CephFS Documentation](https://docs.ceph.com/en/latest/cephfs/) — Official Ceph docs
@@ -411,3 +498,4 @@ mount -t ceph ... -o async_dirop
 - [man7.org: mount.ceph](https://man7.org/linux/man-pages/man8/mount.ceph.8.html) — Mount options
 - [CRUSH Algorithm Paper](https://ceph.io/assets/pdfs/weil-crush-sc06.pdf) — Original CRUSH paper
 - [docs.kernel.org: libceph](https://docs.kernel.org/rst/networking/device_drivers/ethernet/mellanox/mlx5/index.html) — Kernel Ceph client internals
+- [Kernel documentation: Ceph Distributed File System](https://docs.kernel.org/filesystems/ceph.html) — Official kernel docs with mount options and architecture

@@ -847,6 +847,153 @@ Writing to `drop_caches` is a **non-destructive** operation — it will not free
 
 The `compaction_proactiveness` tunable (range 0–100, default 20) controls background compaction aggressiveness. Writing a non-zero value immediately triggers proactive compaction. The kernel uses heuristics to avoid wasting CPU if proactive compaction isn't effective. Values above 80 make compaction more sensitive to fragmentation increases but reduce fragmentation less per run. Values like 100 can cause excessive background compaction.
 
+## Swap Optimization
+
+The Linux kernel provides several mechanisms to optimize swap performance, reducing I/O overhead and improving responsiveness under memory pressure.
+
+### Zswap: Compressed Swap Cache
+
+Zswap is a lightweight compressed write-back cache for swap. When a page is about to be swapped out, zswap compresses it and stores it in a dynamically allocated RAM-based memory pool. If the compressed page fits, no disk I/O is needed. If the pool is full, the least recently used page is written to the backing swap device.
+
+```bash
+# Enable zswap
+$ echo 1 > /sys/module/zswap/parameters/enabled
+
+# Configure compressor (lz4 is fast, zstd has better ratio)
+$ echo lz4 > /sys/module/zswap/parameters/compressor
+
+# Configure zpool backend (zbud: 2:1 ratio, z3fold: 3:1, zsmalloc: variable)
+$ echo zsmalloc > /sys/module/zswap/parameters/zpool
+
+# Set max pool size (percentage of total RAM)
+$ echo 20 > /sys/module/zswap/parameters/max_pool_percent
+
+# View zswap statistics
+$ grep -r . /sys/kernel/debug/zswap/
+# same_filled_pages: 0
+# stored_pages: 12345
+# pool_total_size: 45678900
+# writeback: 100
+# reject_compress_poor: 50
+# reject_alloc_fail: 0
+# reject_kmemcache_fail: 0
+# reject_reclaim_fail: 0
+```
+
+Zswap differs from Zram in that zswap is a swap *cache* (works with an existing swap device), while zram *is* the swap device.
+
+### Zram: In-Memory Compressed Swap
+
+Zram creates a block device that compresses data in RAM, effectively expanding available memory:
+
+```bash
+# Setup zram (detailed)
+$ modprobe zram num_devices=1
+$ echo lz4 > /sys/block/zram0/comp_algorithm
+$ echo 4G > /sys/block/zram0/disksize
+$ echo 100 > /sys/block/zram0/mem_limit   # Max memory for compressed data
+$ mkswap /dev/zram0
+$ swapon -p 100 /dev/zram0  # Higher priority than disk swap
+
+# View compression stats
+$ cat /sys/block/zram0/mm_stat
+# orig_data_size  compr_data_size  mem_used_total  mem_limit  ...
+# 1073741824      358039552        402653184       4294967296
+
+# Reconfigure (must swapoff first)
+$ swapoff /dev/zram0
+$ echo zstd > /sys/block/zram0/comp_algorithm
+$ echo 8G > /sys/block/zram0/disksize
+$ swapon /dev/zram0
+```
+
+### THP (Transparent Huge Pages) Swap
+
+With THP enabled, the kernel can swap entire 2 MiB huge pages as a single unit, reducing the number of I/O operations:
+
+```c
+/* mm/swapfile.c */
+int swap_writepage(struct page *page, struct writeback_control *wbc)
+{
+    if (PageTransHuge(page)) {
+        /* Write entire 2 MiB as one swap slot cluster */
+        return swap_writepage_thp(page, wbc);
+    }
+    /* Write single 4 KiB page */
+    return __swap_writepage(page, wbc);
+}
+```
+
+### Swap Prefetch and Readahead
+
+When swapping in a page, the kernel reads adjacent swap slots proactively:
+
+```c
+/* mm/swap_state.c */
+static void swap_readahead(struct swap_info_struct *si, pgoff_t offset)
+{
+    /* Read ahead N pages from swap */
+    /* Typically 2-8 pages depending on access pattern */
+}
+```
+
+The `page-cluster` tunable controls readahead (2^N pages, default 3 = 8 pages):
+
+```bash
+$ cat /proc/sys/vm/page-cluster
+3
+```
+
+### Cluster-Based Swap Allocation
+
+Modern Linux uses cluster-based allocation for better I/O alignment:
+
+```c
+/* mm/swapfile.c (simplified) */
+struct swap_cluster_info {
+    unsigned int data:24;
+    unsigned char flags;
+};
+
+/* Allocate a swap cluster (typically 256 pages = 1 MB) */
+static struct swap_cluster_info *alloc_cluster(struct swap_info_struct *sis,
+                                                unsigned long idx)
+{
+    struct swap_cluster_info *ci;
+    ci = sis->cluster_info + idx / SWAP_CLUSTER_SIZE;
+    ci->data = idx;
+    ci->flags = CLUSTER_FLAG_HUGE;  /* For THP swap */
+    return ci;
+}
+```
+
+### NUMA-Aware Swap
+
+On NUMA systems, swap allocation should prefer the local node:
+
+```bash
+# Check NUMA swap statistics
+$ numastat | grep -i swap
+# Swap: free swap across nodes
+
+# zone_reclaim_mode affects swap behavior
+$ cat /proc/sys/vm/zone_reclaim_mode
+0
+# 4 = swap pages from local node before allocating remotely
+```
+
+### Swap Optimization Tips
+
+| Strategy | Effect |
+|----------|--------|
+| Use zram + disk swap | Fast in-memory compression before slow disk I/O |
+| Tune `swappiness` | Lower values (10-30) keep hot data in page cache |
+| Use SSD for swap | 100x lower latency than HDD |
+| Set `page-cluster` | Increase for sequential workloads, decrease for random |
+| Enable zswap | Compresses pages before they hit disk |
+| Use THP swap | Fewer I/O ops for huge page workloads |
+| Pin swap to fast device | `swapon -p` prioritizes devices |
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
@@ -866,6 +1013,8 @@ The `compaction_proactiveness` tunable (range 0–100, default 20) controls back
 - [LWN: THP swap](https://lwn.net/Articles/703927/)
 - [Documentation for /proc/sys/vm/ (kernel docs)](https://docs.kernel.org/admin-guide/sysctl/vm.html)
 - [Kernel documentation: zswap](https://docs.kernel.org/mm/zswap.html)
+- [Kernel documentation: Swap](https://docs.kernel.org/mm/swap.html)
+- [Kernel documentation: Memory Management](https://docs.kernel.org/mm/)
 
 ## Related Topics
 

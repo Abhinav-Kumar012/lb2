@@ -41,19 +41,57 @@ graph TB
 
 ### NFSv4.2 New Features
 
+NFSv4.2 (RFC 7862) introduced several important improvements over NFSv4.1:
+
+#### Server-Side Copy (CLONE / copy_file_range)
+
+NFSv4.2 supports offloaded server-side copy operations that don't consume client network bandwidth. The data stays on the server:
+
 ```bash
 # Server-side copy (offloaded, doesn't consume client bandwidth)
 cp --reflink=always /mnt/nfs/source /mnt/nfs/dest  # if supported
 
-# Sparse file support
+# Or using copy_file_range syscall
+# The kernel detects NFS and sends CLONE/COMMIT to the server
+```
+
+The server-side copy uses two operations:
+- `CLONE` — Copy a range from one file to another on the same server
+- `COPY` — Copy data between files (may be cross-server in future)
+
+#### Sparse File Support (SEEK_HOLE / SEEK_DATA)
+
+NFSv4.2 supports `SEEK_HOLE` and `SEEK_DATA` operations, enabling efficient sparse file handling:
+
+```bash
+# Create a sparse file
 $ dd if=/dev/zero of=/mnt/nfs/sparse bs=1M count=0 seek=100
 $ ls -lh /mnt/nfs/sparse
 -rw-r--r-- 1 user user 100M ... sparse
-$ xfs_io -c "seek -d 0" /mnt/nfs/sparse  # Find data segments
 
-# Application data hints
-# Applications can hint the server about I/O patterns
+# Find data segments
+$ xfs_io -c "seek -d 0" /mnt/nfs/sparse
 ```
+
+#### Application Data Hints
+
+Applications can provide hints to the server about expected I/O patterns, allowing the server to optimize its caching and prefetching behavior.
+
+#### NFS over TLS
+
+NFSv4.2 supports encryption via TLS with the `rpc-with-tls` mechanism (requires kernel 5.11+ and `ktls-utils`). This provides in-transit encryption without requiring Kerberos:
+
+```bash
+# Configure server-side TLS
+# Requires ktls-utils and configured certificates
+$ sudo systemctl enable --now tlshd
+```
+
+#### Layout Improvements in pNFS
+
+NFSv4.2 improves pNFS (parallel NFS) with:
+- **Flexfiles layout**: Allows metadata server and data servers to be different
+- **SCSI layout**: Direct SCSI device access for pNFS
 
 ## Server Configuration
 
@@ -399,6 +437,7 @@ struct nfs4_op_arg ops[] = {
 - [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
 
 - https://www.kernel.org/doc/html/latest/filesystems/nfs/index.html
+- https://docs.kernel.org/filesystems/nfs/index.html
 - https://man7.org/linux/man-pages/man5/exports.5.html
 - https://man7.org/linux/man-pages/man5/nfs.5.html
 - https://wiki.archlinux.org/title/NFS

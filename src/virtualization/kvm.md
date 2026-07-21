@@ -885,7 +885,9 @@ static inline void npt_flush(struct vcpu_svm *svm) {
 
 ## Nested Virtualization
 
-KVM supports running a hypervisor inside a VM (L0 → L1 → L2):
+KVM supports running a hypervisor inside a VM (L0 → L1 → L2). From `docs.kernel.org/virt/kvm/nested-vmx.html`, nested virtualization allows an L1 guest to use hardware virtualization extensions to run its own L2 guests.
+
+### Enabling Nested Virtualization
 
 ```bash
 # Enable nested virtualization (Intel)
@@ -900,17 +902,116 @@ modprobe -r kvm_amd && modprobe kvm_amd
 grep -c vmx /proc/cpuinfo  # Should show > 0
 ```
 
+### Architecture Overview
+
 ```mermaid
 graph TB
     subgraph L0 Host
         L0_KVM[KVM Module]
+        L0_VMCS[L0 VMCS — runs L1]
     end
     subgraph L1 VM (Nested Hypervisor)
         L1_KVM[KVM Module]
+        L1_VMCB[L1 Virtual VMCS — describes L2]
         L1_VM[L2 VM]
         L1_KVM --> L1_VM
     end
     L0_KVM -->|VMCS shadowing| L1_KVM
+```
+
+### How Nested VMX Works
+
+From the kernel documentation, nested VMX involves two levels of VMCS:
+
+- **L0 (host hypervisor)**: Manages the real hardware VMCS
+- **L1 (guest hypervisor)**: Runs in VMX non-root mode, but thinks it's in VMX root mode
+- **L2 (nested guest)**: Runs in VMX non-root mode, managed by L1
+
+When L1 executes VMXON, VMLAUNCH, or VMRESUME:
+1. These instructions cause a VM exit to L0
+2. L0 emulates the VMX operation using a **shadow VMCS**
+3. When L2 runs, L0 loads the shadow VMCS (with L2's state)
+4. VM exits from L2 can be handled by L0 directly or reflected to L1
+
+### VMCS Shadowing
+
+VMCS shadowing is a hardware optimization (Intel) that reduces the cost of nested virtualization:
+
+- Without shadowing: Every VM entry/exit between L1 and L2 causes a full VM exit to L0
+- With shadowing: L0 sets up a **shadow VMCS** that L1 can read/write via VMREAD/VMWRITE without causing VM exits
+
+The shadow VMCS contains the fields L1 needs to manage, while L0 maintains the real VMCS for hardware. This dramatically reduces the overhead of nested virtualization.
+
+```c
+/* L0 sets up VMCS shadowing */
+vmcs_write64(VMCS_LINK_POINTER, shadow_vmcs_pa);
+vmcs_write32(SECONDARY_VM_EXEC_CONTROL,
+             SECONDARY_EXEC_SHADOW_VMCS | ...);
+```
+
+### VM Exit Handling in Nested Virt
+
+When L2 causes a VM exit, L0 decides how to handle it:
+
+| Exit Type | L0 Behavior |
+|-----------|-------------|
+| I/O instruction | Reflect to L1 (L1 emulates device) |
+| CPUID | Handle in L0 or reflect to L1 |
+| CR access | Emulate or reflect based on L1's intercepts |
+| MSR read/write | Check L1's MSR bitmap, reflect if needed |
+| EPT violation | Handle in L0 (L0 owns the real EPT) |
+| External interrupt | Handle in L0 (inject to appropriate level) |
+
+### Enabling VMX for L1
+
+To allow L1 to run VMX (and thus create L2 guests), L0 must:
+1. Set `nested=Y` in `kvm_intel` module parameters
+2. Expose VMX capability via CPUID to L1
+3. Enable MSR passthrough for VMX-related MSRs
+
+```bash
+# Verify nested support
+# Inside L1 (the VM that will be a hypervisor):
+cat /proc/cpuinfo | grep vmx
+# Should show vmx flags
+
+# Check KVM module parameters
+cat /sys/module/kvm_intel/parameters/nested
+# Y
+```
+
+### Performance Considerations
+
+Nested virtualization adds significant overhead:
+- Each L2 VM exit requires L0 to process it (even if reflected to L1)
+- VMCS shadowing reduces but doesn't eliminate the overhead
+- Memory virtualization becomes 3-level: GVA → L2 GPA → L1 GPA → HPA
+- EPT violations become more expensive (may need to walk L1's EPT equivalent)
+
+Best practices:
+- Use VMCS shadowing (enabled by default with `nested=Y`)
+- Minimize VM exits from L2 (use virtio, in-kernel irqchip)
+- Pin L1 vCPUs to physical CPUs
+- Consider using `KVM_CAP_NESTED_STATE` for save/restore of nested state
+
+### KVM_CAP_NESTED_STATE
+
+KVM exposes nested virtualization state through capabilities:
+
+```c
+/* Check nested state support */
+int has_nested = ioctl(kvm_fd, KVM_CHECK_EXTENSION, KVM_CAP_NESTED_STATE);
+
+/* Save/restore nested state during migration */
+struct kvm_nested_state {
+    __u16 flags;
+    __u16 format;
+    __u32 size;
+    union {
+        struct kvm_vmx_nested_state vmx;
+        struct kvm_svm_nested_state svm;
+    } data;
+};
 ```
 
 ## KVM API Details (from docs.kernel.org)
@@ -1124,6 +1225,7 @@ qemu-system-x86_64 -enable-kvm \
 - [KVM MMU Documentation](https://docs.kernel.org/virt/kvm/mmu.html) — Shadow and EPT page table internals
 - [KVM Hypercalls — docs.kernel.org](https://docs.kernel.org/virt/kvm/hypercalls.html)
 - [KVM API Documentation](https://docs.kernel.org/virt/kvm/api.html) — Definitive KVM API reference with CPUID, memory, and capability details
+- [Nested VMX documentation — docs.kernel.org](https://docs.kernel.org/virt/kvm/nested-vmx.html)
 
 ## Related Topics
 

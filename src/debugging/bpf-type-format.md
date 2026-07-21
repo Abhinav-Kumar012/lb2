@@ -63,7 +63,7 @@ BTF encodes type information as a sequence of type records:
 
 ```
 struct btf_header {
-    __u16   magic;          /* 0xeB9F (reversed "BPF") */
+    __u16   magic;          /* 0xEB9F (reversed "BPF") */
     __u8    version;        /* BTF version (1) */
     __u8    flags;          /* BTF flags */
     __u32   hdr_len;        /* Header length */
