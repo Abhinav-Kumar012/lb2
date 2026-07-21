@@ -419,6 +419,55 @@ cat /sys/devices/system/cpu/cpu0/cpuidle/state2/name
 # C6
 ```
 
+## CPU Power Management (from docs.kernel.org)
+
+The Linux kernel's power management subsystem manages CPU power states at multiple levels, each with different latency/residency tradeoffs.
+
+### CPU Idle Time Management
+
+When a CPU has no tasks to run, the kernel transitions it to an idle state (C-state). Deeper states save more power but have higher wakeup latency:
+
+| C-State | Typical Latency | Typical Residency | Description |
+|---------|----------------|-------------------|-------------|
+| C1 (Halt) | ~1 µs | ~10 µs | CPU halted, caches intact |
+| C1E (Enhanced Halt) | ~10 µs | ~20 µs | Reduced frequency/voltage |
+| C3 (Sleep) | ~100 µs | ~500 µs | Caches flushed |
+| C6 (Deep Power Down) | ~500 µs | ~1 ms | State saved, power gating |
+| C7+ (Deeper C-states) | ~1-5 ms | ~5+ ms | Maximum power savings |
+
+The `intel_idle` driver auto-detects available C-states. The `cpuidle` framework selects the optimal state based on predicted idle duration.
+
+### CPU Performance Scaling (cpufreq)
+
+The kernel provides multiple CPU frequency governors:
+
+| Governor | Description |
+|----------|-------------|
+| `performance` | Always run at maximum frequency |
+| `powersave` | Always run at minimum frequency |
+| `schedutil` | **Recommended**: Uses scheduler utilization data (PELT) for frequency selection |
+| `ondemand` | Legacy: Timer-based load sampling |
+| `conservative` | Legacy: Gradual frequency changes |
+
+**`schedutil`** (available since kernel 4.7) is the preferred governor because it has direct access to scheduler metrics and can adjust frequency at each scheduler tick, reducing latency between load changes and frequency adjustments.
+
+### Processor-Specific Drivers
+
+- **intel_pstate**: Intel's performance scaling driver for Core processors. Provides hardware-managed P-states (HWP) on supported CPUs.
+- **amd-pstate**: AMD's performance scaling driver (since kernel 5.17). Supports both guided and active modes.
+
+### Intel Performance and Energy Bias Hint (EPB)
+
+Intel CPUs provide an Energy Performance Bias (EPB) register that influences the hardware's frequency selection heuristics:
+
+```bash
+# View EPB value (0=performance, 15=power saving)
+cat /sys/devices/system/cpu/cpu0/power/energy_performance_bias
+
+# Set via energy_performance_preference
+echo performance > /sys/devices/system/cpu/cpu0/cpufreq/energy_performance_preference
+```
+
 ## References
 
 - Gregg, B. *Systems Performance: Enterprise and the Cloud*, 2nd Edition.
@@ -440,6 +489,11 @@ cat /sys/devices/system/cpu/cpu0/cpuidle/state2/name
 - <https://www.brendangregg.com/FlameGraphs/cpuflamegraphs.html> - CPU flame graphs
 - <https://easyperf.net/> - Performance optimization resources
 - <https://man7.org/linux/man-pages/man1/perf.1.html> - perf man page
+- [Power Management — docs.kernel.org](https://docs.kernel.org/admin-guide/pm/index.html) — Official kernel power management documentation
+- [CPU Idle Time Management](https://docs.kernel.org/admin-guide/pm/cpuidle.html) — C-state management
+- [CPU Performance Scaling (cpufreq)](https://docs.kernel.org/admin-guide/pm/cpufreq.html) — Frequency governors and drivers
+- [intel_pstate Driver](https://docs.kernel.org/admin-guide/pm/intel_pstate.html) — Intel P-state driver details
+- [amd-pstate Driver](https://docs.kernel.org/admin-guide/pm/amd-pstate.html) — AMD P-state driver details
 
 ## Related Topics
 

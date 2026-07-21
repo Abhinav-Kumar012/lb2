@@ -564,7 +564,7 @@ $ mount | grep ext4
 | `noatime` | Don't update access time (performance boost) |
 | `data=ordered` | Default journaling mode |
 | `data=writeback` | Faster but less safe |
-| `journal_data` | Full data journaling |
+| `data=journal` | Full data journaling (both data and metadata journaled) |
 | `commit=60` | Journal commit interval (seconds, default 5) |
 | `discard` | Issue TRIM commands to SSDs |
 | `nodelalloc` | Disable delayed allocation |

@@ -606,6 +606,59 @@ entries  found  new  invalid  ignore  delete  delete_list  insert  insert_failed
 1234     5678   90   12       34      56      78           90      1              0     0           0      12
 ```
 
+## conntrack Sysctl Variables (from Kernel Docs)
+
+From the kernel documentation at `docs.kernel.org/networking/nf_conntrack-sysctl.html`:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `nf_conntrack_acct` | 0 | Enable per-flow 64-bit byte and packet counters |
+| `nf_conntrack_buckets` | auto (RAM/16384) | Hash table size (1024–262144 buckets) |
+| `nf_conntrack_checksum` | 1 | Verify checksum of incoming packets |
+| `nf_conntrack_count` | (read-only) | Number of currently allocated flow entries |
+| `nf_conntrack_events` | 2 (auto) | Provide conntrack events via ctnetlink |
+| `nf_conntrack_expect_max` | buckets/256 | Maximum expectation table size |
+| `nf_conntrack_max` | =buckets | Maximum tracked connections (entries added twice—original + reply) |
+| `nf_conntrack_tcp_be_liberal` | 0 | Only mark out-of-window RST as INVALID |
+| `nf_conntrack_tcp_loose` | 1 | Pick up already established connections |
+| `nf_conntrack_tcp_max_retrans` | 3 | Max retransmits before shorter timer |
+| `nf_conntrack_timestamp` | 0 | Enable per-flow timestamping |
+
+### TCP Timeout Variables
+
+| Variable | Default (seconds) |
+|----------|-------------------|
+| `nf_conntrack_tcp_timeout_established` | 432000 (5 days) |
+| `nf_conntrack_tcp_timeout_syn_sent` | 120 |
+| `nf_conntrack_tcp_timeout_syn_recv` | 60 |
+| `nf_conntrack_tcp_timeout_fin_wait` | 120 |
+| `nf_conntrack_tcp_timeout_close_wait` | 60 |
+| `nf_conntrack_tcp_timeout_last_ack` | 30 |
+| `nf_conntrack_tcp_timeout_time_wait` | 120 |
+| `nf_conntrack_tcp_timeout_close` | 10 |
+| `nf_conntrack_tcp_timeout_max_retrans` | 300 |
+| `nf_conntrack_tcp_timeout_unacknowledged` | 300 |
+
+### Other Protocol Timeouts
+
+| Variable | Default (seconds) |
+|----------|-------------------|
+| `nf_conntrack_udp_timeout` | 30 |
+| `nf_conntrack_udp_timeout_stream` | 120 |
+| `nf_conntrack_icmp_timeout` | 30 |
+| `nf_conntrack_icmpv6_timeout` | 30 |
+| `nf_conntrack_gre_timeout` | 30 |
+| `nf_conntrack_gre_timeout_stream` | 180 |
+| `nf_conntrack_generic_timeout` | 600 |
+| `nf_conntrack_sctp_timeout_established` | 210 |
+
+### Flow Table Offloading
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `nf_flowtable_tcp_timeout` | 30 | TCP offload timeout (returns to conntrack after aging) |
+| `nf_flowtable_udp_timeout` | 30 | UDP offload timeout |
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
@@ -620,7 +673,8 @@ entries  found  new  invalid  ignore  delete  delete_list  insert  insert_failed
 2. **nftables Wiki** — [wiki.nftables.org](https://wiki.nftables.org/)
 3. **Linux Kernel Source** — `net/netfilter/`, `net/ipv4/netfilter/`
 4. **RFC 3022** — Traditional IP Network Address Translator
-5. **man pages** — `iptables(8)`, `nft(8)`, `conntrack(8)`
+5. **Netfilter Conntrack Sysctl** — [docs.kernel.org/networking/nf_conntrack-sysctl.html](https://docs.kernel.org/networking/nf_conntrack-sysctl.html)
+6. **man pages** — `iptables(8)`, `nft(8)`, `conntrack(8)`
 
 ## Related Topics
 

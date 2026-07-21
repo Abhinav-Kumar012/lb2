@@ -234,7 +234,7 @@ This optimization is highly effective for short critical sections — it avoids 
 
 ## rt_mutex (Priority-Inheriting Mutex)
 
-The `rt_mutex` is a mutex with **priority inheritance** — if a high-priority task is blocked waiting for a mutex held by a low-priority task, the kernel temporarily boosts the lock holder's priority to match the waiter:
+The `rt_mutex` is a mutex with **priority inheritance** — if a high-priority task is blocked waiting for a mutex held by a low-priority task, the kernel temporarily boosts the lock holder's priority to match the waiter. RT-mutexes with priority inheritance are used to support PI-futexes, which enable `pthread_mutex_t` priority inheritance attributes (`PTHREAD_PRIO_INHERIT`).
 
 ```c
 struct rt_mutex my_rt_mutex;
@@ -264,6 +264,35 @@ sequenceDiagram
 ```
 
 Priority inheritance prevents **priority inversion**, where a medium-priority task preempts the low-priority lock holder, indirectly starving the high-priority waiter (the Mars Pathfinder incident of 1997 is the classic example).
+
+### RT-Mutex Waiter Tree (from Kernel Docs)
+
+From the official kernel documentation at `docs.kernel.org/locking/rt-mutex.html`:
+
+The enqueueing of waiters into the rtmutex waiter tree is done in **priority order**. For same priorities, FIFO order is chosen. For each rtmutex, only the **top priority waiter** is enqueued into the owner's priority waiters tree. This tree too queues in priority order.
+
+Whenever the top priority waiter of a task changes (e.g., it timed out or got a signal), the priority of the owner task is readjusted. The priority enqueueing is handled by `pi_waiters`.
+
+### RT-Mutex State Tracking
+
+The state of the rt-mutex is tracked via the `owner` field:
+
+| `lock->owner` | bit 0 | State |
+|----------------|-------|-------|
+| NULL | 0 | Lock is free (fast acquire possible) |
+| NULL | 1 | Lock is free, has waiters; top waiter is grabbing lock |
+| task pointer | 0 | Lock is held (fast release possible) |
+| task pointer | 1 | Lock is held and has waiters |
+
+The fast atomic compare-exchange-based acquire and release is only possible when bit 0 of `lock->owner` is 0.
+
+### RT-Mutex Fast Path
+
+RT-mutexes are optimized for fastpath operations and have **no internal locking overhead** when locking an uncontended mutex or unlocking a mutex without waiters. The optimized fastpath operations require `cmpxchg` support. If `cmpxchg` is not available, the rt-mutex internal spinlock is used as a fallback.
+
+### Priority Propagation
+
+If the temporarily boosted owner blocks on another rt-mutex itself, it **propagates** the priority boosting to the owner of the other rt-mutex. The priority boosting is immediately removed once the rt-mutex has been unlocked. This chain of priority propagation ensures that a high-priority task blocked through multiple levels of lock dependencies will eventually boost all intermediate lock holders.
 
 ### rt_mutex API
 
@@ -445,6 +474,7 @@ $ sudo cat /proc/lock_stat
 - [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
 
 - [Kernel documentation: RT-mutex subsystem with PI support](https://docs.kernel.org/locking/rt-mutex.html)
+- [Kernel documentation: RT-mutex implementation design](https://docs.kernel.org/locking/rt-mutex-design.html)
 - [Kernel documentation: Generic Mutex Subsystem](https://docs.kernel.org/locking/mutex-design.html)
 - [Davidlohr Bueso: "Mutex: the sleeping lock"](https://lwn.net/Articles/575460/)
 - [Thomas Gleixner: rt_mutex implementation](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/kernel/locking/rtmutex.c)

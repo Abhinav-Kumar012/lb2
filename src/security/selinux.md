@@ -170,7 +170,17 @@ Used in government/military environments. Implements Bell-LaPadula model with se
 
 ### Minimum Policy
 
-A subset of the targeted policy that confines only a few key services, useful for systems with limited resources.
+A subset of the targeted policy that confines only a few key services (e.g., `httpd`, `sshd`, `named`), leaving most processes unconfined. It uses fewer resources than the full targeted policy and is suitable for systems with limited memory or embedded environments. The minimum policy is generated from the same source as targeted but with a reduced set of modules:
+
+```bash
+# Check if minimum policy is available
+ls /etc/selinux/minimum/
+# active  modules  policy  setrans  contexts
+
+# Switch to minimum policy (requires reboot)
+sudo vi /etc/selinux/config
+# SELINUXTYPE=minimum
+```
 
 ## SELinux Policy Language
 

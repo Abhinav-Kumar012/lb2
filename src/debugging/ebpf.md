@@ -758,6 +758,19 @@ make -C examples/c minimal
 7. **Use `bpf_printk` for debugging** — output goes to `/sys/kernel/debug/tracing/trace_pipe`
 8. **Handle map errors** — always check return values from map operations
 
+## BPF Standardization (IETF)
+
+From the kernel documentation at `docs.kernel.org/bpf/standardization/index.html`:
+
+The BPF standardization effort is being pursued through the **IETF BPF Working Group**. The goal is to make BPF a cross-platform, standardized technology. The IETF working group is defining:
+
+- **BPF Instruction Set Architecture (ISA)**: A formal specification of the BPF instruction set, making it possible for non-Linux implementations to be BPF-compatible.
+- **BPF ABI Recommended Conventions and Guidelines v1.0**: ABI conventions for BPF programs to ensure portability.
+
+The kernel docs at `docs.kernel.org/bpf/` serve as the authoritative reference, covering: the eBPF verifier, libbpf, BTF (BPF Type Format), the `bpf()` syscall API, helper functions, kfuncs (BPF kernel functions), program types, BPF maps, BPF iterators, and testing/debugging.
+
+The Cilium project also maintains a comprehensive [BPF and XDP Reference Guide](https://docs.cilium.io/en/latest/bpf/) that goes into great technical depth.
+
 ## BPF Kernel Documentation Index
 
 The kernel documentation at docs.kernel.org/bpf/ covers these topics:
@@ -872,6 +885,7 @@ The verifier recognizes `pointer + bounded_register` expressions (not just `poin
 - [libbpf](https://github.com/libbpf/libbpf)
 - [Cilium BPF Documentation](https://docs.cilium.io/en/latest/bpf/)
 - [XDP Project](https://www.iovisor.org/technology/xdp)
+- [BPF Standardization (kernel docs)](https://docs.kernel.org/bpf/standardization/index.html)
 - [BPF Design Q&A (kernel docs)](https://docs.kernel.org/bpf/bpf_design_QA.html)
 
 ## Related Topics

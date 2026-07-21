@@ -111,11 +111,11 @@ x86_64 uses a 4-level page table structure (with optional 5-level extension). Ea
 
 | Level | Name | Entries | Index Bits | Entry Size |
 |-------|------|---------|------------|------------|
-| 5 | **PGD** (Page Global Directory) | 512 | bits 47:39 | 8 bytes |
-| 4 | **PUD** (Page Upper Directory) | 512 | bits 38:30 | 8 bytes |
-| 3 | **PMD** (Page Middle Directory) | 512 | bits 29:21 | 8 bytes |
-| 2 | **PTE** (Page Table Entry) | 512 | bits 20:12 | 8 bytes |
-| 1 | **Page** | 4096 bytes | bits 11:0 | — |
+| 4 | **PGD** (Page Global Directory) | 512 | bits 47:39 | 8 bytes |
+| 3 | **PUD** (Page Upper Directory) | 512 | bits 38:30 | 8 bytes |
+| 2 | **PMD** (Page Middle Directory) | 512 | bits 29:21 | 8 bytes |
+| 1 | **PTE** (Page Table Entry) | 512 | bits 20:12 | 8 bytes |
+| — | **Page** | 4096 bytes | bits 11:0 | — |
 
 The kernel has one set of page tables per process (stored in `mm_struct->pgd`). When a process is scheduled in, its PGD is loaded into the CR3 register.
 
@@ -158,8 +158,13 @@ Key flags in each PTE/PMD/PUD/PGD entry:
 | 6 | **D** (Dirty) | Set by CPU on write |
 | 7 | **PAT** (Page Attribute Table) | Page size / PAT index |
 | 8 | **G** (Global) | Not flushed on CR3 switch (kernel pages) |
-| 51:M | Reserved | Must be 0 (hardware ignores) |
-| 62 | **NX** (No Execute) | Prevents instruction fetch |
+| 9-11 | Available | Usable by OS (ignored by hardware) |
+| 12:M-1 | **PFN** (Page Frame Number) | Physical address bits 51:12 (hardware-managed) |
+| M:51 | Reserved | Must be 0 (hardware ignores) |
+| 52-62 | Available | Usable by OS (ignored by hardware) |
+| 63 | **NX** (No Execute) | Prevents instruction fetch (requires EFER.NXE) |
+
+> **Note**: M is the maximum physical address bit (typically 51 on current x86_64, supporting up to 4 PB physical memory). The NX bit requires the `EFER.NXE` MSR bit to be enabled.
 
 ### Walking the Page Tables: Kernel Code
 

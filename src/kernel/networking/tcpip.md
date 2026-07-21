@@ -444,7 +444,7 @@ static u32 tcp_reno_ssthresh(struct sock *sk)
 
 ### CUBIC Congestion Control
 
-CUBIC is the default congestion control algorithm in Linux (since 2.6.19). It uses a cubic function for window growth, which is more stable and fair than Reno's linear growth:
+CUBIC is the default congestion control algorithm in Linux (since 2.6.20). It uses a cubic function for window growth, which is more stable and fair than Reno's linear growth:
 
 ```c
 /* net/ipv4/tcp_cubic.c */
@@ -600,7 +600,8 @@ net.ipv4.tcp_available_congestion_control = reno cubic bbr
 # Per-socket selection
 setsockopt(fd, IPPROTO_TCP, TCP_CONGESTION, "bbr", 3);
 
-# BBR tunables
+# BBR tunables (BBRv2, available when tcp_bbr2 module loaded)
+# Note: original BBR (tcp_bbr) has no sysctl tunables
 $ sysctl net.ipv4.tcp_bbr2_high_gain=2890
 $ sysctl net.ipv4.tcp_bbr2_drain_gain=250
 $ sysctl net.ipv4.tcp_bbr2_probe_rtt_mode_ms=200

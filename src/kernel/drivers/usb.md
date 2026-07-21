@@ -443,6 +443,35 @@ without a kernel driver.
 
 ---
 
+## USB Host-Side API Model (from Kernel Docs)
+
+From the kernel documentation at `docs.kernel.org/driver-api/usb/usb.html`:
+
+Host-side drivers for USB devices talk to the "usbcore" APIs. There are two: one for general-purpose drivers (exposed through driver frameworks), and another for drivers that are part of the core (hub driver, host controller drivers).
+
+The device model seen by USB drivers is relatively complex:
+
+- USB supports **four kinds of data transfers** (control, bulk, interrupt, isochronous). Two of them (control and bulk) use bandwidth as it's available, while the other two (interrupt and isochronous) are scheduled to provide guaranteed bandwidth.
+- The device description model includes one or more **"configurations"** per device, only one of which is active at a time. Devices may provide a **BOS descriptor** showing the lowest speed they remain fully operational at.
+- From USB 3.0, configurations have one or more **"functions"**, which provide common functionality and are grouped for power management.
+- Configurations or functions have one or more **"interfaces"**, each with "alternate settings". USB device drivers actually **bind to interfaces, not devices**.
+- Interfaces have one or more **"endpoints"**, each supporting one type and direction of data transfer.
+- The Linux USB API supports synchronous calls for control and bulk messages, and asynchronous calls for all transfer types using **URBs** (USB Request Blocks).
+
+The only host-side drivers that actually touch hardware are the **HCDs** (Host Controller Drivers). All HCDs provide the same functionality through the same API, though differences exist especially with fault handling.
+
+### USB-Standard Types
+
+The USB data types defined in chapter 9 of the USB specification are in `include/uapi/linux/usb/ch9.h`. Key utility functions include:
+
+- `usb_ep_type_string()` — Human-readable endpoint type name
+- `usb_speed_string()` — Human-readable speed name
+- `usb_get_maximum_speed()` — Get maximum speed from device property
+- `usb_state_string()` — Human-readable device state name
+- `usb_decode_interval()` — Decode bInterval into time in 1µs units
+
+---
+
 ## 10. USB Debugging
 
 ### `usbmon`

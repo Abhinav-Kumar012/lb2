@@ -1037,6 +1037,8 @@ The **folio** is the unit of memory management within the page cache. A folio is
 - [LWN: Folios](https://lwn.net/Articles/849538/)
 - [Mel Gorman: Understanding the Linux Virtual Memory Manager](https://www.kernel.org/doc/gorman/)
 
+- [Kernel documentation: Page Cache](https://docs.kernel.org/mm/page_cache.html)
+
 ## Related Topics
 
 - [mmap](mmap.md) — Memory-mapped files and page cache interaction

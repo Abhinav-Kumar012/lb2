@@ -711,6 +711,51 @@ always within_size advise [never] deny force
 | **never** | Disable THP for shmem |
 | **force** | Force huge pages even when not appropriate (testing) |
 
+## HugeTLB Boot Parameters (from Kernel Documentation)
+
+The kernel provides several boot-time parameters for controlling HugeTLB allocation:
+
+| Parameter | Description |
+|-----------|-------------|
+| `hugepagesz=<size>` | Specify a huge page size (e.g., `2M`, `1G`). Must precede `hugepages` for that size. |
+| `hugepages=N` | Pre-allocate N huge pages at boot. If no `hugepagesz` precedes it, uses default size. |
+| `default_hugepagesz=<size>` | Set the default huge page size. Can only be specified once. |
+| `hugepage_alloc_threads=N` | Number of threads for boot-time huge page allocation (default: 25% of HW threads). |
+| `hugetlb_free_vmemmap=on` | Enable HugeTLB Vmemmap Optimization (HVO) to save memory. |
+
+**Node-specific allocation at boot:**
+```bash
+# Allocate 1 huge page on node 0 and 2 huge pages on node 1
+hugepagesz=2M hugepages=0:1,1:2
+```
+
+**Multi-size boot allocation:**
+```bash
+# Allocate both 2M and 1G huge pages at boot
+hugepagesz=2M hugepages=512 hugepagesz=1G hugepages=4
+```
+
+### /proc/meminfo HugeTLB Fields
+
+The `/proc/meminfo` file reports HugeTLB status:
+
+| Field | Meaning |
+|-------|--------|
+| `HugePages_Total` | Size of the huge page pool |
+| `HugePages_Free` | Huge pages not yet allocated |
+| `HugePages_Rsvd` | Reserved pages (commitment to allocate, not yet faulted) |
+| `HugePages_Surp` | Surplus pages above `nr_hugepages` (up to `nr_overcommit_hugepages`) |
+| `Hugepagesize` | Default huge page size in kB |
+| `Hugetlb` | Total memory consumed by huge pages of all sizes |
+
+### Overcommit
+
+`/proc/sys/vm/nr_overcommit_hugepages` controls how many surplus huge pages can be obtained beyond the persistent pool. When the pool is exhausted, the kernel can allocate surplus huge pages from the normal page pool. Surplus pages are freed back when unused.
+
+### HugeTLB Vmemmap Optimization (HVO)
+
+When `CONFIG_HUGETLB_PAGE_OPTIMIZE_VMEMMAP` is set, HVO reduces the memory overhead of tracking huge pages. Each huge page normally requires a `struct page` entry (64 bytes) for every 4K sub-page — a 2M huge page uses 512 × 64 = 32 KB of vmemmap overhead. HVO shares vmemmap pages for tail pages, significantly reducing this overhead for systems with many huge pages.
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
@@ -723,8 +768,9 @@ always within_size advise [never] deny force
 - **Linux Kernel Development, 3rd Edition** — Chapter 12: Memory Management
 - [Kernel source: mm/huge_memory.c](https://elixir.bootlin.com/linux/latest/source/mm/huge_memory.c)
 - [Kernel source: mm/khugepaged.c](https://elixir.bootlin.com/linux/latest/source/mm/khugepaged.c)
-- [Kernel documentation: Huge Pages](https://www.kernel.org/doc/html/latest/admin-guide/mm/hugetlbpage.html)
+- [Kernel documentation: HugeTLB Pages](https://docs.kernel.org/admin-guide/mm/hugetlbpage.html) — Official HugeTLB admin guide from docs.kernel.org
 - [Kernel documentation: THP](https://docs.kernel.org/mm/transhuge.html)
+- [HugeTLB Pages — docs.kernel.org](https://docs.kernel.org/admin-guide/mm/hugetlbpage.html) — Boot parameters, sysfs interface, overcommit, NUMA interaction
 - [LWN: Transparent huge pages in 2.6.38](https://lwn.net/Articles/423584/)
 - [LWN: Two new madvise flags](https://lwn.net/Articles/717293/)
 - [Andrea Arcangeli: Transparent Hugepage Support](https://www.kernel.org/doc/html/latest/mm/transhuge.html)

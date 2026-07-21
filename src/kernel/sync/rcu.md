@@ -315,6 +315,16 @@ Tasks RCU (`CONFIG_TASKS_RCU`) considers voluntary context switches as quiescent
 
 Tasks Trace RCU (`CONFIG_TASKS_TRACE_RCU`) is used by BPF programs. It waits for all tasks to pass through a context switch.
 
+### RCU Flavor Summary
+
+| Flavor | Read-Side API | Quiescent State | Can Sleep? | Use Case |
+|--------|--------------|-----------------|------------|----------|
+| Classic RCU | `rcu_read_lock()` | Context switch, idle, user-space | No | General read-mostly data |
+| Preemptible RCU | `rcu_read_lock()` | Context switch, idle | Yes (preempted) | PREEMPT kernels |
+| SRCU | `srcu_read_lock()` | `synchronize_srcu()` | Yes | Sleepable read-side |
+| Tasks RCU | (none) | Voluntary context switch | N/A | Trampolines, BPF |
+| Tasks Trace RCU | (none) | Context switch | N/A | BPF tracing |
+
 ## Memory Ordering with RCU
 
 RCU provides specific memory ordering guarantees:

@@ -419,10 +419,64 @@ Modern container security uses multiple layers:
 4. **MAC** (SELinux/AppArmor profiles)
 5. **Capabilities** (fine-grained root powers)
 
+## LSM Framework Internals (from docs.kernel.org)
+
+### History
+
+The LSM (Linux Security Modules) project was born out of a presentation by the NSA about SELinux at the 2.5 Linux Kernel Summit in March 2001. In response, Linus Torvalds described a general security framework with hooks at critical kernel operations and opaque security fields in kernel data structures. LSM was a joint development effort by WireX, Immunix, SELinux, SGI, Janus, and key kernel developers including Greg Kroah-Hartman and James Morris. It was incorporated into the mainline kernel in December 2003.
+
+### LSM Security Fields (Blobs)
+
+LSM adds `void *` security pointers ("blobs") to key kernel data structures:
+
+| Data Structure | Security Field Purpose |
+|---------------|----------------------|
+| `struct task_struct` | Process security information |
+| `struct cred` | Credential security (per-credential) |
+| `struct super_block` | Filesystem-level security |
+| `struct inode` | Inode/file security |
+| `struct file` | Open file security |
+| `struct sk_buff` | Network packet security (32-bit integer) |
+| `struct kern_ipc_perm` | System V IPC security |
+| `struct msg_msg` | Message queue message security |
+
+The LSM framework does **not** provide a mechanism for removing registered hooks — once a security module registers its hooks, they remain for the lifetime of the kernel.
+
+### LSM Hook Categories
+
+LSM hooks fall into two major categories:
+
+1. **Security field management hooks** — allocate and free security structures:
+   - `security_inode_alloc()` / `security_inode_free()`
+   - `security_task_alloc()` / `security_task_free()`
+   - `security_cred_alloc()` / `security_cred_free()`
+
+2. **Access control hooks** — make security decisions:
+   - `security_inode_permission()` — check inode access
+   - `security_file_open()` — check file open
+   - `security_task_kill()` — check signal permission
+   - `security_socket_connect()` — check socket connection
+   - `security_bpf()` — check BPF operations
+   - `security_locked_down()` — kernel lockdown checks
+
+### LSM Stacking
+
+The LSM framework provides a close approximation of security module stacking. Modules are called in the order specified by `CONFIG_LSM`. The `/sys/kernel/security/lsm` interface reports the comma-separated list of active security modules:
+
+```bash
+cat /sys/kernel/security/lsm
+# lockdown,capability,yama,apparmor
+```
+
+### LSM Capabilities Module
+
+The POSIX.1e capabilities logic is itself an LSM, stored in `security/commoncap.c`. It is always the first module registered (via its `order` field). Unlike other LSM modules, the capabilities module does not use the general security blobs — it manages its own data directly, for historical performance reasons.
+
 ## Further Reading
 
 - [SELinux Documentation](https://selinuxproject.org/page/Main_Page) — SELinux project
 - [AppArmor Wiki](https://gitlab.com/apparmor/apparmor/-/wikis/home) — AppArmor documentation
+- [Linux Security Modules: General Security Hooks — docs.kernel.org](https://docs.kernel.org/security/lsm.html) — Official LSM framework documentation with hook descriptions
 - [Kernel LSM docs](https://docs.kernel.org/security/lsm.html) — LSM framework
 - [LWN: LSM](https://lwn.net/Articles/635771/) — LSM overview
 - [SELinux Coloring Book](https://people.redhat.com/duffy/selinux/selinux-coloring-book_A4-Stapled.pdf) — Visual SELinux guide

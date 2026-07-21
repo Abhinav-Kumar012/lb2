@@ -819,6 +819,59 @@ graph TB
     L0_KVM -->|VMCS shadowing| L1_KVM
 ```
 
+## KVM API Details (from docs.kernel.org)
+
+### API File Descriptor Hierarchy
+
+The KVM API is organized around three levels of file descriptors:
+
+1. **System fd** (`/dev/kvm`): Global KVM queries and VM creation
+2. **VM fd**: Per-VM operations (memory, IRQ routing, device creation)
+3. **vCPU fd**: Per-vCPU operations (registers, MSRs, execution)
+4. **Device fd**: Per-device operations (virtio-mmio, etc.)
+
+```
+open("/dev/kvm")  →  system_fd
+  KVM_CREATE_VM     →  vm_fd
+    KVM_CREATE_VCPU    →  vcpu_fd
+    KVM_CREATE_DEVICE  →  device_fd
+```
+
+**Key restriction**: VM ioctls must be issued from the same process that created the VM. However, the VM's lifecycle is tied to its file descriptor, not the creating process — if the process forks, the VM persists until all references to the VM fd are closed.
+
+### KVM API Version and Extensions
+
+The KVM API version is stabilized at **12** (since Linux 2.6.22). No backward-incompatible changes are allowed. Extensions are identified by `KVM_CAP_*` constants and can be queried with `KVM_CHECK_EXTENSION`:
+
+```c
+int has_ept = ioctl(kvm_fd, KVM_CHECK_EXTENSION, KVM_CAP_EXT_EPT);
+```
+
+### Capabilities That Can Be Enabled
+
+Some capabilities must be explicitly enabled on vCPUs or VMs:
+
+- **vCPU capabilities** (set via `KVM_ENABLE_CAP` on vcpu fd): e.g., `KVM_CAP_X86_DISABLE_EXITS` to disable MWAIT/HLT exits
+- **VM capabilities** (set via `KVM_ENABLE_CAP` on vm fd): e.g., `KVM_CAP_DIRTY_LOG_RING` for efficient dirty page tracking
+
+### Coalesced MMIO
+
+When `KVM_CAP_COALESCED_MMIO` is available, KVM batches multiple MMIO writes into a shared memory ring, reducing VM exits for device emulation. The ring is mapped at `KVM_COALESCED_MMIO_PAGE_OFFSET * PAGE_SIZE` within the vCPU's mmap area.
+
+### Dirty Page Tracking
+
+For live migration, KVM provides dirty page tracking via `KVM_GET_DIRTY_LOG` or the newer `KVM_CAP_DIRTY_LOG_RING` (Linux 5.9+). The dirty log ring is a per-VM shared memory region that records dirty pages without requiring a separate ioctl, reducing migration overhead.
+
+### KVM on ARM64
+
+On ARM64, the physical address size (IPA size) for a VM defaults to 40 bits but can be configured:
+
+```c
+vm_fd = ioctl(dev_fd, KVM_CREATE_VM, KVM_VM_TYPE_ARM_IPA_SIZE(48));
+```
+
+The IPA size must be between 32 and the host's `Host_IPA_Limit`. This affects stage-2 (guest physical → host physical) address translation size, not the guest-visible `PARange`.
+
 ## References
 
 1. KVM source code: `virt/kvm/` and `arch/x86/kvm/` in the Linux kernel tree
@@ -837,6 +890,7 @@ graph TB
 - [Planet GNU](https://planet.gnu.org/)
 - [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
 
+- [The Definitive KVM API Documentation — docs.kernel.org](https://docs.kernel.org/virt/kvm/api.html) — Official KVM API reference (ioctls, capabilities, extensions, restrictions)
 - [KVM API Documentation — kernel.org](https://www.kernel.org/doc/html/latest/virt/kvm/api.html)
 - [KVM Forum Presentations](https://www.linux-kvm.org/page/KVM_Forum)
 - [Intel SDM Volume 3C — VMX](https://www.intel.com/sdm)

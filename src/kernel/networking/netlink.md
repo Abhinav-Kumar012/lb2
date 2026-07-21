@@ -167,6 +167,48 @@ int send_dump_request(int fd)
 
 ## Netlink Message Format
 
+### Classic vs Generic Netlink
+
+From the kernel documentation at `docs.kernel.org/userspace-api/netlink/intro.html`:
+
+The initial implementation of Netlink (Classic Netlink) depended on static allocation of IDs to subsystems. Classic Netlink protocols include `NETLINK_ROUTE` (general networking), `NETLINK_ISCSI` (iSCSI), and `NETLINK_AUDIT` (audit). The list is defined in `include/uapi/linux/netlink.h`.
+
+**Generic Netlink** (introduced in 2005) allows for dynamic registration of subsystems and subsystem ID allocation. It provides introspection and simplifies implementing the kernel side. The number of subsystems using Generic Netlink outnumbers the older protocols by an order of magnitude, and there are no plans for adding more Classic Netlink protocols.
+
+### Message Flow Pattern
+
+A simplified Netlink "call" follows this pattern:
+
+```c
+fd = socket(AF_NETLINK, SOCK_RAW, NETLINK_GENERIC);
+
+/* format the request */
+send(fd, &request, sizeof(request));
+n = recv(fd, &response, RSP_BUFFER_SIZE);
+/* interpret the response */
+```
+
+For **dumping** (e.g., listing all network interfaces):
+
+```c
+fd = socket(AF_NETLINK, SOCK_RAW, NETLINK_GENERIC);
+send(fd, &request, sizeof(request));
+while (1) {
+    n = recv(fd, &buffer, RSP_BUFFER_SIZE);
+    for (nl_msg in buffer) {
+        if (nl_msg.nlmsg_type == NLMSG_DONE)
+            goto dump_finished;
+        /* process the object */
+    }
+}
+dump_finished:
+```
+
+Three usual types of message exchanges:
+- **do**: Performing a single action (`NLM_F_REQUEST | NLM_F_ACK`)
+- **dump**: Dumping information (`NLM_F_REQUEST | NLM_F_ACK | NLM_F_DUMP`)
+- **multicast**: Asynchronous notifications from the kernel (subscription-based)
+
 ### Header: struct nlmsghdr
 
 ```c
@@ -633,7 +675,8 @@ int subscribe_events(int fd, int family_id)
 
 ## References
 
-- [Kernel Netlink Documentation](https://docs.kernel.org/userspace-api/netlink/intro.html)
+- [Kernel Netlink Documentation: Introduction](https://docs.kernel.org/userspace-api/netlink/intro.html)
+- [Kernel Netlink Documentation: Netlink Handbook](https://docs.kernel.org/userspace-api/netlink/index.html)
 - [man-pages: netlink(7)](https://man7.org/linux/man-pages/man7/netlink.7.html)
 - [man-pages: rtnetlink(7)](https://man7.org/linux/man-pages/man7/rtnetlink.7.html)
 - [LWN: Generic netlink](https://lwn.net/Articles/208755/)

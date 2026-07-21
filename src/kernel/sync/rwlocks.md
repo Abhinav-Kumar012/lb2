@@ -450,6 +450,62 @@ perf lock report
 # Shows which locks have the most contention
 ```
 
+## Percpu Read-Write Semaphores
+
+The kernel provides a specialized read-write semaphore optimized for read-heavy workloads: `struct percpu_rw_semaphore`. Unlike traditional rw_semaphores, percpu rw semaphores use **per-CPU counters** and **RCU** to eliminate cache-line bouncing during concurrent reads.
+
+### The Problem with Traditional rw_semaphore
+
+When multiple cores take a traditional rw_semaphore for reading, the cache line containing the semaphore's counter bounces between L1 caches, causing significant performance degradation on many-core systems.
+
+### How Percpu rw_semaphore Works
+
+- **Read path**: Uses per-CPU counters (no atomic instructions, no cache-line bouncing). Each CPU increments its own local counter. The read lock/unlock path uses RCU.
+- **Write path**: Very expensive — calls `synchronize_rcu()`, which can take hundreds of milliseconds. The writer must wait for all CPUs to pass through a quiescent state.
+
+### API
+
+```c
+#include <linux/percpu-rwsem.h>
+
+/* Declaration and initialization */
+struct percpu_rw_semaphore my_sem;
+percpu_init_rwsem(&my_sem);   /* Returns 0 on success, -ENOMEM on failure */
+
+/* Read lock (very fast — per-CPU, no atomics) */
+percpu_down_read(&my_sem);
+/* ... read-side critical section ... */
+percpu_up_read(&my_sem);
+
+/* Write lock (very slow — calls synchronize_rcu()) */
+percpu_down_write(&my_sem);
+/* ... write-side critical section ... */
+percpu_up_write(&my_sem);
+
+/* Cleanup */
+percpu_free_rwsem(&my_sem);   /* Must free to avoid memory leak */
+```
+
+### When to Use
+
+| Scenario | Use percpu_rw_semaphore? |
+|----------|------------------------|
+| Reads dominate (99%+), writes are rare | **Yes** — read path has zero contention |
+| Writes are frequent | **No** — write path is extremely expensive |
+| Read-side must be very fast | **Yes** — no atomic instructions in read path |
+| Need IRQ-safe locking | **No** — use rwlock_t instead |
+
+### Comparison with Other rw Locks
+
+| Lock Type | Read Cost | Write Cost | Cache Behavior |
+|-----------|-----------|------------|----------------|
+| `rwlock_t` | Atomic inc/dec | Atomic exchange | Cache-line bouncing on reads |
+| `rw_semaphore` | Atomic inc/dec + optimistic spin | Atomic exchange + RCU-like wait | Cache-line bouncing on reads |
+| `percpu_rw_semaphore` | Per-CPU counter (no atomics) | `synchronize_rcu()` (100ms+) | **No bouncing** on reads |
+| RCU | No locking at all | Grace period wait | **No bouncing** on reads |
+
+The idea of using RCU for optimized rw-locks was introduced by Eric Dumazet, and the implementation was written by Mikulas Patocka.
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
@@ -459,6 +515,7 @@ perf lock report
 - [Planet GNU](https://planet.gnu.org/)
 - [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
 
+- [Percpu rw semaphores — docs.kernel.org](https://docs.kernel.org/locking/percpu-rw-semaphore.html) — Official kernel documentation for percpu rw semaphores
 - [rwlock API](https://www.kernel.org/doc/Documentation/locking/locktypes.txt) — Kernel lock types overview
 - [rw_semaphore internals](https://www.kernel.org/doc/Documentation/locking/rwsem-design.txt) — Design document
 - [LWN: Scaling rw_semaphores](https://lwn.net/Articles/565734/) — Optimistic spinning

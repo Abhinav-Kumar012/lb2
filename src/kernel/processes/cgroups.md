@@ -449,6 +449,7 @@ cgroup v2 supports safe delegation of subtrees to unprivileged users. When `nsde
 - [Planet GNU](https://planet.gnu.org/)
 - [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
 
+- [Control Group v2](https://docs.kernel.org/admin-guide/cgroup-v2.html) — Official kernel cgroup v2 documentation
 - [cgroup v2 documentation](https://www.kernel.org/doc/Documentation/cgroup-v2.txt) — Official Linux kernel documentation
 - [cgroup v1 documentation](https://www.kernel.org/doc/Documentation/cgroup-v1/) — Legacy cgroup docs
 - [systemd resource control](https://www.freedesktop.org/software/systemd/man/latest/systemd.resource-control.html) — systemd cgroup integration

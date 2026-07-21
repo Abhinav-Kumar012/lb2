@@ -513,6 +513,42 @@ $ fio --name=xfs-meta --filename=/data/fio-meta \
 | Realtime volume | Yes | No |
 | Inline data | Yes | Yes |
 
+## XFS Internal Design Documents (from docs.kernel.org)
+
+The kernel documentation at `docs.kernel.org/filesystems/xfs/` provides deep technical details on several XFS subsystems:
+
+### Delayed Logging Design
+
+XFS's delayed logging (logical logging) is a critical performance optimization. The design document covers:
+
+- **Transactions in XFS**: How operations are wrapped in transactions with reservation-based space accounting
+- **Asynchronous nature**: Transactions are not immediately written to disk — they are batched in the CIL
+- **Transaction Reservations**: Each transaction type has a pre-calculated log space reservation
+- **Re-logging**: Dirty items can be re-logged multiple times within a single CIL checkpoint interval, reducing log I/O
+- **CIL (Committed Item List)**: The in-memory buffer that accumulates dirty metadata items across multiple transactions
+- **AIL (Active Item List)**: Tracks items whose log entries have been flushed but metadata hasn't reached its final location
+
+### Self-Describing Metadata
+
+Modern XFS (v5 superblock, metadata CRCs) uses self-describing metadata structures that include:
+
+- **Magic numbers**: Each metadata block starts with a magic number identifying its type
+- **UUID**: Each block contains the filesystem UUID for cross-device validation
+- **Block address**: The expected location of the block on disk
+- **Log sequence number (LSN)**: For cache validity checking
+- **CRC32c checksum**: For integrity verification
+
+This enables runtime validation — the kernel can verify metadata consistency on every read, catching corruption early.
+
+### Online Fsck Design
+
+XFS is developing online filesystem checking (`xfs_scrub`), which can verify and repair filesystem consistency while the filesystem remains mounted. The design involves:
+
+- **Scan-and-fix approach**: Scan metadata structures and fix inconsistencies in-place
+- **Cross-referencing**: Compare data structures (e.g., reverse-mapping B+ tree vs. inode extent maps) to detect discrepancies
+- **Locking strategy**: Use existing filesystem locks to ensure consistency during scrub operations
+- **Repair**: Fix detected problems by rebuilding corrupted data structures from redundant information
+
 ## Further Reading
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
@@ -522,6 +558,10 @@ $ fio --name=xfs-meta --filename=/data/fio-meta \
 - [Planet GNU](https://planet.gnu.org/)
 - [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
 
+- [XFS Documentation Index — docs.kernel.org](https://docs.kernel.org/filesystems/xfs/index.html) — Official XFS kernel documentation (logging design, self-describing metadata, online fsck)
+- [XFS Delayed Logging Design](https://docs.kernel.org/filesystems/xfs/xfs-delayed-logging-design.html) — Detailed CIL/AIL design
+- [XFS Self Describing Metadata](https://docs.kernel.org/filesystems/xfs/xfs-self-describing-metadata.html) — CRC, magic numbers, runtime validation
+- [XFS Online Fsck Design](https://docs.kernel.org/filesystems/xfs/xfs-online-fsck-design.html) — Online filesystem checking architecture
 - [XFS documentation (kernel.org)](https://www.kernel.org/doc/html/latest/filesystems/xfs.html) — Official docs
 - [XFS wiki (xfs.org)](https://xfs.org/) — Community wiki
 - [xfs.org: Architecture and Design](https://xfs.org/index.php/Architecture_and_Design) — Design documents

@@ -865,6 +865,7 @@ The `compaction_proactiveness` tunable (range 0–100, default 20) controls back
 - [LWN: Zram](https://lwn.net/Articles/545216/)
 - [LWN: THP swap](https://lwn.net/Articles/703927/)
 - [Documentation for /proc/sys/vm/ (kernel docs)](https://docs.kernel.org/admin-guide/sysctl/vm.html)
+- [Kernel documentation: zswap](https://docs.kernel.org/mm/zswap.html)
 
 ## Related Topics
 

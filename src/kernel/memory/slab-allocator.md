@@ -685,6 +685,8 @@ MODULE_LICENSE("GPL");
 - [LWN: SLUB allocator](https://lwn.net/Articles/229984/)
 - [Christoph Lameter: SLUB — The Unqueued Slab Allocator](https://www.kernel.org/doc/gorman/html/understand/understand011.html)
 
+- [Kernel documentation: SLUB allocator](https://docs.kernel.org/mm/slub.html)
+
 ## Related Topics
 
 - [Page Allocator](page-allocator.md) — Underlying physical page allocation

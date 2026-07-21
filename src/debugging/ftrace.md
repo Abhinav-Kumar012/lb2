@@ -662,6 +662,84 @@ KernelShark provides:
 7. **Save traces with `trace-cmd record`** — for later analysis and sharing
 8. **Use KernelShark for visualization** — timelines are easier to read than text
 
+## ftrace Key Files (from docs.kernel.org)
+
+The kernel documentation at `docs.kernel.org/trace/ftrace.html` provides a comprehensive reference for all ftrace control files. Here are the most important ones:
+
+### Control and Output Files
+
+| File | Description |
+|------|-------------|
+| `current_tracer` | Set/display the active tracer. Changing it clears the ring buffer. |
+| `available_tracers` | List tracers compiled into the kernel. |
+| `tracing_on` | Enable/disable writing to the ring buffer (1/0). Does not stop tracing overhead. |
+| `trace` | Read the trace buffer (static, non-consuming). Use `O_TRUNC` to clear. |
+| `trace_pipe` | Read and consume trace events (blocking, sequential). Unlike `trace`, each read consumes data. |
+| `trace_options` | Control output format (timestamps, stack traces, etc.). |
+| `options/` | Directory with per-option files (write 1/0 to enable/disable). |
+| `tracing_max_latency` | Record max latency. New max only recorded if greater than this value (µs). |
+| `tracing_thresh` | Only record latency traces when latency exceeds this threshold (µs). |
+
+### Buffer Configuration
+
+| File | Description |
+|------|-------------|
+| `buffer_size_kb` | Per-CPU ring buffer size (in KB). Displayed per-CPU if sizes differ. |
+| `buffer_total_size_kb` | Total combined size of all CPU buffers. |
+| `buffer_subbuf_size_kb` | Sub-buffer size. Events cannot exceed sub-buffer size. Changing it stops tracing and discards data. |
+| `buffer_percent` | Watermark for waking blocked readers (0=any data, 50=half full, 100=completely full). |
+| `free_buffer` | On close, ring buffer is resized to minimum. Useful for cleanup. |
+
+### Function Filtering
+
+| File | Description |
+|------|-------------|
+| `set_ftrace_filter` | Limit function tracing to listed functions. Supports index numbers and wildcards. |
+| `set_ftrace_notrace` | Exclude functions from tracing. Takes precedence over filter. |
+| `set_ftrace_pid` | Trace only listed PIDs. With `function-fork` option, children inherit tracing. |
+| `set_ftrace_notrace_pid` | Ignore listed PIDs. Takes precedence over `set_ftrace_pid`. |
+| `set_event_pid` | Filter event tracing to listed PIDs. |
+| `available_filter_functions` | List of all traceable functions. |
+
+### Per-CPU Control
+
+| File | Description |
+|------|-------------|
+| `tracing_cpumask` | Hex mask controlling which CPUs are traced. |
+| `per_cpu/cpuN/` | Per-CPU directories with `trace`, `trace_pipe`, and `buffer_size_kb`. |
+
+### Trace Options
+
+Key options (set via `options/` directory or `trace_options` file):
+
+| Option | Effect |
+|--------|--------|
+| `print-parent` | Show parent function in function tracer |
+| `sym-offset` | Show symbol + offset instead of just symbol |
+| `verbose` | Show detailed event format |
+| `bin` | Binary output format |
+| `stacktrace` | Include stack trace with each event |
+| `trace_printk` | Allow `trace_printk()` output |
+| `function-fork` | Children inherit parent's ftrace PID filter |
+
+### Filter Commands
+
+ftrace supports advanced filter commands:
+
+```bash
+# Enable an event and set a filter with a command
+echo 'prev_pid == 1234' > /sys/kernel/tracing/events/sched/sched_switch/filter
+
+# Enable a trigger (stacktrace on event)
+echo 'stacktrace' > /sys/kernel/tracing/events/sched/sched_switch/trigger
+
+# Conditional traceoff (stop tracing when condition met)
+echo 'traceoff:prev_pid==1234' > /sys/kernel/tracing/events/sched/sched_switch/trigger
+
+# Snapshot trigger (take snapshot on event)
+echo 'snapshot:prev_pid==1234' > /sys/kernel/tracing/events/sched/sched_switch/trigger
+```
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
@@ -671,6 +749,7 @@ KernelShark provides:
 - [Planet GNU](https://planet.gnu.org/)
 - [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
 
+- [ftrace - Function Tracer — docs.kernel.org](https://docs.kernel.org/trace/ftrace.html) — Official ftrace documentation (comprehensive file reference, options, filter commands)
 - [ftrace Documentation](https://www.kernel.org/doc/html/latest/trace/ftrace.html)
 - [trace-cmd man page](https://man7.org/linux/man-pages/man1/trace-cmd.1.html)
 - [KernelShark](https://kernelshark.org/)

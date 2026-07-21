@@ -725,6 +725,67 @@ struct net {
 | ID allocation | `idr` | Allocates small integer IDs |
 | Object lifetime | `kref` | Atomic reference counting |
 
+## kref — Detailed API Reference (from docs.kernel.org)
+
+The kernel documentation at `docs.kernel.org/core-api/kref.html` provides detailed guidance on using krefs correctly, including important concurrency rules and patterns.
+
+### The Three kref Rules
+
+When using krefs, you must follow these rules:
+
+1. **Non-temporary copies require `kref_get()`**: If you make a non-temporary copy of a pointer that can be passed to another thread, you must increment the refcount with `kref_get()` *before* passing it off.
+
+2. **Always call `kref_put()` when done**: When you are done with a pointer, call `kref_put()`. If it's the last reference, the release function is called.
+
+3. **Serialize access when gaining a reference without holding one**: If you try to gain a reference to a kref-ed structure without already holding a valid pointer, you must use a mutex or other synchronization to prevent `kref_put()` from running concurrently.
+
+### Advanced Pattern: kref_get_unless_zero()
+
+When looking up objects in shared data structures (hash tables, lists), you can't safely `kref_get()` without already holding a reference. Instead, use `kref_get_unless_zero()`:
+
+```c
+static struct my_data *get_entry(void)
+{
+    struct my_data *entry = NULL;
+    mutex_lock(&mutex);
+    if (!list_empty(&q)) {
+        entry = container_of(q.next, struct my_data, link);
+        if (!kref_get_unless_zero(&entry->refcount))
+            entry = NULL;  /* Object being freed */
+    }
+    mutex_unlock(&mutex);
+    return entry;
+}
+```
+
+This allows lockless `kref_put()` in the release path while safely detecting objects that are being freed.
+
+### kref with RCU
+
+Combining krefs with RCU enables very efficient read-side lookups:
+
+```c
+static struct my_data *get_entry_rcu(void)
+{
+    struct my_data *entry = NULL;
+    rcu_read_lock();
+    if (!list_empty(&q)) {
+        entry = container_of(q.next, struct my_data, link);
+        if (!kref_get_unless_zero(&entry->refcount))
+            entry = NULL;
+    }
+    rcu_read_unlock();
+    return entry;
+}
+```
+
+The `kref_put()` release function must ensure the `struct kref` member remains valid for an RCU grace period (e.g., using `kfree_rcu()` or `synchronize_rcu()` before `kfree()`).
+
+### Additional kref Functions
+
+- `kref_put_mutex()` — decrements refcount under a mutex; the mutex is held during the release call
+- `kref_get_unless_zero()` — atomically increments only if refcount is non-zero; returns true on success
+
 ## Further Reading
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
@@ -734,6 +795,7 @@ struct net {
 - [Planet GNU](https://planet.gnu.org/)
 - [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
 
+- [Adding reference counters (krefs) to kernel objects — docs.kernel.org](https://docs.kernel.org/core-api/kref.html) — Official kref documentation with concurrency rules and RCU patterns
 - [Linux kernel data structures documentation](https://www.kernel.org/doc/html/latest/core-api/kernel-api.html)
 - [LWN: A new kernel radix tree](https://lwn.net/Articles/175432/)
 - [LWN: The maple tree](https://lwn.net/Articles/845507/)
