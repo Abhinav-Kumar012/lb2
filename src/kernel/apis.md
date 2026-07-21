@@ -428,6 +428,97 @@ graph LR
 
 ---
 
+## 10. Basic Kernel Library Functions
+
+The kernel provides a set of **basic C library-like functions** that drivers and other kernel code can use. However, drivers **cannot** use standard C library functions (like those from `<string.h>` or `<stdlib.h>` in user space) — the kernel has its own implementations.
+
+### String Conversion APIs
+
+The kernel provides safe string-to-number conversion functions that validate input and handle errors gracefully. These are the preferred way to convert strings to integers in kernel code:
+
+| Function | Purpose |
+|----------|---------|
+| `kstrtoul(buf, base, &res)` | Convert string to `unsigned long` |
+| `kstrtol(buf, base, &res)` | Convert string to `long` |
+| `kstrtoull(buf, base, &res)` | Convert string to `unsigned long long` |
+| `kstrtoll(buf, base, &res)` | Convert string to `long long` |
+| `kstrtouint(buf, base, &res)` | Convert string to `unsigned int` |
+| `kstrtoint(buf, base, &res)` | Convert string to `int` |
+| `kstrtou16(buf, base, &res)` | Convert string to `u16` |
+| `kstrtos16(buf, base, &res)` | Convert string to `s16` |
+| `kstrtou8(buf, base, &res)` | Convert string to `u8` |
+| `kstrtos8(buf, base, &res)` | Convert string to `s8` |
+| `kstrtobool(buf, &res)` | Convert string to `bool` ("1", "y", "yes", "on", "Y", "YES", "ON") |
+
+All `kstrto*` functions return `0` on success or a negative error code (`-EINVAL`, `-ERANGE`) on failure. They perform proper input validation and range checking.
+
+```c
+#include <linux/kstrtox.h>
+
+unsigned long value;
+int ret = kstrtoul(buf, 10, &value);
+if (ret)
+    return ret;  /* Invalid input */
+```
+
+### `simple_strtol` / `simple_strtoul` (Legacy)
+
+Older kernel code uses `simple_strtol()` and `simple_strtoul()`, but these are **deprecated** because they don't perform input validation. Always prefer the `kstrto*` family.
+
+### `snprintf` and `vsnprintf` Format Extensions
+
+The kernel's `snprintf()` / `vsnprintf()` support **format extensions** beyond standard C printf. These are heavily used in `printk` and driver code:
+
+| Format | Output |
+|--------|--------|
+| `%pS` | Symbol name + offset (for kernel addresses) |
+| `%pSR` | Symbol name + offset + size (with `kallsyms`) |
+| `%pF` | Full function name (deprecated, use `%pS`) |
+| `%pB` | Symbol name without offset |
+| `%pa` | Physical address (`phys_addr_t *`) |
+| `%pr` | Struct resource (start–end, flags) |
+| `%pM` | MAC address (6 bytes, colon-separated) |
+| `%pMR` | MAC address (reversed) |
+| `%pI4` | IPv4 address (network byte order) |
+| `%pI6` | IPv6 address |
+| `%pIS` | IPv4 or IPv6 (struct sockaddr *) |
+| `%pUb` | UUID (lower case, no dashes) |
+| `%pUB` | UUID (upper case, with dashes) |
+| `%*ph` | Hex dump of a buffer (e.g., `%16ph` for 16 bytes) |
+| `%*phC` | Hex dump with colon separators |
+| `%pG` | gfp_t flags (human readable) |
+| `%ps` | Symbol name only (no address) |
+| `%pK` | Kernel address (respecting `kptr_restrict`) |
+
+```c
+pr_info("MAC: %pM\n", dev->dev_addr);
+pr_info("IP: %pI4\n", &ip_addr);
+pr_info("Symbol: %pS\n", func_ptr);
+pr_info("GFP flags: %pG\n", (void *)(unsigned long)gfp);
+
+char buf[64];
+snprintf(buf, sizeof(buf), "device at %pa\n", &phys_addr);
+```
+
+### Why Not Standard C Library Functions?
+
+Kernel code runs in a freestanding environment with no libc. The kernel provides its own implementations of common functions:
+
+- `strlen()`, `strcpy()`, `strncpy()`, `strcmp()` — in `lib/string.c`
+- `memcpy()`, `memset()`, `memcmp()` — architecture-optimized versions
+- `snprintf()`, `vsnprintf()`, `sscanf()` — with kernel format extensions
+- `sort()`, `bsearch()` — in `lib/sort.c`, `lib/bsearch.c`
+
+The kernel versions may differ subtly from their libc counterparts (e.g., `strncpy` doesn't NUL-terminate — use `strscpy` instead).
+
+### Full Reference
+
+For the complete kernel API reference including all library functions, data structure helpers, and format specifiers:
+
+- [Kernel API: Basic kernel library functions](https://docs.kernel.org/core-api/kernel-api.html)
+- [Kernel API: String parsing](https://docs.kernel.org/core-api/kernel-api.html)
+- [Kernel API: Sorting](https://docs.kernel.org/core-api/kernel-api.html)
+
 ## Further Reading
 
 - [GNU Project Documentation](https://www.gnu.org/doc/doc.html)

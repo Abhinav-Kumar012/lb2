@@ -644,6 +644,186 @@ $ sysctl net.ipv4.tcp_max_syn_backlog=65535
 $ sysctl net.ipv4.tcp_congestion_control=bbr
 ```
 
+## Networking Subsystem Index
+
+The Linux networking subsystem covers far more than TCP/IP. The kernel includes support for a wide range of networking technologies, hardware device classes, and diagnostic tools. Below is an overview of the major subsystems and topics indexed in the kernel networking documentation.
+
+### Advanced Data Path Technologies
+
+#### AF_XDP (Express Data Path)
+
+AF_XDP is an address family optimized for high-performance packet processing. It provides a zero-copy path between the NIC and user space, bypassing the kernel networking stack entirely:
+
+- Frames are transferred via shared memory **UMEM** regions
+- Four ring buffers: RX, TX, Fill, and Completion
+- Can operate in **zero-copy mode** (with NIC driver support) or **copy mode**
+- Ideal for high-frequency packet processing, NFV, and load balancers
+
+```c
+/* AF_XDP socket setup */
+int xsk_fd = socket(AF_XDP, SOCK_RAW, 0);
+/* Bind to queue 0 on eth0 */
+struct sockaddr_xdp sxdp = {
+    .sxdp_family = AF_XDP,
+    .sxdp_ifindex = if_nametoindex("eth0"),
+    .sxdp_queue_id = 0,
+};
+bind(xsk_fd, (struct sockaddr *)&sxdp, sizeof(sxdp));
+```
+
+See the [AF_XDP documentation](https://docs.kernel.org/networking/af_xdp.html) for full details.
+
+#### SocketCAN
+
+SocketCAN provides a socket-based interface for CAN (Controller Area Network) bus communication, used extensively in automotive and industrial systems:
+
+- Uses standard socket API (`socket()`, `bind()`, `send()`, `recv()`)
+- Supports CAN 2.0A/B and CAN FD frames
+- Protocols: `CAN_RAW`, `CAN_BCM` (Broadcast Manager), `CAN_ISOTP` (ISO-TP)
+- Multiple CAN interfaces can be used simultaneously
+
+```c
+int s = socket(PF_CAN, SOCK_RAW, CAN_RAW);
+struct sockaddr_can addr = {
+    .can_family = AF_CAN,
+    .can_ifindex = if_nametoindex("can0"),
+};
+bind(s, (struct sockaddr *)&addr, sizeof(addr));
+```
+
+### Network Device Architecture
+
+#### Distributed Switch Architecture (DSA)
+
+DSA is a framework for managing hardware network switches (typically embedded in routers and switches). It presents each switch port as a separate Linux network interface:
+
+- Supports switches connected via MDIO, SPI, or Ethernet
+- Switch ports appear as regular `ethN` interfaces
+- VLAN, bridging, and routing offload supported
+- Used in embedded networking devices (OpenWrt routers, etc.)
+
+#### Devlink
+
+Devlink is a generic framework for configuring and managing network device resources and parameters that don't fit into other APIs (ethtool, iproute2, etc.):
+
+- Device-level resource management (e.g., number of TCAM entries)
+- Firmware flash and activation
+- Health reporting and recovery
+- Device info (serial number, board info)
+- Shared buffer configuration for switches
+
+```bash
+# List all devlink devices
+$ devlink dev show
+
+# Show device info
+$ devlink dev info pci/0000:03:00.0
+
+# Configure resources
+$ devlink resource set pci/0000:03:00.0 path /kvd/linear size 98304
+```
+
+#### Netlink Ethtool Interface
+
+Modern ethtool operations use a **netlink-based interface** (`ETHTOOL_GENL_`) instead of the legacy `ioctl` path. This provides:
+
+- Structured, extensible message format
+- Multi-attribute support (get/set multiple params in one call)
+- Notifications for configuration changes
+- Better support for modern NIC features
+
+### Hardware Device Drivers
+
+The kernel networking subsystem includes drivers for a wide range of hardware categories:
+
+| Category | Examples | Kernel Directory |
+|----------|----------|------------------|
+| **Ethernet** | igb, ixgbe, mlx5, bnxt, e1000e, r8169 | `drivers/net/ethernet/` |
+| **WiFi (WLAN)** | iwlwifi, ath11k, mt76, rtw89, brcmfmac | `drivers/net/wireless/` |
+| **CAN** | kvaser, peak, socketcan, m_can | `drivers/net/can/` |
+| **Cellular / WWAN** | qmi_wwan, cdc_mbim, sierra_net | `drivers/net/wwan/` |
+| **InfiniBand / RDMA** | mlx5, bnxt_re, efa | `drivers/infiniband/` |
+| **Bluetooth** | btusb, btintel, btmtk | `net/bluetooth/`, `drivers/bluetooth/` |
+| **Tunneling** | vxlan, geneve, gre, ipip | `drivers/net/` (virtual) |
+| **Bonding / Team** | bonding, team | `drivers/net/bonding/`, `drivers/net/team/` |
+
+### Networking Diagnostics
+
+The kernel provides extensive networking diagnostics and debugging tools:
+
+#### /proc/net/ Files
+
+```bash
+# Per-interface statistics
+$ cat /proc/net/dev
+
+# TCP connection table
+$ cat /proc/net/tcp
+
+# UDP sockets
+$ cat /proc/net/udp
+
+# ARP table
+$ cat /proc/net/arp
+
+# Routing table
+$ cat /proc/net/route
+
+# Netfilter conntrack
+$ cat /proc/net/nf_conntrack
+
+# SNMP counters
+$ cat /proc/net/snmp
+
+# Network softirq statistics
+$ cat /proc/net/softnet_stat
+```
+
+#### Socket Statistics (ss)
+
+```bash
+# All TCP sockets with process info
+$ ss -tunap
+
+# Filter by state
+$ ss -t state established
+
+# Show socket memory usage
+$ ss -tum
+
+# Show BPF programs attached to sockets
+$ ss --bpf
+```
+
+#### Network Namespaces
+
+```bash
+# List network namespaces
+$ ip netns list
+
+# Create a namespace
+$ ip netns add test_ns
+
+# Run a command in a namespace
+$ ip netns exec test_ns ip addr
+
+# Move an interface to a namespace
+$ ip link set veth0 netns test_ns
+```
+
+#### Tracepoints and BPF
+
+```bash
+# Trace TCP retransmissions
+$ sudo bpftrace -e 'kprobe:tcp_retransmit_skb { printf("retransmit\n"); }'
+
+# Trace dropped packets
+$ sudo perf trace -e 'net:*' -- sleep 5
+
+# Count packets by protocol
+$ sudo bpftool prog list
+```
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)

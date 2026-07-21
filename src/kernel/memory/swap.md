@@ -601,6 +601,175 @@ static void print_swap_info(void)
 }
 ```
 
+## /proc/sys/vm/ Tunables
+
+The kernel exposes numerous VM tunables under `/proc/sys/vm/`. These parameters control memory allocation behavior, swap aggressiveness, dirty page writeback, and cache management. Changes can be made at runtime via `sysctl` or by writing to the `/proc/sys/vm/` files.
+
+### Important VM Tunables Reference Table
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `admin_reserve_kbytes` | 8192 | Free pages reserved for processes with `cap_sys_admin`. Ensures root/admin can log in and manage the system even under memory pressure. |
+| `dirty_background_ratio` | 10 | Percentage of total available memory that can be dirty before background writeback starts (via `flush` threads). |
+| `dirty_background_bytes` | 0 | Alternative to `dirty_background_ratio` — absolute byte threshold. Only one of the two can be non-zero. |
+| `dirty_ratio` | 20 | Percentage of total available memory a process can have dirty before it is forced into synchronous writeback. |
+| `dirty_bytes` | 0 | Alternative to `dirty_ratio` — absolute byte threshold. Only one of the two can be non-zero. |
+| `dirty_expire_centisecs` | 3000 | Dirty data older than this (in centiseconds = 30 seconds default) is eligible for writeback by the flusher threads. |
+| `dirty_writeback_centisecs` | 500 | Interval (in centiseconds = 5 seconds default) at which the flusher threads wake up to write back dirty data. |
+| `drop_caches` | 0 | Writing `1` frees pagecache, `2` frees dentries/inodes, `3` frees both. Only drops clean (not dirty) caches. Useful for benchmarking. |
+| `swappiness` | 60 | Controls the balance between reclaiming file pages vs anonymous pages (swap). Range: 0–200. Lower = prefer file cache; higher = prefer swapping. |
+| `overcommit_memory` | 0 | Memory overcommit policy: `0` = heuristic (default), `1` = always allow, `2` = strict (commit ≤ swap + RAM × overcommit_ratio). |
+| `overcommit_ratio` | 50 | Percentage of RAM usable for committed memory in mode 2 (combined with swap). |
+| `overcommit_kbytes` | 0 | Absolute byte limit for overcommit (alternative to ratio). Only effective in mode 2. |
+| `min_free_kbytes` | ~67584 | Minimum free memory (in KiB) the kernel tries to maintain. Affects watermark levels for all zones. |
+| `vfs_cache_pressure` | 100 | Controls the kernel's tendency to reclaim dentry and inode cache. Higher = more aggressive reclaim; lower = retain caches longer. |
+| `nr_hugepages` | 0 | Number of persistent (static) huge pages to allocate. Size depends on `HUGETLB_PAGE_SIZE_VARIABLE`. |
+| `nr_overcommit_hugepages` | 0 | Number of huge pages that can be allocated on top of `nr_hugepages` (overcommit pool). |
+| `zone_reclaim_mode` | 0 | NUMA zone reclaim policy. `0` = disabled (allocate from any node); `1` = reclaim from local node before remote; `2` = write dirty pages; `4` = swap pages. Can be combined (bitmask). |
+| `watermark_scale_factor` | 10 | Controls the gap between min/low/high watermarks as a fraction of total memory (÷ 10000). Higher = larger gap, less frequent direct reclaim but more memory reserved. |
+| `watermark_boost_factor` | 15000 | Boosts watermarks temporarily when fragmentation is detected. Set to 0 to disable. |
+| `extra_free_kbytes` | 0 | Additional free pages to maintain above `min_free_kbytes`. Helps reduce latency on systems with bursty allocations. |
+| `percpu_pagelist_high_fraction` | 0 | Divisor for per-CPU page list high watermark. When set, each CPU's page cache high mark is `managed_pages / this_value`. |
+| `stat_interval` | 1 | Interval (in seconds) between VM statistics updates. Increase to reduce overhead. |
+| `mmap_min_addr` | 65536 | Minimum virtual address allowed for `mmap()`. Prevents userspace from mapping low addresses (NULL pointer protection). |
+| `mmap_rnd_bits` | 28 | Number of random bits for mmap ASLR on x86_64. |
+| `panic_on_oom` | 0 | `0` = OOM killer (default); `1` = panic on OOM; `2` = panic on OOM for non-`mempolicy` allocations. |
+| `oom_kill_allocating_task` | 0 | If 1, OOM kills the allocating task instead of selecting the worst offender. |
+| `oom_dump_tasks` | 1 | If 1, dump task list to kernel log on OOM (useful for debugging). |
+| `max_map_count` | 65530 | Maximum number of VMAs (Virtual Memory Areas) per process. Increase for processes with many `mmap()` calls. |
+| `hugetlb_shm_group` | 0 | GID allowed to create SysV shared memory segments using huge pages. |
+| `compact_memory` | 0 | Writing `1` triggers memory compaction on all zones (for testing/optimization). |
+| `compact_unevictable_allowed` | 1 | Allow compaction of unevictable (locked) pages. |
+| `laptop_mode` | 0 | When enabled, delays and batches disk I/O to allow drives to spin down (power saving). |
+| `block_dump` | 0 | Log block I/O debugging info to kernel log. |
+| `page-cluster` | 3 | Number of pages to read ahead during swap-in (2^N pages). `0` disables swap readahead. |
+
+### Dirty Page Writeback
+
+The dirty page tunables form a hierarchy:
+
+```text
+1. Process writes dirty pages to page cache
+2. When dirty_ratio/dirty_bytes threshold is hit → process blocks (sync writeback)
+3. Background flusher wakes every dirty_writeback_centisecs
+4. Pages older than dirty_expire_centisecs are written back
+5. When dirty_background_ratio/dirty_background_bytes is hit → background writeback starts
+```
+
+```bash
+# View current dirty page stats
+$ cat /proc/meminfo | grep -i dirty
+Dirty:            262144 kB
+Writeback:             0 kB
+WritebackTmp:          0 kB
+
+# Tune for database workloads (less aggressive background writeback)
+$ sysctl vm.dirty_background_ratio=5
+$ sysctl vm.dirty_ratio=10
+$ sysctl vm.dirty_expire_centisecs=500
+$ sysctl vm.dirty_writeback_centisecs=100
+```
+
+### Swappiness Deep Dive
+
+The `swappiness` parameter controls how aggressively the kernel swaps out anonymous pages:
+
+```bash
+# Check current value
+$ cat /proc/sys/vm/swappiness
+60
+
+# For database servers (keep data in page cache)
+$ sysctl vm.swappiness=10
+
+# For systems with zram swap (can be more aggressive)
+$ sysctl vm.swappiness=100
+
+# Disable swap entirely (not recommended for most workloads)\$ swapoff -a
+```
+
+| Value | Behavior |
+|-------|----------|
+| 0 | Only swap if absolutely necessary (OOM risk higher) |
+| 1–30 | Prefer file cache; swap sparingly |
+| 60 | Default; balanced |
+| 100 | Equal preference between file and anonymous pages |
+| 200 | Strongly prefer swapping (aggressive) |
+
+### Drop Caches
+
+The `drop_caches` tunable is useful for benchmarking and debugging. It drops **clean** caches only — dirty data is never dropped:
+
+```bash
+# Drop pagecache only
+$ sync && echo 1 > /proc/sys/vm/drop_caches
+
+# Drop dentries and inodes
+$ sync && echo 2 > /proc/sys/vm/drop_caches
+
+# Drop both pagecache and slab (dentries/inodes)
+$ sync && echo 3 > /proc/sys/vm/drop_caches
+
+# Verify the effect
+$ free -h
+              total        used        free      shared  buff/cache   available
+Mem:           31Gi        12Gi        17Gi       512Mi       512Mi        18Gi
+```
+
+> **Warning**: Dropping caches in production is generally a bad idea. It causes a spike in I/O as caches are repopulated, and can cause temporary performance degradation.
+
+### Overcommit Memory
+
+```bash
+# Check current mode
+$ cat /proc/sys/vm/overcommit_memory
+0
+
+# View committed vs limit
+$ grep -i commit /proc/meminfo
+Committed_AS:   25165824 kB
+CommitLimit:    24772608 kB
+
+# Mode 2: strict overcommit
+$ sysctl vm.overcommit_memory=2
+$ sysctl vm.overcommit_ratio=80
+```
+
+### Watermark Tuning
+
+```bash
+# View current watermarks
+$ cat /proc/zoneinfo | grep -E "min|low|high"
+        min      1024
+        low      1280
+        high     1536
+
+# Increase watermark gap (reduce direct reclaim frequency)
+$ sysctl vm.watermark_scale_factor=50
+
+# View the effect
+$ cat /proc/zoneinfo | grep -E "min|low|high"
+        min      1024
+        low      2048
+        high     3072
+```
+
+### NUMA Zone Reclaim
+
+```bash
+# Check current mode
+$ cat /proc/sys/vm/zone_reclaim_mode
+0
+
+# Enable local node reclaim (for NUMA-sensitive workloads)
+$ sysctl vm.zone_reclaim_mode=1
+
+# Enable local reclaim + write dirty pages + swap
+$ sysctl vm.zone_reclaim_mode=7
+```
+
+> **Note**: Setting `zone_reclaim_mode` to non-zero can significantly hurt performance for workloads that benefit from using all available memory across NUMA nodes. Only enable it if you understand your NUMA topology and workload characteristics.
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)

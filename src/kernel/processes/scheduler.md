@@ -565,6 +565,166 @@ $ sudo perf sched latency
 $ sudo perf trace -e 'sched:*' -- sleep 5
 ```
 
+## sched_ext: Extensible Scheduler Class
+
+Linux 6.12 introduced **sched_ext**, a scheduler class whose behavior can be defined by **BPF programs** at runtime. sched_ext exports a full scheduling interface, allowing any scheduling algorithm to be implemented as a BPF program and loaded dynamically — without recompiling or rebooting the kernel.
+
+### Key Properties
+
+- **BPF-defined behavior**: The scheduling algorithm is implemented entirely in a BPF program attached to the sched_ext class.
+- **Flexible CPU grouping**: A BPF scheduler can group CPUs however it sees fit (e.g., per-core, per-cluster, per-NUMA-node).
+- **Dynamic on/off**: sched_ext can be turned on and off at any time. When disabled or when a BPF scheduler is unloaded, all tasks revert to the default scheduling class (CFS/EEVDF).
+- **System integrity guaranteed**: If the BPF scheduler errors, stalls, or the user presses **SysRq-S**, the system automatically falls back to the default scheduler. No lockups, no panics.
+- **Task coverage**: When a sched_ext scheduler is loaded, it handles all `SCHED_NORMAL`, `SCHED_BATCH`, `SCHED_IDLE`, and `SCHED_EXT` tasks.
+
+### Kernel Configuration
+
+sched_ext requires the following kernel config options:
+
+```text
+CONFIG_BPF=y
+CONFIG_SCHED_CLASS_EXT=y
+CONFIG_BPF_SYSCALL=y
+CONFIG_BPF_JIT=y
+CONFIG_DEBUG_INFO_BTF=y
+```
+
+The primary config option is `CONFIG_SCHED_CLASS_EXT`. Without it, the sched_ext scheduling class does not exist in the kernel.
+
+### How It Works
+
+sched_ext registers a new scheduling class (`ext_sched_class`) that sits between `fair_sched_class` and `idle_sched_class` in the priority hierarchy:
+
+```text
+stop_sched_class  (highest)
+dl_sched_class
+rt_sched_class
+fair_sched_class
+ext_sched_class   ← sched_ext
+idle_sched_class  (lowest)
+```
+
+When a BPF scheduler is loaded, `ext_sched_class` handles all eligible tasks. The BPF program implements callbacks such as:
+
+- `select_cpu()` — choose which CPU a task should run on
+- `enqueue()` — a task becomes runnable
+- `dequeue()` — a task is no longer runnable
+- `dispatch()` — dispatch a task to a specific CPU
+- `running()` / `stopping()` — task starts/stops executing
+- `init_task()` / `exit_task()` — task lifecycle
+
+### Partial Switching
+
+The `SCX_OPS_SWITCH_PARTIAL` flag allows a BPF scheduler to opt into **partial switching** — it only needs to handle tasks it explicitly cares about. Tasks it doesn't handle fall through to the default fair scheduler automatically.
+
+### Debug and Diagnostics
+
+sched_ext exposes several sysfs files for monitoring:
+
+| File | Description |
+|------|-------------|
+| `/sys/kernel/sched_ext/state` | Current sched_ext state (enabled/disabled) |
+| `/sys/kernel/sched_ext/root/ops` | Name of the currently loaded BPF scheduler ops |
+| `/sys/kernel/sched_ext/enable_seq` | Monotonically increasing sequence number for enable/disable events |
+| `/sys/kernel/sched_ext/<name>/events` | Per-scheduler diagnostic counters |
+
+```bash
+# Check if sched_ext is active
+$ cat /sys/kernel/sched_ext/state
+enabled
+
+# See which scheduler is loaded
+$ cat /sys/kernel/sched_ext/root/ops
+scx_simple
+
+# View diagnostic counters
+$ cat /sys/kernel/sched_ext/scx_simple/events
+```
+
+### Example: Minimal Global FIFO Scheduler
+
+The kernel source tree includes example sched_ext schedulers under `tools/sched_ext/`. The simplest is `scx_simple.bpf.c` — a minimal global FIFO scheduler:
+
+```c
+/* tools/sched_ext/scx_simple.bpf.c */
+#include <scx/common.bpf.h>
+
+char _license[] SEC("license") = "GPL";
+
+/* Called when a task becomes runnable */
+void BPF_STRUCT_OPS(simple_enqueue, struct task_struct *p, u64 enq_flags)
+{
+    /* Dispatch directly to the global FIFO queue */
+    scx_bpf_dispatch(p, SCX_DSQ_GLOBAL, SCX_SLICE_DFL, enq_flags);
+}
+
+/* Called to select a CPU for a task */
+s32 BPF_STRUCT_OPS(simple_select_cpu, struct task_struct *p, s32 prev_cpu,
+                   u64 wake_flags)
+{
+    /* Use the previous CPU if available, otherwise any CPU */
+    if (scx_bpf_test_and_clear_cpu_idle(prev_cpu))
+        return prev_cpu;
+    return prev_cpu;
+}
+
+s32 BPF_STRUCT_OPS_SLEEPABLE(simple_init)
+{
+    /* Set the dispatch timeout */
+    return scx_bpf_create_dsq(SCX_DSQ_GLOBAL, -1);
+}
+
+void BPF_STRUCT_OPS(simple_exit, struct scx_exit_info *ei)
+{
+    /* Cleanup on exit */
+}
+
+SEC(".struct_ops")
+struct sched_ext_ops simple_ops = {
+    .enqueue       = (void *)simple_enqueue,
+    .select_cpu    = (void *)simple_select_cpu,
+    .init          = (void *)simple_init,
+    .exit          = (void *)simple_exit,
+    .name          = "simple",
+    .timeout_ms    = 0,
+};
+```
+
+To build and load a sched_ext scheduler:
+
+```bash
+# Build (from kernel source tree)
+$ make -C tools/sched_ext
+
+# Load the scheduler
+$ sudo ./scx_simple
+
+# Verify it's active
+$ cat /sys/kernel/sched_ext/state
+enabled
+$ cat /sys/kernel/sched_ext/root/ops
+simple
+
+# Unload (Ctrl+C or kill) — tasks revert to CFS/EEVDF automatically
+```
+
+### Use Cases
+
+sched_ext is particularly useful for:
+
+- **Rapid prototyping**: Test new scheduling algorithms without recompiling the kernel.
+- **Workload-specific tuning**: Deploy specialized schedulers for gaming, real-time audio, server workloads, etc.
+- **Research**: Experiment with scheduling policies in production-like environments safely.
+- **Container orchestration**: Custom schedulers that understand container boundaries.
+
+### Further Reading
+
+- [sched_ext Kernel Documentation](https://docs.kernel.org/scheduler/sched-ext.html)
+- [sched_ext GitHub Repository](https://sched-ext.github.io/)
+- [BPF and sched_ext (LWN)](https://lwn.net/Articles/922405/)
+
+---
+
 ## Further Reading
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
