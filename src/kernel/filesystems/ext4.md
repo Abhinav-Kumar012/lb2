@@ -817,6 +817,8 @@ Modern kernels support hardware-wrapped keys where the master key never enters k
 - [Theodore Ts'o's blog](https://thunk.org/tytso/) — ext4 maintainer's writings
 - [LWN: ext4 and delayed allocation](https://lwn.net/Articles/273912/)
 - [ext4 High Level Design (kernel docs)](https://docs.kernel.org/filesystems/ext4/overview.html) — Delalloc discussion
+- [fscrypt Documentation](https://docs.kernel.org/filesystems/fscrypt.html) — Filesystem-level encryption (kernel API and design)
+- [fscrypt Userspace Tool](https://github.com/google/fscrypt) — Recommended CLI for managing fscrypt
 
 ## Related Topics
 

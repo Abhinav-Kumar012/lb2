@@ -136,7 +136,9 @@ enum bpf_core_relo_kind {
     BPF_CORE_FIELD_BYTE_OFFSET = 0,
     BPF_CORE_FIELD_BYTE_SIZE = 1,
     BPF_CORE_FIELD_EXISTS = 5,
-    BPF_CORE_FIELD_SIGNED = 6,
+    BPF_CORE_FIELD_LSHIFT_U64 = 6,
+    BPF_CORE_FIELD_RSHIFT_U64 = 7,
+    /* ... additional kinds up to BPF_CORE_FIELD_SIZED (11) */
 };
 ```
 

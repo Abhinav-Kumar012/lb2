@@ -966,9 +966,67 @@ vm_fd = ioctl(dev_fd, KVM_CREATE_VM, KVM_VM_TYPE_ARM_IPA_SIZE(48));
 
 The IPA size must be between 32 and the host's `Host_IPA_Limit`. This affects stage-2 (guest physical → host physical) address translation size, not the guest-visible `PARange`.
 
-## References
+## CPUID Handling in KVM
 
-1. KVM source code: `virt/kvm/` and `arch/x86/kvm/` in the Linux kernel tree
+When a guest executes the `CPUID` instruction, the CPU does not cause a VM exit by default. Instead, KVM configures the VMCS/VMCB to control which CPUID results are presented to the guest. This is critical for feature negotiation between the hypervisor and guest OS.
+
+### KVM_SET_CPUID2
+
+QEMU uses the `KVM_SET_CPUID2` ioctl to define the CPUID leaves visible to the guest. This ioctl takes an array of `kvm_cpuid_entry2` structures:
+
+```c
+struct kvm_cpuid_entry2 {
+    __u32 function;    /* CPUID function (leaf) */
+    __u32 index;       /* Sub-leaf (ECX input) */
+    __u32 flags;       /* KVM_CPUID_FLAG_SIGNIFCANT_INDEX */
+    __u32 eax, ebx, ecx, edx;  /* Output registers */
+};
+```
+
+QEMU typically:
+1. Queries the host CPU's CPUID via `KVM_GET_SUPPORTED_CPUID`
+2. Filters and adjusts values (e.g., disabling unsupported features, limiting address bits)
+3. Sets the final CPUID table on the vCPU via `KVM_SET_CPUID2`
+
+### CPUID Emulation Flow
+
+When the guest executes CPUID:
+1. If the leaf is in the CPUID table set by `KVM_SET_CPUID2`, the hardware returns the configured values directly (no VM exit)
+2. If the leaf is NOT in the table, a VM exit occurs with `KVM_EXIT_CPUID` (on some configurations), and QEMU handles it
+3. For leaves like `0x40000000` (hypervisor signature), KVM injects its own values
+
+### Hyper-V CPUID
+
+KVM can present Hyper-V compatible CPUID leaves to guests for compatibility:
+- Leaf `0x40000000`: Hypervisor vendor ID ("Microsoft Hv" or "KVMKVMKVM\0")
+- Leaf `0x40000001`: Hyper-V interface identification
+- Leaf `0x40000002`: Hyper-V system identity
+- Leaf `0x40000003`: Hyper-V feature bits
+- Leaf `0x40000004`: Hyper-V recommended hypercall interface
+
+```bash
+# Check guest CPUID from inside a VM
+cat /proc/cpuinfo | head -30
+
+# Query CPUID via QEMU monitor
+(qemu) info cpus
+```
+
+### Feature Filtering
+
+KVM filters CPUID features for safety. For example:
+- Features requiring specific hardware support (AVX-512, AMX) are only exposed if the host CPU supports them
+- `KVM_CAP_ENFORCE_CPUID` ensures that the guest only sees features that were explicitly configured
+- Nested virtualization features (VMX/SVM) are controlled separately via module parameters
+
+```bash
+# Enable nested virtualization CPUID
+sudo sh -c 'echo "options kvm_intel nested=Y" > /etc/modprobe.d/kvm.conf'
+sudo modprobe -r kvm_intel && sudo modprobe kvm_intel
+
+# Verify: guest should see vmx in /proc/cpuinfo
+grep vmx /proc/cpuinfo
+```
 2. Intel. "Intel® 64 and IA-32 Architectures Software Developer's Manual, Volume 3C: System Programming Guide, Part 3." Chapter 23-33: VMX.
 3. AMD. "AMD64 Architecture Programmer's Manual Volume 2: System Programming." Chapter 15: Secure Virtual Machine.
 4. KVM API documentation: `Documentation/virt/kvm/api.rst` in the Linux kernel tree.
@@ -991,6 +1049,7 @@ The IPA size must be between 32 and the host's `Host_IPA_Limit`. This affects st
 - [QEMU Internals Documentation](https://www.qemu.org/docs/master/devel/)
 - [KVM Source Browser](https://elixir.bootlin.com/linux/latest/source/virt/kvm)
 - [KVM MMU Documentation](https://docs.kernel.org/virt/kvm/mmu.html) — Shadow and EPT page table internals
+- [KVM API Documentation](https://docs.kernel.org/virt/kvm/api.html) — Definitive KVM API reference with CPUID, memory, and capability details
 
 ## Related Topics
 

@@ -776,6 +776,102 @@ echo 'traceoff:prev_pid==1234' > /sys/kernel/tracing/events/sched/sched_switch/t
 echo 'snapshot:prev_pid==1234' > /sys/kernel/tracing/events/sched/sched_switch/trigger
 ```
 
+## Event Tracing Reference
+
+The kernel documentation at `docs.kernel.org/trace/events.html` provides comprehensive coverage of the event tracing infrastructure. Here are the key details beyond what's covered in the Event Tracing section above.
+
+### Event Format Files
+
+Every trace event has a `format` file describing each field. This is essential for parsing binary traces and writing filters:
+
+```bash
+cat /sys/kernel/tracing/events/sched/sched_switch/format
+# name: sched_switch
+# ID: 283
+# format:
+#   field:unsigned short common_type; offset:0; size:2;
+#   field:unsigned char common_flags; offset:2; size:1;
+#   field:unsigned char common_preempt_count; offset:3; size:1;
+#   field:int common_pid; offset:4; size:4;
+#   field:int common_tgid; offset:8; size:4;
+#   field:char prev_comm[16]; offset:12; size:16;
+#   field:pid_t prev_pid; offset:28; size:4;
+#   field:int prev_prio; offset:32; size:4;
+#   field:long prev_state; offset:36; size:8;
+#   field:char next_comm[16]; offset:44; size:16;
+#   field:pid_t next_pid; offset:60; size:4;
+#   field:int next_prio; offset:64; size:4;
+```
+
+### Advanced Event Filtering
+
+Event filters support rich expressions:
+
+```bash
+# Numeric operators: ==, !=, <, <=, >, >=, &
+# String operators: ==, !=, ~ (glob)
+
+# Filter by PID and CPU
+echo "prev_pid == 1234 || next_pid == 1234" > /sys/kernel/tracing/events/sched/sched_switch/filter
+
+# String glob matching
+echo 'prev_comm ~ "*sh"' > /sys/kernel/tracing/events/sched/sched_switch/filter
+
+# Filter user-space string pointers
+echo 'filename.ustring ~ "password"' > /sys/kernel/tracing/events/syscalls/sys_enter_openat/filter
+
+# Filter by function address
+echo 'call_site == security_prepare_creds' > /sys/kernel/tracing/events/kmalloc/filter
+
+# CpuMask filtering
+echo 'target_cpu & CPUS{17-42}' > /sys/kernel/tracing/events/sched/sched_wakeup/filter
+```
+
+### Boot-Time Event Tracing
+
+Enable events at boot for early-boot debugging:
+
+```
+# Kernel command line
+trace_event=sched_switch,sched_wakeup
+trace_event=block:*  # All block subsystem events
+```
+
+### Trigger Actions
+
+Events can trigger actions when matched:
+
+```bash
+# Stacktrace on event
+echo 'stacktrace' > /sys/kernel/tracing/events/sched/sched_switch/trigger
+
+# Snapshot on event
+echo 'snapshot:prev_pid==1234' > /sys/kernel/tracing/events/sched/sched_switch/trigger
+
+# Stop tracing when condition met
+echo 'traceoff:prev_pid==1234' > /sys/kernel/tracing/events/sched/sched_switch/trigger
+
+# Enable hist trigger for histogram collection
+echo 'hist:key=next_comm:val=hitcount:sort=hitcount.desc' > /sys/kernel/tracing/events/sched/sched_switch/trigger
+
+# Remove trigger
+echo '!stacktrace' > /sys/kernel/tracing/events/sched/sched_switch/trigger
+```
+
+### Event Subsystems
+
+Common subsystems and their events:
+
+| Subsystem | Key Events | Purpose |
+|-----------|-----------|--------|
+| `sched` | `sched_switch`, `sched_wakeup`, `sched_process_exec` | Scheduler activity |
+| `block` | `block_rq_issue`, `block_rq_complete` | Block I/O |
+| `ext4` | `ext4_da_write_begin`, `ext4_es_lookup_extent` | ext4 filesystem |
+| `kmem` | `kmalloc`, `kfree`, `mm_page_alloc` | Kernel memory allocation |
+| `net` | `net_dev_xmit`, `netif_receive_skb` | Network packets |
+| `irq` | `irq_handler_entry`, `softirq_entry` | Interrupt handling |
+| `syscalls` | `sys_enter_*`, `sys_exit_*` | System calls |
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
@@ -792,6 +888,7 @@ echo 'snapshot:prev_pid==1234' > /sys/kernel/tracing/events/sched/sched_switch/t
 - [Steven Rostedt's ftrace tutorial](https://lwn.net/Articles/370423/)
 - [Kernel documentation: Kprobes](https://docs.kernel.org/trace/kprobes.html) — Full kprobe/kretprobe reference and internals
 - [Brendan Gregg's ftrace page](https://www.brendangregg.com/blog/2014-07-01/perf-ftrace.html)
+- [Event Tracing Documentation](https://docs.kernel.org/trace/events.html) — Official event tracing reference (format files, filters, triggers, boot options)
 
 ## Related Topics
 

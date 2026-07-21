@@ -468,6 +468,87 @@ cat /sys/devices/system/cpu/cpu0/power/energy_performance_bias
 echo performance > /sys/devices/system/cpu/cpu0/cpufreq/energy_performance_preference
 ```
 
+## perf stat Deep Dive
+
+`perf stat` counts hardware and software events, providing a high-level overview of workload performance characteristics. It is the first tool to reach for when profiling.
+
+### Event Selection
+
+```bash
+# Default events (cycles, instructions, branches, cache-misses, etc.)
+perf stat ./myapp
+
+# Specify custom events
+perf stat -e cycles,instructions,cache-misses,branch-misses ./myapp
+
+# Group events (counted simultaneously on the PMU)
+perf stat -e '{cycles,instructions,cache-references,cache-misses}' ./myapp
+
+# System-wide counting
+perf stat -a sleep 10
+
+# Per-CPU breakdown
+perf stat -e cycles -a -A sleep 5
+
+# Per-process (PID)
+perf stat -e cycles -p 1234 sleep 5
+
+# Multiplexing: if more events than PMU counters, perf time-shares
+# Check for multiplexing in output (look for [xx%])
+perf stat -e cycles,instructions,cache-references,cache-misses,
+          LLC-loads,LLC-load-misses,L1-dcache-loads,L1-dcache-load-misses ./myapp
+```
+
+### Key Metrics
+
+| Metric | Formula | Interpretation |
+|--------|---------|----------------|
+| **IPC** | instructions / cycles | Instructions per cycle (>1 is good on modern CPUs) |
+| **Cache miss rate** | cache-misses / cache-references | Should be < 5% for most workloads |
+| **Branch miss rate** | branch-misses / branches | Should be < 2% for most workloads |
+| **LLC miss rate** | LLC-load-misses / LLC-loads | High = memory-bound workload |
+
+### Advanced Options
+n
+```bash
+# Record for later analysis
+perf stat record -e cycles,instructions ./myapp
+perf stat report  # Re-display results
+
+# Output in CSV format
+perf stat -x, ./myapp
+
+# Append to existing file
+perf stat -a -o output.txt --append sleep 5
+
+# Filter by cgroup
+perf stat -e cycles -G mygroup sleep 5
+
+# Detailed stats (requires root)
+sudo perf stat -d ./myapp
+# Adds L1/icache/dTLB/iTLB miss stats
+
+# Very detailed (adds more counters)
+sudo perf stat -ddd ./myapp
+```
+
+### Using Hardware Events Directly
+
+```bash
+# List available PMU events
+perf list hw
+perf list cache
+perf list pmu
+
+# Use raw event codes (architecture-specific)
+perf stat -e r00c4 ./myapp   # x86: branch-load-misses
+perf stat -e cpu/event=0xc4,umask=0x00/ ./myapp
+
+# Use named PMU events
+perf stat -e amd_l3/event=0x01/ ./myapp
+perf stat -e armv8_pmuv3/event=0x08/ ./myapp
+```
+
 ## References
 
 - Gregg, B. *Systems Performance: Enterprise and the Cloud*, 2nd Edition.
@@ -494,6 +575,7 @@ echo performance > /sys/devices/system/cpu/cpu0/cpufreq/energy_performance_prefe
 - [CPU Performance Scaling (cpufreq)](https://docs.kernel.org/admin-guide/pm/cpufreq.html) — Frequency governors and drivers
 - [intel_pstate Driver](https://docs.kernel.org/admin-guide/pm/intel_pstate.html) — Intel P-state driver details
 - [amd-pstate Driver](https://docs.kernel.org/admin-guide/pm/amd-pstate.html) — AMD P-state driver details
+- [Performance Monitor Support](https://docs.kernel.org/admin-guide/perf/index.html) — Kernel perf and PMU documentation
 
 ## Related Topics
 

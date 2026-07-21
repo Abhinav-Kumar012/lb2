@@ -599,6 +599,8 @@ ls /sys/kernel/mm/damon/
 - **Linux Device Drivers, 3rd Edition** — Jonathan Corbet, Alessandro Rubini, Greg Kroah-Hartman
 - [Kernel documentation: Memory Management](https://www.kernel.org/doc/html/latest/admin-guide/mm/index.html)
 - [Kernel documentation: boot-time-mm](https://www.kernel.org/doc/html/latest/mm/boot-time-mm.html)
+- [DAMON Documentation](https://docs.kernel.org/mm/damon/index.html) — DAMON design, API, and administration guide
+- [Memory Management Documentation](https://docs.kernel.org/mm/index.html) — Official kernel MM documentation
 - [LWN: Memory Management](https://lwn.net/Kernel/Index/#Memory_management)
 
 ## Related Topics

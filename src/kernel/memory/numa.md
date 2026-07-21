@@ -358,6 +358,98 @@ static int do_numa_page(struct vm_fault *vmf) {
 - [numactl(8) man page](https://man7.org/linux/man-pages/man8/numactl.8.html)
 - [mbind(2) man page](https://man7.org/linux/man-pages/man2/mbind.2.html)
 
+## Memory Hotplug
+
+Linux supports adding and removing physical memory at runtime (memory hot(un)plug). This is essential for virtual machines, logical partitions, and systems requiring dynamic memory capacity adjustments without downtime.
+
+### How Memory Hotplug Works
+
+Memory hotplug occurs in two phases:
+1. **Adding memory**: Metadata (memmap, page tables) is allocated and initialized, memory blocks are created, and sysfs files appear
+2. **Onlining memory blocks**: Memory is exposed to the page allocator and becomes visible in statistics (`/proc/meminfo`)
+
+Memory hotunplug reverses this: first **offline** memory blocks (migrate pages, remove from allocator), then **remove** metadata.
+
+### Granularity
+
+Linux uses the SPARSEMEM memory model. Physical memory is divided into **memory sections** (128 MiB on x86_64, 16 MiB on ppc64). Sections are combined into **memory blocks** — the smallest unit that can be hot(un)plugged.
+
+### Onlining and Offlining
+
+```bash
+# View memory blocks
+ls /sys/devices/system/memory/
+# memory0  memory1  memory2  ...
+
+# Check block state
+cat /sys/devices/system/memory/memory42/state
+# offline
+
+# Online a memory block
+echo online > /sys/devices/system/memory/memory42/state
+# Or: echo 1 > /sys/devices/system/memory/memory42/online
+
+# Online to ZONE_MOVABLE (hotpluggable zone)
+echo online_movable > /sys/devices/system/memory/memory42/state
+
+# Online to kernel zone (ZONE_NORMAL)
+echo online_kernel > /sys/devices/system/memory/memory42/state
+
+# Offline a memory block
+echo offline > /sys/devices/system/memory/memory42/state
+```
+
+### Auto-Onlining
+
+The kernel can automatically online newly added memory blocks:
+
+```bash
+# Check current policy
+cat /sys/devices/system/memory/auto_online_blocks
+# offline
+
+# Enable auto-onlining
+sudo bash -c 'echo online > /sys/devices/system/memory/auto_online_blocks'
+
+# Or via kernel boot parameter: memhp_default_state=online
+# Or via systemd: MemoryAccounting=yes in unit file
+```
+
+### ACPI Notifications
+
+On ACPI platforms (x86_64), memory hotplug notifications arrive via ACPI:
+- Memory device objects with HID "PNP0C80" trigger memory hotplug
+- NUMA node objects (HID "ACPI0004", "PNP0A05", "PNP0A06") hotplug entire nodes
+- The ACPI driver handles the coordination between firmware and Linux
+
+### ZONE_MOVABLE
+
+`ZONE_MOVABLE` is a zone that only contains movable pages, making it ideal for hotpluggable memory. Memory blocks in ZONE_MOVABLE can always be offlined because all pages are migratable.
+
+```bash
+# Check ZONE_MOVABLE size
+cat /proc/zoneinfo | grep -A 10 "Node.*zone.*Movable"
+
+# Kernel boot parameter to reserve ZONE_MOVABLE
+# kernelcore=nn[KMG]  — amount of non-movable kernel memory
+# movablecore=nn[KMG] — amount of movable memory
+```
+
+### Use Cases
+
+- **Virtual machines**: Add/remove memory dynamically as workload demands change
+- **Capacity on demand**: Cloud providers offer pay-per-use memory scaling
+- **Hardware replacement**: Replace failing DIMMs without downtime
+- **Energy savings**: Offline unused memory blocks to save power
+- **Persistent memory**: PMEM/CXL devices exposed as ordinary RAM via hotplug infrastructure
+
+### Limitations
+
+- Only supported on 64-bit architectures (x86_64, arm64, ppc64, s390x)
+- Memory with kernel data (non-movable pages) cannot be offlined
+- `ZONE_MOVABLE` ensures hotpluggability but limits what can be allocated there
+- Offlining can fail if too many pages are in use and cannot be migrated
+
 ## Further Reading
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
@@ -372,6 +464,7 @@ static int do_numa_page(struct vm_fault *vmf) {
 - https://man7.org/linux/man-pages/man2/set_mempolicy.2.html
 - https://man7.org/linux/man-pages/man2/get_mempolicy.2.html
 - https://lwn.net/Articles/524977/ — "NUMA scheduling and NUMA memory policy"
+- [Memory Hot(Un)Plug Documentation](https://docs.kernel.org/admin-guide/mm/memory-hotplug.html) — Official kernel memory hotplug guide (ACPI, ZONE_MOVABLE, onlining)
 
 ## Related Topics
 

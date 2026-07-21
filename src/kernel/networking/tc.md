@@ -476,6 +476,125 @@ ip -s link show eth0 | grep -i queue
 tc -s class show dev eth0 | grep -E "class htb|Sent"
 ```
 
+## TC Actions Reference
+
+TC actions define what happens to a packet after it's classified. Actions are the fundamental building blocks of TC's packet processing pipeline.
+
+### Action Types
+
+| Action | Module | Description |
+|--------|--------|-------------|
+| `gact` | `act_gact` | Generic action: drop (`shot`), pass (`ok`), reclassify, pipe, continue |
+| `mirred` | `act_mirred` | Mirror or redirect packet to another interface |
+| `police` | `act_police` | Rate limiting (conform/exceed/violate actions) |
+| `skbedit` | `act_skbedit` | Edit skb metadata (priority, mark, queue mapping) |
+| `dscp` | `act_dscp` | Set DSCP (Differentiated Services Code Point) |
+| `vlan` | `act_vlan` | Push/pop/modify VLAN tags |
+| `tunnel_key` | `act_tunnel_key` | Set/unset tunnel metadata (for VXLAN, Geneve, etc.) |
+| `ct` | `act_ct` | Connection tracking (flow offload) |
+| `mpls` | `act_mpls` | Push/pop/modify MPLS labels |
+| `pedit` | `act_pedit` | Generic packet header editing |
+| `bpf` | `act_bpf` | Run BPF program as action |
+| `sample` | `act_sample` | Packet sampling (for traffic monitoring) |
+| `nat` | `act_nat` | Stateless NAT (source/destination rewrite) |
+| `gate` | `act_gate` | Time-based gating (TSN/802.1Qbv) |
+
+### Conform/Exceed Actions
+
+The `police` action uses three action buckets based on rate comparison:
+
+```bash
+# conform-exceed-violate action syntax
+# action police rate 10mbit burst 10k \
+#     conform-exceed {pass/drop/pipe/reclassify}
+
+# Drop packets exceeding rate
+tc filter add dev eth0 parent 1: protocol ip prio 1 flower \
+    dst_ip 10.0.0.1 action police rate 10mbit burst 10k conform-exceed drop/pipe
+
+# Pass conforming, drop exceeding
+# conform-exceed drop/pipe means:
+#   conform → drop, exceed → pipe (continue to next action)
+```
+
+### Action Chaining
+
+Multiple actions can be chained. The `pipe` action continues to the next action in the chain:
+
+```bash
+# Mirror to eth1 AND then pass to normal stack
+tc filter add dev eth0 parent 1: protocol ip prio 1 flower \
+    dst_port 80 \
+    action mirred egress mirror dev eth1 pipe \
+    action ok
+
+# Mark packet with DSCP value and then redirect
+tc filter add dev eth0 parent 1: protocol ip prio 1 flower \
+    dst_port 443 \
+    action dscp set af42 pipe \
+    action mirred egress redirect dev eth1
+
+# VLAN manipulation: push VLAN tag then redirect
+tc filter add dev eth0 parent 1: protocol ip prio 1 flower \
+    dst_ip 10.0.0.0/24 \
+    action vlan push id 100 pipe \
+    action mirred egress redirect dev eth1
+```
+
+### BPF as Action
+
+Use BPF programs as TC actions for maximum flexibility:
+
+```bash
+# Load BPF program as TC action
+sudo tc filter add dev eth0 parent 1: protocol ip prio 1 \
+    bpf obj action.o sec action direct-action
+
+# The BPF program returns TC_ACT_OK, TC_ACT_SHOT, TC_ACT_REDIRECT, etc.
+```
+
+### Action Return Codes
+
+| Code | Value | Meaning |
+|------|-------|--------|
+| `TC_ACT_OK` | 0 | Continue processing, pass packet |
+| `TC_ACT_SHOT` | 2 | Drop packet |
+| `TC_ACT_RECLASSIFY` | 1 | Restart classification from root |
+| `TC_ACT_PIPE` | 3 | Continue to next action in chain |
+| `TC_ACT_STOLEN` | 4 | Packet consumed (don't free) |
+| `TC_ACT_REDIRECT` | 7 | Redirect to another interface |
+
+### Environmental Rules for Action Authors
+
+From the kernel documentation (`docs.kernel.org/networking/tc-actions-env-rules.html`):
+
+1. **Stealing/borrowing packets**: If an action queues or redirects a packet, it must clone the skb first
+2. **Modifying packets**: If an action modifies the skb, it must call `pskb_expand_head()` if someone else references it
+3. **Dropping**: Don't free packets you don't own — return `TC_ACT_SHOT` and let the caller handle it
+4. **Callers**: Qdiscs and other callers are responsible for freeing anything returned as `TC_ACT_SHOT`, `TC_ACT_STOLEN`, or `TC_ACT_QUEUED`
+
+### Flower Classifier (Modern)
+
+The `flower` classifier is the preferred modern classifier, supporting hardware offload:
+
+```bash
+# Full flower filter with multiple match fields and actions
+tc filter add dev eth0 protocol ip parent 1: prio 1 flower \
+    dst_mac 00:11:22:33:44:55 \
+    src_ip 192.168.1.0/24 \
+    ip_proto tcp \
+    dst_port 443 \
+    action dscp set af31 pipe \
+    action mirred egress mirror dev eth1 pipe \
+    action ok
+
+# Hardware offload (if NIC supports it)
+tc filter add dev eth0 protocol ip parent 1: prio 1 flower \
+    dst_ip 10.0.0.1 \
+    skip_sw \
+    action drop
+```
+
 ## References
 
 - [Linux Advanced Routing & Traffic Control](http://lartc.org/lartc.html)
@@ -484,6 +603,8 @@ tc -s class show dev eth0 | grep -E "class htb|Sent"
 - [HTB — Hierarchical Token Bucket](http://luxik.cdi.cz/~devik/qos/htb/)
 - [LWN: Flow Queueing CoDel](https://lwn.net/Articles/496509/)
 - [tldp.org: Linux Traffic Control HOWTO](https://tldp.org/HOWTO/Traffic-Control-HOWTO/)
+- [TC Actions Environmental Rules](https://docs.kernel.org/networking/tc-actions-env-rules.html) — Rules for TC action authors
+- [Kernel TC Documentation](https://docs.kernel.org/networking/sched/index.html) — Traffic control scheduler and action subsystems
 
 ## Related Topics
 

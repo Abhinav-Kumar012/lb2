@@ -1006,6 +1006,7 @@ sudo bpftool prog load prog.o /sys/fs/bpf/prog 2>&1 | head -50
 - [XDP Project](https://www.iovisor.org/technology/xdp)
 - [BPF Standardization (kernel docs)](https://docs.kernel.org/bpf/standardization/index.html)
 - [BPF Design Q&A (kernel docs)](https://docs.kernel.org/bpf/bpf_design_QA.html)
+- [eBPF Verifier Documentation](https://docs.kernel.org/bpf/verifier.html) — Official verifier internals (register tracking, bounds, direct packet access)
 
 ## Related Topics
 

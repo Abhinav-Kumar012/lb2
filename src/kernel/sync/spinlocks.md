@@ -631,10 +631,11 @@ When a lock is heavily contended (> 100 spins), the qspinlock may enter "handoff
 
 - [Linux Kernel Documentation: spinlocks](https://www.kernel.org/doc/html/latest/locking/spinlocks.html)
 - [Linux Kernel Source: kernel/locking/spinlock.c](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/kernel/locking)
+- [Lock types and their rules (kernel docs)](https://docs.kernel.org/locking/locktypes.html)
+- [Locking lessons (kernel docs)](https://docs.kernel.org/locking/spinlocks.html) — Linus's spinlock lessons
 - [qspinlock: MCS-based queued spinlock — Waiman Long's patches](https://lwn.net/Articles/590243/)
 - [PREEMPT_RT and spinlocks](https://wiki.linuxfoundation.org/realtime/documentation/technical_details/start)
 - [Understanding the Linux Kernel, 3rd Edition — Chapter 5: Spinlocks](https://www.oreilly.com/library/view/understanding-the-linux/0596005652/)
-- [Lock types and their rules (kernel docs)](https://docs.kernel.org/locking/locktypes.html)
 
 ## Related Topics
 
