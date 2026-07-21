@@ -474,6 +474,45 @@ last_unhandled 0
 7. **Consider IRQ affinity** for performance-critical paths.
 8. **Disable the device IRQ** at the hardware level before freeing the IRQ.
 
+## Generic IRQ Handling Architecture (from docs.kernel.org)
+
+The kernel documentation at `docs.kernel.org/core-api/genericirq.html` by Thomas Gleixner and Ingo Molnar provides the authoritative reference for the generic IRQ handling layer.
+
+### Abstraction Layers
+
+The generic IRQ layer has three main levels of abstraction:
+
+1. **High-level Driver API**: `request_irq()`, `request_threaded_irq()`, `free_irq()`, `disable_irq()`, `enable_irq()`, `synchronize_irq()`, `irq_set_irq_type()`, `irq_set_irq_wake()`
+
+2. **High-level IRQ Flow Handlers**: Pre-defined implementations for different interrupt types:
+   - `handle_level_irq()` — Level-triggered interrupts (mask_ack → handle → unmask)
+   - `handle_edge_irq()` — Edge-triggered interrupts (ack → handle, with pending bit tracking)
+   - `handle_fasteoi_irq()` — Fast EOI interrupts (handle → eoi)
+   - `handle_simple_irq()` — Simple interrupts (no chip primitives called)
+   - `handle_percpu_irq()` — Per-CPU interrupts (simplified, no locking)
+   - `handle_bad_irq()` — Spurious/unhandled interrupts
+
+3. **Chip-level Hardware Encapsulation**: The `irq_chip` structure contains direct chip primitives:
+   - `irq_ack`, `irq_mask_ack`, `irq_mask`, `irq_unmask`
+   - `irq_eoi` (optional, required for EOI flow handlers)
+   - `irq_retrigger`, `irq_set_type`, `irq_set_wake` (optional)
+
+### Design Rationale
+
+The original `__do_IRQ()` super-handler mixed flow logic with low-level hardware logic, leading to code duplication. The generic IRQ layer cleanly separates 'irq flow' from 'chip details', enabling:
+- Optimized handling for each interrupt type
+- Smaller and cleaner IRQ subsystems
+- Reusable flow implementations across architectures
+- Architecture-specific quirks without duplicating chip code
+
+### Delayed Interrupt Disable
+
+A per-interrupt feature (originally from ARM) that doesn't mask an interrupt at hardware level when `disable_irq()` is called. Instead, the interrupt is masked in the flow handler when an event arrives. This prevents losing edge interrupts on hardware that doesn't store edge events while disabled.
+
+### Generic Interrupt Chip
+
+To avoid duplicate IRQ chip implementations, the kernel provides a configurable generic interrupt chip with functions like `irq_gc_mask_set_bit()`, `irq_gc_mask_clr_bit()`, `irq_gc_ack_set_bit()`, and `irq_gc_set_wake()`.
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
@@ -487,6 +526,7 @@ last_unhandled 0
 - [Linux Device Drivers, 3rd Edition — Chapter 10](https://lwn.net/Kernel/LDD3/)
 - [IRQ management for Linux — Thomas Gleixner's LPC talk](https://lpc.events/event/7/contributions/729/)
 - [Threaded IRQs — Documentation/IRQ-affinity.txt](https://www.kernel.org/doc/html/latest/core-api/irq/irq-affinity.html)
+- [Linux Generic IRQ Handling](https://docs.kernel.org/core-api/genericirq.html) — Official kernel documentation by Thomas Gleixner
 
 ## Related Topics
 

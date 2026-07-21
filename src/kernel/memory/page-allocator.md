@@ -764,6 +764,33 @@ The kernel documentation recommends:
 
 `kmalloc()` alignment: at least `ARCH_KMALLOC_MINALIGN` bytes. For power-of-two sizes, alignment is at least the size itself.
 
+## Page Allocator Internals (from docs.kernel.org)
+
+The kernel documentation at `docs.kernel.org/mm/page_allocation.html` covers the buddy system allocator implementation. Key details:
+
+### The Allocation Path
+
+The page allocator's `__alloc_pages()` function follows this path:
+
+1. **Fast path**: `get_page_from_freelist()` checks watermarks and allocates from the per-CPU cache or buddy free lists
+2. **Slow path**: `__alloc_pages_slowpath()` may wake `kswapd`, perform direct reclaim, attempt compaction, retry with different zones, or invoke the OOM killer
+
+### GFP Flag Guidance from Kernel Docs
+
+- Use `kzalloc(<size>, GFP_KERNEL)` as the default
+- For arrays, use `kmalloc_array()` or `kcalloc()` with overflow-safe helpers
+- For large allocations, use `vmalloc()` or `kvmalloc()`
+- For many identical objects, use `kmem_cache_create()` + `kmem_cache_alloc()`
+- Use `struct_size()`, `array_size()`, `array3_size()` for safe size calculations
+
+`kmalloc()` alignment: at least `ARCH_KMALLOC_MINALIGN` bytes. For power-of-two sizes, alignment is at least the size itself.
+
+### Userspace Allocation GFP Flags
+
+- `GFP_USER`: Not movable, must be directly kernel-accessible
+- `GFP_HIGHUSER`: Not movable, not required to be directly kernel-accessible
+- `GFP_HIGHUSER_MOVABLE`: Not required to be directly kernel-accessible, implies movable (preferred for user pages)
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)

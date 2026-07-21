@@ -444,34 +444,150 @@ static u32 tcp_reno_ssthresh(struct sock *sk)
 
 ### CUBIC Congestion Control
 
-CUBIC is the default congestion control algorithm in Linux:
+CUBIC is the default congestion control algorithm in Linux (since 2.6.19). It uses a cubic function for window growth, which is more stable and fair than Reno's linear growth:
 
 ```c
-static void tcp_cubic_cong_avoid(struct sock *sk, u32 ack, u32 acked)
+/* net/ipv4/tcp_cubic.c */
+
+/* CUBIC state per connection */
+struct bictcp {
+    u32 cnt;            /* Target cwnd */
+    u32 last_max_cwnd;  /* Last maximum cwnd */
+    u32 last_cwnd;      /* Last cwnd */
+    u32 last_time;      /* Time since last congestion event */
+    u32 bic_origin_point;/* Origin point of cubic function */
+    u32 bic_K;          /* K = cube_root(last_max_cwnd - origin) */
+    u32 delay_min;      /* Minimum RTT */
+    u32 epoch_start;    /* Start of current epoch */
+    /* ... */
+};
+
+/* CUBIC window growth function */
+static void bictcp_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 {
     struct tcp_sock *tp = tcp_sk(sk);
     struct bictcp *ca = inet_csk_ca(sk);
+    u32 delta, bic_target, t;
 
     if (!tcp_is_cwnd_limited(sk))
         return;
 
     if (tcp_in_slow_start(tp)) {
+        /* Slow start: exponential growth (same as Reno) */
         tcp_slow_start(tp, acked);
         return;
     }
 
-    /* CUBIC growth function */
-    ca->cnt = cubic_root(cube_factor * (tcp_stamp - ca->t0)) +
-              tcp_snd_cwnd(sk);
+    /* CUBIC congestion avoidance */
+    t = tcp_stamp - ca->epoch_start;  /* Time since last loss */
 
-    if (ca->cnt > tcp_snd_cwnd(sk))
-        tcp_snd_cwnd(sk)++;
+    /* CUBIC function: W(t) = C * (t - K)^3 + W_max */
+    /* C = 0.4 (cubic scaling factor) */
+    /* K = cube_root(W_max * beta / C) */
+
+    bic_target = cubic(t, ca->bic_origin_point, ca->bic_K);
+
+    if (bic_target > tcp_snd_cwnd(tp)) {
+        /* Below target: grow towards it */
+        delta = bic_target - tcp_snd_cwnd(tp);
+        ca->cnt = tcp_snd_cwnd(tp) / delta;
+    } else {
+        /* Above target: grow slowly (TCP-friendly region) */
+        ca->cnt = 100 * tcp_snd_cwnd(tp);
+    }
 }
+```
+
+### CUBIC Growth Curve
+
+```
+Window
+  ^
+  |      /‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾ W_max
+  |     /
+  |    /  CUBIC: concave growth
+  |   /   (approaching W_max slowly)
+  |  /
+  | /
+  |/  CUBIC: convex growth
+  |   (recovering from loss quickly)
+  |__________________________________> Time
+      ^          ^
+      Loss       W_max reached
+      event
+```
+
+```bash
+# CUBIC tunables
+$ cat /proc/sys/net/ipv4/tcp_congestion_control
+cubic
+
+# CUBIC beta = 0.7 (reduce cwnd to 70% on loss)
+$ cat /sys/module/tcp_cubic/parameters/beta
+# (not always exposed; default 0.7)
+
+# View CUBIC state for a connection
+$ ss -i dst 10.0.0.1
+# cubic cwnd:100 ssthresh:50 rtt:1.234/0.567
 ```
 
 ### BBR Congestion Control
 
-BBR (Bottleneck Bandwidth and Round-trip propagation time) is a newer algorithm:
+BBR (Bottleneck Bandwidth and Round-trip propagation time) is a newer algorithm that models the network path rather than reacting to packet loss:
+
+```c
+/* net/ipv4/tcp_bbr.c */
+
+/* BBR state per connection */
+struct bbr {
+    u32 min_rtt_us;         /* Minimum RTT (propagation delay) */
+    u32 bw;                 /* Estimated bottleneck bandwidth */
+    u32 cycle_idx;          /* Current gain cycle index */
+    u32 has_seen_rtt:1;     /* Have we seen an RTT sample? */
+    u32 unused:15;
+    u32 full_bw;            /* Bandwidth estimate at full pipe */
+    u32 round_count;        /* Number of packet-timed rounds */
+    u64 cycle_mstamp;       /* Time of last cycle phase */
+    u32 mode:3;             /* BBR mode (STARTUP, DRAIN, PROBE_BW, PROBE_RTT) */
+    /* ... */
+};
+```
+
+BBR has four operating modes:
+
+```mermaid
+stateDiagram-v2
+    [*] --> STARTUP: New connection
+    STARTUP --> DRAIN: Bandwidth plateau detected
+    DRAIN --> PROBE_BW: Queue drained
+    PROBE_BW --> PROBE_BW: Normal operation
+    PROBE_BW --> PROBE_RTT: RTT sample stale (>10s)
+    PROBE_RTT --> PROBE_BW: RTT measured (200ms)
+    PROBE_BW --> STARTUP: Retransmission timeout
+```
+
+```c
+/* BBR mode definitions */
+enum bbr_mode {
+    BBR_STARTUP,    /* Ramp up sending rate quickly */
+    BBR_DRAIN,      /* Drain excess queue from startup */
+    BBR_PROBE_BW,   /* Steady state: probe for more bandwidth */
+    BBR_PROBE_RTT,  /* Probe for lower RTT */
+};
+
+/* BBR pacing rate calculation */
+static u32 bbr_pacing_rate(struct sock *sk)
+{
+    struct bbr *bbr = inet_csk_ca(sk);
+    u32 rate = bbr->bw * bbr->pacing_gain;
+
+    /* During startup, pace at 2.89x bandwidth estimate */
+    if (bbr->mode == BBR_STARTUP)
+        rate = bbr->bw * 289 / 100;
+
+    return rate;
+}
+```
 
 ```bash
 # Enable BBR
@@ -483,7 +599,24 @@ net.ipv4.tcp_available_congestion_control = reno cubic bbr
 
 # Per-socket selection
 setsockopt(fd, IPPROTO_TCP, TCP_CONGESTION, "bbr", 3);
+
+# BBR tunables
+$ sysctl net.ipv4.tcp_bbr2_high_gain=2890
+$ sysctl net.ipv4.tcp_bbr2_drain_gain=250
+$ sysctl net.ipv4.tcp_bbr2_probe_rtt_mode_ms=200
 ```
+
+### BBR vs CUBIC
+
+| Feature | CUBIC | BBR |
+|---------|-------|-----|
+| Model | Loss-based | Model-based |
+| Congestion signal | Packet loss | Bandwidth/RTT estimation |
+| Buffer filling | Fills buffers | Avoids buffer bloat |
+| Loss tolerance | Reduces on loss | Ignores random loss |
+| Fairness | Good (same algo) | Can starve CUBIC flows |
+| Default | Linux default | Must enable manually |
+| Best for | Traditional networks | High BDP, lossy links |
 
 ### ECN (Explicit Congestion Notification)
 
@@ -500,6 +633,86 @@ static inline int tcp_ecn_rcv_ecn_echo(struct tcp_sock *tp,
 /* Enable ECN */
 $ sysctl net.ipv4.tcp_ecn=1
 ```
+
+## Nagle Algorithm
+
+The Nagle algorithm coalesces small writes to reduce the number of tiny packets sent over the network:
+
+```c
+/* net/ipv4/tcp_output.c */
+static bool tcp_nagle_test(struct tcp_sock *tp, struct sk_buff *skb,
+                           unsigned int mss_now, int nonagle)
+{
+    /* Nagle disabled: always send immediately */
+    if (nonagle & TCP_NAGLE_OFF)
+        return true;
+
+    /* If we have full-sized segment, send */
+    if (skb->len >= mss_now)
+        return true;
+
+    /* If all previous data is ACKed, send */
+    if (tcp_skb_is_last(sk, skb))
+        return true;
+
+    /* If we're in quickack mode, send */
+    if (tp->pred_flags & TCP_QUICKACK)
+        return true;
+
+    /* Otherwise, wait for more data or ACK */
+    return false;
+}
+```
+
+### Nagle Interaction with Delayed ACK
+
+The Nagle algorithm can interact badly with delayed ACKs, causing a "write-write-write" pattern to stall:
+
+```
+Without TCP_NODELAY:
+  Client: write(1 byte) → wait for ACK...
+  Server: receives 1 byte → delays ACK (up to 40ms)
+  Client: write(1 byte) → blocked by Nagle (unACKed data)
+  ... 40ms delay ...
+  Server: sends delayed ACK
+  Client: sends second byte
+
+With TCP_NODELAY:
+  Client: write(1 byte) → send immediately
+  Client: write(1 byte) → send immediately
+  Server: receives both → responds
+```
+
+### Disabling Nagle (TCP_NODELAY)
+
+```c
+#include <netinet/tcp.h>
+
+int flag = 1;
+setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
+
+/* Also can use TCP_CORK for opposite effect: */
+int cork = 1;
+setsockopt(fd, IPPROTO_TCP, TCP_CORK, &cork, sizeof(cork));
+/* TCP_CORK: hold small writes until cork removed or buffer full */
+cork = 0;
+setsockopt(fd, IPPROTO_TCP, TCP_CORK, &cork, sizeof(cork));
+```
+
+```bash
+# View TCP_NODELAY state
+$ ss -o state established '( dport = :80 )' | grep -o 'nodelay\|cork'
+
+# sysctl for Nagle (not typically exposed)
+# Nagle is controlled per-socket via TCP_NODELAY
+```
+
+### When to Disable Nagle
+
+- **Interactive protocols** (SSH, telnet, gaming): Disable with `TCP_NODELAY`
+- **RPC/HTTP**: Disable with `TCP_NODELAY` for request-response patterns
+- **Bulk transfer**: Keep Nagle enabled (default) for throughput
+- **Database connections**: Usually disable with `TCP_NODELAY`
 
 ## IP Layer Implementation
 

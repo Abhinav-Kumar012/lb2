@@ -170,6 +170,86 @@ graph TD
 | Max contiguous write | 12 blocks (direct) | 32768 blocks (128MB) |
 | Metadata overhead | High for large files | Very low |
 
+### Extent Tree Internals
+
+The extent tree is a B-tree-like structure optimized for sequential and random access patterns:
+
+```c
+/* fs/ext4/extents.c - extent tree operations */
+
+/* Insert a new extent into the tree */
+int ext4_ext_insert_extent(handle_t *handle, struct inode *inode,
+                           struct ext4_ext_path *path,
+                           struct ext4_extent *newext, int flags)
+{
+    /* 1. Find insertion point in leaf node */
+    /* 2. If leaf is full, split it */
+    /* 3. Propagate split up to parent (index nodes) */
+    /* 4. If root splits, increase tree depth */
+}
+
+/* Split a full extent block */
+static int ext4_ext_split(handle_t *handle, struct inode *inode,
+                          struct ext4_ext_path *path,
+                          struct ext4_extent *newext, int at)
+{
+    /* Allocate new extent block */
+    /* Move half of entries to new block */
+    /* Update parent index to point to new block */
+    /* Insert new entry in correct half */
+}
+```
+
+### Extent Status Tree (In-Memory)
+
+In addition to the on-disk extent tree, ext4 maintains an in-memory **extent status tree** for fast lookup of delayed extents, unwritten extents, and holes:
+
+```c
+/* fs/ext4/ext4.h */
+struct ext4_ext_cache {
+    ext4_lblk_t ec_start;    /* First logical block */
+    ext4_lblk_t ec_len;      /* Number of blocks */
+    ext4_pblk_t ec_block;    /* First physical block */
+    int ec_type;              /* EXTENT_STATUS_* */
+};
+
+/* Extent status types */
+#define EXTENT_STATUS_WRITTEN   (1 << 0)
+#define EXTENT_STATUS_UNWRITTEN (1 << 1)
+#define EXTENT_STATUS_DELAYED   (1 << 2)
+#define EXTENT_STATUS_HOLE      (1 << 3)
+```
+
+```bash
+# View extent status tree stats
+$ cat /sys/fs/ext4/sda1/es_shk_nr   # Number of extent status entries
+$ cat /sys/fs/ext4/sda1/es_shrinker_time  # Shrinker activity
+
+# View extent tree depth
+$ sudo filefrag -v /path/to/largefile | head -5
+Filesystem type is: ef53
+File size of /path/to/largefile is 1073741824 (262144 blocks of 4096 bytes)
+ ext:     logical_offset:        physical_offset: length:   expected: flags:
+   0:        0..   262143:      500000..    762143: 262144:             unwritten
+```
+
+### Maximum Extent Tree Size
+
+```
+Inode i_block[] (60 bytes):
+  - 12 bytes for extent header
+  - 48 bytes = 4 extents (leaf) or 3 index entries
+
+Each extent block (4KB):
+  - 12 bytes for header
+  - 4088 bytes = 340 extents or 340 index entries
+
+Max file size per tree depth:
+  Depth 0: 4 extents × 32768 blocks × 4KB = 512MB
+  Depth 1: 3 indexes × 340 extents × 128MB = ~130TB
+  Depth 2: 3 × 340 × 340 × 128MB = ~44PB
+```
+
 ## Journaling (JBD2)
 
 ext4 uses the JBD2 (Journaling Block Device 2) layer for metadata journaling. See
@@ -245,27 +325,76 @@ flowchart TD
     H --> I[Return best available]
 ```
 
-### Buddy Allocator
+### mballoc Data Structures
 
-mballoc uses a buddy allocator within each block group. The buddy bitmap tracks free space at
-different granularities (1, 2, 4, 8, ..., 2048 blocks):
+The allocator maintains several key data structures:
 
 ```c
-/* Simplified buddy allocator operation */
-struct ext4_free_extent {
-    ext4_lblk_t fe_logical;   /* Logical block number */
-    ext4_grpblk_t fe_start;   /* Physical block within group */
-    ext4_group_t fe_group;     /* Block group number */
-    int fe_len;                /* Number of blocks */
+/* fs/ext4/mballoc.c */
+
+/* Per-group allocation context */
+struct ext4_allocation_context {
+    struct inode *ac_inode;     /* File being extended */
+    struct super_block *ac_sb;  /* Superblock */
+    struct ext4_free_extent ac_o_ex;  /* Original request */
+    struct ext4_free_extent ac_g_ex;  /* Goal (best found) */
+    struct ext4_free_extent ac_b_ex;  /* Best result */
+    struct ext4_free_extent ac_f_ex;  /* Final result */
+    unsigned long ac_flags;     /* Allocation flags */
+    /* ... */
 };
 
-/* Allocation path */
+/* Per-group buddy cache */
+struct ext4_group_info {
+    unsigned long bb_state;           /* Block group state */
+    unsigned long bb_counters[];      /* Buddy bitmap counters */
+    struct ext4_free_extent bb_largest_free_extent;
+};
+```
+
+### Buddy Bitmap
+
+Each block group uses a buddy bitmap to track free space at different orders:
+
+```
+Order 0: [1][0][1][1][0][1][1][1]  (individual blocks)
+Order 1: [1]  [0]  [1]  [1]       (pairs: 0-1, 2-3, 4-5, 6-7)
+Order 2: [0]     [1]              (quads: 0-3, 4-7)
+Order 3: [0]                        (octet: 0-7)
+
+1 = free, 0 = allocated or split
+```
+
+```bash
+# View buddy bitmap state
+$ sudo debugfs -R "bmap <8>" /dev/sda1  # Buddy bitmap inode
+
+# View allocation group info
+$ sudo debugfs -R "bg 0" /dev/sda1
+Group 0: block bitmap 1, inode bitmap 2, inode table 3
+         23456 free blocks, 65432 free inodes, 123 used dirs
+```
+
+### Allocation Goals
+
+mballoc tries to place blocks near the allocation goal:
+
+```c
+/* fs/ext4/mballoc.c - simplified goal allocation */
 static int ext4_mb_find_by_goal(struct ext4_allocation_context *ac)
 {
-    /* Try to allocate near the goal position */
     struct ext4_free_extent ex;
-    /* Search buddy bitmap for contiguous free extent */
-    /* Prefer extents that align with the goal */
+    struct ext4_group_info *grp = ext4_get_group_info(ac->ac_sb, ac->ac_g_ex.fe_group);
+
+    /* Try to find free blocks near the goal position */
+    /* Uses buddy bitmap to find contiguous free extent */
+    /* Prefers extents that align with the goal */
+
+    if (found) {
+        ac->ac_b_ex = ex;
+        return 0;
+    }
+    return -ENOSPC;
 }
 ```
 
@@ -278,6 +407,29 @@ ext4 uses preallocation to reduce fragmentation:
 - **Per-group preallocation**: A pool of preallocated blocks is maintained per block group.
 - **Directory preallocation**: Directories get extra blocks preallocated when created.
 
+```c
+/* fs/ext4/mballoc.c - inode preallocation */
+static void ext4_mb_new_preallocation(struct ext4_allocation_context *ac)
+{
+    /* Calculate preallocation size based on: */
+    /* - File size (larger files get more preallocation) */
+    /* - Number of writers */
+    /* - Allocation flags */
+    int prealloc = 0;
+
+    if (ac->ac_flags & EXT4_MB_STREAM_ALLOC) {
+        /* Streaming allocation: small prealloc */
+        prealloc = sbi->s_mb_stream_req;
+    } else {
+        /* Normal allocation: larger prealloc */
+        prealloc = sbi->s_mb_order2_reqs;
+    }
+
+    /* Apply preallocation */
+    ext4_mb_new_preallocation_real(ac, prealloc);
+}
+```
+
 ```bash
 # View preallocation settings
 $ cat /proc/sys/fs/ext4/ext4_mb_stream_req
@@ -288,6 +440,29 @@ $ cat /proc/sys/fs/ext4/ext4_mb_order1_req
 
 $ cat /proc/sys/fs/ext4/ext4_mb_max_to_scan
 200 # Max groups to scan before giving up
+
+# Monitor preallocation effectiveness
+$ cat /sys/fs/ext4/sda1/session_write_kbytes
+$ cat /sys/fs/ext4/sda1/lifetime_write_kbytes
+```
+
+### mballoc Tuning
+
+```bash
+# Allocation tuning parameters
+$ cat /proc/sys/fs/ext4/ext4_mb_min_to_scan    # Min groups scanned
+$ cat /proc/sys/fs/ext4/ext4_mb_max_to_scan    # Max groups scanned
+$ cat /proc/sys/fs/ext4/ext4_mb_order1_req     # Order-1 allocation threshold
+$ cat /proc/sys/fs/ext4/ext4_mb_stream_req     # Streaming allocation threshold
+$ cat /proc/sys/fs/ext4/ext4_mb_group_prealloc  # Group preallocation size (in blocks)
+
+# For database workloads (many small random writes)
+echo 4 > /proc/sys/fs/ext4/ext4_mb_stream_req
+echo 256 > /proc/sys/fs/ext4/ext4_mb_group_prealloc
+
+# For streaming workloads (large sequential writes)
+echo 16 > /proc/sys/fs/ext4/ext4_mb_stream_req
+echo 2048 > /proc/sys/fs/ext4/ext4_mb_group_prealloc
 ```
 
 ## Delayed Allocation

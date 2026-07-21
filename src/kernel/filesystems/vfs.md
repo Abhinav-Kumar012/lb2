@@ -542,6 +542,66 @@ Recent kernel optimizations include:
 - **Lazy dentry invalidation**: Instead of immediately freeing dentries on `rename()`/`unlink()`, they are moved to a "shrink list" for batch processing.
 - **Folio conversion**: The page cache is being converted from `struct page` to `struct folio` for more efficient large-page handling.
 
+## VFS Architecture Details (from docs.kernel.org)
+
+The kernel documentation at `docs.kernel.org/filesystems/vfs.html` provides the authoritative reference for the VFS layer, originally by Richard Gooch.
+
+### Directory Entry Cache (dcache)
+
+The VFS implements path-based system calls by searching the **directory entry cache (dentry cache / dcache)**. This provides very fast look-up to translate a pathname into a specific dentry. Dentries live in RAM and are never saved to disk — they exist only for performance.
+
+The dcache is meant to be a view of the entire filespace. Since all dentries cannot fit in RAM, some bits are missing. The VFS may create dentries along the way and load inodes by calling the parent directory's `lookup()` method.
+
+### The Inode Object
+
+An individual dentry usually has a pointer to an inode. Inodes are filesystem objects (regular files, directories, FIFOs, etc.) that live either on disk (block device filesystems) or in memory (pseudo filesystems). Disk inodes are copied into memory when needed; changes are written back to disk. A single inode can be pointed to by multiple dentries (hard links).
+
+### The File Object
+
+Opening a file allocates a file structure (the kernel-side implementation of file descriptors), initialized with a pointer to the dentry and file operation functions from the inode. The `open()` file method is called so the filesystem can do its work. The file structure is placed into the process's file descriptor table.
+
+### Registering and Mounting
+
+Filesystems register with:
+```c
+#include <linux/fs.h>
+extern int register_filesystem(struct file_system_type *);
+extern int unregister_filesystem(struct file_system_type *);
+```
+
+The `struct file_system_type` describes the filesystem and provides `init_fs_context` for mounting. All registered filesystems appear in `/proc/filesystems`.
+
+### struct super_operations
+
+Key operations the VFS calls on a mounted filesystem:
+- `alloc_inode` / `destroy_inode` / `free_inode`: Inode lifecycle
+- `dirty_inode` / `write_inode`: Metadata persistence
+- `drop_inode` / `evict_inode`: Inode cache management
+- `put_super`: Cleanup on umount
+- `sync_fs`: Force all dirty data to disk
+- `freeze_fs` / `unfreeze_fs`: LVM snapshots, ioctl(FIFREEZE)
+- `statfs`: Return filesystem statistics (used by `df`)
+- `show_options`: Mount options for `/proc/<pid>/mounts`
+
+### struct inode_operations
+
+Operations on individual inodes:
+- `create`, `lookup`, `link`, `unlink`, `symlink`
+- `mkdir`, `rmdir`, `mknod`, `rename`
+- `readlink`, `get_link` (for symlinks)
+- `permission`: Access permission checks
+- `setattr`, `getattr`: Attribute modification/query
+- `listxattr`: Extended attribute listing
+- `atomic_open`: Combined lookup+open for NFS-like filesystems
+- `get_acl`, `set_acl`: POSIX ACL operations
+
+### struct xattr_handler
+
+Filesystems supporting extended attributes provide a NULL-terminated array of xattr handlers via `s_xattr`. Each handler has:
+- `name` or `prefix`: Attribute name matching
+- `list`: Determine if attributes should be listed
+- `get` / `set`: Read/write attribute values
+
 ## Further Reading
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
@@ -556,6 +616,7 @@ Recent kernel optimizations include:
 - [Linux Kernel Source: include/linux/fs.h](https://elixir.bootlin.com/linux/latest/source/include/linux/fs.h) — VFS structure definitions
 - [LWN: A survey of VFS-related changes](https://lwn.net/Articles/676385/) — Al Viro's VFS series
 - [LWN: RCU-walk for faster pathname lookup](https://lwn.net/Articles/360199/) — Nick Piggin's RCU path walk
+- [Overview of the Linux Virtual File System](https://docs.kernel.org/filesystems/vfs.html) — Official kernel VFS documentation
 
 ## Related Topics
 
