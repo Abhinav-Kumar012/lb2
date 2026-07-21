@@ -824,6 +824,104 @@ $ sudo perf trace -e 'net:*' -- sleep 5
 $ sudo bpftool prog list
 ```
 
+## VXLAN — Virtual eXtensible Local Area Network
+
+VXLAN is a tunnelling protocol designed to solve the limited VLAN ID space (4096) in IEEE 802.1q. With VXLAN, the identifier is expanded to **24 bits** (16,777,216 segments). VXLAN is described by **IETF RFC 7348** and runs over UDP using a single destination port (IANA-assigned port **4789**).
+
+### Key Properties
+
+| Property | Detail |
+|----------|--------|
+| Encapsulation | Layer 2 over Layer 3 (UDP) |
+| VNI size | 24 bits (16M segments vs 4K for VLAN) |
+| Default UDP port | 4789 (Linux default may differ for backward compat) |
+| Learning | Dynamic (like a learning bridge) or static forwarding entries |
+| Topology | 1:N network (not just point-to-point) |
+
+### Linux VXLAN Configuration
+
+```bash
+# Create a VXLAN device
+ip link add vxlan0 type vxlan id 42 group 239.1.1.1 dev eth1 dstport 4789
+
+# Delete a VXLAN device
+ip link delete vxlan0
+
+# Show VXLAN info
+ip -d link show vxlan0
+
+# Add a static forwarding entry
+bridge fdb add to 00:17:42:8a:b4:05 dst 192.19.0.2 dev vxlan0
+
+# Delete a forwarding entry
+bridge fdb delete 00:17:42:8a:b4:05 dev vxlan0
+
+# Show forwarding table
+bridge fdb show dev vxlan0
+```
+
+### NIC Offloads for VXLAN
+
+Modern NICs support hardware offloads for VXLAN:
+
+| Offload | Description |
+|---------|-------------|
+| `tx-udp_tnl-segmentation` | TSO for UDP-encapsulated frames |
+| `tx-udp_tnl-csum-segmentation` | Checksum offload + TSO for VXLAN |
+| `rx-udp_tunnel-port-offload` | RX parsing of encapsulated frames (checksum validation) |
+
+```bash
+# Check offloaded tunnel ports
+ethtool --show-tunnels eth0
+```
+
+The Linux VXLAN implementation predates the IANA port assignment and uses a Linux-selected default port for backward compatibility. The kernel implementation is separate from Open vSwitch's VXLAN.
+
+---
+
+## MPLS — Multi-Protocol Label Switching
+
+MPLS is a protocol that operates between Layer 2 (data link) and Layer 3 (network), using short fixed-length labels to make forwarding decisions. The Linux kernel supports MPLS as a routing protocol.
+
+### MPLS Concepts
+
+- **Label**: A 20-bit identifier (0–1048575) prepended to packets
+- **Label Stack**: Multiple labels can be stacked (for tunneling, VPN, etc.)
+- **LSR (Label Switch Router)**: Forwards packets based on label values
+- **LSP (Label Switched Path)**: The path through MPLS routers
+
+### Linux MPLS Configuration
+
+MPLS forwarding is controlled via sysctl and `ip route`:
+
+```bash
+# Enable MPLS on interfaces
+sysctl -w net.mpls.platform_labels=1048575  # Max label space
+sysctl -w net.mpls.conf.eth0.input=1        # Accept MPLS on eth0
+sysctl -w net.mpls.conf.eth1.input=1        # Accept MPLS on eth1
+
+# Add MPLS routes (label 100 → forward via eth1)
+ip route add 10.0.0.0/8 encap mpls 100 via 192.168.1.1 dev eth1
+
+# Pop label and deliver locally
+ip -f mpls route add 200 dev lo
+```
+
+### MPLS Sysctl Parameters
+
+From `docs.kernel.org/networking/mpls-sysctl.html`:
+
+| Parameter | Description |
+|-----------|-------------|
+| `platform_labels` | Number of entries in the platform label table (0–1048575). Default: 0 (disabled) |
+| `ip_ttl_propagate` | TTL propagation: 0 = RFC 3443 Short Pipe Model, 1 = Uniform Model (default) |
+| `default_ttl` | Default TTL for MPLS packets without IP header (1–255, default 255) |
+| `conf/<iface>/input` | Enable/disable MPLS input on interface (0 = disabled by default) |
+
+Setting `platform_labels=0` disables MPLS forwarding entirely. Reducing the value removes label routing entries that no longer fit.
+
+---
+
 ## Networking Subsystem Components (from docs.kernel.org)
 
 The kernel networking documentation at `docs.kernel.org/networking/index.html` reveals the full breadth of the networking subsystem, which extends far beyond TCP/IP.
