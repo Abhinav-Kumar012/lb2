@@ -205,7 +205,7 @@ sesearch --allow -s httpd_t -t httpd_sys_content_t -c file
 #    allow httpd_t httpd_sys_content_t:file { ioctl read getattr lock open };
 ```
 
-### Booleans
+### Booleans Deep Dive
 
 Booleans are on/off switches that modify policy behavior without editing policy source:
 
@@ -237,6 +237,60 @@ sudo setsebool -P httpd_use_nfs on                    # Use NFS-mounted content
 
 # Find booleans related to a keyword
 semanage boolean -l | grep httpd
+```
+
+### Boolean Internals
+
+Each boolean is backed by conditional blocks in the policy:
+
+```
+# In policy source (.te file):
+tunable_policy(`httpd_can_network_connect',`
+    allow httpd_t port_type:tcp_socket name_connect;
+')
+
+# When boolean is ON: the allow rule is active
+# When boolean is OFF: the allow rule is inactive
+```
+
+```bash
+# View what a boolean controls
+$ sudo semanage boolean -l | grep httpd_can_network_connect
+httpd_can_network_connect  (off  ,  off)  Allow httpd to can network connect
+
+# View the actual rules affected by a boolean
+$ sudo sesearch --boolean httpd_can_network_connect --allow
+# Shows all conditional allow rules controlled by this boolean
+
+# View boolean definitions in policy
+$ sudo semanage boolean -l -n | head
+# abrt_anon_write: off
+# abrt_handle_event: off
+# ...
+```
+
+### Common Boolean Categories
+
+```bash
+# Network access booleans
+httpd_can_network_connect        # HTTP outbound connections
+httpd_can_network_connect_db     # HTTP to database
+httpd_graceful_shutdown           # Graceful shutdown
+httpd_enable_cgi                  # CGI execution
+
+# Samba booleans
+samba_enable_home_dirs            # Share home directories
+samba_export_all_rw               # Export all read-write
+smbd_disable_trans                # Disable transparent mode
+
+# SSH booleans
+ssh_sysadm_login                  # Allow sysadm_r login via SSH
+ssh_chroot_rw_homedirs            # R/W home dirs in chroot
+
+# Container booleans
+container_manage_cgroup           # Container cgroup management
+container_connect_any             # Container can connect to any port
+container_use_cephfs              # Container can use CephFS
 ```
 
 ## SELinux Modes
@@ -298,34 +352,66 @@ sudo ausearch -m avc -ts recent | audit2why
 #         Run: restorecon -v /var/www/html/shadow
 ```
 
-### setroubleshoot
+### Denial Pattern Analysis
 
-The `setroubleshoot` framework provides user-friendly explanations of SELinux denials:
+Understanding common denial patterns helps with faster troubleshooting:
 
 ```bash
-# Install setroubleshoot
-sudo dnf install setroubleshoot-server setroubleshoot-plugins
+# Pattern 1: Wrong file context (most common)
+# avc: denied { read } for name="index.html" scontext=httpd_t tcontext=user_home_t
+# Fix: restorecon -v /path/to/file
 
-# View troubleshooting alerts
-sudo sealert -a /var/log/audit/audit.log
-# *****  Plugin catchall_boolean (76.5 confidence) suggests   **********
-#
-# If you want to allow httpd to can network connect
-# Then you must tell SELinux about this by enabling the 'httpd_can_network_connect' boolean.
-#
-# Do
-# setsebool -P httpd_can_network_connect 1
-#
-# *****  Plugin restorecon (8.71 confidence) suggests      **********
-#
-# If you want to fix the label...
-# restorecon -v /var/www/html/shadow
+# Pattern 2: Missing boolean
+# avc: denied { name_connect } for dest=3306 scontext=httpd_t tcontext=mysqld_port_t
+# Fix: setsebool -P httpd_can_network_connect_db on
 
-# Watch for real-time alerts
-sudo sealert -b    # GUI version (needs desktop)
+# Pattern 3: Port not defined
+# avc: denied { name_bind } for port=8443 scontext=httpd_t tcontext=unreserved_port_t
+# Fix: semanage port -a -t http_port_t -p tcp 8443
+
+# Pattern 4: New application type not defined
+# avc: denied { read } for name="config" scontext=myapp_t tcontext=etc_t
+# Fix: Create custom policy module with audit2allow
+
+# Pattern 5: Transition denied
+# avc: denied { transition } for pid=1234 scontext=init_t tcontext=myapp_t
+# Fix: Add type_transition rule in custom policy
 ```
 
-### Common Troubleshooting Workflow
+### Advanced Troubleshooting Tools
+
+```bash
+# Monitor denials in real-time
+$ sudo ausearch -m avc -ts now -i
+
+# List all types in the policy
+$ sudo seinfo -t | head -20
+# Type             Count
+# httpd_t          1
+# unconfined_t     1
+# ...
+
+# List all roles
+$ sudo seinfo -r
+# Role             Count
+# system_r         1
+# unconfined_r     1
+# ...
+
+# Search for specific rules
+$ sudo sesearch --allow -s httpd_t -c file
+# Shows all file access rules for httpd_t
+
+# View type transition rules
+$ sudo sesearch --type_trans -s httpd_t -t tmp_t
+# Shows what types httpd_t creates in tmp_t directories
+
+# Check if a specific access is allowed
+$ sudo sesearch --allow -s httpd_t -t httpd_sys_content_t -c file -p read
+# allow httpd_t httpd_sys_content_t:file { read getattr lock open ioctl };
+```
+
+### Troubleshooting Workflow
 
 ```mermaid
 flowchart TD
@@ -378,6 +464,33 @@ sudo semodule -i myfix.pp
 # WARNING: audit2allow generates the MINIMUM policy to silence denials.
 # Always review generated rules — blindly loading them can weaken security.
 # The proper fix might be a boolean or correct labeling instead.
+```
+
+### Troubleshooting Tips
+
+```bash
+# Tip 1: Use permissive mode per-domain (better than global setenforce 0)
+sudo semanage permissive -a httpd_t
+# Only httpd_t is permissive, rest of system stays enforcing
+
+# Tip 2: Check if SELinux is actually the problem quickly
+$ getenforce
+# Enforcing
+$ sudo setenforce 0 && curl http://localhost/test && sudo setenforce 1
+# If this works, SELinux is the issue
+
+# Tip 3: Use sealert for actionable recommendations
+$ sudo sealert -a /var/log/audit/audit.log
+# Provides specific commands to fix each denial
+
+# Tip 4: Check file contexts before deploying
+$ matchpathcon /var/www/html/*
+# /var/www/html/index.html  system_u:object_r:httpd_sys_content_t:s0
+
+# Tip 5: Use semanage fcontext for persistent changes (not chcon)
+sudo semanage fcontext -a -t httpd_sys_content_t '/srv/web(/.*)?'
+sudo restorecon -Rv /srv/web/
+# This survives relabeling; chcon does not
 ```
 
 ## Practical SELinux Administration

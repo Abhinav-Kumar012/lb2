@@ -192,6 +192,86 @@ PartOf=myapp.target
 └─────────────────────────────────────────────────────┘
 ```
 
+### Dependency Resolution Internals
+
+systemd resolves dependencies using a **transaction** mechanism:
+
+```c
+/* src/core/transaction.c (simplified) */
+
+/* When starting a unit, systemd: */
+static int transaction_add_job_and_dependencies(
+    Manager *m, JobType type, Unit *unit,
+    Job *by, bool matters, Job **ret)
+{
+    /* 1. Add the requested job (e.g., START for unit) */
+    /* 2. Recursively add Requires/Wants dependencies */
+    /* 3. Add After ordering for each dependency */
+    /* 4. Check for conflicts (Conflicts=) */
+    /* 5. Verify no circular dependencies exist */
+    /* 6. Merge with existing transaction */
+}
+```
+
+```bash
+# View the complete dependency tree of a unit
+$ systemctl list-dependencies nginx.service
+nginx.service
+● ├─-.mount
+● ├─system.slice
+● ├─network.target
+● │ └─NetworkManager.service
+● └─sysinit.target
+●   ├─dev-hugepages.mount
+●   └─...
+
+# Reverse dependencies (what depends on this unit)
+$ systemctl list-dependencies --reverse nginx.service
+# Shows what would be affected if nginx.service stops
+
+# View all ordering dependencies
+$ systemctl show nginx.service --property=After
+After=sysinit.target basic.target network.target
+
+# View all requirement dependencies
+$ systemctl show nginx.service --property=Requires,Wants
+Requires=system.slice
+Wants=network.target
+```
+
+### Target Ordering and Dependencies
+
+Targets can have their own dependency chains:
+
+```ini
+# multi-user.target depends on:
+[Unit]
+Requires=basic.target
+After=basic.target
+AllowIsolate=yes
+
+# graphical.target depends on:
+[Unit]
+Requires=multi-user.target
+After=multi-user.target
+Conflicts=rescue.target
+```
+
+```bash
+# View target dependency chain
+$ systemctl list-dependencies graphical.target
+graphical.target
+└─multi-user.target
+  ├─basic.target
+  │ ├─sockets.target
+  │ │ ├─dbus.socket
+  │ │ └─...
+  │ ├─slices.target
+  │ └─...
+  ├─getty.target
+  └─remote-fs.target
+```
+
 ## Target Units
 
 Targets group units together and replace the SysV init runlevel concept.

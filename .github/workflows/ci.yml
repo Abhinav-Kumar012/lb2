@@ -1,33 +1,15 @@
-name: Deploy Encyclopedia
+name: CI
 
 on:
+  push:
+    branches: [dev]
   workflow_dispatch:
 
-permissions:
-  contents: write
-  pages: write
-  id-token: write
-
-concurrency:
-  group: "pages"
-  cancel-in-progress: true
-
 jobs:
-  build-and-deploy:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: main
-          fetch-depth: 0
-
-      - name: Merge dev into main
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git fetch origin dev
-          git merge origin/dev --no-edit -m "Auto-sync: merge dev into main" || echo "Already up to date"
-          git push origin main
 
       - name: Install mdBook
         run: |
@@ -37,10 +19,8 @@ jobs:
       - name: Build book
         run: mdbook build
 
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: ./book
-
-      - name: Deploy to GitHub Pages
-        uses: actions/deploy-pages@v4
+      - name: Stats
+        run: |
+          echo "Pages: $(find src -name '*.md' -not -name 'SUMMARY.md' -size +1k | wc -l)"
+          echo "Lines: $(find src -name '*.md' -not -name 'SUMMARY.md' -size +1k -exec cat {} + | wc -l)"
+          echo "Empty: $(find src -name '*.md' -not -name 'SUMMARY.md' -size -100c | wc -l)"
