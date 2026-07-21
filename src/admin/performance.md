@@ -1,0 +1,330 @@
+# Performance Monitoring
+
+Performance monitoring is the cornerstone of Linux system administration. Without
+visibility into CPU, memory, disk I/O, and network behaviour, tuning is guesswork.
+This chapter surveys the classic `sysstat` family of tools—`vmstat`, `iostat`,
+`sar`, `mpstat`, `pidstat`—alongside the modern `dstat` aggregator, and ties them
+together into a repeatable analysis workflow.
+
+---
+
+## 1. Overview of Tools
+
+| Tool | Scope | Typical Interval | Output |
+|------|-------|-------------------|--------|
+| `vmstat` | CPU, memory, swap, I/O | 1 s | Tabular |
+| `iostat` | Block-device I/O | 1 s | Per-device |
+| `mpstat` | Per-CPU breakdown | 1 s | Per-core |
+| `pidstat` | Per-process | 1 s | Per-PID |
+| `sar` | Historical + live | 10 min (cron) | Multi-metric |
+| `dstat` | Aggregated live view | 1 s | Colour-coded |
+
+All except `dstat` ship with the **sysstat** package. Install on Debian/Ubuntu with:
+
+```bash
+sudo apt install sysstat dstat
+```
+
+Enable the `sar` data collector:
+
+```bash
+sudo systemctl enable --now sysstat
+```
+
+---
+
+## 2. vmstat — Virtual Memory Statistics
+
+`vmstat` prints a one-line summary of system activity since boot (or since the
+last sample when given an interval).
+
+```bash
+vmstat 1 5          # 1-second interval, 5 samples
+```
+
+### Interpreting the Columns
+
+```
+procs -----------memory---------- ---swap-- -----io---- -system-- ------cpu-----
+ r  b   swpd   free   buff  cache   si   so    bi    bo   in   cs us sy id wa st
+ 1  0      0 512000  64000 2048000    0    0     0     0  200  400  5  2 92  1  0
+```
+
+| Column | Meaning |
+|--------|---------|
+| `r` | Runnable processes (waiting for CPU) |
+| `b` | Blocked (waiting for I/O) |
+| `swpd` | Swap used (KB) |
+| `si/so` | Swap in / Swap out (KB/s) |
+| `bi/bo` | Blocks in / Blocks out (KB/s) |
+| `in` | Interrupts per second |
+| `cs` | Context switches per second |
+| `us/sy/id/wa/st` | CPU time: user / system / idle / I/O-wait / stolen |
+
+**Rule of thumb:** If `r` consistently exceeds the number of CPU cores, the system
+is CPU-bound. If `b > 0` persistently, storage I/O is the bottleneck.
+
+---
+
+## 3. iostat — Block Device I/O
+
+```bash
+iostat -xz 1        # extended stats, skip zero-activity devices
+```
+
+Key columns:
+
+- **r/s, w/s** — reads/writes per second
+- **rkB/s, wkB/s** — throughput
+- **await** — average I/O wait time (ms). SSDs: < 1 ms; HDDs: 5–15 ms
+- **%util** — device saturation. > 80 % on SSDs or > 60 % on HDDs signals trouble
+
+```bash
+# Show only NVMe devices, human-readable
+iostat -xz -p nvme 1
+```
+
+---
+
+## 4. mpstat — Per-CPU Statistics
+
+```bash
+mpstat -P ALL 1     # all CPUs, 1-second interval
+```
+
+Look for:
+
+- **IRQ imbalance** — one core handles most interrupts
+- **%soft** — high software-interrupt time suggests network or block-layer pressure
+
+```bash
+# Show only CPU 2 and 3
+mpstat -P 2,3 1
+```
+
+---
+
+## 5. pidstat — Per-Process Breakdown
+
+`pidstat` attaches metrics to individual processes, making it invaluable for
+tracing CPU hogs, disk-heavy tasks, or context-switch-heavy applications.
+
+```bash
+pidstat 1                   # CPU per process
+pidstat -d 1                # disk I/O per process
+pidstat -w 1                # context switches
+pidstat -t -p 1234 1        # per-thread for PID 1234
+```
+
+### Example: Finding the CPU Hog
+
+```bash
+pidstat 1 | sort -nr -k3 | head -5
+```
+
+---
+
+## 6. sar — System Activity Reporter
+
+`sar` is the Swiss-army knife. It collects metrics via a cron job
+(`/etc/cron.d/sysstat`) every 10 minutes and stores them in
+`/var/log/sa/sa<DD>`.
+
+### Live vs Historical
+
+```bash
+sar -u 1 5              # live CPU, 1-second × 5
+sar -u -f /var/log/sa/sa20   # historical: 20th of month
+```
+
+### Useful Flags
+
+| Flag | Metric |
+|------|--------|
+| `-u` | CPU utilisation |
+| `-r` | Memory |
+| `-b` | I/O |
+| `-n DEV` | Network interface stats |
+| `-n SOCK` | Socket statistics |
+| `-q` | Run queue / load average |
+| `-w` | Context switches + forks |
+
+### Trend Analysis with sadf
+
+`sar` data can be exported for graphing:
+
+```bash
+sadf -d /var/log/sa/sa20 -- -u > cpu_data.tsv   # TSV for gnuplot
+sadf -g /var/log/sa/sa20 -- -r > mem.svg         # SVG graph
+```
+
+---
+
+## 7. dstat — The Modern Aggregator
+
+`dstat` replaces `vmstat`, `iostat`, and `ifstat` in one view.
+
+```bash
+dstat                    # default: CPU, disk, net, paging, system
+dstat -cdnm --disk-util  # CPU + disk + net + memory + disk utilisation
+dstat --top-cpu --top-mem --top-io   # top processes
+```
+
+### Output to CSV
+
+```bash
+dstat -cdnm --output /tmp/dstat.csv 5
+```
+
+---
+
+## 8. Analysis Workflow
+
+The following diagram shows a systematic approach to performance investigation.
+
+```mermaid
+flowchart TD
+    A[Complaint: "System is slow"] --> B{Run vmstat 1 5}
+    B -->|High r, low b| C[CPU-bound]
+    B -->|High b| D[I/O-bound]
+    B -->|High si/so| E[Memory pressure / swapping]
+    C --> F[mpstat -P ALL 1]
+    F -->|Single hot core| G[Check IRQ affinity / single-threaded app]
+    F -->|All cores saturated| H[pidstat 1 → find CPU hog]
+    D --> I[iostat -xz 1]
+    I -->|%util high| J[pidstat -d 1 → find I/O hog]
+    I -->|await high| K[Check scheduler / queue depth]
+    E --> L[sar -r 1]
+    L -->|Available low| M[Add RAM / tune overcommit]
+    L -->|Swap storm| N[Check OOM killer logs]
+    H --> O[Tune / fix application]
+    J --> O
+    G --> O
+    K --> O
+    M --> O
+    N --> O
+```
+
+---
+
+## 9. Practical Example: Diagnosing a Web Server Slowdown
+
+A production Nginx server reports high latency. Here is the step-by-step drill.
+
+### Step 1 — System Overview
+
+```bash
+vmstat 1 5
+```
+
+Output shows `r=8` (4-core machine), `b=0`, `wa=0` → CPU-bound.
+
+### Step 2 — Per-CPU Breakdown
+
+```bash
+mpstat -P ALL 1
+```
+
+All cores at ~95 % user. No single hot core → multi-threaded workload.
+
+### Step 3 — Top Processes
+
+```bash
+pidstat 1 3
+```
+
+`php-fpm` processes consuming 40 % each. Code-level investigation needed.
+
+### Step 4 — Historical Trend
+
+```bash
+sar -u -f /var/log/sa/sa15
+```
+
+CPU usage ramped up since 14:00, correlating with a deploy.
+
+### Step 5 — Verify I/O Is Not the Issue
+
+```bash
+iostat -xz 1
+```
+
+`%util` < 20 %, `await` < 2 ms. I/O is healthy.
+
+**Conclusion:** A code change in the 14:00 deploy introduced a CPU-intensive loop.
+
+---
+
+## 10. Beyond sysstat: Modern Alternatives
+
+### perf
+
+```bash
+perf stat -a sleep 5          # system-wide for 5 seconds
+perf top                      # live function-level profiling
+perf record -g -p 1234        # record with call graph
+perf report                    # analyse recording
+```
+
+### BPF/bcc Tools
+
+Modern eBPF-based tools provide deeper observability:
+
+```bash
+/usr/share/bcc/tools/cachestat      # page-cache hit ratio
+/usr/share/bcc/tools/biolatency     # I/O latency histogram
+/usr/share/bcc/tools/runqlat        # CPU run-queue latency
+/usr/share/bcc/tools/tcplife        # TCP session lifetimes
+```
+
+### Prometheus + node_exporter
+
+For long-term monitoring, expose metrics via `node_exporter` and scrape with
+Prometheus. Grafana dashboards provide trend visualisation that `sar` CSV exports
+cannot match.
+
+---
+
+## 11. Quick Reference Cheat Sheet
+
+```bash
+# CPU
+vmstat 1                        # system-wide CPU/memory
+mpstat -P ALL 1                 # per-CPU
+pidstat 1                       # per-process CPU
+sar -u 1 5                      # historical-aware CPU
+
+# Memory
+vmstat -s                       # memory summary
+sar -r 1                        # memory utilisation over time
+free -h                         # quick snapshot
+
+# Disk
+iostat -xz 1                    # per-device I/O
+pidstat -d 1                    # per-process disk I/O
+dstat --disk-util 1             # utilisation bar
+
+# Network
+sar -n DEV 1                    # interface throughput
+sar -n SOCK 1                   # socket counts
+dstat -n 1                      # live net throughput
+
+# Historical
+sar -A -f /var/log/sa/sa$(date +%d)   # full report for today
+sadf -g -- -A > today.svg             # SVG graph
+```
+
+---
+
+## Further Reading
+
+- [Linux Performance Analysis — Brendan Gregg](https://www.brendangregg.com/linuxperf.html)
+- [perf Wiki — kernel.org](https://perf.wiki.kernel.org/index.php/Main_Page)
+- [sysstat Documentation](https://sebastien.godard.pagesperso-orange.fr/)
+- [BPF Performance Tools — bcc](https://github.com/iovisor/bcc)
+- [Linux observability tools diagram — Brendan Gregg](https://www.brendangregg.com/linuxperf.html)
+- [vmstat(8) man page](https://man7.org/linux/man-pages/man8/vmstat.8.html)
+- [iostat(1) man page](https://man7.org/linux/man-pages/man1/iostat.1.html)
+- [sar(1) man page](https://man7.org/linux/man-pages/man1/sar.1.html)
+- [pidstat(1) man page](https://man7.org/linux/man-pages/man1/pidstat.1.html)
+- [Understanding the Linux Virtual Memory Manager — Mel Gorman](https://www.kernel.org/doc/gorman/)

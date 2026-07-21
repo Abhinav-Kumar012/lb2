@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches-ignore:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mdBook
+        run: |
+          mkdir -p $HOME/.local/bin
+          curl -sSL https://github.com/rust-lang/mdBook/releases/download/v0.4.40/mdbook-v0.4.40-x86_64-unknown-linux-gnu.tar.gz | tar xz -C $HOME/.local/bin
+
+      - name: Build book
+        run: $HOME/.local/bin/mdbook build
+
+      - name: Check for broken internal links
+        run: |
+          echo "Checking for broken internal links..."
+          # Extract all internal links from markdown files
+          BROKEN=0
+          for md in $(find src -name '*.md'); do
+            grep -oP '\]\(\./[^)]+\)' "$md" | sed 's/](\.\///;s/)//' | while read link; do
+              # Resolve relative to the file's directory
+              dir=$(dirname "$md")
+              target="$dir/$link"
+              # Add .md if not present
+              if [[ "$target" != *.md ]]; then
+                target="${target}.md"
+              fi
+              if [ ! -f "$target" ]; then
+                echo "BROKEN LINK in $md: $link -> $target"
+                BROKEN=1
+              fi
+            done
+          done
+          if [ "$BROKEN" -eq 1 ]; then
+            echo "Found broken links!"
+            exit 1
+          fi
+          echo "All internal links OK."
+
+      - name: Check SUMMARY.md references
+        run: |
+          echo "Verifying all SUMMARY.md entries have corresponding files..."
+          MISSING=0
+          grep -oP '(?<=\()(?:\./)?[^)]+\.md(?=\))' src/SUMMARY.md | while read entry; do
+            path="src/$entry"
+            if [ ! -f "$path" ]; then
+              echo "MISSING: $entry (referenced in SUMMARY.md)"
+              MISSING=1
+            fi
+          done
+          echo "SUMMARY.md check complete."
+
+      - name: Check for empty files
+        run: |
+          echo "Checking for empty or near-empty content files..."
+          EMPTY=0
+          for md in $(find src -name '*.md' -not -name 'SUMMARY.md'); do
+            lines=$(wc -l < "$md")
+            if [ "$lines" -lt 5 ]; then
+              echo "THIN FILE ($lines lines): $md"
+              EMPTY=1
+            fi
+          done
+          if [ "$EMPTY" -eq 1 ]; then
+            echo "Warning: Found thin files."
+          fi
