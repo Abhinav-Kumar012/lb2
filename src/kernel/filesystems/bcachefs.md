@@ -41,6 +41,26 @@ bcachefs stores all metadata in a hierarchy of btrees with different node types:
 Each btree node is a sorted array of keys with an interior fan-out. Nodes are
 CoW — modifications create new nodes rather than updating in place.
 
+### B-Tree Node Structure
+
+```c
+/* Simplified btree node layout */
+struct btree_node {
+    struct btree_node_header {
+        __le64 flags;           /* Node type, level, etc. */
+        __le64 seq;             /* Sequence number for locking */
+        __le64 journal_seq;     /* Journal sequence */
+        struct bversion version; /* Version */
+        struct bpos min_key;    /* Minimum key in this node */
+        struct bpos max_key;    /* Maximum key in this node */
+        __le32 csum;            /* CRC32 checksum */
+    };
+    /* Followed by sorted keys and values */
+    struct bkey_format format;  /* Key format descriptor */
+    /* ... keys and values ... */
+};
+```
+
 ### Extent-Based Allocation
 
 Bcachefs divides storage into **buckets** (typically 512 KiB to several MiB).

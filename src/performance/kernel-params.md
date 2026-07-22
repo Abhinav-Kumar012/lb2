@@ -391,25 +391,175 @@ kernel.sched_wakeup_granularity_ns = 500000
 kernel.numa_balancing = 0
 ```
 
+## Performance Analysis Workflow for Kernel Tuning
+
+```mermaid
+flowchart TD
+    A["Performance issue identified"] --> B{"Which subsystem?"}
+    B -->|Memory| C["Check vm.* parameters"]
+    B -->|Network| D["Check net.* parameters"]
+    B -->|CPU/Scheduler| E["Check kernel.sched_* parameters"]
+    B -->|Filesystem| F["Check fs.* parameters"]
+    C --> G{"Swapping?"}
+    G -->|Yes| H["Reduce vm.swappiness"]
+    G -->|No| I{"Dirty page buildup?"}
+    I -->|Yes| J["Reduce vm.dirty_ratio"]
+    D --> K{"Socket buffer overflow?"}
+    K -->|Yes| L["Increase net.core.rmem_max"]
+    K -->|No| M{"Connection backlog?"}
+    M -->|Yes| N["Increase net.core.somaxconn"]
+    E --> O{"High context switch rate?"}
+    O -->|Yes| P["Increase sched_min_granularity_ns"]
+    O -->|No| Q["Check sched_latency_ns"]
+```
+
+## Parameter Impact Reference
+
+### High-Impact Parameters
+
+These parameters have the most significant effect on performance:
+
+| Parameter | Default | Recommended | Impact |
+|-----------|---------|-------------|--------|
+| `vm.swappiness` | 60 | 1-10 (DB) | Controls swap aggressiveness |
+| `vm.dirty_ratio` | 20 | 5 (DB) | Max dirty page percentage |
+| `net.core.somaxconn` | 4096 | 65535 | Connection backlog limit |
+| `net.ipv4.tcp_congestion_control` | cubic | bbr | Congestion algorithm |
+| `kernel.sched_latency_ns` | 24ms | 6ms | Scheduler preemption period |
+| `net.core.rmem_max` | 208KB | 16MB | Max socket receive buffer |
+| `vm.vfs_cache_pressure` | 100 | 50 | Metadata cache retention |
+| `fs.file-max` | varies | 2097152 | Max open files system-wide |
+
+### Medium-Impact Parameters
+
+| Parameter | Default | Recommended | Impact |
+|-----------|---------|-------------|--------|
+| `vm.dirty_background_ratio` | 10 | 2 (DB) | Background writeback threshold |
+| `net.ipv4.tcp_tw_reuse` | 0 | 1 | Reuse TIME_WAIT sockets |
+| `net.ipv4.tcp_fin_timeout` | 60 | 15-30 | FIN_WAIT_2 timeout |
+| `net.ipv4.tcp_keepalive_time` | 7200 | 600 | Keepalive probe interval |
+| `kernel.pid_max` | 32768 | 4194304 | Maximum PID value |
+| `fs.inotify.max_user_watches` | 8192 | 524288 | File watch limit |
+
+## Kernel Tuning Validation
+
+### Before/After Comparison Script
+
+```bash
+#!/bin/bash
+# validate-tuning.sh — Measure impact of sysctl changes
+
+echo "=== Baseline (before tuning) ==="
+# CPU benchmark
+sysbench cpu --cpu-max-prime=20000 --threads=$(nproc) --time=10 run 2>/dev/null \
+    | grep "events per second"
+
+# Memory benchmark
+sysbench memory --memory-block-size=1M --memory-total-size=10G \
+    --threads=$(nproc) --time=10 run 2>/dev/null \
+    | grep -oP '[\d.]+(?= MiB/sec)'
+
+# Network (if iperf3 server available)
+# iperf3 -c server -t 5 -J 2>/dev/null | jq '.end.sum_sent.bits_per_second'
+
+echo ""
+echo "=== Current sysctl settings ==="
+sysctl vm.swappiness vm.dirty_ratio net.core.somaxconn \
+    net.ipv4.tcp_congestion_control kernel.sched_latency_ns
+
+echo ""
+echo "=== System state ==="
+free -h | head -2
+vmstat 1 3 | tail -3
+```
+
+### Monitoring sysctl Changes
+
+```bash
+# Watch for runtime sysctl changes
+sudo inotifywait -m -e modify /proc/sys/
+
+# Or use auditd to track sysctl changes
+auditctl -w /proc/sys/ -p wa -k sysctl_change
+ausearch -k sysctl_change
+```
+
+## Container-Specific Tuning
+
+```bash
+# Cgroup v2 memory tuning
+echo 10G > /sys/fs/cgroup/myapp/memory.max
+echo 8G > /sys/fs/cgroup/myapp/memory.high
+# memory.high = soft limit (triggers reclaim)
+# memory.max = hard limit (OOM if exceeded)
+
+# Cgroup v2 CPU tuning
+echo "50000 100000" > /sys/fs/cgroup/myapp/cpu.max
+# 50% of one CPU (50ms per 100ms period)
+
+# Cgroup v2 I/O tuning
+echo "100:104857600" > /sys/fs/cgroup/myapp/io.max
+# 100 MB/s read limit on device 100
+
+# Network namespace tuning (per-container)
+ip netns exec mycontainer sysctl -w net.core.somaxconn=65535
+ip netns exec mycontainer sysctl -w net.ipv4.tcp_congestion_control=bbr
+```
+
+## Kernel Command Line Tuning
+
+Some parameters can only be set at boot:
+
+```bash
+# Edit /etc/default/grub
+GRUB_CMDLINE_LINUX="
+  transparent_hugepage=madvise
+  intel_pstate=active
+  mitigations=off
+  isolcpus=2-7
+  nohz_full=2-7
+  rcu_nocbs=2-7
+  hugepagesz=2M
+  hugepages=1024
+"
+
+# Update GRUB
+update-grub
+reboot
+
+# Verify after boot
+cat /proc/cmdline
+```
+
+| Parameter | Effect | Use Case |
+|-----------|--------|----------|
+| `transparent_hugepage=madvise` | THP only when requested | Database servers |
+| `intel_pstate=active` | Intel CPU frequency scaling | Modern Intel CPUs |
+| `mitigations=off` | Disable CPU vulnerability mitigations | Trusted environments only |
+| `isolcpus=2-7` | Isolate CPUs from scheduler | Real-time workloads |
+| `nohz_full=2-7` | Disable timer ticks on CPUs | Low-latency applications |
+| `rcu_nocbs=2-7` | Offload RCU callbacks | Real-time isolation |
+
 ## References
 
 - [sysctl.conf(5) man page](https://man7.org/linux/man-pages/man5/sysctl.conf.5.html)
 - [Linux Kernel Documentation](https://www.kernel.org/doc/html/latest/admin-guide/sysctl/)
 - [Red Hat Performance Tuning Guide](https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/9/html/monitoring_and_managing_system_status_and_performance/)
+- Gregg, B. *Systems Performance: Enterprise and the Cloud*, 2nd Edition (2020).
+- [Percona Linux OS Tuning for MySQL](https://www.percona.com/blog/linux-os-tuning-for-mysql-database-performance/)
 
 ## Further Reading
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
-- [LWN.net - Linux and free software news](https://lwn.net/)
+- [LWN.net — Linux and free software news](https://lwn.net/)
 - [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
 - [GNU Manuals](https://www.gnu.org/manual/manual.html)
 - [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
 - [Planet GNU](https://planet.gnu.org/)
 - [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
-
-- <https://www.kernel.org/doc/html/latest/admin-guide/sysctl/vm.html> - VM parameters
-- <https://www.kernel.org/doc/html/latest/admin-guide/sysctl/net.html> - Network parameters
-- <https://www.kernel.org/doc/html/latest/admin-guide/sysctl/kernel.html> - Kernel parameters
+- <https://www.kernel.org/doc/html/latest/admin-guide/sysctl/vm.html> — VM parameters
+- <https://www.kernel.org/doc/html/latest/admin-guide/sysctl/net.html> — Network parameters
+- <https://www.kernel.org/doc/html/latest/admin-guide/sysctl/kernel.html> — Kernel parameters
 
 ## Related Topics
 
@@ -417,3 +567,5 @@ kernel.numa_balancing = 0
 - [Network Performance](network.md)
 - [Memory Performance](memory.md)
 - [NUMA Optimization](numa.md)
+- [I/O Performance](io.md)
+- [Benchmarking](benchmarking.md)
