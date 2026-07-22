@@ -461,6 +461,185 @@ containerd_image_pull_total
 containerd_snapshot_prepare_total
 ```
 
+## containerd 2.0
+
+containerd 2.0 (released 2024) introduces significant changes:
+
+### Key Changes
+
+| Feature | containerd 1.x | containerd 2.0 |
+|---------|---------------|---------------|
+| Plugin system | Internal plugins | TTRPC-based plugin API |
+| Sandbox API | N/A | Native sandbox support |
+| Image transfer | Pull/push only | Streaming, lazy loading |
+| Runtime | runc only | Multi-runtime (runc, kata, wasmtime) |
+| CNI/CRI | Tight coupling | Decoupled, modular |
+
+### Sandbox API
+
+containerd 2.0 introduces a native **Sandbox API** for managing pod sandboxes:
+
+```bash
+# Create a sandbox
+ctr sandbox create my-sandbox
+
+# List sandboxes
+ctr sandbox list
+
+# Start container in sandbox
+ctr run --sandbox my-sandbox docker.io/library/nginx:latest nginx
+```
+
+### Transfer Service
+
+The new Transfer Service supports streaming image operations:
+
+```bash
+# Stream image import (no full download needed)
+ctr images pull --transfer docker.io/library/nginx:latest
+
+# Lazy loading with stargz/nydus
+ctr images pull --snapshotter stargz docker.io/library/nginx:latest
+```
+
+## Debugging containerd
+
+### Common Issues
+
+| Problem | Cause | Solution |
+|---------|-------|----------|
+| `ctr: failed to dial` | containerd not running | `systemctl start containerd` |
+| `failed to pull image` | Registry unreachable | Check network, DNS, proxy |
+| `failed to create container` | Snapshotter error | Check disk space, clean old snapshots |
+| `CRI error` | CRI plugin misconfigured | Verify `/etc/containerd/config.toml` |
+| `OOM killed` | Container memory limit | Increase memory limit |
+
+### Debug Logging
+
+```bash
+# Enable debug logging
+# /etc/containerd/config.toml
+[plugins."io.containerd.grpc.v1.cri"]
+  [plugins."io.containerd.grpc.v1.cri".containerd]
+    [debug]
+      level = "debug"
+
+# Or via command line
+sudo containerd --log-level debug
+
+# View containerd logs
+journalctl -u containerd -f
+
+# Filter for specific container
+journalctl -u containerd | grep <container-id>
+```
+
+### Health Checks
+
+```bash
+# Check containerd health
+sudo ctr version
+sudo ctr namespaces ls
+
+# Check CRI health
+sudo crictl info
+sudo crictl pods
+
+# Check containerd metrics (if enabled)
+curl -s http://localhost:1338/metrics | grep containerd
+
+# Check socket permissions
+ls -la /run/containerd/containerd.sock
+
+# Verify containerd process
+ps aux | grep containerd
+```
+
+### Snapshotter Debugging
+
+```bash
+# List snapshots
+sudo ctr snapshots --snapshotter overlayfs ls
+
+# Check snapshot info
+sudo ctr snapshots --snapshotter overlayfs info <key>
+
+# Clean unused snapshots
+sudo ctr snapshots --snapshotter overlayfs cleanup
+
+# Check disk usage
+df -h /var/lib/containerd
+
+# View snapshot layers
+sudo ctr content ls | grep -i layer
+```
+
+### Container Debugging
+
+```bash
+# Inspect container details
+sudo ctr containers info <container-id>
+
+# View container events
+sudo ctr events
+
+# Exec into a running container
+sudo ctr tasks exec --exec-id debug -t <container-id> sh
+
+# View container filesystem
+sudo ctr snapshots diff <container-id>
+
+# Check container resource usage
+sudo ctr tasks metrics <container-id>
+```
+
+## containerd Plugins
+
+c containerd has a plugin architecture. Key built-in plugins:
+
+| Plugin | Type | Purpose |
+|--------|------|--------|
+| `io.containerd.content.v1.content` | Content store | Blob storage |
+| `io.containerd.snapshotter.v1.overlayfs` | Snapshotter | Container filesystem layers |
+| `io.containerd.grpc.v1.cri` | CRI | Kubernetes integration |
+| `io.containerd.runtime.v2.task` | Runtime | Container execution |
+| `io.containerd.service.v1.diff-service` | Diff | Layer diff computation |
+| `io.containerd.gc.v1.scheduler` | GC | Garbage collection |
+
+### Enabling/Disabling Plugins
+
+```toml
+# /etc/containerd/config.toml
+version = 2
+
+[plugins]
+  [plugins."io.containerd.grpc.v1.cri"]
+    disable_tcp_service = true
+    [plugins."io.containerd.grpc.v1.cri".containerd]
+      disable_snapshot_annotations = false
+      discard_unpacked_layers = true
+```
+
+## Garbage Collection
+
+c containerd periodically garbage-collects unused content:
+
+```bash
+# Trigger manual GC
+sudo ctr gc
+
+# View GC status
+sudo ctr content ls
+
+# Configure GC in config.toml
+[plugins."io.containerd.gc.v1.scheduler"]
+  pause_threshold = 0.02
+  deletion_threshold = 0
+  mutation_threshold = 100
+  schedule_delay = "0s"
+  startup_delay = "100ms"
+```
+
 ## References
 
 - [containerd Documentation](https://containerd.io/docs/) — official docs

@@ -506,29 +506,123 @@ bool test_and_set_bit(long nr, volatile unsigned long *addr)
 
 ### ABA Problem
 
+The ABA problem is the most subtle bug in lock-free programming:
+
 ```
-Thread 1: reads A, gets preempted
-Thread 2: changes A→B→A
-Thread 1: cmpxchg succeeds (thinks nothing changed)
+Thread 1: reads ptr → A, reads A.next → B
+Thread 1: gets preempted
+Thread 2: pops A, pops B, pushes C, pushes A (A.next now points to C)
+Thread 1: resumes, cmpxchg(ptr, A, B) succeeds!
+Thread 1: now has a stale view — A.next was B but is now C
 ```
 
-**Fix:** Use versioned pointers (tag the pointer with a counter).
+**Solutions:**
+
+1. **Tagged pointers** (most common in kernel): Add a version counter to the pointer
+```c
+/* Use the upper 16 bits of a 64-bit pointer as a version tag */
+uint64_t tagged = ((uint64_t)version << 48) | (uint64_t)ptr;
+cmpxchg((uint64_t *)&head, old_tagged, new_tagged);
+```
+
+2. **RCU**: The grace period ensures old nodes aren't reused while readers exist
+
+3. **Hazard pointers**: Explicitly protect nodes before accessing them
 
 ### Spurious Failures
 
 cmpxchg can fail spuriously on LL/SC architectures (ARM64, RISC-V) if the
-cache line is evicted. This is *correct behavior* — CAS loops always retry.
+cache line is evicted between the load-exclusive and store-conditional. This is
+*correct behavior* — CAS loops always retry. Never assume cmpxchg succeeds
+based on the value being correct:
+
+```c
+/* BAD: assuming success */
+if (expected_value == old)
+    *ptr = new;  /* NOT atomic! */
+
+/* GOOD: always use cmpxchg */
+old = cmpxchg(ptr, expected_value, new);
+```
 
 ### Size Mismatch
 
 ```c
 /* WRONG: cmpxchg on a u8 using u32 pointer */
 u8 val = 0;
-cmpxchg((u32 *)&val, 0, 1);  /* undefined behavior */
+cmpxchg((u32 *)&val, 0, 1);  /* undefined behavior — may corrupt adjacent memory */
 
 /* RIGHT: use properly typed pointer */
 cmpxchg(&val, (u8)0, (u8)1);
 ```
+
+### Missing Retry Loop
+
+```c
+/* BAD: single cmpxchg attempt — fails silently if contended */
+old = cmpxchg(&shared, expected, new);
+if (old != expected) {
+    /* Give up — data may be inconsistent */
+}
+
+/* GOOD: retry loop */
+do {
+    old = READ_ONCE(shared);
+    new = compute_new(old);
+} while (cmpxchg(&shared, old, new) != old);
+```
+
+### cmpxchg on Floating-Point
+
+```c
+/* WRONG: cmpxchg does not work on floating-point types */
+float val = 1.0f;
+cmpxchg(&val, 1.0f, 2.0f);  /* Compile error or undefined behavior */
+
+/* RIGHT: use integer representation */
+int32_t ival;
+memcpy(&ival, &val, sizeof(ival));
+/* Use cmpxchg on ival */
+```
+
+## Performance Analysis
+
+### cmpxchg Latency by Architecture
+
+| Architecture | Uncontended | 2-thread contention | 8-thread contention |
+|-------------|-------------|--------------------|--------------------|
+| x86_64 (Skylake) | ~10 cycles | ~40 cycles | ~200 cycles |
+| x86_64 (Zen 3) | ~8 cycles | ~35 cycles | ~180 cycles |
+| ARM64 (Neoverse N1) | ~12 cycles | ~50 cycles | ~300 cycles |
+| RISC-V (SiFive U74) | ~20 cycles | ~80 cycles | ~400 cycles |
+
+**Key insight**: Contention cost grows super-linearly because each failed cmpxchg causes a cache-line transfer between CPUs (~40-80ns each).
+
+### When to Use cmpxchg vs Alternatives
+
+```mermaid
+graph TD
+    A[Need atomic RMW?] --> B{Simple increment/decrement?}
+    B -->|Yes| C[Use atomic_add/atomic_inc
+(native instruction on x86)]
+    B -->|No| D{Conditional update?}
+    D -->|Yes| E{Single variable?}
+    E -->|Yes| F[Use cmpxchg]
+    E -->|No| G{Need 128-bit CAS?}
+    G -->|Yes| H[Use cmpxchg16b if available]
+    G -->|No| I[Use spinlock or RCU]
+    D -->|No| J[Use xchg for unconditional swap]
+```
+
+### cmpxchg vs atomic_add_return
+
+On x86, `atomic_add_return()` uses `LOCK XADD` (a single instruction) rather than a cmpxchg loop. On ARM64, it uses an `LDXR`/`STXR` loop:
+
+| Operation | x86 implementation | ARM64 implementation |
+|-----------|-------------------|---------------------|
+| `atomic_add_return()` | `LOCK XADD` | `LDXR`/`ADD`/`STXR` loop |
+| `atomic_cmpxchg()` | `LOCK CMPXCHG` | `LDXR`/`CMP`/`STXR` loop |
+| `atomic_xchg()` | `LOCK XCHG` | `LDXR`/`MOV`/`STXR` loop |
 
 ---
 
