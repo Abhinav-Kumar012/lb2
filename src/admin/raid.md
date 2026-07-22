@@ -512,6 +512,308 @@ mdadm --zero-superblock /dev/sdb /dev/sdc
 # Remove from mdadm.conf
 ```
 
+## Advanced mdadm Operations
+
+### Examining Disk Superblocks
+
+```bash
+# Examine a disk's RAID superblock
+mdadm --examine /dev/sdb
+# /dev/sdb:
+#           Magic : a92b4efc
+#         Version : 1.2
+#     Feature Map : 0x0
+#      Array UUID : 12345678:90abcdef:12345678:90abcdef
+#            Name : server:0
+#   Creation Time : Mon Jul 21 10:00:00 2025
+#      Raid Level : raid5
+#    Raid Devices : 3
+#   Total Devices : 3
+#     Persistence : Superblock is persistent
+
+# Examine all disks
+mdadm --examine /dev/sd[b-d]
+
+# Scan for RAID arrays on all devices
+mdadm --examine --scan
+```
+
+### Assembling Arrays
+
+```bash
+# Assemble a specific array
+mdadm --assemble /dev/md0 /dev/sdb /dev/sdc /dev/sdd
+
+# Assemble by UUID
+mdadm --assemble /dev/md0 --uuid=12345678:90abcdef:12345678:90abcdef
+
+# Assemble all known arrays
+mdadm --assemble --scan
+
+# Force assemble (after unclean shutdown)
+mdadm --assemble --force /dev/md0 /dev/sdb /dev/sdc /dev/sdd
+
+# Assemble in degraded mode (missing disk)
+mdadm --assemble --force --run /dev/md0 /dev/sdb /dev/sdc
+```
+
+### Stopping and Removing Arrays
+
+```bash
+# Stop an array
+mdadm --stop /dev/md0
+
+# Remove array completely
+mdadm --stop /dev/md0
+mdadm --zero-superblock /dev/sdb /dev/sdc /dev/sdd
+
+# Remove from mdadm.conf
+sed -i '/ARRAY.*md0/d' /etc/mdadm/mdadm.conf
+```
+
+## RAID Performance Tuning
+
+### Stripe Cache Size
+
+The stripe cache improves RAID 5/6 read performance by caching stripe
+segments in memory:
+
+```bash
+# Check current stripe cache size
+cat /sys/block/md0/md/stripe_cache_size
+# 256 (default)
+
+# Increase for better read performance (uses more memory)
+# Each entry = sizeof(struct stripe_head) ≈ 4KB
+echo 8192 > /sys/block/md0/md/stripe_cache_size
+# 8192 entries × 4KB = 32MB per array
+
+# Make persistent via udev rule
+# /etc/udev/rules.d/99-raid-stripe-cache.rules
+# ACTION=="add", KERNEL=="md*", ATTR{md/stripe_cache_size}="8192"
+```
+
+### Read-Ahead
+
+```bash
+# Check current read-ahead
+blockdev --getra /dev/md0
+# 256 (default = 128KB)
+
+# Increase read-ahead for sequential workloads
+blockdev --setra 16384 /dev/md0
+# 16384 × 512 = 8MB read-ahead
+
+# Make persistent in /etc/rc.local or udev
+```
+
+### I/O Scheduler
+
+```bash
+# Check current scheduler
+cat /sys/block/md0/queue/scheduler
+# none (md devices typically use none)
+
+# For underlying disks, use mq-deadline or none
+for disk in /sys/block/sd[b-d]/queue/scheduler; do
+    echo mq-deadline > "$disk"
+done
+```
+
+### Chunk Size Selection
+
+```bash
+# Small chunks (4K-64K): Better for random I/O
+# Large chunks (256K-1M): Better for sequential I/O
+
+# Create with optimal chunk for database
+mdadm --create /dev/md0 --level=10 --raid-devices=4 \
+    --chunk=64K /dev/sd[b-e]1
+
+# Create with optimal chunk for file server
+mdadm --create /dev/md0 --level=5 --raid-devices=5 \
+    --chunk=512K /dev/sd[b-f]1
+```
+
+## RAID Troubleshooting
+
+### Common Problems and Solutions
+
+#### Array Won't Assemble
+
+```bash
+# Error: mdadm: /dev/md0 not identified in config file.
+# Solution: Scan and add to config
+mdadm --examine --scan >> /etc/mdadm/mdadm.conf
+mdadm --assemble /dev/md0
+
+# Error: mdadm: /dev/md0 has been started with 2 drives (out of 3)
+# Solution: Force assemble in degraded mode
+mdadm --assemble --force --run /dev/md0 /dev/sdb /dev/sdc
+```
+
+#### Stale RAID Superblock
+
+```bash
+# Error: mdadm: /dev/sdb1 appears to be part of a raid array
+# Solution: Zero superblock before reusing disk
+mdadm --zero-superblock /dev/sdb1
+
+# Or force creation
+mdadm --create /dev/md0 --level=5 --raid-devices=3 \
+    --assume-clean /dev/sdb1 /dev/sdc1 /dev/sdd1
+```
+
+#### Array Stuck in Read-Only
+
+```bash
+# Check array state
+mdadm --detail /dev/md0 | grep State
+# State : clean, read-only
+
+# Solution: Remount read-write
+mount -o remount,rw /mnt/raid
+
+# Or reassemble
+mdadm --stop /dev/md0
+mdadm --assemble /dev/md0 /dev/sdb /dev/sdc /dev/sdd
+```
+
+#### Slow Rebuild Performance
+
+```bash
+# Check rebuild speed limits
+cat /proc/sys/dev/raid/speed_limit_min
+cat /proc/sys/dev/raid/speed_limit_max
+
+# Increase rebuild speed (at cost of production I/O)
+echo 200000 > /proc/sys/dev/raid/speed_limit_min
+echo 400000 > /proc/sys/dev/raid/speed_limit_max
+
+# Or decrease to reduce production impact
+echo 10000 > /proc/sys/dev/raid/speed_limit_min
+echo 50000 > /proc/sys/dev/raid/speed_limit_max
+```
+
+### Recovery Scenarios
+
+#### Scenario 1: Single Disk Failure (RAID 5)
+
+```bash
+# 1. Identify failed disk
+mdadm --detail /dev/md0
+# Look for "State: active, FAILED" or "removed"
+
+# 2. Remove failed disk from array
+mdadm --manage /dev/md0 --fail /dev/sdc
+mdadm --manage /dev/md0 --remove /dev/sdc
+
+# 3. Replace physical disk
+# (hot swap or shutdown and replace)
+
+# 4. Add new disk to array
+mdadm --manage /dev/md0 --add /dev/sde
+
+# 5. Monitor rebuild
+cat /proc/mdstat
+# md0 : active raid5 sde[3] sdd[2] sdb[0]
+#       [3/2] [U_U]
+#       [====>................] recovery = 20.0%
+```
+
+#### Scenario 2: Multiple Disk Failure (RAID 6)
+
+```bash
+# RAID 6 survives 2 disk failures
+# Process is same as RAID 5 but up to 2 disks
+
+# Check degraded status
+mdadm --detail /dev/md0 | grep -E "State|Failed"
+# State : active, degraded
+# Failed Devices : 1
+
+# Replace first failed disk
+mdadm --manage /dev/md0 --fail /dev/sdc
+mdadm --manage /dev/md0 --remove /dev/sdc
+mdadm --manage /dev/md0 --add /dev/sde
+# Wait for rebuild to complete
+
+# Then replace second failed disk
+mdadm --manage /dev/md0 --fail /dev/sdd
+mdadm --manage /dev/md0 --remove /dev/sdd
+mdadm --manage /dev/md0 --add /dev/sdf
+```
+
+#### Scenario 3: Unclean Shutdown Recovery
+
+```bash
+# After power failure, array may need resync
+mdadm --assemble --scan
+cat /proc/mdstat
+# md0 : active raid5 sdd[2] sdc[1] sdb[0]
+#       [====>................] resync = 23.4%
+
+# If bitmap exists, only dirty blocks are resynced
+# If no bitmap, full resync required (slow)
+```
+
+## RAID with Different Filesystems
+
+### ext4 on RAID
+
+```bash
+# Create ext4 with optimal RAID settings
+mkfs.ext4 -b 4096 -E stride=128,stripe-width=256 /dev/md0
+# stride = chunk_size / block_size = 512K / 4K = 128
+# stripe-width = stride × (data_disks) = 128 × 2 = 256 (RAID 5, 3 disks)
+
+# Mount with RAID-optimized options
+mount -o noatime,nodiratime,data=writeback /dev/md0 /mnt/raid
+```
+
+### XFS on RAID
+
+```bash
+# Create XFS with optimal RAID settings
+mkfs.xfs -b size=4096 -d sunit=1024,swidth=2048 /dev/md0
+# sunit = chunk_size / 512 = 512K / 512 = 1024
+# swidth = sunit × data_disks = 1024 × 2 = 2048
+
+# Mount with RAID-optimized options
+mount -o noatime,logbufs=8,logbsize=256k /dev/md0 /mnt/raid
+```
+
+## Monitoring Script
+
+```bash
+#!/bin/bash
+# raid-monitor.sh — Comprehensive RAID monitoring
+
+ALERT_EMAIL="admin@example.com"
+
+for md in /dev/md*; do
+    [ -b "$md" ] || continue
+    
+    # Check array state
+    STATE=$(mdadm --detail "$md" | grep "State :" | awk '{print $3}')
+    if [ "$STATE" != "clean" ] && [ "$STATE" != "active" ]; then
+        echo "ALERT: $md state is $STATE" | mail -s "RAID Alert" $ALERT_EMAIL
+    fi
+    
+    # Check for failed devices
+    FAILED=$(mdadm --detail "$md" | grep "Failed Devices")
+    if [ "$FAILED" != "Failed Devices : 0" ]; then
+        echo "ALERT: $md has failed devices" | mail -s "RAID Alert" $ALERT_EMAIL
+    fi
+    
+    # Check rebuild progress
+    REBUILD=$(cat /proc/mdstat | grep -A1 "$(basename $md)" | grep -oP '\[=*.*?\]')
+    if [ -n "$REBUILD" ]; then
+        echo "INFO: $md rebuild progress: $REBUILD"
+    fi
+done
+```
+
 ## References
 
 - [mdadm(8) man page](https://man7.org/linux/man-pages/man8/mdadm.8.html)
