@@ -245,6 +245,51 @@ Linux containers, enabled by **cgroups** (introduced in kernel 2.6.24, 2008) and
 
 These technologies are built entirely on Linux kernel features and have reshaped the entire software industry.
 
+### The Container Technology Stack
+
+```mermaid
+graph TB
+    subgraph "Application Layer"
+        K8S[Kubernetes]
+        DOCKER[Docker]
+        PODMAN[Podman]
+    end
+    subgraph "Container Runtime"
+        RUNC[runc/crun]
+        CONMON[conmon]
+    end
+    subgraph "Kernel Features"
+        CGROUPS[cgroups v2]
+        NS[Namespaces]
+        SECCOMP[seccomp-BPF]
+        LSM[SELinux/AppArmor]
+        OVERLAY[OverlayFS]
+    end
+    
+    K8S --> DOCKER
+    K8S --> PODMAN
+    DOCKER --> RUNC
+    PODMAN --> RUNC
+    RUNC --> CGROUPS
+    RUNC --> NS
+    RUNC --> SECCOMP
+    RUNC --> LSM
+    RUNC --> OVERLAY
+```
+
+Key kernel features that enable containers:
+
+| Feature | Kernel Version | Purpose |
+|---|---|---|
+| `CLONE_NEWPID` | 2.6.19 (2006) | PID namespace isolation |
+| `CLONE_NEWNET` | 2.6.29 (2009) | Network namespace |
+| `CLONE_NEWNS` | 2.4.19 (2002) | Mount namespace |
+| `cgroups` | 2.6.24 (2008) | Resource limits |
+| `cgroups v2` | 4.5 (2016) | Unified hierarchy |
+| `user_namespaces` | 3.8 (2013) | Unprivileged containers |
+| `seccomp-BPF` | 3.5 (2012) | Syscall filtering |
+| `OverlayFS` | 3.18 (2014) | Layered filesystem |
+
 ### Kernel Version Numbering Change
 
 In 2011, Torvalds changed the kernel versioning scheme. After Linux 2.6.39, the next version was **3.0** — not because of a major technical change, but to simplify version numbers. The pattern continued: 3.x, then 4.x, then 5.x, then 6.x, with major version bumps every ~2 months driven by time rather than feature milestones.
@@ -428,7 +473,32 @@ In 2003, **SCO Group** (which had acquired Unix System V rights from Novell) sue
 | 2010 | SCO files for bankruptcy |
 | 2016 | Final resolution: SCO's claims entirely dismissed |
 
-The lawsuit ultimately **helped** Linux by demonstrating that the codebase was legally clean and that the development process was transparent.
+The lawsuit ultimately **helped** Linux by demonstrating that the codebase was legally clean and that the development process was transparent. It also demonstrated the strength of the open-source development model — because every change was publicly documented on mailing lists, it was easy to prove that Linux code was independently written.
+
+### Impact on Adoption
+
+During the lawsuit, some enterprises delayed Linux adoption due to legal uncertainty. However, the Linux community responded by:
+
+- **Auditing** the kernel codebase for any potential Unix-derived code
+- **Strengthening** the Developer Certificate of Origin (DCO) process
+- **Documenting** the clean-room nature of all kernel development
+
+The DCO, introduced in 2004, requires every developer to certify that they have the right to submit their code:
+
+```
+Developer's Certificate of Origin 1.1
+
+By making a contribution to this project, I certify that:
+
+(a) The contribution was created in whole or in part by me and I
+    have the right to submit it under the open source license
+    indicated in the file; or
+
+(b) The contribution is based upon previous work that, to the best
+    of my knowledge, is covered under an appropriate open source
+    license and I have the right under that license to submit that
+    work with modifications...
+```
 
 ## Corporate Involvement
 

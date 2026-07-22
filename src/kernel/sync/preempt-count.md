@@ -30,6 +30,44 @@ Bit  24:    NMI_MASK        — NMI context flag
 Bit  25:    PREEMPT_NEED_RESCHED — Pending reschedule
 ```
 
+### Bit Layout Diagram
+
+```mermaid
+graph LR
+    subgraph "Preempt Count (32-bit integer)"
+        B0["Bits 0-7<br/>PREEMPT_MASK<br/>Preempt disable count<br/>(0-255 nesting)"]
+        B8["Bits 8-15<br/>SOFTIRQ_MASK<br/>Softirq depth<br/>(0-255 nesting)"]
+        B16["Bits 16-23<br/>HARDIRQ_MASK<br/>Hardirq depth<br/>(0-255 nesting)"]
+        B24["Bit 24<br/>NMI_MASK<br/>In NMI flag"]
+        B25["Bit 25<br/>PREEMPT_NEED_RESCHED<br/>Reschedule pending"]
+    end
+    style B0 fill:#38a169,color:#fff
+    style B8 fill:#3182ce,color:#fff
+    style B16 fill:#dd6b20,color:#fff
+    style B24 fill:#e53e3e,color:#fff
+    style B25 fill:#805ad5,color:#fff
+```
+
+### Mask Constants
+
+```c
+/* include/linux/preempt.h */
+#define PREEMPT_MASK    0x000000ff
+#define SOFTIRQ_MASK    0x0000ff00
+#define HARDIRQ_MASK    0x00ff0000
+#define NMI_MASK        0x01000000
+#define PREEMPT_BITS    8
+#define SOFTIRQ_BITS    8
+#define HARDIRQ_BITS    8
+#define NMI_BITS        1
+
+/* Offsets for each field */
+#define PREEMPT_OFFSET  (1UL << PREEMPT_BITS)
+#define SOFTIRQ_OFFSET  (1UL << SOFTIRQ_BITS)
+#define HARDIRQ_OFFSET  (1UL << HARDIRQ_BITS)
+#define NMI_OFFSET      (1UL << NMI_BITS)
+```
+
 ### Checking Context
 
 ```c
@@ -50,6 +88,27 @@ static __always_inline bool preemptible(void)
 
 /* Are we in NMI? */
 #define in_nmi()        (preempt_count() & NMI_MASK)
+```
+
+### Context Decision Flowchart
+
+```mermaid
+graph TD
+    CHECK["Check preempt_count()"] --> NMI{"Bit 24 set?<br/>(NMI_MASK)"}
+    NMI -->|Yes| IN_NMI["In NMI context<br/>Cannot sleep, cannot preempt"]
+    NMI -->|No| HARD{"Bits 16-23 > 0?<br/>(HARDIRQ_MASK)"}
+    HARD -->|Yes| IN_HARD["In hardirq context<br/>Cannot sleep"]
+    HARD -->|No| SOFT{"Bits 8-15 > 0?<br/>(SOFTIRQ_MASK)"}
+    SOFT -->|Yes| IN_SOFT["In softirq context<br/>Cannot sleep"]
+    SOFT -->|No| PREEMPT{"Bits 0-7 > 0?<br/>(PREEMPT_MASK)"}
+    PREEMPT -->|Yes| NO_PREEMPT["Preemption disabled<br/>Can run but not preempted"]
+    PREEMPT -->|No| PREEMPTIBLE["Preemptible!<br/>Scheduler can preempt"]
+
+    style IN_NMI fill:#e53e3e,color:#fff
+    style IN_HARD fill:#dd6b20,color:#fff
+    style IN_SOFT fill:#3182ce,color:#fff
+    style NO_PREEMPT fill:#d69e2e,color:#fff
+    style PREEMPTIBLE fill:#38a169,color:#fff
 ```
 
 ## preempt_disable() and preempt_enable()
@@ -111,6 +170,17 @@ preempt_enable();   /* preempt_count = 0, reschedule if needed */
 
 The count ensures preemption is only re-enabled when the outermost `preempt_enable()` is reached.
 
+### preempt_disable Notrace
+
+For tracing code, a variant exists that doesn't appear in traces:
+
+```c
+preempt_disable_notrace();   /* Like preempt_disable, invisible to ftrace */
+preempt_enable_notrace();    /* Like preempt_enable, invisible to ftrace */
+```
+
+Used in tracing infrastructure to avoid infinite recursion.
+
 ## preempt_schedule()
 
 `preempt_schedule()` is the function called when the kernel needs to preempt the current task:
@@ -150,6 +220,25 @@ asmlinkage __visible void __sched notrace preempt_schedule_notrace(void)
 
 Used in tracing code to avoid infinite recursion (tracing code preempting itself).
 
+### preempt_schedule_irq
+
+Called from the return-to-kernel path of interrupt handlers:
+
+```c
+/* kernel/sched/core.c */
+asmlinkage __visible void __sched preempt_schedule_irq(void)
+{
+    /* Only if CONFIG_PREEMPT is enabled */
+    if (likely(!preemptible()))
+        return;
+
+    /* Disable IRQs, call scheduler, restore IRQs */
+    local_irq_disable();
+    preempt_schedule_common();
+    local_irq_enable();
+}
+```
+
 ## Preemption Models
 
 Linux supports multiple preemption levels, configured at build time:
@@ -183,6 +272,34 @@ Linux supports multiple preemption levels, configured at build time:
 - Maximum real-time determinism
 - Requires RT-patched kernel
 - Softirqs run in threads, enabling full preemption
+
+### Preemption Model Comparison
+
+```mermaid
+graph TD
+    NONE["PREEMPT_NONE<br/>Best throughput<br/>No kernel preemption"]
+    VOL["PREEMPT_VOLUNTARY<br/>Balanced<br/>Explicit preemption points"]
+    FULL["PREEMPT<br/>Low latency<br/>Full kernel preemption"]
+    RT["PREEMPT_RT<br/>Hard real-time<br/>All locks preemptible"]
+
+    NONE -->|"adds cond_resched()"| VOL
+    VOL -->|"adds preempt_schedule() on IRQ return"| FULL
+    FULL -->|"converts spinlocks to rt_mutex"| RT
+
+    style NONE fill:#38a169,color:#fff
+    style VOL fill:#3182ce,color:#fff
+    style FULL fill:#dd6b20,color:#fff
+    style RT fill:#e53e3e,color:#fff
+```
+
+### Performance Characteristics
+
+| Model | Worst-case latency | Throughput | Use case |
+|-------|-------------------|------------|----------|
+| PREEMPT_NONE | ~10ms | Best | Servers, batch processing |
+| PREEMPT_VOLUNTARY | ~1ms | Good | Desktop, interactive |
+| PREEMPT | ~100µs | Moderate | Real-time, low-latency audio |
+| PREEMPT_RT | ~50µs | Lower | Industrial control, hard RT |
 
 ## Softirq Context
 
@@ -241,6 +358,20 @@ The `SOFTIRQ_DISABLE_OFFSET` (0x00ffff00) adds to the softirq bits, preventing s
 - Process context code can check `in_softirq()` to know if it's safe to sleep
 - `GFP_KERNEL` allocations in softirq context will cause warnings
 
+### softirq Context Example
+
+```c
+/* Safe pattern for code that may run in softirq context */
+void *my_alloc(size_t size)
+{
+    /* Use GFP_ATOMIC in interrupt/softirq context */
+    if (in_softirq())
+        return kmalloc(size, GFP_ATOMIC);
+    else
+        return kmalloc(size, GFP_KERNEL);
+}
+```
+
 ## Hardirq Context
 
 Hardware interrupt handlers set the hardirq bits in the preempt count:
@@ -281,6 +412,29 @@ __visible void __irq_entry do_IRQ(struct pt_regs *regs)
 
 `irq_exit()` checks if softirqs are pending and, if we're returning from the last nested interrupt, invokes softirq processing.
 
+### IRQ Nesting
+
+```mermaid
+sequenceDiagram
+    participant Task as Process Context
+    participant IRQ1 as IRQ Handler 1
+    participant IRQ2 as IRQ Handler 2 (nested)
+    participant Softirq as Softirq
+
+    Task->>IRQ1: Hardware interrupt
+    Note over IRQ1: preempt_count += HARDIRQ_OFFSET<br/>hardirq_count = 1
+    IRQ1->>IRQ2: Higher-priority interrupt
+    Note over IRQ2: preempt_count += HARDIRQ_OFFSET<br/>hardirq_count = 2
+    IRQ2->>IRQ2: Handle IRQ 2
+    IRQ2-->>IRQ1: Return
+    Note over IRQ1: hardirq_count = 1
+    IRQ1->>IRQ1: Handle IRQ 1
+    IRQ1-->>Task: irq_exit()
+    Note over Task: hardirq_count = 0<br/>Check softirq pending
+    Task->>Softirq: invoke_softirq()
+    Softirq-->>Task: Done
+```
+
 ## NMI Context
 
 Non-Maskable Interrupts set the NMI bit:
@@ -291,6 +445,24 @@ Non-Maskable Interrupts set the NMI bit:
 ```
 
 NMIs have the highest priority and can interrupt any other context including hardirq handlers. The NMI watchdog and perf use NMI context.
+
+### NMI Limitations
+
+- Cannot acquire spinlocks (may deadlock with interrupted code)
+- Cannot access most per-CPU data safely
+- Limited stack space
+- Must be extremely careful with locking
+
+```c
+/* NMI-safe code must use special locking */
+void nmi_handler(void)
+{
+    /* Cannot use regular spin_lock() */
+    /* Use raw_spin_lock() or lock-free techniques */
+    /* Access per-CPU data via this_cpu_ptr() only if sure
+       we're not interrupting another per-CPU access */
+}
+```
 
 ## Preempt Count and Scheduling
 
@@ -315,6 +487,36 @@ A task can only be preempted when:
 1. `preempt_count() == 0` (not in any disabled/nested context)
 2. IRQs are not disabled (`!irqs_disabled()`)
 3. `TIF_NEED_RESCHED` is set
+
+### When TIF_NEED_RESCHED Is Set
+
+The scheduler sets this flag when:
+- A higher-priority task becomes runnable (e.g., wakes up from sleep)
+- The current task's time slice expires (for SCHED_RR / EEVDF)
+- A SCHED_FIFO task yields
+- Load balancing moves a task to this CPU
+
+```c
+/* kernel/sched/core.c */
+static void check_preempt_wakeup(struct rq *rq, struct task_struct *p, int wake_flags)
+{
+    struct task_struct *curr = rq->curr;
+
+    if (p->prio < curr->prio)  /* Higher priority task */
+        resched_curr(rq);      /* Set TIF_NEED_RESCHED */
+}
+
+void resched_curr(struct rq *rq)
+{
+    struct task_struct *curr = rq->curr;
+
+    if (test_tsk_need_resched(curr))
+        return;  /* Already set */
+
+    set_tsk_need_resched(curr);  /* Set TIF_NEED_RESCHED */
+    set_preempt_need_resched();   /* Also in preempt count */
+}
+```
 
 ## Debugging Preemption Issues
 
@@ -365,6 +567,21 @@ irqreturn_t my_handler(int irq, void *dev_id)
 
 **Detection**: `CONFIG_DEBUG_ATOMIC_SLEEP` will warn on sleep in interrupt.
 
+#### 4. Missing preempt_enable
+
+```c
+void my_function(void)
+{
+    preempt_disable();
+    /* ... do work ... */
+    if (error)
+        return;  // BUG: forgot preempt_enable()!
+    preempt_enable();
+}
+```
+
+**Detection**: Lockdep may detect the imbalance; `CONFIG_DEBUG_PREEMPT` checks for negative counts.
+
 ### Tracing Preemption
 
 ```bash
@@ -379,6 +596,11 @@ echo 100 > /sys/kernel/debug/tracing/tracing_thresh  # 100µs
 
 # View trace
 cat /sys/kernel/debug/tracing/trace
+
+# Example output:
+#           <...>-1234  [001] d..1  1234.567890: preempt_disable: caller=spin_lock+0x1a/0x30
+#           <...>-1234  [001] d..2  1234.567891: preempt_enable: caller=spin_unlock+0x1e/0x40
+# Latency: 1µs
 ```
 
 ### Checking Preempt Count Programmatically
@@ -391,6 +613,15 @@ printk("in_irq = %d, in_softirq = %d, in_nmi = %d\n",
 printk("preemptible = %d\n", preemptible());
 ```
 
+```bash
+# From userspace, check a task's preemption state
+cat /proc/<pid>/status | grep voluntary
+# voluntary_ctxt_switches: 12345
+# nonvoluntary_ctxt_switches: 678
+
+# The nonvoluntary count reflects preemption events
+```
+
 ## Performance Implications
 
 - `preempt_disable/enable` is extremely cheap (single memory increment/decrement)
@@ -398,6 +629,22 @@ printk("preemptible = %d\n", preemptible());
 - Excessive preemption can hurt throughput due to context switch overhead
 - Too little preemption can hurt latency (tasks waiting for long kernel paths)
 - The chosen preemption model represents a fundamental throughput/latency tradeoff
+
+### Measuring Preemption Latency
+
+```bash
+# Use cyclictest to measure worst-case preemption latency
+sudo cyclictest -m -p 80 -i 1000 -l 10000
+
+# Output:
+# T: 0 (12345) P:80 I:1000 C:  10000 Min:      1 Act:    3 Avg:    2 Max:      15
+# Min/Act/Avg/Max latency in microseconds
+
+# Compare preemption models:
+# PREEMPT_NONE:   Max: 5000-10000µs
+# PREEMPT:        Max: 50-200µs
+# PREEMPT_RT:     Max: 10-50µs
+```
 
 ## Relationship to spin_lock/spin_unlock
 
@@ -418,6 +665,27 @@ static inline unsigned long _spin_lock_irqsave(spinlock_t *lock)
 
 On `PREEMPT_RT`, spinlocks are converted to sleeping locks (rt_mutex), and preemption is not disabled. This is the key difference enabling real-time behavior.
 
+### spin_lock and preempt_count Interaction
+
+```mermaid
+graph TD
+    subgraph "Regular Kernel (CONFIG_PREEMPT)"
+        SL["spin_lock()"] --> PD["preempt_disable()<br/>preempt_count++"]
+        PD --> CR["Critical section<br/>not preemptible"]
+        CR --> SU["spin_unlock()"]
+        SU --> PE["preempt_enable()<br/>preempt_count--"]
+        PE --> RESCHED{"TIF_NEED_RESCHED?"}
+        RESCHED -->|Yes| SCHED["preempt_schedule()"]
+        RESCHED -->|No| CONT["Continue"]
+    end
+
+    subgraph "RT Kernel (PREEMPT_RT)"
+        SL2["spin_lock()"] --> RTM["rt_mutex_lock()<br/>may sleep!"]
+        RTM --> CS["Critical section<br/>preemptible"]
+        CS --> RTU["rt_mutex_unlock()"]
+    end
+```
+
 ## Further Reading
 
 - **Kernel documentation**: `Documentation/locking/preempt-locking.rst`
@@ -428,6 +696,7 @@ On `PREEMPT_RT`, spinlocks are converted to sleeping locks (rt_mutex), and preem
 - **Source**: `include/linux/preempt.h` — preempt_disable/enable definitions
 - **Source**: `kernel/sched/core.c` — preempt_schedule implementation
 - **Source**: `kernel/softirq.c` — softirq context handling
+- **Source**: `kernel/irq/handle.c` — irq_enter/irq_exit definitions
 - **Related**: [Spinlocks](../sync/spinlock.md) — locks that disable preemption
 - **Related**: [RCU](../sync/rcu.md) — read-copy-update and preemption
 - **Related**: [IRQ Handling](../irq/irq-handling.md) — interrupt context

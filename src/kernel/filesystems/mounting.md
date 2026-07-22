@@ -423,6 +423,9 @@ struct mount {
 - [namespaces(7) man page](https://man7.org/linux/man-pages/man7/namespaces.7.html)
 - [umount(2) man page](https://man7.org/linux/man-pages/man2/umount.2.html)
 - [pivot_root(2) man page](https://man7.org/linux/man-pages/man2/pivot_root.2.html)
+- [fstab(5) man page](https://man7.org/linux/man-pages/man5/fstab.5.html)
+- [systemd.mount(5) man page](https://man7.org/linux/man-pages/man5/systemd.mount.5.html)
+- [OverlayFS documentation](https://www.kernel.org/doc/html/latest/filesystems/overlayfs.html)
 
 ## Further Reading
 
@@ -439,9 +442,331 @@ struct mount {
 - https://man7.org/linux/man-pages/man2/umount.2.html
 - https://lwn.net/Articles/759499/ — "A new API for mount handling"
 
+---
+
+## Virtual Filesystem Mounts
+
+Linux has several in-memory (virtual) filesystems that don't correspond to any physical device:
+
+### tmpfs
+
+`tmpfs` stores files entirely in RAM (and swap). Commonly used for `/tmp`, `/run`, and `/dev/shm`:
+
+```bash
+# Mount tmpfs
+mount -t tmpfs -o size=2G,mode=1777 tmpfs /tmp
+
+# tmpfs options
+# size=    — Maximum size (default: 50% of RAM)
+# nr_inodes= — Maximum number of inodes
+# mode=    — Directory permissions
+# uid=,gid= — Owner
+# huge=    — Enable huge pages (always/within_size/never)
+
+# Check current tmpfs usage
+df -h /tmp /run /dev/shm
+
+# View tmpfs mount details
+mount | grep tmpfs
+cat /proc/mounts | grep tmpfs
+```
+
+### proc
+
+`procfs` exposes kernel and process information:
+
+```bash
+mount -t proc proc /proc
+
+# Key procfs entries
+/proc/cpuinfo          # CPU information
+/proc/meminfo          # Memory statistics
+/proc/<pid>/           # Per-process information
+/proc/<pid>/maps       # Memory mappings
+/proc/<pid>/fd/        # Open file descriptors
+/proc/<pid>/status     # Process status
+/proc/sys/             # Kernel tunables (sysctl)
+```
+
+### sysfs
+
+`sysfs` exposes kernel device model information:
+
+```bash
+mount -t sysfs sysfs /sys
+
+# Key sysfs entries
+/sys/block/            # Block devices
+/sys/class/            # Device classes
+/sys/devices/          # Device tree
+/sys/module/           # Loaded kernel modules
+/sys/firmware/          # Firmware interfaces
+```
+
+### devtmpfs
+
+`devtmpfs` provides automatic device node management:
+
+```bash
+mount -t devtmpfs devtmpfs /dev
+
+# Kernel automatically creates/removes /dev nodes
+# when devices are added/removed
+```
+
+## OverlayFS Mounts
+
+OverlayFS combines multiple directory trees into one. It's the foundation of container image layering:
+
+```bash
+# OverlayFS mount
+mount -t overlay overlay \
+    -o lowerdir=/lower,upperdir=/upper,workdir=/work \
+    /merged
+
+# Components:
+# lowerdir  — Read-only base layer (can be multiple, comma-separated)
+# upperdir  — Read-write layer (changes go here)
+# workdir   — Working directory (must be on same filesystem as upperdir)
+# merged    — Combined view presented to users
+```
+
+### OverlayFS in Containers
+
+```mermaid
+graph TD
+    subgraph "Container Image Layers (lowerdir, read-only)"
+        L1["Base image (e.g., ubuntu:22.04)"]
+        L2["Layer 2 (apt-get install)"]
+        L3["Layer 3 (app code)"]
+    end
+    subgraph "Container Layer (upperdir, read-write)"
+        U1["Runtime changes"]
+    end
+    subgraph "Merged View"
+        M1["Container sees one filesystem"]
+    end
+    L1 --> L2 --> L3 --> M1
+    U1 --> M1
+```
+
+```bash
+# Docker overlay2 driver example
+# Lower layers: image layers (read-only)
+# Upper layer: container writable layer
+# Work dir: overlayfs internal state
+
+mount -t overlay overlay \
+    -o lowerdir=/var/lib/docker/overlay2/l/ABC:/var/lib/docker/overlay2/l/DEF,\
+upperdir=/var/lib/docker/overlay2/XYZ/diff,\
+workdir=/var/lib/docker/overlay2/XYZ/work \
+    /var/lib/docker/overlay2/XYZ/merged
+```
+
+### Multiple Lower Layers
+
+```bash
+# Stack multiple read-only layers
+mount -t overlay overlay \
+    -o lowerdir=/layer3:/layer2:/layer1,upperdir=/upper,workdir=/work \
+    /merged
+
+# Files in /layer3 take precedence over /layer2, which takes
+# precedence over /layer1. The upperdir is writable and takes
+# highest precedence.
+```
+
+## /etc/fstab
+
+The `fstab` file defines filesystems to mount at boot:
+
+```bash
+# /etc/fstab format:
+# <device>  <mount>  <type>  <options>  <dump>  <fsck>
+
+# Examples:
+# Device with UUID (preferred)
+UUID=12345678-1234-1234-1234-123456789abc  /  ext4  errors=remount-ro  0  1
+
+# tmpfs
+tmpfs  /tmp  tmpfs  defaults,noatime,nosuid,nodev,size=2G  0  0
+
+# NFS
+server:/share  /mnt/nfs  nfs4  defaults,soft,timeo=10  0  0
+
+# Bind mount (fstab)
+/data/shared  /srv/shared  none  bind,ro  0  0
+
+# Swap
+UUID=...  none  swap  sw  0  0
+
+# Common mount options:
+# defaults   — rw, suid, dev, exec, auto, nouser, async
+# noatime    — Don't update access times (performance)
+# nosuid     — Ignore suid/sgid bits (security)
+# nodev      — Don't interpret device files (security)
+# noexec     — Don't allow execution (security)
+# discard    — Enable TRIM for SSDs
+# x-systemd.automount — Automount on first access
+# _netdev    — Wait for network before mounting
+```
+
+### Verifying fstab
+
+```bash
+# Test fstab without rebooting
+mount -a
+
+# Check for fstab errors
+findmnt --verify
+
+# Remount all fstab entries
+systemctl daemon-reload
+systemctl restart local-fs.target
+```
+
+## systemd Automounting
+
+systemd can automount filesystems on first access:
+
+```ini
+# /etc/systemd/system/data.mount
+[Unit]
+Description=Data Partition
+
+[Mount]
+What=/dev/disk/by-uuid/12345678-1234-1234-1234-123456789abc
+Where=/data
+Type=ext4
+Options=defaults,noatime
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```ini
+# /etc/systemd/system/data.automount
+[Unit]
+Description=Automount Data Partition
+
+[Automount]
+Where=/data
+TimeoutIdleSec=300
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+# Enable automount
+systemctl enable data.automount
+systemctl start data.automount
+
+# The filesystem mounts on first access to /data
+# and unmounts after 300 seconds of inactivity
+```
+
+## Mount Troubleshooting
+
+### Common Errors
+
+```bash
+# EBUSY: device is busy
+$ umount /mnt/data
+umount: /mnt/data: target is busy.
+
+# Find what's using the mount
+fuser -vm /mnt/data
+# USER        PID ACCESS COMMAND
+# root        1234 ..c.. bash
+# root        5678 ...ce vim
+
+lsof +D /mnt/data
+# COMMAND  PID USER   FD   TYPE DEVICE SIZE/OFF NODE NAME
+# bash     1234 root  cwd    DIR  8,1     4096    2 /mnt/data
+
+# Solutions:
+# 1. Kill processes using the mount
+fuser -km /mnt/data
+
+# 2. Lazy unmount (detach now, cleanup later)
+umount -l /mnt/data
+
+# 3. Force unmount (for NFS)
+umount -f /mnt/data
+
+# ENOENT: mount point doesn't exist
+mkdir -p /mnt/data
+
+# EACCES: permission denied
+# Check /etc/fstab options, or use sudo
+
+# Wrong filesystem type
+# Check: blkid /dev/sda1
+# Verify: file -sL /dev/sda1
+```
+
+### Mount Debugging
+
+```bash
+# View all mounts with details
+findmnt
+findmnt -t ext4,xfs
+
+# View mount options
+findmnt -o TARGET,SOURCE,OPTIONS /data
+
+# View /proc/self/mountinfo (detailed)
+cat /proc/self/mountinfo
+
+# Trace mount operations
+strace mount /dev/sda1 /mnt/data 2>&1 | grep mount
+
+# Debug fstab issues
+mount -fav  # Verbose, don't actually mount
+```
+
+## Container Mount Setup
+
+A complete container filesystem setup sequence:
+
+```bash
+# 1. Create new mount namespace
+unshare --mount
+
+# 2. Set all mounts to private propagation
+mount --make-rprivate /
+
+# 3. Mount new rootfs (overlayfs)
+mkdir -p /tmp/overlay/{upper,work,merged}
+mount -t overlay overlay \
+    -o lowerdir=/var/lib/images/base,upperdir=/tmp/overlay/upper,workdir=/tmp/overlay/work \
+    /tmp/overlay/merged
+
+# 4. Mount virtual filesystems
+mount -t proc proc /tmp/overlay/merged/proc
+mount -t sysfs sysfs /tmp/overlay/merged/sys
+mount -t devtmpfs devtmpfs /tmp/overlay/merged/dev
+mount -t tmpfs tmpfs /tmp/overlay/merged/run
+
+# 5. Pivot root
+cd /tmp/overlay/merged
+mkdir -p .old_root
+pivot_root . .old_root
+
+# 6. Unmount old root
+umount -l /.old_root
+rmdir /.old_root
+
+# 7. Now running in isolated container filesystem
+exec /bin/sh
+```
+
 ## Related Topics
 
 - [superblock](./superblock.md) — Each mount has a superblock
 - [tmpfs](./tmpfs.md) — Commonly mounted virtual filesystem
 - [overlayfs](./overlayfs.md) — Uses mount namespaces for container layering
 - [fuse](./fuse.md) — FUSE mounts via fusermount
+- [Mount namespaces](../namespaces.md) — Process-level mount isolation
+- [Device Mapper](../../storage/overview.md#device-mapper) — Virtual block devices

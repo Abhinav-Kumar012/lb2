@@ -355,6 +355,311 @@ arch/powerpc/
 └── Makefile            — Build rules
 ```
 
+## Exception Handling
+
+### Exception Vectors
+
+PowerPC uses a fixed set of exception vectors at low memory addresses:
+
+| Vector | Offset | Description |
+|---|---|---|
+| System Reset | 0x100 | Power-on / reset |
+| Machine Check | 0x200 | Hardware error (uncorrectable) |
+| Data Storage | 0x300 | Data page fault / DSI |
+| Instruction Storage | 0x400 | Instruction page fault / ISI |
+| External Interrupt | 0x500 | Device interrupt |
+| Alignment | 0x600 | Unaligned access |
+| Program | 0x700 | Illegal instruction / trap |
+| Floating-Point Unavailable | 0x800 | FP disabled |
+| Decrementer | 0x900 | Timer interrupt |
+| Hypervisor Decrementer | 0x980 | HV timer (POWER7+) |
+| Doorbell | 0xA00 | IPI doorbell |
+| System Call | 0xC00 | `sc` instruction |
+| Trace | 0xD00 | Single-step / breakpoint |
+| Altivec Unavailable | 0xF20 | VMX disabled |
+| VSX Unavailable | 0xF40 | VSX disabled |
+
+### Exception Entry/Exit Flow
+
+```mermaid
+sequenceDiagram
+    participant USER as User Space
+    participant EXC as Exception Vector
+    participant HANDLER as Exception Handler
+    participant KERN as Kernel
+
+    USER->>EXC: Exception occurs
+    EXC->>HANDLER: Save state (SRR0/SRR1)
+    HANDLER->>KERN: Handle exception
+    KERN->>KERN: Process fault / deliver signal
+    KERN->>USER: Return (rfi / rfid)
+```
+
+### SRR0 and SRR1
+
+PowerPC uses **Save/Restore Register 0 and 1** for exception handling:
+
+- **SRR0**: Contains the address to return to after exception.
+- **SRR1**: Contains the saved MSR (Machine State Register) value.
+
+```c
+/* Exception handler pseudo-code */
+void handle_exception(struct pt_regs *regs)
+{
+    unsigned long srr0 = regs->nip;  /* Next instruction pointer */
+    unsigned long srr1 = regs->msr;  /* Saved MSR */
+
+    /* Determine exception type from vector */
+    /* Handle page fault, interrupt, syscall, etc. */
+}
+```
+
+## Interrupt Handling
+
+### PowerPC Interrupt Controller
+
+PowerPC uses the **Open PIC** (or XICS for POWER, XIVE for POWER9+):
+
+| Controller | Platform | Description |
+|---|---|---|
+| Open PIC | Embedded / Classic | Legacy interrupt controller |
+| XICS | POWER7/8 | External Interrupt Controller |
+| XIVE | POWER9+ | Enhanced Virtual Interrupt Controller |
+
+### XIVE Architecture (POWER9+)
+
+```mermaid
+graph TD
+    subgraph "XIVE Components"
+        IC["IC (Interrupt Controller)<br/>Source routing"]
+        IVT["IVT (Virtual Table)<br/>Target CPU mapping"]
+        END["END (Event Notification)<br/>Delivery to vCPU"]
+    end
+    DEV["PCIe Device"] -->|"MSI-X"| IC
+    IC --> IVT
+    IVT --> END
+    END --> CPU["Physical CPU"]
+```
+
+### Interrupt Flow
+
+```c
+/* Interrupt handler registration (PowerPC) */
+static irqreturn_t my_interrupt(int irq, void *dev_id)
+{
+    /* Handle interrupt */
+    return IRQ_HANDLED;
+}
+
+request_irq(irq, my_interrupt, 0, "my-device", dev_id);
+```
+
+## EEH (Enhanced Error Handling)
+
+EEH is IBM's proprietary error handling mechanism for PCIe devices
+on POWER systems. It provides hardware-level error detection and
+recovery:
+
+### EEH Error Flow
+
+```mermaid
+sequenceDiagram
+    participant HW as PCIe Hardware
+    participant EEH as EEH Framework
+    participant DRV as Device Driver
+    participant USER as User Space
+
+    HW->>EEH: PCIe error detected
+    EEH->>EEH: Freeze PE (Partition Endpoint)
+    EEH->>DRV: Notify driver (eeh_event)
+    DRV->>DRV: Save device state
+    EEH->>EEH: Reset PE
+    DRV->>DRV: Restore device state
+    EEH->>HW: Resume PE
+    HW-->>USER: Device recovered
+```
+
+### EEH sysfs Interface
+
+```bash
+# Check EEH status
+$ cat /sys/bus/pci/devices/0000:03:00.0/eeh_mode
+# enabled
+
+# View EEH error log
+$ dmesg | grep -i eeh
+[   12.345678] EEH: BPE#0 on PCI 0003:03:00.0
+[   12.345679] EEH: PE#0 frozen
+[   12.567890] EEH: PE#0 recovered after 2 attempts
+
+# Manually trigger EEH recovery
+$ echo 1 > /sys/bus/pci/devices/0000:03:00.0/eeh_pe_reset
+```
+
+### EEH in the Kernel
+
+```c
+/* Register EEH driver operations */
+static struct eeh_dev_ops my_eeh_ops = {
+    .eeh_event     = my_eeh_event,
+    .eeh_reset     = my_eeh_reset,
+    .eeh_configure = my_eeh_configure,
+};
+
+/* Called when EEH detects an error */
+static void my_eeh_event(struct eeh_dev *edev)
+{
+    /* Save device state */
+    save_device_state(edev);
+}
+
+/* Called to reset the device */
+static int my_eeh_reset(struct eeh_dev *edev, int type)
+{
+    /* Reset device */
+    return reset_device(edev);
+}
+```
+
+## DSCR (Data Stream Control Register)
+
+The DSCR controls hardware prefetching behavior on POWER processors:
+
+```c
+/* DSCR values */
+#define DSCR_DEFAULT       0   /* Use system default */
+#define DSCR_NO_PREFETCH   1   /* Disable hardware prefetch */
+#define DSCR_STRIDE_N      2   /* Stride-N prefetch */
+
+/* Set DSCR for current process */
+mtspr(SPRN_DSCR, value);
+
+/* Read current DSCR */
+value = mfspr(SPRN_DSCR);
+```
+
+```bash
+# Set DSCR via prctl
+$ prctl --set-dscr=1  # Disable prefetch
+
+# Check DSCR
+$ cat /proc/self/status | grep DSCR
+```
+
+## Transactional Memory (HTM)
+
+POWER8+ supports **Hardware Transactional Memory** (HTM):
+
+### HTM Instructions
+
+```asm
+tbegin.         ; Begin transaction
+tend.           ; End transaction (commit)
+tabort.         ; Abort transaction
+trechkpt.       ; Checkpoint (suspend/resume)
+```
+
+### HTM in Linux
+
+```c
+#include <htmxlintrin.h>
+
+int transactional_update(int *shared_data)
+{
+    int result;
+
+    if (__builtin_tbegin(0) == 0) {
+        /* Transactional path */
+        *shared_data += 1;
+        result = *shared_data;
+        __builtin_tend(0);
+    } else {
+        /* Fallback (transaction aborted) */
+        /* Use locks instead */
+        lock();
+        *shared_data += 1;
+        result = *shared_data;
+        unlock();
+    }
+    return result;
+}
+```
+
+```bash
+# Check HTM support
+$ dmesg | grep -i htm
+[    0.123456] Registering IBM PowerPC HTM facility
+
+# Enable/disable HTM
+$ echo 1 > /proc/sys/kernel/htm_enabled
+```
+
+## POWER10 Matrix Math Assist (MMA)
+
+POWER10 introduces **MMA** for accelerated matrix operations:
+
+### MMA Registers
+
+```
+MMA Accumulator Registers:
+  ACC0-ACC3 — 512-bit accumulators
+  Each ACC = 4 × 128-bit vector registers
+
+VSX Pair Registers:
+  VSR0-VSR63 — Used as MMA operands
+  Pairs: (VSR0,VSR1), (VSR2,VSR3), ...
+```
+
+### MMA Instructions
+
+```asm
+xvf32ger        ; FP32 outer product (ger = rank-1 update)
+xvf64ger        ; FP64 outer product
+pfxvbf16ger     ; BF16 outer product
+pmxvf32ger      ; Prefixed FP32 outer product
+```
+
+### MMA in Linux
+
+```c
+/* MMA requires kernel support for the new registers */
+/* The kernel saves/restores ACC registers on context switch */
+
+/* Check MMA support */
+cpu_has_feature(CPU_FTR_MMA)  /* kernel check */
+```
+
+## PowerPC NUMA Support
+
+Power systems have complex NUMA topologies:
+
+```bash
+# View NUMA topology
+$ numactl --hardware
+available: 4 nodes (0-3)
+node 0 cpus: 0 1 2 3
+node 0 size: 32768 MB
+node 1 cpus: 4 5 6 7
+node 1 size: 32768 MB
+
+# View NUMA distance
+$ cat /sys/devices/system/node/node*/distance
+```
+
+### NUMA in the Kernel
+
+```c
+/* PowerPC NUMA node mapping */
+/* Each chip/socket is a NUMA node */
+/* Memory interleaving across nodes */
+
+/* Get node for CPU */
+int node = cpu_to_node(cpu);
+
+/* Get node for physical address */
+int node = pa_to_node(phys_addr);
+```
+
 ## Cross-Compiling for PowerPC
 
 ```bash
