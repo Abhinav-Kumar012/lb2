@@ -447,6 +447,63 @@ epoch_retire(old_object);
 
 ## Lock-Free Patterns in the Kernel
 
+### Lock-Free Queue: llist
+
+The kernel `llist` provides a lock-free singly-linked list (LIFO — stack behavior) with multi-producer, single-consumer semantics:
+
+```c
+#include <linux/llist.h>
+
+struct my_item {
+    struct llist_node node;
+    int data;
+};
+
+DEFINE_LLIST_HEAD(my_list);
+
+/* Producer (any CPU, lock-free) */
+void producer(struct my_item *item)
+{
+    llist_add(&item->node, &my_list);  /* Atomic push */
+}
+
+/* Consumer (single consumer only) */
+void consumer(void)
+{
+    struct llist_node *entry;
+    struct llist_node *tmp;
+
+    /* llist_del_all atomically takes the entire list */
+    llist_for_each_safe(entry, tmp, llist_del_all(&my_list)) {
+        struct my_item *item = llist_entry(entry, struct my_item, node);
+        process(item);
+    }
+}
+```
+
+**Key property**: `llist_add()` uses `cmpxchg` to push items onto the head. `llist_del_all()` atomically replaces the head with NULL and returns the old list. This avoids all locking on the producer side.
+
+**Real-world use**: The IPI (Inter-Processor Interrupt) mechanism uses `llist` to batch cross-CPU function calls. Each CPU has its own `llist`, and the IPI handler drains the list:
+
+```c
+/* kernel/smp.c */
+static DEFINE_PER_CPU_SHARED_ALIGNED(struct llist_head, call_single_queue);
+
+void generic_smp_call_function_interrupt(void)
+{
+    struct llist_head *head = this_cpu_ptr(&call_single_queue);
+    struct llist_node *entry;
+
+    entry = llist_del_all(head);
+    if (entry) {
+        entry = llist_reverse_order(entry);
+        llist_for_each_entry(entry, ...) {
+            /* Execute queued function calls */
+        }
+    }
+}
+```
+
 ### Per-CPU Variables
 
 The simplest lock-free technique: give each CPU its own copy.
