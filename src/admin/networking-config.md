@@ -797,6 +797,8 @@ ss -tunlp
 - [interfaces(5) man page](https://man7.org/linux/man-pages/man5/interfaces.5.html) — Debian network config
 - [ArchWiki: Network configuration](https://wiki.archlinux.org/title/Network_configuration)
 - [iproute2 documentation](https://wiki.linuxfoundation.org/networking/iproute2)
+- [NetworkManager documentation](https://networkmanager.dev/docs/)
+- [systemd-networkd examples](https://systemd.io/NETWORK/)
 
 ## Related Topics
 
@@ -804,3 +806,158 @@ ss -tunlp
 - [System Administration Overview](./overview.md) — Initial network setup
 - [Namespaces](../kernel/processes/namespaces.md) — Network namespace isolation
 - [Logging](./logging.md) — Network event logging
+
+## Network Bonding and Link Aggregation
+
+Bonding combines multiple physical interfaces into a single logical interface for redundancy or increased throughput.
+
+### Bonding Modes
+
+| Mode | Name | Description |
+|---|---|---|
+| 0 | balance-rr | Round-robin, load balanced |
+| 1 | active-backup | One active, one standby (failover) |
+| 2 | balance-xor | XOR of source/dest MAC |
+| 3 | broadcast | Broadcast on all slaves |
+| 4 | 802.3ad | LACP (IEEE 802.3ad link aggregation) |
+| 5 | balance-tlb | Transmit load balancing |
+| 6 | balance-alb | Adaptive load balancing |
+
+### Configuring Bonds
+
+```bash
+# NetworkManager
+nmcli con add type bond con-name bond0 ifname bond0 \
+    bond.options "mode=802.3ad,miimon=100,lacp_rate=fast"
+nmcli con add type ethernet slave-type bond con-name bond0-eth0 ifname eth0 master bond0
+nmcli con add type ethernet slave-type bond con-name bond0-eth1 ifname eth1 master bond0
+nmcli con mod bond0 ipv4.method manual ipv4.addresses 192.168.1.10/24
+nmcli con up bond0
+
+# systemd-networkd
+# /etc/systemd/network/20-bond0.netdev
+[NetDev]
+Name=bond0
+Kind=bond
+
+[Bond]
+Mode=802.3ad
+MIIMonitorInterval=100
+
+# /etc/systemd/network/20-bond0.network
+[Match]
+Name=bond0
+
+[Network]
+Address=192.168.1.10/24
+Gateway=192.168.1.1
+
+# /etc/network/interfaces
+auto bond0
+iface bond0 inet static
+    address 192.168.1.10/24
+    gateway 192.168.1.1
+    bond-slaves eth0 eth1
+    bond-mode 802.3ad
+    bond-miimon 100
+```
+
+### Verifying Bond Status
+
+```bash
+cat /proc/net/bonding/bond0
+# Bonding Mode: IEEE 802.3ad Dynamic link aggregation
+# Transmit Hash Policy: layer2 (0)
+# MII Status: up
+# MII Polling Interval (ms): 100
+```
+
+## VLAN Configuration
+
+```bash
+# NetworkManager
+nmcli con add type vlan con-name vlan100 ifname eth0.100 \
+    dev eth0 id 100 ipv4.method manual ipv4.addresses 10.100.0.1/24
+
+# systemd-networkd
+# /etc/systemd/network/30-vlan100.netdev
+[NetDev]
+Name=eth0.100
+Kind=vlan
+
+[VLAN]
+Id=100
+
+# /etc/network/interfaces
+auto eth0.100
+iface eth0.100 inet static
+    address 10.100.0.1/24
+    vlan-raw-device eth0
+```
+
+## Network Bridge Configuration
+
+Bridges connect multiple interfaces at Layer 2, commonly used for VMs and containers.
+
+```bash
+# NetworkManager
+nmcli con add type bridge con-name br0 ifname br0 \
+    ipv4.method manual ipv4.addresses 192.168.1.10/24
+nmcli con add type ethernet slave-type bridge con-name br0-eth0 \
+    ifname eth0 master br0
+
+# systemd-networkd
+# /etc/systemd/network/25-bridge.netdev
+[NetDev]
+Name=br0
+Kind=bridge
+
+[Bridge]
+STP=yes
+
+# /etc/network/interfaces
+auto br0
+iface br0 inet static
+    address 192.168.1.10/24
+    gateway 192.168.1.1
+    bridge_ports eth0
+    bridge_stp on
+    bridge_fd 0
+```
+
+## Sysctl Network Tuning
+
+```bash
+# /etc/sysctl.d/99-network-tuning.conf
+
+# TCP buffer sizes (min, default, max)
+net.core.rmem_max = 16777216
+net.core.wmem_max = 16777216
+net.ipv4.tcp_rmem = 4096 87380 16777216
+net.ipv4.tcp_wmem = 4096 65536 16777216
+
+# Connection backlog
+net.core.somaxconn = 4096
+net.core.netdev_max_backlog = 5000
+net.ipv4.tcp_max_syn_backlog = 4096
+
+# TCP keepalive
+net.ipv4.tcp_keepalive_time = 600
+net.ipv4.tcp_keepalive_intvl = 30
+net.ipv4.tcp_keepalive_probes = 5
+
+# TIME_WAIT tuning
+net.ipv4.tcp_tw_reuse = 1
+net.ipv4.tcp_fin_timeout = 30
+
+# Enable BBR congestion control
+net.core.default_qdisc = fq
+net.ipv4.tcp_congestion_control = bbr
+
+# IP forwarding (for routers/gateways)
+net.ipv4.ip_forward = 1
+net.ipv6.conf.all.forwarding = 1
+
+# Apply
+sysctl -p /etc/sysctl.d/99-network-tuning.conf
+```

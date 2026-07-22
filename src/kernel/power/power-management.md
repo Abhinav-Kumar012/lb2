@@ -603,7 +603,118 @@ echo 0 > /sys/devices/system/cpu/cpu*/cpufreq/ondemand/up_threshold 2>/dev/null
 
 ---
 
-## Common Issues
+## Energy-Aware Scheduling (EAS)
+
+Energy-Aware Scheduling integrates power models into the CPU scheduler to place tasks on CPUs that minimize total system energy consumption. It is available on asymmetric CPU topologies (big.LITTLE, Intel hybrid) since Linux 5.0:
+
+```c
+/* kernel/sched/fair.c — simplified */
+static int find_energy_efficient_cpu(struct task_struct *p)
+{
+    /* 1. For each performance domain (cluster of similar CPUs): */
+    /*    - Estimate energy if task placed on each CPU */
+    /*    - Consider current utilization and capacity */
+    /* 2. Select the CPU with lowest total energy */
+    /*    (not lowest per-task energy — system-wide optimum) */
+}
+```
+
+### Energy Model sysfs
+
+```bash
+# View energy model per-CPU
+cat /sys/devices/system/cpu/cpu0/cpufreq/energy_model/*/frequency
+# 800000 1200000 1800000 2500000
+
+cat /sys/devices/system/cpu/cpu0/cpufreq/energy_model/*/power
+# 150 300 600 1200  (milliwatts)
+
+cat /sys/devices/system/cpu/cpu0/cpufreq/energy_model/*/performance
+# 100 200 350 500  (relative capacity)
+```
+
+### EAS Requirements
+
+```bash
+# EAS requires:
+# 1. CONFIG_ENERGY_MODEL=y
+# 2. Asymmetric CPU topology (big.LITTLE or hybrid)
+# 3. schedutil governor active
+# 4. sched_energy_aware sysctl enabled
+sysctl kernel.sched_energy_aware
+# 1 = enabled (default when EAS is available)
+
+# Disable EAS (fall back to load balancing)
+echo 0 > /proc/sys/kernel/sched_energy_aware
+```
+
+---
+
+## PM QoS Internals
+
+### PM QoS Classes
+
+```c
+/* PM QoS classes defined in include/linux/pm_qos.h */
+#define PM_QOS_CPU_DMA_LATENCY    1  /* Max CPU DMA latency (µs) */
+#define PM_QOS_NETWORK_LATENCY    2  /* Max network latency */
+#define PM_QOS_NETWORK_THROUGHPUT 3  /* Min network throughput */
+#define PM_QOS_MEMORY_BANDWIDTH    4  /* Min memory bandwidth */
+#define PM_QOS_RESUME_LATENCY      5  /* Max device resume latency */
+#define PM_QOS_LATENCY_TOLERANCE   6  /* Device latency tolerance */
+#define PM_QOS_MIN_FREQUENCY       7  /* Min CPU frequency */
+#define PM_QOS_MAX_FREQUENCY       8  /* Max CPU frequency */
+```
+
+### PM QoS Kernel API
+
+```c
+#include <linux/pm_qos.h>
+
+/* Static request */
+static struct pm_qos_request my_req = {
+    .pm_qos_class = PM_QOS_CPU_DMA_LATENCY,
+};
+pm_qos_add_request(&my_req, PM_QOS_CPU_DMA_LATENCY, 100);
+
+/* Dynamic request */
+struct pm_qos_request *req = kzalloc(sizeof(*req), GFP_KERNEL);
+pm_qos_add_request(req, PM_QOS_RESUME_LATENCY, 500);
+/* ... later ... */
+pm_qos_remove_request(req);
+kfree(req);
+```
+
+### Power Management Debugging
+
+```bash
+# Enable PM debug messages
+echo 1 > /sys/power/pm_debug_messages
+
+# PM trace (stores device info in RTC memory)
+echo 1 > /sys/power/pm_trace
+# After failed suspend + reboot:
+dmesg | grep "hash matches"
+# [    0.000000]   hash matches /drivers/gpu/drm/i915/i915_drv.c:1234
+
+# Detailed suspend timeline with ftrace
+trace-cmd record -e power -e suspend -e device_pm_callback_runtime
+trace-cmd report | grep "suspend_enter\|resume"
+
+# Power-related /sys/power/ interfaces
+cat /sys/power/state            # Available sleep states: freeze mem disk
+cat /sys/power/disk             # Hibernate modes: [platform] shutdown reboot
+cat /sys/power/mem_sleep        # Suspend modes: [s2idle] shallow deep
+# s2idle: S0ix (modern standby)
+# deep: S3 (suspend to RAM)
+
+echo deep > /sys/power/mem_sleep
+# Then: echo mem > /sys/power/state
+
+cat /sys/power/pm_wakeup_irq   # Wake source IRQ
+```
+
+### Common Issues
 
 ### System Won't Suspend
 
@@ -612,11 +723,7 @@ echo 0 > /sys/devices/system/cpu/cpu*/cpufreq/ondemand/up_threshold 2>/dev/null
 **Solutions**:
 - Check `dmesg | grep -i suspend` for errors
 - Disable problematic device's runtime PM
-- Use `pm_trace` for debugging:
-  ```bash
-  echo 1 > /sys/power/pm_trace
-  # After failed suspend, check dmesg for device info
-  ```
+- Use `pm_trace` for debugging
 
 ### High Power Consumption
 
