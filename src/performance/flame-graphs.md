@@ -501,6 +501,248 @@ sudo bpftrace -e 'kprobe:mutex_lock_slowpath { @[kstack, ustack] = count(); }' |
 | `Parca` | Go | Low | Web UI | Continuous profiling, eBPF |
 | `VTune` | C++ | Medium | GUI | Intel-specific deep analysis |
 
+## Analyzing Flame Graphs: A Systematic Approach
+
+Reading a flame graph effectively requires a structured methodology, not just
+casual browsing. Follow this workflow to extract actionable insights.
+
+### Step-by-Step Analysis Workflow
+
+```mermaid
+flowchart TD
+    A[Open flame graph SVG] --> B[Identify widest leaf frames]
+    B --> C{Leaf is your code?}
+    C -->|Yes| D[Optimize that function]
+    C -->|No| E[Look at ancestors]
+    E --> F{Wide ancestor frame?}
+    F -->|Yes| G[Can you reduce calls to it?]
+    F -->|No| H[Check for unexpected patterns]
+    H --> I[Look for: recursive towers,
+         thin-wide plateaus,
+         scattered small frames]
+    G --> D
+    D --> J[Re-profile and compare]
+    I --> J
+```
+
+### Common Flame Graph Patterns
+
+**Pattern 1: Single Hot Function**
+A single wide leaf frame dominates. This is the easiest case — optimize that function directly.
+
+**Pattern 2: Wide Ancestor, Thin Leaves**
+A wide parent with many thin children indicates the function is called frequently
+but each call is cheap. Consider batching or reducing call frequency.
+
+**Pattern 3: Recursive Tower**
+A tall, narrow tower of repeated function names indicates unbounded recursion.
+This is usually a bug (missing base case) or needs iteration instead.
+
+**Pattern 4: Scattered Hot Paths**
+Many unrelated paths each consume moderate CPU. This suggests the workload itself
+is CPU-bound across many code paths — no single optimization will help much.
+Consider algorithmic changes.
+
+**Pattern 5: Kernel Dominance**
+If kernel frames are wide but user frames are thin, the application is making
+expensive system calls. Investigate syscall frequency and batching.
+
+### Interpreting Differential Flame Graphs
+
+```mermaid
+flowchart LR
+    A[Before profile] --> C[difffolded.pl]
+    B[After profile] --> C
+    C --> D[Differential SVG]
+    D --> E{Color analysis}
+    E --> F[Red = regression
+         more samples in 'after']
+    E --> G[Blue = improvement
+         fewer samples in 'after']
+    E --> H[White/neutral
+         unchanged]
+```
+
+When analyzing differentials:
+1. Start with the widest **red** frames — these are the regressions
+2. Trace upward to understand the call chain that increased
+3. Check if the increase is in a new code path or an existing one that became hotter
+4. Look for **blue** frames that shrank — these are optimizations that worked
+
+## Flame Graphs for Specific Workloads
+
+### Database Workload Analysis
+
+```bash
+# Profile MySQL/MariaDB for 60 seconds
+sudo perf record -F 99 -a -g -- sleep 60
+sudo perf script | stackcollapse-perf.pl | \
+    grep -E 'mysql|innodb|ha_' | flamegraph.pl \
+    --color=hot --title="MySQL CPU Flame Graph" > mysql.svg
+
+# Profile PostgreSQL query execution
+sudo perf record -F 99 -p $(pgrep -o postgres) -g -- sleep 60
+sudo perf script | stackcollapse-perf.pl | flamegraph.pl \
+    --color=green --title="PostgreSQL CPU" > pg.svg
+```
+
+### Container and Kubernetes Profiling
+
+```bash
+# Profile a specific container by cgroup
+CONTAINER_ID=$(docker inspect --format '{{.Id}}' my_container)
+sudo perf record -F 99 -a -g -- sleep 30
+sudo perf script | stackcollapse-perf.pl | \
+    grep "$CONTAINER_ID" | flamegraph.pl > container.svg
+
+# Profile all containers with process filtering
+sudo perf record -F 99 -a -g -- sleep 30
+sudo perf script | stackcollapse-perf.pl | \
+    grep -E 'dockerd|containerd|runc' | flamegraph.pl > k8s.svg
+```
+
+### Python Application Profiling
+
+Python applications require special handling because the CPython interpreter
+obscures the actual Python call stack:
+
+```bash
+# Using perf with Python symbol resolution
+# 1. Ensure Python frame pointers
+export PYTHONFAULTHANDLER=1
+
+# 2. Record profile
+sudo perf record -F 99 -p <PID> -g -- sleep 30
+
+# 3. Use perf-map-agent for Python symbol maps
+# Or use py-spy (Rust-based, no instrumentation needed)
+py-spy record -o flame.svg --pid <PID> --duration 30
+
+# Alternative: Austin (C-based Python sampler)
+austin -o austin.prof -p <PID>
+# Convert to flame graph
+python -m austin.format austin.prof | flamegraph.pl > python.svg
+```
+
+### Rust and Go Applications
+
+Rust and Go typically have good frame pointer support:
+
+```bash
+# Go (default: frame pointers since Go 1.21)
+sudo perf record -F 99 -p <PID> -g -- sleep 30
+sudo perf script | stackcollapse-perf.pl | flamegraph.pl > go.svg
+
+# Go with runtime annotations
+# Use runtime/pprof for built-in profiling
+curl http://localhost:6060/debug/pprof/profile?seconds=30 > go.prof
+
+# Rust (compile with frame pointers)
+# In Cargo.toml:
+# [profile.release]
+# frame-pointer = true
+sudo perf record -F 99 -p <PID> -g -- sleep 30
+sudo perf script | stackcollapse-perf.pl | flamegraph.pl > rust.svg
+```
+
+## Continuous Profiling with Flame Graphs
+
+Continuous profiling collects flame graphs periodically in production, enabling
+historical comparison and regression detection.
+
+### Architecture
+
+```mermaid
+flowchart TD
+    A[Production Servers] -->|pprof/perf| B[Agent/Collector]
+    B --> C[Storage Backend
+         (S3, GCS, local)]
+    C --> D[Continuous Profiling UI
+         (Pyroscope, Parca,
+          Grafana Phlare)]
+    D --> E[Diff views]
+    D --> F[Flame graph timeline]
+    D --> G[Function-level trends]
+```
+
+### Pyroscope Setup
+
+```bash
+# Run Pyroscope agent (eBPF-based, no code changes)
+docker run -d --name pyroscope \
+    --privileged \
+    -v /proc:/host/proc:ro \
+    -v /sys:/host/sys:ro \
+    pyroscope/pyroscope:latest \
+    agent --server-address=http://pyroscope-server:4040
+
+# Or with SDK instrumentation (Go example)
+import "github.com/pyroscope-io/client/pyroscope"
+
+pyroscope.Start(pyroscope.Config{
+    ApplicationName: "myapp",
+    ServerAddress:   "http://pyroscope-server:4040",
+})
+```
+
+### Grafana Pyroscope Integration
+
+```bash
+# Configure Grafana data source:
+# Type: Pyroscope
+# URL: http://pyroscope:4040
+# Then use "Explore" to view flame graphs with:
+# - Time-range selection
+# - Diff mode (compare two time ranges)
+# - Top table view
+```
+
+## Performance Impact of Flame Graph Collection
+
+Understanding the overhead of profiling is critical for production use:
+
+| Collection Method | CPU Overhead | Memory Overhead | Data Rate |
+|-------------------|-------------|-----------------|----------|
+| `perf record -F 99` | < 0.5% | ~10 MiB/min | Low |
+| `perf record -F 999` | ~2-5% | ~100 MiB/min | Medium |
+| `bpftrace profile:hz:99` | < 0.3% | ~5 MiB/min | Low |
+| `async-profiler` (itimer) | < 1% | ~20 MiB/min | Low |
+| `py-spy` (process attach) | ~1-3% | N/A (streaming) | Low |
+
+**Rule of thumb**: 99 Hz sampling adds negligible overhead for most workloads.
+Going above 499 Hz is rarely justified outside of short investigative sessions.
+
+## Flame Graph Accessibility
+
+### Generating Text-Based Flame Graphs
+
+For terminal-only environments, text-based alternatives exist:
+
+```bash
+# Using inferno (Rust-based FlameGraph implementation)
+cargo install inferno
+
+# Generate text table from folded stacks
+cat out.folded | inferno-collapse-perf | inferno-flamegraph > flame.svg
+
+# Using Brendan Gregg's stackcount for text output
+sudo /usr/share/bcc/tools/stackcount -f -p <PID> function_name
+# Outputs folded-format text suitable for offline analysis
+```
+
+### Embedding Flame Graphs in Reports
+
+```bash
+# Convert SVG to PNG for inclusion in PDFs
+rsvg-convert flame.svg -o flame.png
+
+# Or use Inkscape for high-quality export
+inkscape flame.svg --export-filename=flame.pdf
+
+# Generate a summary alongside the flame graph
+sudo perf report --stdio --sort symbol --percent-limit 1 | head -30 > summary.txt
+```
+
 ## References
 
 - Brendan Gregg, "Flame Graphs," https://www.brendangregg.com/flamegraphs.html
