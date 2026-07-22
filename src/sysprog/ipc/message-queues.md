@@ -496,15 +496,252 @@ gcc -o mq_demo mq_demo.c -lpthread -lrt
 - System V queues have a fixed max message size; POSIX queues are more flexible
 - Both interfaces are slower than pipes for simple byte-stream IPC
 
+## Kernel Implementation Details
+
+### System V Message Queue Internals
+
+System V message queues are implemented in `ipc/msg.c`:
+
+```c
+/* Kernel representation of a message queue */
+struct msg_queue {
+    struct kern_ipc_perm q_perm;
+    time_t q_stime;           /* Last msgsnd time */
+    time_t q_rtime;           /* Last msgrcv time */
+    time_t q_ctime;           /* Last change time */
+    unsigned long q_cbytes;   /* Current bytes in queue */
+    unsigned long q_qnum;     /* Number of messages */
+    unsigned long q_qbytes;   /* Max bytes allowed */
+    pid_t q_lspid;            /* Last msgsnd PID */
+    pid_t q_lrpid;            /* Last msgrcv PID */
+    struct list_head q_messages;  /* List of messages */
+    struct list_head q_receivers; /* Waiting receivers */
+    struct list_head q_senders;   /* Waiting senders */
+};
+
+/* Individual message */
+struct msg_msg {
+    struct list_head m_list;
+    long m_type;
+    size_t m_ts;              /* Message text size */
+    struct msg_msgseg *next;  /* For messages > 1 page */
+    /* Followed by message text */
+};
+```
+
+### Message Queue Lifecycle
+
+```mermaid
+stateDiagram-v2
+    [*] --> Created: msgget()
+    Created --> HasMessages: msgsnd()
+    HasMessages --> HasMessages: msgsnd()/msgrcv()
+    HasMessages --> Empty: msgrcv() drains last msg
+    Empty --> HasMessages: msgsnd()
+    Empty --> Created: (queue still exists)
+    HasMessages --> Destroyed: msgctl(IPC_RMID)
+    Empty --> Destroyed: msgctl(IPC_RMID)
+    Destroyed --> [*]
+    note right of Destroyed
+        Messages remain readable
+        until process exits
+        (marked for deletion)
+    end note
+```
+
+### POSIX MQ Kernel Implementation
+
+POSIX message queues use a different implementation:
+
+```c
+/* fs/mqueue.c */
+struct mqueue_inode_info {
+    struct inode vfs_inode;
+    wait_queue_head_t wait_q;      /* Waiting senders/receivers */
+    struct rb_root msg_tree;       /* Messages in priority order */
+    struct posix_msg_tree_node *node_cache;
+    struct mq_attr attr;           /* Queue attributes */
+    struct sigevent notify;        /* Notification setup */
+    struct pid *notify_owner;      /* Process to notify */
+    struct user_namespace *notify_user_ns;
+    struct user_struct *user;      /* User who created */
+    struct sock *notify_sock;      /* Netlink for notification */
+    struct sk_buff *notify_cookie;
+};
+```
+
+## Security Considerations
+
+### System V MQ Security
+
+```bash
+# IPC permissions are checked at msgget()/msgsnd()/msgrcv()
+# Key permissions:
+# 0600 — owner only
+# 0644 — owner read/write, others read
+# 0666 — everyone read/write (DANGEROUS)
+
+# Check IPC security
+cat /proc/sys/kernel/msgmni   # Max queues system-wide
+cat /proc/sys/kernel/msgmnb   # Max bytes per queue
+cat /proc/sys/kernel/msgmax   # Max single message size
+
+# List all message queues with permissions
+ipcs -q
+# ------ Message Queues --------
+# key        msqid      owner      perms      used-bytes   messages
+# 0x0000002a 0          user       644        1234         5
+
+# Security risks:
+# - World-writable queues allow message injection
+# - Large queues can exhaust kernel memory
+# - Queue keys can be guessed (ftok is deterministic)
+```
+
+### POSIX MQ Security
+
+```bash
+# POSIX MQs use filesystem permissions
+ls -la /dev/mqueue/myqueue
+# -rw-r--r-- 1 user user 80 Jul 22 10:00 myqueue
+
+# Set permissions on creation
+mq_open("/myqueue", O_CREAT | O_RDWR, 0600, &attr);
+
+# Namespace isolation
+# POSIX MQs are visible system-wide (not namespace-aware)
+# Use different names for different security domains
+```
+
+### Resource Limits
+
+```bash
+# System V limits
+cat /proc/sys/kernel/msgmni   # Max queues (default: 32000)
+cat /proc/sys/kernel/msgmnb   # Max bytes/queue (default: 16384)
+cat /proc/sys/kernel/msgmax   # Max message size (default: 8192)
+
+# POSIX MQ limits (per-user)
+# /proc/sys/fs/mqueue/msg_max       — max messages per queue (default: 10)
+# /proc/sys/fs/mqueue/msgsize_max   — max message size (default: 8192)
+# /proc/sys/fs/mqueue/queues_max    — max queues system-wide (default: 256)
+
+cat /proc/sys/fs/mqueue/msg_max
+cat /proc/sys/fs/mqueue/msgsize_max
+cat /proc/sys/fs/mqueue/queues_max
+
+# Adjust POSIX MQ limits
+sudo sysctl -w fs.mqueue.msg_max=100
+sudo sysctl -w fs.mqueue.msgsize_max=65536
+```
+
+## Comparison with Other IPC Mechanisms
+
+| Mechanism | Latency | Throughput | Complexity | Persistence |
+|-----------|---------|------------|------------|-------------|
+| POSIX MQ | Low | Medium | Low | Kernel (until unlink) |
+| System V MQ | Low-Med | Medium | Medium | Kernel (until RMID) |
+| Unix socket | Lowest | High | Medium | Process lifetime |
+| Pipe | Lowest | High | Lowest | Process lifetime |
+| Shared memory | Lowest | Highest | Highest | Kernel (until shmctl) |
+| TCP socket | Higher | Medium | Highest | Network |
+
+### When to Use Message Queues
+
+**Use POSIX MQs when:**
+- You need priority-based message delivery
+- You need signal/thread notification on message arrival
+- You want filesystem visibility for monitoring
+- You need to pass data between unrelated processes
+
+**Use System V MQs when:**
+- You need type-based selective receive (powerful filtering)
+- You're porting from other UNIX systems
+- You need the `ipcs`/`ipcrm` management tools
+
+**Use Unix sockets when:**
+- You need the highest throughput
+- You need to pass file descriptors (SCM_RIGHTS)
+- You're doing request-response patterns
+- You need bidirectional communication
+
+**Use shared memory when:**
+- You need zero-copy data transfer
+- You're sharing large data structures
+- You can handle synchronization separately (semaphores)
+
+## Advanced Patterns
+
+### Request-Reply with POSIX MQs
+
+```c
+/* Client sends request with reply queue name */
+struct request {
+    char reply_queue[64];
+    char data[256];
+};
+
+/* Client */
+mqd_t reply_q = mq_open("/reply_1234", O_CREAT | O_RDONLY, 0600, NULL);
+struct request req;
+strncpy(req.reply_queue, "/reply_1234", sizeof(req.reply_queue));
+strncpy(req.data, "get_status", sizeof(req.data));
+mq_send(request_q, (char *)&req, sizeof(req), 1);
+
+/* Wait for reply on dedicated queue */
+char buf[512];
+unsigned int prio;
+ssize_t len = mq_receive(reply_q, buf, sizeof(buf), &prio);
+
+/* Server */
+char buf[sizeof(struct request)];
+unsigned int prio;
+mq_receive(request_q, buf, sizeof(buf), &prio);
+struct request *req = (struct request *)buf;
+
+/* Process and send reply */
+mqd_t reply_q = mq_open(req->reply_queue, O_WRONLY);
+mq_send(reply_q, "status: ok", 10, 1);
+mq_close(reply_q);
+```
+
+### Priority-Based Task Distribution
+
+```c
+/* Producer assigns priorities based on urgency */
+void submit_task(const char *task, int urgency) {
+    /* urgency 0 = background, 1-3 = normal, 4-5 = high, 6-7 = urgent, 8+ = critical */
+    mq_send(work_queue, task, strlen(task), urgency);
+}
+
+/* Consumer processes highest priority first */
+/* POSIX MQs automatically dequeue by priority */
+void *worker(void *arg) {
+    char buf[256];
+    unsigned int prio;
+    while (1) {
+        ssize_t len = mq_receive(work_queue, buf, sizeof(buf), &prio);
+        if (len <= 0) break;
+        printf("Processing (prio=%u): %.*s\n", prio, (int)len, buf);
+        /* Higher prio tasks always processed first */
+    }
+    return NULL;
+}
+```
+
 ## References
 
 - [msgget(2) man page](https://man7.org/linux/man-pages/man2/msgget.2.html)
 - [mq_overview(7) man page](https://man7.org/linux/man-pages/man7/mq_overview.7.html)
 - [POSIX Message Queues (Linux kernel docs)](https://www.kernel.org/doc/html/latest/userspace-api/sysVipc.html)
 - [Beej's Guide to Unix IPC](https://beej.us/guide/bgipc/)
+- [Linux kernel source: ipc/msg.c](https://elixir.bootlin.com/linux/latest/source/ipc/msg.c)
+- [Linux kernel source: fs/mqueue.c](https://elixir.bootlin.com/linux/latest/source/fs/mqueue.c)
 
 ## Related Topics
 
 - [POSIX Semaphores](./semaphores.md) — synchronization for shared resources
 - [Unix Domain Sockets](./unix-sockets.md) — alternative IPC mechanism
 - [Event-Driven Programming](../event-driven.md) — integrating message queues into event loops
+- [Shared Memory](./shared-memory.md) — zero-copy IPC alternative
+- [Pipes](./pipes.md) — simplest IPC mechanism
