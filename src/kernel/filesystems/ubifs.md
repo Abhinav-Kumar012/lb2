@@ -442,3 +442,27 @@ cat /sys/kernel/debug/ubifs/ubifs0/stat
 - [JFFS2](../filesystems/jffs2.md) — predecessor flash file system
 - [MTD](../drivers/mtd.md) — Memory Technology Device layer
 - [F2FS](../filesystems/f2fs.md) — flash-friendly file system for eMMC/SSD
+
+## References
+
+- [UBIFS kernel documentation](https://www.kernel.org/doc/html/latest/filesystems/ubifs.html)
+- [UBIFS design document](https://www.linux-mtd.infradead.org/doc/ubifs.html)
+- [LWN: UBIFS](https://lwn.net/Articles/276025/)
+- [MTD documentation](https://www.kernel.org/doc/html/latest/driver-api/mtdnand.html)
+
+## Further Reading
+
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
+- **Documentation/filesystems/ubifs.rst** — comprehensive UBIFS documentation
+- **Documentation/filesystems/ubifs-authentication.rst** — UBIFS authentication support
+- **UBIFS design document** — `Documentation/filesystems/ubifs-design.pdf` (if available)
+- **UBI documentation** — `Documentation/mtd/ubi.rst`
+- **UBIFS project page** — <https://www.linux-mtd.infradead.org/doc/ubifs.html>
+- **LWN: UBIFS** — <https://lwn.net/Articles/276025/>
+- **NAND Flash constraints** — understanding why UBIFS exists vs. generic block file systems
