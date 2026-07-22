@@ -481,27 +481,288 @@ struct file {
 };
 ```
 
+## fallocate — Disk Space Allocation
+
+`fallocate()` pre-allocates disk space without writing data, useful for reducing fragmentation:
+
+```c
+#include <fcntl.h>
+#include <unistd.h>
+
+int fd = open("/data/file", O_RDWR | O_CREAT, 0644);
+
+/* Pre-allocate 1GB without writing zeros */
+fallocate(fd, 0, 0, 1ULL << 30);
+/* File now has 1GB of allocated blocks on disk */
+/* lseek(fd, 0, SEEK_END) returns 1GB */
+
+/* Allocate a hole (sparse file) */
+fallocate(fd, FALLOC_FL_KEEP_SIZE, 0, 1ULL << 30);
+/* Space allocated but file size unchanged */
+
+/* Punch a hole (deallocate range) */
+fallocate(fd, FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE,
+          1024*1024, 512*1024);
+/* Deallocate 512KB starting at 1MB offset */
+
+/* Collapse range (remove data, shift remaining) */
+fallocate(fd, FALLOC_FL_COLLAPSE_RANGE, 0, 4096);
+/* Remove first 4096 bytes, file shrinks */
+
+/* Zero range */
+fallocate(fd, FALLOC_FL_ZERO_RANGE, 0, 4096);
+/* Zero first 4096 bytes (may punch hole on some FSes) */
+```
+
+### fallocate Flags
+
+| Flag | Description |
+|------|-------------|
+| `0` | Allocate (default) |
+| `FALLOC_FL_KEEP_SIZE` | Don't change file size |
+| `FALLOC_FL_PUNCH_HOLE` | Deallocate (must pair with KEEP_SIZE) |
+| `FALLOC_FL_COLLAPSE_RANGE` | Remove range, shift data |
+| `FALLOC_FL_ZERO_RANGE` | Zero range (may deallocate) |
+| `FALLOC_FL_INSERT_RANGE` | Insert space, shift data |
+| `FALLOC_FL_UNSHARE_RANGE` | Unshare shared extents (COW) |
+
+## copy_file_range — Server-Side Copy
+
+`copy_file_range()` copies data between two file descriptors entirely in kernel space:
+
+```c
+#include <unistd.h>
+
+int src_fd = open("/data/source.bin", O_RDONLY);
+int dst_fd = open("/data/dest.bin", O_WRONLY | O_CREAT, 0644);
+loff_t src_off = 0, dst_off = 0;
+size_t len = 1ULL << 30;  /* 1GB */
+
+/* Copy entirely in kernel — zero user-space copies */
+ssize_t copied = copy_file_range(src_fd, &src_off, dst_fd, &dst_off, len, 0);
+```
+
+### NFS Server-Side Copy
+
+On NFSv4.2+, `copy_file_range()` can offload the copy to the NFS server:
+
+```mermaid
+graph LR
+    subgraph "Without copy_file_range"
+        C1[Client] -->|"read data"| S1[Server]
+        S1 -->|"data"| C1
+        C1 -->|"write data"| S1
+    end
+    subgraph "With copy_file_range"
+        C2[Client] -->|"copy on server"| S2[Server]
+        S2 -->|"done"| C2
+    end
+```
+
+```bash
+# NFS server-side copy (no data transfer over network)
+cp --reflink=auto /nfs/source.bin /nfs/dest.bin
+# If NFSv4.2 server supports it, copy happens entirely on server
+```
+
+## File Descriptor Passing (SCM_RIGHTS)
+
+File descriptors can be passed between unrelated processes via Unix domain sockets:
+
+```c
+#include <sys/socket.h>
+#include <sys/un.h>
+
+/* Sender: pass an fd */
+int send_fd(int sock, int fd) {
+    struct msghdr msg = {0};
+    char buf[CMSG_SPACE(sizeof(int))];
+    struct iovec io = { .iov_base = "x", .iov_len = 1 };
+    struct cmsghdr *cmsg;
+
+    msg.msg_iov = &io;
+    msg.msg_iovlen = 1;
+    msg.msg_control = buf;
+    msg.msg_controllen = sizeof(buf);
+
+    cmsg = CMSG_FIRSTHDR(&msg);
+    cmsg->cmsg_level = SOL_SOCKET;
+    cmsg->cmsg_type = SCM_RIGHTS;
+    cmsg->cmsg_len = CMSG_LEN(sizeof(int));
+    memcpy(CMSG_DATA(cmsg), &fd, sizeof(fd));
+
+    return sendmsg(sock, &msg, 0);
+}
+
+/* Receiver: receive the fd */
+int recv_fd(int sock) {
+    struct msghdr msg = {0};
+    char buf[CMSG_SPACE(sizeof(int))];
+    char dummy;
+    struct iovec io = { .iov_base = &dummy, .iov_len = 1 };
+    struct cmsghdr *cmsg;
+    int fd;
+
+    msg.msg_iov = &io;
+    msg.msg_iovlen = 1;
+    msg.msg_control = buf;
+    msg.msg_controllen = sizeof(buf);
+
+    recvmsg(sock, &msg, 0);
+    cmsg = CMSG_FIRSTHDR(&msg);
+    memcpy(&fd, CMSG_DATA(cmsg), sizeof(fd));
+    return fd;
+}
+```
+
+### FD Passing Use Cases
+
+- **D-Bus**: passes file descriptors for D-Bus activation
+- **systemd**: passes sockets to services (socket activation)
+- **Wayland**: passes shared memory buffers between compositor and clients
+- **Containers**: passes memfds between host and container
+
+## Readahead and Prefetch
+
+The kernel automatically prefetches data into the page cache:
+
+```c
+/* Readahead is triggered by:
+ * 1. Sequential read pattern detection
+ * 2. Explicit madvise(MADV_WILLNEED)
+ * 3. posix_fadvise(POSIX_FADV_WILLNEED)
+ * 4. fadvise64() syscall
+ */
+
+/* Application hints */
+#include <fcntl.h>
+
+/* Tell kernel we'll need this range soon */
+posix_fadvise(fd, offset, len, POSIX_FADV_WILLNEED);
+
+/* Tell kernel we won't need this anymore */
+posix_fadvise(fd, offset, len, POSIX_FADV_DONTNEED);
+
+/* Tell kernel access will be sequential */
+posix_fadvise(fd, 0, 0, POSIX_FADV_SEQUENTIAL);
+
+/* Tell kernel access will be random */
+posix_fadvise(fd, 0, 0, POSIX_FADV_RANDOM);
+
+/* Tell kernel we'll need this once (no caching) */
+posix_fadvise(fd, 0, 0, POSIX_FADV_NOREUSE);
+```
+
+### Readahead Tuning
+
+```bash
+# Per-device readahead setting
+echo 256 > /sys/block/sda/queue/read_ahead_kb  # 256KB readahead
+
+# Default readahead
+cat /sys/block/sda/queue/read_ahead_kb
+# 128 (default)
+
+# For sequential workloads (large file reads)
+echo 2048 > /sys/block/sda/queue/read_ahead_kb
+
+# For random workloads (databases)
+echo 16 > /sys/block/sda/queue/read_ahead_kb
+```
+
+## File Advisory Locking Patterns
+
+### Cooperative Locking
+
+```c
+/* Pattern: lock file to ensure single instance */
+int acquire_lock(const char *path) {
+    int fd = open(path, O_CREAT | O_RDWR, 0600);
+    if (fd < 0) return -1;
+
+    if (flock(fd, LOCK_EX | LOCK_NB) < 0) {
+        if (errno == EWOULDBLOCK) {
+            close(fd);
+            return -1;  /* Another instance holds the lock */
+        }
+    }
+
+    /* Write PID to lock file */
+    ftruncate(fd, 0);
+    dprintf(fd, "%d\n", getpid());
+    return fd;  /* Keep fd open to hold lock */
+}
+```
+
+### Byte-Range Locking for Databases
+
+```c
+/* Lock a specific record (byte range) for update */
+int lock_record(int fd, off_t offset, size_t len) {
+    struct flock fl = {
+        .l_type   = F_WRLCK,
+        .l_whence = SEEK_SET,
+        .l_start  = offset,
+        .l_len    = len,
+    };
+    return fcntl(fd, F_SETLKW, &fl);  /* Blocking */
+}
+
+/* Read lock (shared) */
+int read_lock(int fd, off_t offset, size_t len) {
+    struct flock fl = {
+        .l_type   = F_RDLCK,
+        .l_whence = SEEK_SET,
+        .l_start  = offset,
+        .l_len    = len,
+    };
+    return fcntl(fd, F_SETLKW, &fl);
+}
+```
+
+## DAX (Direct Access) Mode
+
+DAX bypasses the page cache for persistent memory (NVDIMM) and some SSDs:
+
+```bash
+# Enable DAX on a filesystem
+mount -o dax /dev/pmem0 /mnt/pmem
+
+# Or per-file DAX (since Linux 5.10)
+xfs_io -c 'chattr +x' /mnt/pmem/file
+
+# Check DAX status
+xfs_info /mnt/pmem | grep dax
+stat /mnt/pmem/file | grep -i dax
+```
+
+### DAX vs Buffered I/O
+
+```mermaid
+graph LR
+    subgraph "Buffered I/O"
+        A1[App] -->|read/write| PC[Page Cache]
+        PC -->|writeback| B1[Block Device]
+    end
+    subgraph "DAX"
+        A2[App] -->|load/store| PM[Persistent Memory]
+        Note2["No page cache, no block layer"]
+    end
+```
+
+DAX provides byte-addressable load/store access to persistent memory, achieving near-DRAM latency for reads.
+
 ## References
 
 - [VFS file operations documentation](https://www.kernel.org/doc/html/latest/filesystems/vfs.html#file-operations)
 - [include/linux/fs.h source](https://github.com/torvalds/linux/blob/master/include/linux/fs.h)
 - [io_uring documentation](https://www.kernel.org/doc/html/latest/userspace-api/io_uring.html)
-
-## Further Reading
-
-- [The Linux Kernel Documentation](https://docs.kernel.org/)
-- [LWN.net - Linux and free software news](https://lwn.net/)
-- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
-- [GNU Manuals](https://www.gnu.org/manual/manual.html)
-- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
-- [Planet GNU](https://planet.gnu.org/)
-- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
-
-- https://www.kernel.org/doc/html/latest/filesystems/vfs.html
-- https://man7.org/linux/man-pages/man2/read.2.html
-- https://man7.org/linux/man-pages/man2/splice.2.html
-- https://man7.org/linux/man-pages/man2/fcntl.2.html
+- [fallocate(2) man page](https://man7.org/linux/man-pages/man2/fallocate.2.html)
+- [copy_file_range(2) man page](https://man7.org/linux/man-pages/man2/copy_file_range.2.html)
+- [posix_fadvise(2) man page](https://man7.org/linux/man-pages/man2/posix_fadvise.2.html)
+- [flock(2) man page](https://man7.org/linux/man-pages/man2/flock.2.html)
 - https://kernel.dk/io_uring.pdf — "Efficient I/O with io_uring"
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
 
 ## Related Topics
 
@@ -509,3 +770,5 @@ struct file {
 - [superblock](./superblock.md) — File operations work within superblock context
 - [buffer-cache](../memory/buffer-cache.md) — How buffered I/O interacts with the page cache
 - [f2fs](./f2fs.md) — F2FS file operations for flash storage
+- [Disk I/O](../../hardware/disk-io.md) — Block layer below file operations
+- [Page Cache](../../memory/page-cache.md) — Memory caching for file I/O
