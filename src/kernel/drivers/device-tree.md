@@ -571,7 +571,174 @@ static const struct dev_pm_ops my_pm_ops = {
 };
 ```
 
-## 12. Device Tree vs ACPI
+## 13. Common Device Tree Binding Patterns
+
+### Clock Binding Pattern
+
+```dts
+/* Clock provider */
+clock-controller@10020000 {
+    compatible = "myvendor,clk-controller";
+    reg = <0x10020000 0x1000>;
+    #clock-cells = <1>;      /* 1 cell: clock ID */
+    clock-output-names = "uart_clk", "i2c_clk", "spi_clk";
+};
+
+/* Clock consumer */
+uart0: serial@10010000 {
+    clocks = <&clocks 0>;    /* Reference uart_clk */
+    clock-names = "uart";
+};
+
+/* Multiple clocks */
+i2c0: i2c@10030000 {
+    clocks = <&clocks 1>, <&clocks 2>;  /* i2c_clk, bus_clk */
+    clock-names = "i2c", "bus";
+};
+```
+
+### GPIO Binding Pattern
+
+```dts
+/* GPIO controller */
+gpio-controller@10040000 {
+    compatible = "myvendor,gpio";
+    reg = <0x10040000 0x1000>;
+    gpio-controller;
+    #gpio-cells = <2>;       /* GPIO number + flags */
+    interrupt-controller;
+    #interrupt-cells = <2>;
+};
+
+/* GPIO consumer (LED) */
+leds {
+    compatible = "gpio-leds";
+    
+    heartbeat {
+        gpios = <&gpio-controller 0 GPIO_ACTIVE_HIGH>;
+        default-state = "on";
+        linux,default-trigger = "heartbeat";
+    };
+};
+
+/* GPIO consumer (button) */
+gpio-keys {
+    compatible = "gpio-keys";
+    
+    button@0 {
+        gpios = <&gpio-controller 1 GPIO_ACTIVE_LOW>;
+        linux,code = <KEY_ENTER>;
+        debounce-interval = <50>;
+    };
+};
+```
+
+### Regulator Binding Pattern
+
+```dts
+/* Voltage regulator */
+reg_vdd: regulator@0 {
+    compatible = "regulator-fixed";
+    regulator-name = "vdd_3v3";
+    regulator-min-microvolt = <3300000>;
+    regulator-max-microvolt = <3300000>;
+    regulator-always-on;
+};
+
+/* Consumer */
+sensor@48 {
+    compatible = "vendor,sensor-v1";
+    reg = <0x48>;
+    vdd-supply = <&reg_vdd>;
+    /* Driver calls devm_regulator_get(dev, "vdd") */
+};
+```
+
+### Real-World Example: Raspberry Pi 4 B
+
+```dts
+/* Simplified excerpt from bcm2711-rpi-4-b.dts */
+/ {
+    compatible = "raspberrypi,4-model-b", "brcm,bcm2711";
+    model = "Raspberry Pi 4 Model B";
+    
+    memory@0 {
+        device_type = "memory";
+        reg = <0x0 0x40000000>;  /* 1 GiB (varies by model) */
+    };
+    
+    /* USB-C power supply */
+    vdd_3v3: fixedregulator_3v3 {
+        compatible = "regulator-fixed";
+        regulator-name = "3V3";
+        regulator-min-microvolt = <3300000>;
+        regulator-max-microvolt = <3300000>;
+        gpio = <&expgpio 4 GPIO_ACTIVE_HIGH>;
+    };
+    
+    /* VideoCore GPU firmware interface */
+    vchiq {
+        compatible = "brcm,bcm2835-vchiq";
+        reg = <0x7e00b840 0x40>;
+        interrupts = <GIC_SPI 34 IRQ_TYPE_LEVEL_HIGH>;
+    };
+};
+
+/* SoC-level peripherals */
+&pcie0 {
+    brcm,enable-ssc;
+    aspm-no-l0s;
+    status = "okay";
+};
+
+/* GPIO expander */
+&expgpio {
+    gpio-line-names = "BT_ON",
+                      "WL_ON",
+                      "",
+                      "",
+                      "GLOBAL_RESET",
+                      /* ... */
+                      ;
+};
+```
+
+## 14. Device Tree Tools and Utilities
+
+```bash
+# Compile DTS to DTB
+dtc -I dts -O dtb -o board.dtb board.dts
+
+# Decompile DTB to DTS (human-readable)
+dtc -I dtb -O dts -o board.dts board.dtb
+
+# View live device tree on running system
+dtc -I fs /sys/firmware/devicetree/base
+
+# Dump specific node
+ls /sys/firmware/devicetree/base/soc/serial@10000000/
+# compatible  clock-frequency  interrupts  name  reg  status
+
+# Read property value
+xxd /sys/firmware/devicetree/base/soc/serial@10000000/reg
+# 00000000: 1000 0000 0000 0100                    ........
+
+# fdtdump: raw DTB dump
+fdtdump board.dtb
+
+# fdtput: modify DTB properties
+fdtput -t s board.dtb /chosen bootargs "console=ttyS0,115200"
+
+# fdtoverlay: apply overlays to base DTB
+fdtoverlay -i base.dtb -o final.dtb overlay.dtbo
+
+# Diff two DTBs
+dtc -I dtb -O dts base.dtb > base.dts
+dtc -I dtb -O dts modified.dtb > modified.dts
+diff base.dts modified.dts
+```
+
+## 15. Device Tree vs ACPI
 
 | Feature | Device Tree | ACPI |
 |---|---|---|
@@ -586,7 +753,7 @@ Some platforms support **both** (e.g., ARM servers may use ACPI).
 
 ---
 
-## 11. Debugging Device Tree Issues
+## 16. Debugging Device Tree Issues
 
 ### Check if a Node Was Found
 

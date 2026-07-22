@@ -523,6 +523,116 @@ dmsetup create mydata --table \
 
 ---
 
+## Kernel Configuration
+
+```
+# Required for dm-verity
+CONFIG_DM_VERITY=y              # dm-verity target
+CONFIG_DM_VERITY_FEC=y          # Forward Error Correction
+CONFIG_CRYPTO_SHA256=y          # SHA-256 hash (default)
+CONFIG_CRYPTO_SHA512=y          # SHA-512 hash (optional)
+CONFIG_BLK_DEV_DM=y             # Device Mapper core
+
+# For fs-verity (per-file verification)
+CONFIG_FS_VERITY=y              # fs-verity support
+CONFIG_FS_VERITY_BUILTIN_SIGNATURES=y  # Built-in signatures
+
+# For Android Verified Boot
+CONFIG_AVB_VERSION=2            # AVB 2.0 support
+```
+
+---
+
+## dm-verity with Inline Encryption
+
+Modern storage (UFS, NVMe) supports inline encryption where the hardware encrypts/decrypts data. dm-verity can work with inline encryption:
+
+```mermaid
+flowchart TD
+    subgraph Software["Software Stack"]
+        FS["Filesystem"]
+        VERITY["dm-verity"]
+        BLK_CRYPTO["Block crypto layer"]
+    end
+    subgraph Hardware["Hardware"]
+        ICE["Inline Crypto Engine"]
+        STORAGE["UFS / NVMe"]
+    end
+
+    FS --> VERITY
+    VERITY --> BLK_CRYPTO
+    BLK_CRYPTO --> ICE
+    ICE --> STORAGE
+```
+
+```bash
+# Create encrypted + verified partition
+cryptsetup open /dev/sda1 cryptdata
+veritysetup open /dev/mapper/cryptdata verified /dev/sda2 <hash>
+
+# Or with inline encryption (hardware offload)
+# Kernel automatically uses ICE when available
+```
+
+---
+
+## dm-verity on Different Filesystems
+
+| Filesystem | dm-verity Support | Notes |
+|------------|-------------------|-------|
+| ext4 | Yes | Most common, full support |
+| erofs | Yes | Read-only, compressed, ideal for Android |
+| f2fs | Yes | With checkpoint disabled |
+| squashfs | Yes | Read-only by design |
+| btrfs | No | Use fs-verity instead |
+| xfs | No | Use fs-verity instead |
+
+---
+
+## Security Hardening
+
+### Preventing Root Hash Tampering
+
+```bash
+# 1. Store root hash in kernel command line (GRUB)
+GRUB_CMDLINE_LINUX="dm-verity.root_hash=<hash>"
+
+# 2. Store root hash in vbmeta (Android)
+avbtool make_hashtree_image --image system.img \
+    --tree_sha256 --hash_algorithm sha256
+
+# 3. Use UEFI Secure Boot to protect kernel + root hash
+# 4. Seal root hash in TPM (binds to boot state)
+```
+
+### dm-verity in Immutable Containers
+
+```bash
+# Create read-only container rootfs with dm-verity
+docker build -t myapp .
+docker export myapp > rootfs.tar
+
+# Create verity-protected rootfs
+veritysetup format rootfs.img rootfs.hash
+# Store root hash in container runtime config
+```
+
+### Audit and Monitoring
+
+```bash
+# Monitor dm-verity verification failures
+# Add to /etc/audit/audit.rules:
+-w /dev/mapper/verified -p r -k verity_access
+
+# Watch for verification failures in real-time
+dmesg -w | grep "verity.*failed"
+
+# Log all dm-verity events
+journalctl -f | grep dm-verity
+```
+
+---
+
 ## Performance
 
 ### Overhead
