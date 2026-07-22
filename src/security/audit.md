@@ -527,6 +527,249 @@ auditctl -r 1000  # Max 1000 records/second
 auditctl -s | grep backlog
 ```
 
+## Immutable Rules
+
+For high-security environments, rules can be made immutable — once set, they cannot be changed without a reboot:
+
+```bash
+# Make rules immutable (must be last rule loaded)
+auditctl -e 2
+
+# After this, any attempt to change rules fails:
+auditctl -w /tmp -p rwxa -k tmpwatch
+# Error - rule exists
+
+# Check immutable status
+auditctl -s
+# enabled 2 (immutable)
+
+# To change immutable rules, you must:
+# 1. Edit /etc/audit/rules.d/audit.rules
+# 2. Reboot the system
+# (There is no way to make rules mutable again without reboot)
+```
+
+### When to Use Immutable Rules
+
+- PCI-DSS environments requiring tamper-proof audit configuration
+- Systems where the audit configuration must not be modified at runtime
+- Compliance environments where audit rule changes should require physical access
+
+## Pre-Built Rule Sets
+
+### auditctl sample rules
+
+The `auditctl` package ships example rules for common compliance frameworks:
+
+```bash
+# Find shipped rule examples
+ls /usr/share/audit/sample-rules/
+# 10-base-config.rules    30-stig.rules
+# 11-loginuid.rules       31-privileged.rules
+# 12-fail.rules           32-power-abuse.rules
+# 13-containers.rules     40-local.rules
+# 14-initramfs.rules      41-containers.rules
+# 20-dont-audit.rules     42-injection.rules
+# 21-no32bit.rules        43-module-load.rules
+# 22-ignore-ansible.rules  70-einval.rules
+# 23-ignore-remote.rules  99-finalize.rules
+# 30-nispom.rules
+
+# Use them:
+sudo cp /usr/share/audit/sample-rules/30-stig.rules /etc/audit/rules.d/
+sudo augenrules --load
+```
+
+### STIG (Security Technical Implementation Guide) Rules
+
+```bash
+# 30-stig.rules covers DISA STIG requirements:
+# - Monitor all use of setuid/setgid programs
+# - Monitor all admin actions
+# - Monitor file system mounts
+# - Monitor time changes
+# - Monitor kernel module loading
+
+# Example STIG rules:
+-w /var/run/utmp -p wa -k session
+-w /var/log/wtmp -p wa -k session
+-w /var/log/btmp -p wa -k session
+-a always,exit -F arch=b64 -S execve -C uid!=euid -F euid=0 -k priv_cmd
+-a always,exit -F arch=b64 -S open -F dir=/etc -F success=0 -k access
+```
+
+### OSPP (Protection Profile for General Purpose OS)
+
+```bash
+# 30-ospp-v42.rules — Common Criteria OSPP rules
+# More granular than STIG, used for Common Criteria certification
+
+# Key OSPP requirements:
+# - Audit all file access failures
+# - Audit all privileged command execution
+# - Audit all identity changes
+# - Audit all network connections
+# - Audit all MAC policy decisions
+```
+
+## ausearch Output Formats
+
+### Default (Raw) Format
+
+```
+type=SYSCALL msg=audit(1704067200.123:456): arch=c000003e syscall=2 
+  success=yes exit=3 a0=7ffc1234 a1=0 a2=1b6 a3=0 items=1 ppid=1000 
+  pid=1234 auid=1000 uid=0 gid=0 euid=0 suid=0 fsuid=0 egid=0 
+  sgid=0 fsgid=0 tty=pts0 ses=1 comm="cat" exe="/usr/bin/cat" 
+  key="passwd_changes"
+```
+
+### Interpreted Format (-i)
+
+```bash
+ausearch -k passwd_changes -i
+# Converts numeric UIDs to names, timestamps to dates, architectures to names
+```
+
+### JSON-like Export
+
+```bash
+# Convert to CSV for analysis
+ausearch -k passwd_changes -i --format csv > audit_events.csv
+
+# Use ausearch with ausearch-parse for structured extraction
+ausearch -k exec -i | awk '/type=EXECVE/ {for(i=1;i<=NF;i++) if($i~/^argc=/) print $i}'
+```
+
+### Real-time Log Monitoring
+
+```bash
+# Tail the audit log in real-time
+tail -f /var/log/audit/audit.log | ausearch -i --interpret
+
+# Use audispd for real-time dispatching
+# /etc/audit/plugins.d/syslog.conf
+active = yes
+direction = out
+type = always
+args = LOG_INFO
+format = string
+```
+
+## OpenSCAP Integration
+
+The audit framework integrates with OpenSCAP for automated compliance scanning:
+
+```bash
+# Install OpenSCAP
+sudo dnf install openscap-scanner scap-security-guide
+
+# Run an audit-based compliance scan
+oscap xccdf eval --profile xccdf_org.ssgproject.content_profile_stig \
+    --results results.xml \
+    --report report.html \
+    /usr/share/xml/scap/ssg/content/ssg-rhel9-ds.xml
+
+# The scanner checks audit rules among other security settings
+# Generates a report showing pass/fail for each requirement
+```
+
+## Audit Dispatcher (audispd)
+
+The audit dispatcher processes audit events in real-time:
+
+```bash
+# /etc/audit/audispd.conf
+q_depth = 4096          # Queue depth for pending events
+overflow_action = SYSLOG  # What to do when queue is full
+max_restarts = 10       # Max plugin restarts
+name_format = HOSTNAME  # How to name audit events
+
+# Create a custom dispatcher plugin
+# /etc/audit/plugins.d/custom-alerts.conf
+active = yes
+direction = out
+type = always
+path = /usr/local/bin/audit-alert
+args = /var/log/audit/alerts.log
+format = string
+
+# Example: /usr/local/bin/audit-alert
+#!/bin/bash
+# Read audit events from stdin and alert on specific patterns
+while read -r line; do
+    if echo "$line" | grep -q "exe=\"/usr/bin/su\""; then
+        logger -p auth.warning "AUDIT ALERT: su command detected"
+    fi
+done
+```
+
+## Kernel Audit Internals
+
+### Netlink Protocol
+
+The kernel communicates with auditd via the NETLINK_AUDIT protocol:
+
+```c
+/* Creating a netlink audit socket */
+int fd = socket(AF_NETLINK, SOCK_RAW, NETLINK_AUDIT);
+
+struct sockaddr_nl addr = {
+    .nl_family = AF_NETLINK,
+    .nl_pid = getpid(),
+    .nl_groups = AUDIT_NLGRP_READLOG  /* Subscribe to audit events */
+};
+
+bind(fd, (struct sockaddr *)&addr, sizeof(addr));
+
+/* Receiving audit messages */
+char buf[65536];
+int len = recv(fd, buf, sizeof(buf), 0);
+```
+
+### Audit Backlog
+
+```bash
+# Check current backlog
+auditctl -s
+# backlog 0  backlog_limit 8192  enabled 1  failure 1  pid 1234
+
+# If backlog is growing, either:
+# 1. Increase the limit: auditctl -b 16384
+# 2. Reduce audit volume (fewer rules)
+# 3. Increase auditd processing speed
+
+# Backlog wait time (added in kernel 5.x)
+auditctl --backlog_wait_time 5000  # Wait 5 seconds before dropping events
+auditctl --backlog_wait_time 0     # Disable wait (default)
+```
+
+## Troubleshooting
+
+```bash
+# auditd not starting
+journalctl -u auditd -n 50
+
+# Rules not loading
+auditctl -R /etc/audit/rules.d/audit.rules 2>&1
+
+# Check for rule syntax errors
+augenrules --load 2>&1 | grep -i error
+
+# Audit log growing too fast
+du -sh /var/log/audit/
+# Configure rotation in auditd.conf
+# max_log_file = 50
+# num_logs = 10
+
+# Lost events (backlog overflow)
+grep "audit: backlog" /var/log/audit/audit.log
+# Increase backlog: auditctl -b 32768
+
+# SELinux blocking auditd
+ausearch -m AVC -ts recent
+```
+
 ## Further Reading
 
 - [Linux Audit Documentation](https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/9/html/security_hardening/assembly_overview-of-audit-security-hardening) — Red Hat audit guide
@@ -537,3 +780,6 @@ auditctl -s | grep backlog
 - [LWN: Audit](https://lwn.net/Articles/292282/) — Audit framework overview
 - [Kernel docs: Audit](https://docs.kernel.org/admin-guide/audit.html) — Kernel audit documentation
 - [PCI-DSS Audit Requirements](https://www.pcisecuritystandards.org/) — PCI-DSS compliance
+- [OpenSCAP](https://www.open-scap.org/) — Automated compliance scanning
+- [auditd sample rules](https://github.com/linux-audit/audit-userspace/tree/master/rules) — Upstream rule templates
+
