@@ -600,6 +600,365 @@ Contributing to the kernel follows a well-defined process:
 
 ---
 
+## The Linux Kernel Source Tree
+
+The kernel source tree is organized into directories that mirror the subsystem structure. Understanding this layout is essential for navigating the code:
+
+```
+linux/
+├── arch/           # Architecture-specific code (x86, arm64, riscv, etc.)
+│   ├── x86/        # x86-specific: boot, vDSO, entry code, KVM
+│   ├── arm64/      # ARM 64-bit: boot, device trees, exceptions
+│   └── riscv/      # RISC-V: boot, vector extensions
+├── block/          # Block layer: BIO, I/O schedulers, device mapper
+├── certs/          # Signing certificates for secure boot
+├── crypto/         # Cryptographic API and algorithms
+├── Documentation/  # Kernel documentation (reStructuredText)
+├── drivers/        # Device drivers (largest directory)
+│   ├── gpu/        # Graphics drivers (DRM subsystem)
+│   ├── net/        # Network device drivers
+│   ├── scsi/       # SCSI subsystem drivers
+│   ├── usb/        # USB subsystem drivers
+│   └── ...         # 50+ driver subdirectories
+├── fs/             # Filesystem implementations
+│   ├── ext4/       # ext4 filesystem
+│   ├── xfs/        # XFS filesystem
+│   ├── btrfs/      # Btrfs filesystem
+│   ├── proc/       # /proc filesystem
+│   └── ...         # 50+ filesystem types
+├── include/        # Header files
+│   ├── linux/      # Core kernel headers
+│   ├── uapi/       # User-space API headers
+│   └── asm-generic/# Architecture-independent asm headers
+├── init/           # Kernel initialization (main.c, do_mounts.c)
+├── io_uring/       # io_uring subsystem
+├── ipc/            # Inter-process communication (SysV IPC, POSIX)
+├── kernel/         # Core kernel: scheduler, signals, time, BPF
+├── lib/            # Kernel library routines (string, sort, etc.)
+├── mm/             # Memory management
+├── net/            # Networking stack
+│   ├── ipv4/       # TCP/IP v4
+│   ├── ipv6/       # TCP/IP v6
+│   ├── netfilter/  # Packet filtering (iptables/nftables)
+│   └── ...         # Protocol implementations
+├── rust/           # Rust language support
+├── scripts/        # Build scripts, helper tools
+├── security/       # Security frameworks (LSM, SELinux, AppArmor)
+├── sound/          # Audio subsystem (ALSA)
+├── tools/          # User-space tools (perf, BPF, selftests)
+├── usr/            # initramfs generation
+└── virt/           # Virtualization (KVM)
+```
+
+The kernel tree contains over **40 million lines of code** (as of 2025), with the `drivers/` directory alone accounting for over 60% of the total. The `Documentation/` directory contains thousands of files covering every subsystem and API.
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `MAINTAINERS` | Lists every subsystem, its maintainer(s), and mailing list |
+| `COPYING` | GPL v2 license text |
+| `Kconfig` | Kernel configuration system definitions |
+| `Makefile` | Top-level build system |
+| `README` | Build instructions and overview |
+| `CREDITS` | Contributors to the kernel |
+| `Documentation/process/coding-style.rst` | Kernel coding style guide |
+
+```bash
+# Count lines of code in the kernel tree
+$ find . -name '*.c' -o -name '*.h' | xargs wc -l | tail -1
+# As of 6.14-rc1: ~40,000,000 lines
+
+# Count the number of source files
+$ find . -name '*.c' | wc -l
+# Approximately 80,000+ C source files
+
+# See the MAINTAINERS file for a subsystem
+$ head -50 MAINTAINERS
+```
+
+---
+
+## Getting Started with Linux
+
+If you're completely new to Linux, here's how to get hands-on experience:
+
+### Option 1: Use a Distribution in a Virtual Machine
+
+The easiest way to experiment without affecting your main system:
+
+```bash
+# Install VirtualBox, VMware, or use QEMU
+# Download an ISO from a major distribution:
+#   - Ubuntu: https://ubuntu.com/download
+#   - Fedora: https://fedoraproject.org/
+#   - Debian: https://www.debian.org/
+
+# Create a VM with:
+#   - 2+ CPU cores
+#   - 4+ GB RAM
+#   - 20+ GB disk
+# Boot from the ISO and follow the installer
+```
+
+### Option 2: Windows Subsystem for Linux (WSL)
+
+On Windows 10/11, WSL provides a full Linux environment:
+
+```powershell
+# In PowerShell (Administrator)
+> wsl --install -d Ubuntu
+# Restart, then open Ubuntu from Start menu
+```
+
+### Option 3: Use a Live USB
+
+Most distributions offer a "live" mode that runs entirely from a USB stick without installing:
+
+```bash
+# Download the ISO
+# Write to USB with dd (Linux/macOS) or Rufus (Windows)
+$ sudo dd if=ubuntu-24.04-desktop-amd64.iso of=/dev/sdX bs=4M status=progress
+# Boot from USB (change boot order in BIOS/UEFI)
+```
+
+### Option 4: Cloud Instance
+
+Spin up a Linux server in the cloud:
+
+```bash
+# AWS: Launch an EC2 instance with Amazon Linux or Ubuntu
+# GCP: Create a Compute Engine instance
+# Azure: Create a Virtual Machine
+# DigitalOcean: Create a Droplet ($4/month)
+```
+
+### Essential First Steps
+
+Once you have a Linux system, try these commands:
+
+```bash
+# See what kernel version you're running
+$ uname -a
+Linux myhost 6.8.0-40-generic #40-Ubuntu SMP x86_64 GNU/Linux
+
+# See system information
+$ cat /etc/os-release
+NAME="Ubuntu"
+VERSION="24.04 LTS (Noble Numbat)"
+
+# Explore the filesystem hierarchy
+$ ls /
+bin  boot  dev  etc  home  lib  lost+found  media  mnt  opt  proc  root  run  sbin  srv  sys  tmp  usr  var
+
+# See running processes
+$ ps aux
+
+# See disk usage
+$ df -h
+
+# See memory usage
+$ free -h
+
+# Get help on any command
+$ man ls
+$ man 2 read    # Section 2: system calls
+$ man 3 printf  # Section 3: library functions
+```
+
+---
+
+## Linux Distributions: Choosing Your Starting Point
+
+A Linux distribution ("distro") packages the kernel, userland, package manager, and usually a desktop environment into a coherent system. Hundreds of distributions exist, but most are derived from a handful of major base distributions:
+
+### Major Distribution Families
+
+```mermaid
+graph TD
+    DEB[Debian] --> UBUNTU[Ubuntu]
+    DEB --> MINT[Linux Mint]
+    DEB --> RASP[raspbian]
+    UBUNTU --> POP[Pop!_OS]
+    UBUNTU --> KUBUNTU[Kubuntu]
+    UBUNTU --> WSL[Ubuntu on WSL]
+
+    RHL[Red Hat Linux] --> FEDORA[Fedora]
+    RHL --> RHEL[RHEL]
+    RHEL --> CENTOS[CentOS Stream]
+    RHEL --> ROCKY[Rocky Linux]
+    RHEL --> ALMA[AlmaLinux]
+    FEDORA --> FEDORA_CORE[Fedora CoreOS]
+
+    SLACK[Slackware]
+    ARCH[Arch Linux] --> MANJARO[Manjaro]
+    SUSE[SUSE Linux] --> OPENSUSE[openSUSE]
+    GENTOO[Gentoo]
+    ALPINE[Alpine Linux]
+```
+
+### Distribution Comparison
+
+| Distribution | Base | Package Manager | Best For |
+|-------------|------|-----------------|----------|
+| **Ubuntu** | Debian | apt (.deb) | Beginners, servers, cloud |
+| **Fedora** | Independent | dnf (.rpm) | Developers, cutting-edge |
+| **Debian** | Independent | apt (.deb) | Stability, servers |
+| **Arch Linux** | Independent | pacman | Advanced users, learning |
+| **RHEL** | Fedora | dnf (.rpm) | Enterprise servers |
+| **openSUSE** | Independent | zypper (.rpm) | Enterprise, desktop |
+| **Alpine** | Independent | apk | Containers, minimal systems |
+| **Gentoo** | Independent | Portage (source) | Maximum customization |
+| **NixOS** | Independent | Nix | Reproducible builds |
+| **Linux Mint** | Ubuntu | apt (.deb) | Desktop, Windows switchers |
+
+→ See: [Distributions](./foundations/distributions.md) | [Package Management](./admin/package-management.md)
+
+---
+
+## The POSIX Standard and Portability
+
+**POSIX** (Portable Operating System Interface) is a family of IEEE standards (IEEE 1003) that define the API, shell, and utility interfaces for Unix-like operating systems. POSIX compliance is what makes it possible to write software that runs on Linux, macOS, FreeBSD, and other Unix-like systems with minimal changes.
+
+Key POSIX standards:
+
+- **POSIX.1** (IEEE Std 1003.1): Core system calls and functions (`fork()`, `exec()`, `read()`, `write()`, `open()`, etc.)
+- **POSIX.1b** (Real-time extensions): Real-time signals, timers, message queues, semaphores
+- **POSIX.1c** (Threads): pthreads API (`pthread_create()`, `pthread_mutex_lock()`, etc.)
+- **POSIX.2** (Shell and Utilities): Command-line utilities (`ls`, `grep`, `sed`, `awk`, etc.)
+
+Linux is largely POSIX-compliant but not certified. It adds many extensions beyond POSIX (epoll, io_uring, inotify, etc.) that provide superior performance or functionality.
+
+```c
+// A POSIX-compliant program that works on Linux, macOS, FreeBSD, etc.
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/wait.h>
+
+int main(void) {
+    pid_t pid = fork();
+    if (pid == 0) {
+        // Child process
+        printf("Child: PID %d\n", getpid());
+        exit(0);
+    } else if (pid > 0) {
+        // Parent process
+        int status;
+        waitpid(pid, &status, 0);
+        printf("Parent: child %d exited with %d\n", pid, WEXITSTATUS(status));
+    } else {
+        perror("fork");
+        exit(1);
+    }
+    return 0;
+}
+```
+
+→ See: [POSIX](./foundations/posix.md) | [System Calls](./sysprog/syscalls.md) | [Process Control](./sysprog/process-control.md)
+
+---
+
+## The Shell: Your Interface to Linux
+
+The **shell** is the command-line interface to Linux. It reads commands, interprets them, and executes programs. Understanding the shell is essential for every Linux user and administrator.
+
+Linux offers multiple shells:
+
+| Shell | Description | Default On |
+|-------|-------------|------------|
+| **Bash** | Bourne Again Shell — the most widely used shell | Most distributions |
+| **Zsh** | Z Shell — advanced features, Oh My Zsh ecosystem | macOS (since Catalina), Kali |
+| **Fish** | Friendly Interactive Shell — user-friendly, auto-suggestions | Some desktop distros |
+| **Dash** | Debian Almquist Shell — fast, POSIX-compliant | Ubuntu (as /bin/sh) |
+| **mksh** | MirBSD Korn Shell — lightweight, embedded systems | Android (as /system/bin/sh) |
+
+```bash
+# Basic shell operations
+$ echo "Hello, Linux!"
+Hello, Linux!
+
+# Pipes and redirection
+$ ps aux | grep nginx | wc -l
+3
+
+# Command substitution
+$ echo "Today is $(date +%A)"
+Today is Wednesday
+
+# Control structures
+$ for f in /etc/*.conf; do echo "$f"; done
+/etc/adduser.conf
+/etc/ca-certificates.conf
+...
+
+# Scripting
+$ cat > hello.sh << 'EOF'
+#!/bin/bash
+echo "Hello from $0"
+echo "Arguments: $@"
+EOF
+$ chmod +x hello.sh
+$ ./hello.sh world
+Hello from ./hello.sh
+Arguments: world
+```
+
+→ See: [Shell Overview](./shell/overview.md) | [Bash](./shell/bash.md) | [Scripting Fundamentals](./shell/scripting-fundamentals.md) | [POSIX Shell](./shell/posix-shell.md)
+
+---
+
+## How Linux Boots: From Power Button to Login Prompt
+
+Understanding the boot process helps with troubleshooting and system configuration:
+
+```mermaid
+sequenceDiagram
+    participant FW as Firmware<br/>(BIOS/UEFI)
+    participant BL as Bootloader<br/>(GRUB/systemd-boot)
+    participant K as Kernel
+    participant IR as initramfs
+    participant INIT as Init System<br/>(systemd)
+    participant DM as Display Manager
+
+    FW->>BL: Load bootloader from disk
+    BL->>K: Load kernel + initramfs into memory
+    K->>K: Decompress, initialize hardware
+    K->>IR: Mount initramfs as root
+    IR->>IR: Load essential drivers
+    IR->>K: Mount real root filesystem
+    K->>INIT: Execute /sbin/init (PID 1)
+    INIT->>INIT: Start services (units)
+    INIT->>DM: Start graphical login
+    DM->>DM: User logs in
+```
+
+The key stages are:
+
+1. **Firmware** (BIOS or UEFI) performs POST and loads the bootloader
+2. **Bootloader** (GRUB, systemd-boot, or U-Boot on embedded) loads the kernel
+3. **Kernel** initializes hardware, mounts the root filesystem, starts PID 1
+4. **Init system** (systemd on most modern distros) starts all services
+5. **User space** — login shell or graphical desktop
+
+→ See: [Boot Process](./kernel/boot-process.md) | [systemd](./admin/systemd.md) | [GRUB](./admin/rescue.md) | [initramfs](./embedded/initramfs.md)
+
+---
+
+## Contributing to This Encyclopedia
+
+This is a living document. If you find errors, gaps, or areas that could be improved, contributions are welcome. Every page follows a consistent structure:
+
+1. **Introduction** — What is this topic and why does it matter?
+2. **Background** — Historical context and motivation
+3. **Technical Details** — How it works internally
+4. **Examples** — Working code and command examples
+5. **Diagrams** — Visual representations where helpful
+6. **Trade-offs** — Design decisions and their implications
+7. **References** — Links to authoritative sources
+
+---
+
 ## References
 
 - [The Linux Kernel documentation](https://docs.kernel.org/) — Official kernel documentation
