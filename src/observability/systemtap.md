@@ -508,6 +508,287 @@ probe timer.s(60) {
 }
 ```
 
+### Security Auditing with SystemTap
+
+SystemTap excels at security auditing because it can intercept kernel-level
+operations that userspace tools cannot see:
+
+```stap
+#!/usr/bin/stap
+/* Audit all file deletions system-wide */
+
+global deletions
+
+probe syscall.unlink, syscall.unlinkat {
+    deletions[execname(), pid(), filename] ++
+}
+
+probe timer.s(10) {
+    printf("\n=== File deletions (last 10s) ===\n")
+    foreach ([comm, p, fn] in deletions+) {
+        printf("  pid=%-6d comm=%-16s file=%s (%d times)\n",
+               p, comm, fn, deletions[comm, p, fn])
+    }
+    delete deletions
+}
+```
+
+```stap
+#!/usr/bin/stap
+/* Monitor privilege escalation attempts */
+
+global priv_ops
+
+probe syscall.setuid, syscall.setgid, syscall.setreuid, syscall.setregid {
+    priv_ops[execname(), pid(), uid(), gid()] <<< 1
+}
+
+probe syscall.setuid.return, syscall.setgid.return {
+    if ($return < 0) {
+        printf("DENIED: pid=%d comm=%s uid=%d attempted priv esc\n",
+               pid(), execname(), uid())
+    }
+}
+```
+
+### Memory Leak Detection
+
+```stap
+#!/usr/bin/stap
+/* Track malloc/free imbalance for a target process */
+
+global allocs, frees, live_count
+
+target_pid = $1
+
+probe process("/lib/x86_64-linux-gnu/libc.so.6").function("malloc") {
+    if (pid() == target_pid) {
+        allocs[$return] = gettimeofday_us()
+        live_count <<< 1
+    }
+}
+
+probe process("/lib/x86_64-linux-gnu/libc.so.6").function("free") {
+    if (pid() == target_pid && $ptr != 0) {
+        if ($ptr in allocs) {
+            delete allocs[$ptr]
+            live_count <<< -1
+        }
+    }
+}
+
+probe timer.s(30) {
+    printf("Live allocations: %d\n", @sum(live_count))
+    printf("Unique tracked: %d\n", length(allocs))
+}
+
+probe end {
+    printf("\n=== Potential leaks (allocated but not freed) ===\n")
+    foreach ([addr] in allocs) {
+        printf("  %p (allocated at %d us)\n", addr, allocs[addr])
+    }
+}
+```
+
+## SystemTap Internals
+
+### How Probes Are Implemented
+
+SystemTap supports multiple probe backends:
+
+```mermaid
+graph TD
+    A[Probe Point] --> B{Type}
+    B -->|kernel.function| C[kprobes]
+    B -->|kernel.statement| C
+    B -->|syscall.*| D[tracepoints]
+    B -->|process.*.function| E[uprobes]
+    B -->|timer.*| F[kernel timer]
+    B -->|scheduler.*| G[tracepoints]
+    B -->|netfilter.*| H[netfilter hooks]
+    C --> I[Compiled kernel module]
+    D --> I
+    E --> I
+    F --> I
+    G --> I
+    H --> I
+```
+
+**Kprobes** — The most common backend. Places a breakpoint instruction at the
+start of a kernel function. When the function is called, the probe handler runs
+in interrupt context.
+
+**Uprobes** — The userspace equivalent. Uses `perf_event` infrastructure to
+place int3 breakpoints in user-space binaries. Supported since kernel 3.5.
+
+**Tracepoints** — Static probe points placed by kernel developers at key locations.
+Lower overhead than kprobes because the tracepoint site is pre-instrumented.
+
+### Compilation Caching
+
+SystemTap caches compiled modules to avoid recompilation:
+
+```bash
+# Default cache directory
+ls ~/.systemtap/cache/
+
+# Cache statistics
+stap -e 'probe begin { exit() }' -v 2>&1 | grep -i cache
+
+# Clear cache
+rm -rf ~/.systemtap/cache/*
+
+# Use a custom cache directory
+export SYSTEMTAP_DIR=/var/cache/systemtap
+stap script.stp
+
+# Pre-compile for deployment on another machine
+stap -p4 -m myprobe script.stp
+# myprobe.ko can be loaded with staprun on the target
+```
+
+### Embedded C
+
+For operations that SystemTap's scripting language cannot express:
+
+```stap
+/* Embedded C for direct kernel struct access */
+%{
+#include <linux/sched.h>
+#include <linux/fs.h>
+%}
+
+function get_task_state:long (task:long) %{
+    struct task_struct *t = (struct task_struct *)(long)STAP_ARG_task;
+    STAP_RETVALUE = t->__state;
+%}
+
+probe scheduler.ctxswitch {
+    state = get_task_state(task_current())
+    printf("prev state: %ld\n", state)
+}
+```
+
+## Real-World SystemTap Recipes
+
+### Slow Disk I/O Detector
+
+```stap
+#!/usr/bin/stap
+/* Alert on I/O operations taking > 50ms */
+
+global start, slow_ios
+
+probe ioblock.request {
+    start[argdev, sector] = gettimeofday_us()
+}
+
+probe ioblock.request {
+    if ([argdev, sector] in start) {
+        elapsed = gettimeofday_us() - start[argdev, sector]
+        if (elapsed > 50000) {
+            printf("SLOW: dev=%d sector=%d latency=%dms pid=%d comm=%s\n",
+                   argdev, sector, elapsed/1000, pid(), execname())
+            slow_ios <<< elapsed
+        }
+        delete start[argdev, sector]
+    }
+}
+
+probe end {
+    if (@count(slow_ios) > 0) {
+        printf("\nSlow I/O summary: count=%d avg=%dms max=%dms\n",
+               @count(slow_ios), @avg(slow_ios)/1000, @max(slow_ios)/1000)
+    }
+}
+```
+
+### Network Connection Tracker
+
+```stap
+#!/usr/bin/stap
+/* Track TCP connections by process */
+
+global connections
+
+probe tcp.sendmsg {
+    connections[execname(), pid()] += $size
+}
+
+probe tcp.recvmsg {
+    connections[execname(), pid()] += $size
+}
+
+probe timer.s(5) {
+    printf("\n%-20s %-8s %12s\n", "PROCESS", "PID", "BYTES/5s")
+    printf("%-20s %-8s %12s\n", "-------", "---", "-------")
+    foreach ([comm, p] in connections-) {
+        printf("%-20s %-8d %12d\n", comm, p, connections[comm, p])
+    }
+    delete connections
+}
+```
+
+### Function Call Frequency Profiler
+
+```stap
+#!/usr/bin/stap
+/* Count calls to all functions in a kernel module */
+
+global call_counts
+
+probe module("ext4").function("*") {
+    call_counts[probefunc()]++
+}
+
+probe timer.s(10) {
+    printf("\n=== ext4 function calls (10s) ===\n")
+    foreach ([fn] in call_counts- limit 30) {
+        printf("  %-40s %d\n", fn, call_counts[fn])
+    }
+    delete call_counts
+}
+```
+
+## Troubleshooting
+
+### Common Errors
+
+| Error | Cause | Solution |
+|-------|-------|----------|
+| `semantic error: unresolved probe point` | Probe doesn't exist in this kernel | Check available probes with `stap -L` |
+| `semantic error: type mismatch` | Wrong argument type | Use `@cast()` or check tapset docs |
+| `Pass 4: compilation error` | Kernel headers mismatch | Install matching kernel-devel/debuginfo |
+| `ERROR: MAXSKIPPED exceeded` | Too many skipped probes | Increase `-DMAXSKIPPED` or reduce probe rate |
+| `WARNING: probe reentrancy` | Probe handler triggered itself | Add reentrancy guards or filter |
+| `semantic error: process probe` | uprobes not supported | Need kernel >= 3.5 with CONFIG_UPROBES |
+
+### Performance Tips
+
+```stap
+/* BAD: Expensive work in hot probe handler */
+probe kernel.function("*") {
+    printf("%s %s %d\n", execname(), probefunc(), pid())
+}
+
+/* GOOD: Aggregate, print periodically */
+probe kernel.function("*") {
+    counts[probefunc()]++
+}
+probe timer.s(5) {
+    foreach ([fn] in counts- limit 10)
+        printf("%s: %d\n", fn, counts[fn])
+    delete counts
+}
+```
+
+Key performance guidelines:
+- **Aggregate in-kernel**, print summaries — don't `printf` on every event
+- **Use filters** (`/condition/`) to reduce probe handler invocations
+- **Avoid deep kernel function tracing** — trace specific functions, not wildcards
+- **Use `timer.s()`** for periodic output instead of event-driven printing
+- **Prefer tracepoints** over kprobes when available — they're lower overhead
+
 ## Further Reading
 
 - [SystemTap Language Reference](https://sourceware.org/systemtap/langref/) — Official language reference
