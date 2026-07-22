@@ -489,6 +489,317 @@ iptables -A FORWARD -i eth0 -o eth1 -m conntrack --ctstate ESTABLISHED,RELATED -
 | Performance | Good | Better | Good | Good |
 | Learning curve | Medium | Medium | Low | Low |
 
+## Connection Tracking (conntrack)
+
+The kernel's **connection tracking** subsystem (`nf_conntrack`) is the foundation of stateful firewalls. It tracks every connection (TCP, UDP, ICMP) flowing through the system, enabling rules that reference connection state rather than individual packets.
+
+### Conntrack Table
+
+```bash
+# List all tracked connections
+conntrack -L
+# tcp  6 431999 ESTABLISHED src=192.168.1.100 dst=93.184.216.34 sport=54321 dport=443 src=93.184.216.34 dst=192.168.1.100 sport=443 dport=54321 [ASSURED] mark=0 use=1
+# udp  17 29 src=192.168.1.100 dst=8.8.8.8 sport=12345 dport=53 src=8.8.8.8 dst=192.168.1.100 sport=53 dport=12345 [ASSURED] mark=0 use=1
+
+# Count tracked connections by state
+conntrack -C
+
+# Show connection tracking statistics
+conntrack -S
+# packets=12345678  inserted=98765  dropped=0  early_drop=0  invalid=12
+
+# Show conntrack events in real-time
+conntrack -E
+```
+
+### Conntrack Table Sizing
+
+```bash
+# View current maximum
+sysctl net.netfilter.nf_conntrack_max
+# net.netfilter.nf_conntrack_max = 65536
+
+# View current usage
+cat /proc/sys/net/netfilter/nf_conntrack_count
+
+# Increase for busy servers
+sysctl -w net.netfilter.nf_conntrack_max=262144
+
+# Make persistent
+echo "net.netfilter.nf_conntrack_max = 262144" >> /etc/sysctl.d/99-conntrack.conf
+
+# Tune hash table size (must be set at boot via module parameter)
+# /etc/modprobe.d/conntrack.conf
+# options nf_conntrack hashsize=65536
+```
+
+### Conntrack Zones
+
+Zones allow overlapping address spaces (useful for NAT and containers):
+
+```bash
+# Assign traffic to a zone
+nft add rule ip nat prerouting iif "veth0" ct zone set 1
+nft add rule ip nat prerouting iif "veth1" ct zone set 2
+
+# iptables equivalent
+iptables -t raw -A PREROUTING -i veth0 -j CT --zone 1
+iptables -t raw -A PREROUTING -i veth1 -j CT --zone 2
+```
+
+### Conntrack Timeouts
+
+```bash
+# View default timeouts
+sysctl -a | grep nf_conntrack_tcp_timeout
+# net.netfilter.nf_conntrack_tcp_timeout_established = 432000 (5 days)
+# net.netfilter.nf_conntrack_tcp_timeout_syn_sent = 120
+# net.netfilter.nf_conntrack_tcp_timeout_time_wait = 120
+
+# Reduce for high-traffic servers (fewer stale entries)
+sysctl -w net.netfilter.nf_conntrack_tcp_timeout_established=3600
+sysctl -w net.netfilter.nf_conntrack_tcp_timeout_time_wait=30
+
+# Per-protocol timeouts
+sysctl -w net.netfilter.nf_conntrack_udp_timeout=30
+sysctl -w net.netfilter.nf_conntrack_udp_timeout_stream=60
+sysctl -w net.netfilter.nf_conntrack_icmp_timeout=10
+```
+
+### Conntrack Helpers
+
+Some protocols (FTP, SIP, TFTP) embed IP/port information in packet payloads. Conntrack helpers parse these:
+
+```bash
+# Enable FTP helper
+modprobe nf_conntrack_ftp
+
+# iptables
+iptables -A INPUT -p tcp --dport 21 -j ACCEPT
+iptables -A INPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+
+# nftables (explicit helper assignment)
+nft add rule ip filter input tcp dport 21 ct helper set "ftp"
+nft add rule ip filter input ct state established,related accept
+```
+
+## nftables Sets and Maps
+
+Sets and maps are powerful nftables features for grouping addresses, ports, and other values.
+
+### Anonymous Sets
+
+```bash
+# Inline set (curly braces)
+nft add rule inet filter input tcp dport { 22, 80, 443 } accept
+```
+
+### Named Sets
+
+```bash
+# Create a named set for allowed IPs
+nft add set inet filter allowed_ips { type ipv4_addr \; flags interval \; }
+
+# Add elements
+nft add element inet filter allowed_ips { 192.168.1.0/24, 10.0.0.0/8, 172.16.0.0/12 }
+
+# Use in a rule
+nft add rule inet filter input ip saddr @allowed_ips accept
+```
+
+### Maps
+
+Maps associate keys with values, enabling dynamic lookups:
+nft add map inet filter port_to_action { type inet_service : verdict \; }
+nft add element inet filter port_to_action { 22 : accept, 80 : accept, 443 : accept, 8080 : drop }
+nft add rule inet filter input tcp dport vmap @port_to_action
+```
+
+### Managing Sets in Configuration Files
+
+```bash
+# /etc/nftables.conf
+#!/usr/sbin/nft -f
+flush ruleset
+
+table inet filter {
+    set blacklist {
+        type ipv4_addr
+        flags interval, timeout
+        auto-merge
+    }
+
+    set rate_limited {
+        type ipv4_addr
+        flags dynamic, timeout
+        timeout 1m
+    }
+
+    chain input {
+        type filter hook input priority 0; policy drop;
+
+        # Drop blacklisted IPs
+        ip saddr @blacklist drop
+
+        # Rate-limit new connections per source
+        ct state new limit rate over 10/second add @rate_limited { ip saddr timeout 1m }
+        ip saddr @rate_limited drop
+
+        ct state established,related accept
+        tcp dport { 22, 80, 443 } accept
+    }
+}
+```
+
+## Firewall Rules for Containers
+
+Containers (Docker, Podman, Kubernetes) rely heavily on iptables/nftables for networking.
+
+### Docker and iptables
+
+Docker manipulates iptables directly. Key chains:
+
+```bash
+# Docker creates these chains:
+# - DOCKER (filter and nat tables)
+# - DOCKER-ISOLATION-STAGE-1 and STAGE-2
+# - DOCKER-USER (for user-defined rules)
+
+# Show Docker's rules
+iptables -L DOCKER-USER -n -v
+iptables -t nat -L DOCKER -n -v
+
+# Block traffic to a container from external
+iptables -I DOCKER-USER -i eth0 -d 172.17.0.2 -j DROP
+
+# Allow specific external access
+iptables -I DOCKER-USER -i eth0 -d 172.17.0.2 -p tcp --dport 80 -j ACCEPT
+```
+
+### Kubernetes Network Policies
+
+Kubernetes uses its own network policy engine (Calico, Cilium, etc.) which programs nftables or eBPF:
+
+```yaml
+# Example: deny all ingress, allow from specific namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-from-frontend
+spec:
+  podSelector:
+    matchLabels:
+      app: backend
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: frontend
+```
+
+### Preventing Docker from Bypassing Host Firewall
+
+```bash
+# /etc/docker/daemon.json
+{
+  "iptables": false
+}
+# WARNING: This disables Docker's iptables management entirely.
+# You'll need to manually configure NAT and forwarding rules.
+
+# Alternative: Use DOCKER-USER chain for your rules
+iptables -I DOCKER-USER -i eth0 -j DROP  # Block all external to containers
+iptables -I DOCKER-USER -i eth0 -p tcp --dport 443 -j ACCEPT  # Allow HTTPS
+```
+
+## IPv6 Firewalling
+
+IPv6 requires separate consideration. Many administrators forget to configure IPv6 rules, leaving hosts exposed.
+
+```bash
+# iptables (separate tool)
+ip6tables -A INPUT -i lo -j ACCEPT
+ip6tables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+ip6tables -A INPUT -p ipv6-icmp -j ACCEPT  # ICMPv6 is essential for IPv6
+ip6tables -A INPUT -p tcp --dport 22 -j ACCEPT
+ip6tables -P INPUT DROP
+ip6tables-save > /etc/iptables/rules.v6
+
+# nftables (unified — inet handles both)
+table inet filter {
+    chain input {
+        type filter hook input priority 0; policy drop;
+        iif "lo" accept
+        ct state established,related accept
+        # ICMPv6 required for IPv6 to function
+        icmpv6 type { nd-neighbor-solicit, nd-router-advert, nd-neighbor-advert,
+                      echo-request } accept
+        tcp dport 22 accept
+    }
+}
+
+# firewalld (handles both by default)
+firewall-cmd --permanent --add-service=ssh
+firewall-cmd --reload
+# IPv6 rules are applied automatically for the same zone
+```
+
+**Critical ICMPv6 types** that must be allowed for IPv6 to function:
+
+| ICMPv6 Type | Purpose |
+|---|---|
+| `nd-neighbor-solicit` | Neighbor Discovery (ARP equivalent) |
+| `nd-neighbor-advert` | Neighbor Discovery reply |
+| `nd-router-advert` | Router Advertisement (SLAAC) |
+| `echo-request` | Ping |
+
+## Firewall Performance Tuning
+
+### conntrack Optimization
+
+```bash
+# For high-traffic servers, disable conntrack on trusted traffic
+# Use the 'raw' table to skip connection tracking
+iptables -t raw -A PREROUTING -i lo -j NOTRACK
+iptables -t raw -A OUTPUT -o lo -j NOTRACK
+
+# Skip conntrack for internal traffic
+iptables -t raw -A PREROUTING -s 10.0.0.0/8 -d 10.0.0.0/8 -j NOTRACK
+iptables -t raw -A OUTPUT -s 10.0.0.0/8 -d 10.0.0.0/8 -j NOTRACK
+
+# nftables equivalent
+nft add rule ip raw prerouting iif "lo" notrack
+nft add rule ip raw output oif "lo" notrack
+```
+
+### Rule Ordering
+
+Place frequently matched rules first. Use `iptables -L -n -v` to check packet counters:
+
+```bash
+# Rules with high packet counts should be near the top
+iptables -L INPUT -n -v --line-numbers
+# num   pkts bytes target  prot opt in  out  source       destination
+# 1   999999  500M ACCEPT  all  --  *   *    0.0.0.0/0    0.0.0.0/0  ctstate ESTABLISHED
+# 2    12345  600K ACCEPT  tcp  --  *   *    0.0.0.0/0    0.0.0.0/0  tcp dpt:22
+# 3      100   50K ACCEPT  tcp  --  *   *    0.0.0.0/0    0.0.0.0/0  tcp dpt:80
+```
+
+### Using Sets for Large IP Lists
+
+```bash
+# Instead of 1000 individual rules, use an nftables set
+nft add set inet filter blocked_ips { type ipv4_addr \; flags interval \; }
+
+# Load from file
+while read ip; do
+    nft add element inet filter blocked_ips { $ip }
+done < /path/to/blocklist.txt
+
+# Single rule handles all IPs
+nft add rule inet filter input ip saddr @blocked_ips drop
+```
+
 ## Troubleshooting
 
 ```bash
@@ -513,6 +824,21 @@ iptables -L INPUT -n -v   # Show packet counters
 conntrack -L              # List all tracked connections
 conntrack -S              # Connection tracking statistics
 cat /proc/sys/net/netfilter/nf_conntrack_max  # Max tracked connections
+
+# Trace packet through nftables rules
+nft monitor trace
+nft add rule inet filter input meta nftrace set 1
+# Then watch: nft monitor
+
+# Check for rule conflicts
+iptables-save | grep -c '\-A'  # Count total rules
+nft list ruleset | wc -l        # Count nftables rule lines
+
+# Verify firewall is actually active
+nft list ruleset 2>/dev/null | head -5  # nftables
+iptables -L -n 2>/dev/null | head -5   # iptables
+ufw status 2>/dev/null | head -3        # ufw
+firewall-cmd --state 2>/dev/null        # firewalld
 ```
 
 ## References
