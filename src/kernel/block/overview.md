@@ -336,6 +336,176 @@ graph TD
 
 ---
 
+## 12. Request Lifecycle in Detail
+
+### From bio to Hardware
+
+A single `read()` system call can generate multiple bios, each of which
+may be merged with others before becoming a request:
+
+```mermaid
+flowchart TD
+    A["read() syscall"] --> B["Filesystem creates bio"]
+    B --> C["submit_bio()"]
+    C --> D{"Merge with
+existing request?"}
+    D -->|Yes| E["Extend existing request"]
+    D -->|No| F["Allocate new request
+from tag set"]
+    E --> G["Insert into
+software queue"]
+    F --> G
+    G --> H{"I/O scheduler
+enabled?"}
+    H -->|Yes| I["Scheduler reorders"]
+    H -->|No| J["Direct dispatch"]
+    I --> K["blk_mq_dispatch_rq_list()"]
+    J --> K
+    K --> L["Driver .queue_rq()"]
+    L --> M["Hardware processes I/O"]
+    M --> N["Completion IRQ"]
+    N --> O["blk_mq_complete_request()"]
+    O --> P["bio_endio() callback"]
+    P --> Q["Unlock pages,
+wake waiters"]
+```
+
+### Request Merging
+
+The block layer merges adjacent bios to reduce the number of hardware
+requests.  Two types of merging are supported:
+
+| Merge Type | Description | Example |
+|---|---|---|
+| **Back merge** | New bio appends to end of existing request | Read sectors 100-199, then 200-299 |
+| **Front merge** | New bio prepends to start of existing request | Read sectors 200-299, then 100-199 |
+
+```bash
+# View merge statistics
+$ cat /sys/block/sda/stat
+# Fields: read_ios read_merges read_sectors read_ticks ...
+# read_merges shows how many bios were merged
+
+# iostat shows merge activity
+$ iostat -x 1
+Device  r/s    rMerge/s  rKB/s   r_await  svctm
+sda     150.00 50.00     8000.00 0.50     0.30
+```
+
+## 13. I/O Accounting
+
+### Per-Device Statistics
+
+```bash
+# Detailed device statistics
+$ cat /sys/block/sda/stat
+ 84325  12345  6789012  4567  12345  6789  1234567  2345  0  3000  6912
+
+# Fields (in order):
+# 1. read_ios       - Number of reads completed
+# 2. read_merges    - Number of reads merged
+# 3. read_sectors   - Sectors read
+# 4. read_ticks     - Time spent reading (ms)
+# 5. write_ios      - Number of writes completed
+# 6. write_merges   - Number of writes merged
+# 7. write_sectors  - Sectors written
+# 8. write_ticks    - Time spent writing (ms)
+# 9. in_flight      - I/Os currently in progress
+# 10. io_ticks      - Time doing I/Os (ms)
+# 11. time_in_queue - Weighted time doing I/Os (ms)
+```
+
+### Block I/O Tracing
+
+```bash
+# Trace block I/O with blktrace
+$ sudo blktrace -d /dev/sda -o - | blkparse -i -
+
+# Example output:
+# 8,0    1        1     0.000000000  2345  A   R 1000 + 8 <- (8,1) 1000
+# 8,0    1        2     0.000001000  2345  Q   R 1000 + 8
+# 8,0    1        3     0.000002000  2345  G   R 1000 + 8
+# 8,0    1        4     0.000003000  2345  I   R 1000 + 8
+# 8,0    1        5     0.000010000     0  C   R 1000 + 8 [0]
+
+# Using bpftrace for quick analysis
+$ sudo bpftrace -e     'tracepoint:block:block_rq_issue {
+        printf("%s %s %d %d
+", comm, args->rwbs, args->sector, args->nr_sector);
+    }'
+```
+
+## 14. Block Layer Debugging
+
+### Common Issues and Diagnostics
+
+```bash
+# High I/O latency — identify slow devices
+$ iostat -xz 1
+# Look for high await, svctm, %util
+
+# Check for I/O errors in kernel log
+$ dmesg | grep -i 'blk\|scsi\|ata\|nvme\|error\|I/O'
+
+# View block device queue settings
+$ cat /sys/block/sda/queue/scheduler
+[mq-deadline] none
+
+# Check queue depth
+$ cat /sys/block/sda/queue/nr_requests
+256
+
+# View current I/O in progress
+$ cat /sys/block/sda/inflight
+       2        0    # 2 reads, 0 writes in flight
+```
+
+### Using perf for Block Analysis
+
+```bash
+# Trace block I/O latency distribution
+$ sudo perf record -e block:block_rq_issue -e block:block_rq_complete -a sleep 10
+$ sudo perf script
+
+# Count I/O operations by type
+$ sudo perf stat -e 'block:block_rq_issue' -a sleep 5
+
+# Using biosnoop (from bcc-tools)
+$ sudo biosnoop
+TIME     COMM           PID    DISK  T SECTOR     BYTES  LAT(ms)
+0.000    dd             1234   sda   W 1000       4096   0.12
+0.001    dd             1234   sda   W 1008       4096   0.10
+```
+
+## 15. io_uring and the Block Layer
+
+io_uring is Linux's modern async I/O interface. It interacts with the block
+layer through the same bio/request path but provides efficient batching:
+
+```c
+#include <liburing.h>
+
+struct io_uring ring;
+io_uring_queue_init(256, &ring, 0);
+
+/* Submit async read — goes through block layer */
+struct io_uring_sqe *sqe = io_uring_get_sqe(&ring);
+io_uring_prep_read(sqe, fd, buf, 4096, offset);
+io_uring_submit(&ring);
+
+/* Wait for completion */
+struct io_uring_cqe *cqe;
+io_uring_wait_cqe(&ring, &cqe);
+// cqe->res contains bytes read or error
+io_uring_cqe_seen(&ring, cqe);
+```
+
+io_uring benefits for block I/O:
+* **Fewer syscalls**: Batch submit and wait
+* **Fixed buffers**: Pre-registered buffers reduce per-I/O overhead
+* **Polled I/O**: Busy-poll for ultra-low latency (NVMe)
+* **Chain submissions**: Linked operations without intermediate waits
+
 ## Further Reading
 
 - [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
