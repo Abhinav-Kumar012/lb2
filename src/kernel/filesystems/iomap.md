@@ -442,6 +442,207 @@ CONFIG_DAX_DRIVER=y        # DAX device drivers
 
 ---
 
+## Debugging iomap Issues
+
+### Common iomap Errors
+
+| Error | Cause | Solution |
+|-------|-------|----------|
+| `EIO` on write | Block allocation failure | Check disk space, filesystem errors |
+| `ENOSPC` | No free extents | Defragment filesystem |
+| Stale data after write | Writeback not flushed | Call fsync() or wait for writeback |
+| DAX page fault | Misaligned access | Check DAX alignment requirements |
+| Corrupted FIEMAP | Filesystem corruption | Run fsck |
+
+### Tracing iomap Operations
+
+```bash
+# Trace iomap function calls
+sudo trace-cmd record -p function -l iomap_* sleep 5
+sudo trace-cmd report
+
+# Trace specific iomap operations
+echo 1 > /sys/kernel/debug/tracing/events/iomap/iomap_iter/enable
+cat /sys/kernel/tracing/trace_pipe
+
+# Use bpftrace to trace iomap
+sudo bpftrace -e 'k:iomap_iter { @[comm, kstack] = count(); }'
+
+# Trace copy-up operations in overlay
+sudo bpftrace -e 'k:ovl_copy_up { @[comm] = count(); }'
+```
+
+### Checking iomap Status
+
+```bash
+# View filesystem iomap configuration
+cat /proc/fs/xfs/stat  # XFS-specific stats
+
+# Check DAX status
+mount | grep dax
+cat /sys/fs/xfs/*/options | grep dax
+
+# View file extent mapping
+filefrag -v /path/to/file
+
+# Example output:
+# ext: logical_offset  physical_offset  length  flags
+#   0:        0..    4095:     10240..    14335:      4096
+#   1:     4096..    8191:     20480..    24575:      4096
+```
+
+## iomap Performance Analysis
+
+### Profiling iomap Paths
+
+```bash
+# Profile iomap write path
+perf record -g -e cycles -p $(pidof myapp) sleep 5
+perf report --call-graph
+
+# Look for iomap functions in the call graph:
+# - iomap_write_iter (buffered write)
+# - iomap_dio_rw (direct I/O)
+# - iomap_readahead (readahead)
+
+# Measure iomap latency
+sudo bpftrace -e '
+    kprobe:iomap_write_iter { @start[tid] = nsecs; }
+    kretprobe:iomap_write_iter /@start[tid]/ {
+        @latency = hist(nsecs - @start[tid]);
+        delete(@start[tid]);
+    }
+'
+```
+
+### Benchmarking iomap vs buffer_head
+
+```bash
+# Compare XFS (iomap) vs ext4 (buffer_head) for direct I/O
+# Both use iomap for DIO now, but the comparison shows
+# the performance characteristics
+
+# Test direct I/O throughput
+fio --name=seqwrite --rw=write --bs=1M --size=1G \
+    --direct=1 --numjobs=1 --runtime=30 \
+    --filename=/mnt/xfs/testfile
+
+fio --name=seqwrite --rw=write --bs=1M --size=1G \
+    --direct=1 --numjobs=1 --runtime=30 \
+    --filename=/mnt/ext4/testfile
+
+# Test random I/O
+fio --name=randread --rw=randread --bs=4k --size=1G \
+    --direct=1 --numjobs=4 --runtime=30 \
+    --filename=/mnt/xfs/testfile
+```
+
+## iomap and io_uring
+
+iomap integrates with io_uring for high-performance async I/O:
+
+```c
+#include <liburing.h>
+
+int main(void) {
+    struct io_uring ring;
+    io_uring_queue_init(256, &ring, 0);
+
+    int fd = open("/mnt/xfs/file", O_DIRECT | O_RDWR);
+    void *buf;
+    posix_memalign(&buf, 4096, 4096);
+
+    /* Submit async direct I/O via io_uring */
+    struct io_uring_sqe *sqe = io_uring_get_sqe(&ring);
+    io_uring_prep_read(sqe, fd, buf, 4096, 0);
+    io_uring_submit(&ring);
+
+    /* Wait for completion */
+    struct io_uring_cqe *cqe;
+    io_uring_wait_cqe(&ring, &cqe);
+    printf("Read %d bytes\n", cqe->res);
+    io_uring_cqe_seen(&ring, cqe);
+
+    io_uring_queue_exit(&ring);
+    return 0;
+}
+```
+
+### io_uring + iomap Benefits
+
+| Feature | Traditional AIO | io_uring + iomap |
+|---------|----------------|------------------|
+| Setup | Complex | Simple API |
+| Completion | poll/eventfd | Built-in CQE ring |
+| Batching | Limited | Full batching |
+| Fixed files | No | Yes (reduces fd overhead) |
+| Buffer rings | No | Yes (zero-copy) |
+
+## iomap Filesystem Implementation Guide
+
+For filesystem developers adopting iomap:
+
+### Step 1: Implement iomap_ops
+
+```c
+static const struct iomap_ops myfs_read_ops = {
+    .iomap_begin = myfs_iomap_begin,
+    .iomap_end   = myfs_iomap_end,
+};
+
+static const struct iomap_ops myfs_write_ops = {
+    .iomap_begin = myfs_iomap_begin,
+    .iomap_end   = myfs_write_iomap_end,  /* Handle transactions */
+};
+```
+
+### Step 2: Implement iomap_begin
+
+```c
+static int myfs_iomap_begin(struct inode *inode, loff_t pos,
+                            loff_t length, unsigned flags,
+                            struct iomap *iomap, struct iomap *srcmap)
+{
+    struct myfs_inode *mi = MYFS_I(inode);
+    struct myfs_extent *ext;
+
+    /* Look up extent for this offset */
+    ext = myfs_extent_lookup(mi, pos);
+    if (!ext) {
+        /* Hole */
+        iomap->type = IOMAP_HOLE;
+        iomap->addr = IOMAP_NULL_ADDR;
+        iomap->length = length;
+    } else {
+        /* Mapped extent */
+        iomap->type = IOMAP_MAPPED;
+        iomap->addr = ext->physical_block << inode->i_blkbits;
+        iomap->offset = ext->logical_block << inode->i_blkbits;
+        iomap->length = ext->length << inode->i_blkbits;
+        iomap->bdev = inode->i_sb->s_bdev;
+    }
+
+    return 0;
+}
+```
+
+### Step 3: Wire Up VFS Operations
+
+```c
+static const struct inode_operations myfs_inode_ops = {
+    .fiemap = iomap_fiemap,
+    /* ... */
+};
+
+static const struct address_space_operations myfs_aops = {
+    .readahead = iomap_readahead,
+    .write_begin = iomap_write_begin,
+    .write_end = iomap_write_end,
+    .direct_IO = noop_direct_IO,  /* Uses iomap_dio_rw */
+    /* ... */
+};
+```
+
 ## Further Reading
 
 - [Kernel docs: iomap](https://www.kernel.org/doc/html/latest/filesystems/iomap.html)
