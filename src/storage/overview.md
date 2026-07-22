@@ -287,6 +287,297 @@ cat /sys/block/sda/queue/physical_block_size
 # 512
 ```
 
+## The Multi-Queue Block Layer (blk-mq)
+
+Linux 3.13 introduced the multi-queue block layer (`blk-mq`) to replace the legacy single-queue design. The old model used a single `request_queue` protected by a spinlock, creating a bottleneck on systems with many CPU cores and fast NVMe devices. `blk-mq` eliminates this by distributing I/O across per-CPU or per-node hardware submission queues.
+
+### blk-mq Architecture
+
+```mermaid
+graph TD
+    subgraph Software Queues
+        SQ0["Software Queue CPU 0"]
+        SQ1["Software Queue CPU 1"]
+        SQ2["Software Queue CPU 2"]
+        SQ3["Software Queue CPU 3"]
+    end
+    subgraph Hardware Queues
+        HWQ0["Hardware Queue 0"]
+        HWQ1["Hardware Queue 1"]
+    end
+    SQ0 --> HWQ0
+    SQ1 --> HWQ0
+    SQ2 --> HWQ1
+    SQ3 --> HWQ1
+    HWQ0 --> NVME0["NVMe Controller 0"]
+    HWQ1 --> NVME1["NVMe Controller 1"]
+```
+
+Each CPU has a **software staging queue** (lock-free). The I/O scheduler operates on these queues. When the hardware is ready, requests are dispatched to **hardware submission queues** (SQs) that map directly to the device's NVMe queues or SCSI per-CPU queues.
+
+### blk-mq Data Structures
+
+```c
+/* include/linux/blk-mq.h */
+struct blk_mq_ops {
+    blk_status_t (*queue_rq)(struct blk_mq_hw_ctx *,
+                              const struct blk_mq_queue_data *);
+    void (*commit_rqs)(struct blk_mq_hw_ctx *);
+    void (*complete)(struct request *);
+    /* ... */
+};
+
+struct blk_mq_tag_set {
+    const struct blk_mq_ops *ops;
+    unsigned int nr_hw_queues;   /* Number of hardware queues */
+    unsigned int queue_depth;     /* Commands per queue */
+    unsigned int numa_node;       /* NUMA affinity */
+    /* ... */
+};
+```
+
+### Verifying blk-mq Status
+
+```bash
+# Check if a device uses blk-mq (all modern devices do)
+ls /sys/block/sda/mq/
+# 0/  1/  2/  3/  (one directory per hardware queue)
+
+# View queue mapping
+ls /sys/kernel/debug/block/sda/
+# state  tags  sched
+
+# Number of hardware queues
+ls /sys/block/nvme0n1/mq/ | wc -l
+# 8 (matches NVMe queue count)
+```
+
+## I/O Schedulers
+
+The I/O scheduler (also called the I/O elevator) reorders and merges requests in the software queues before dispatching them to hardware queues. Linux 5.0 removed all legacy single-queue schedulers; the modern choice is between three multi-queue schedulers (or none).
+
+### Available Schedulers
+
+```bash
+# View available and active scheduler
+$ cat /sys/block/sda/queue/scheduler
+[mq-deadline] kyber bfq none
+
+# Change scheduler
+echo bfq > /sys/block/sda/queue/scheduler
+```
+
+### mq-deadline
+
+The **mq-deadline** scheduler assigns a deadline to each request. It maintains sorted queues for both read and write operations, plus a **fifo queue** for aging. Requests approaching their deadline get priority to prevent starvation.
+
+```mermaid
+graph LR
+    subgraph "mq-deadline Queues"
+        RQ["Read Queue (sorted by sector)"]
+        WQ["Write Queue (sorted by sector)"]
+        FQ["FIFO Queue (deadline order)"]
+    end
+    DISPATCH["Dispatch"] --> RQ
+    DISPATCH --> WQ
+    DISPATCH --> FQ
+    FQ -->|"Deadline approaching"| HW["Hardware"]
+```
+
+**Best for**: Database servers, general-purpose workloads where latency fairness matters.
+
+```bash
+# mq-deadline tunables
+$ ls /sys/block/sda/queue/iosched/
+read_expire  write_expire  writes_starved  fifo_batch  front_merges
+
+# Default: reads expire in 500ms, writes in 5s
+echo 250 > /sys/block/sda/queue/iosched/read_expire
+echo 2000 > /sys/block/sda/queue/iosched/write_expire
+```
+
+### BFQ (Budget Fair Queueing)
+
+**BFQ** provides proportional-share bandwidth allocation. Each process gets a "budget" of sectors, and BFQ distributes I/O time fairly among active processes. It excels at interactive workloads.
+
+**Best for**: Desktop systems, mixed interactive + background workloads, USB drives (low queue depth).
+
+```bash
+# BFQ tunables
+$ ls /sys/block/sda/queue/iosched/
+back_seek_max  back_seek_penalty  fifo_expire_async  fifo_expire_sync
+low_latency  slice_idle  slice_idle_us  slice_sync  slice_async  timeout_sync
+
+# Enable low-latency mode (default: on)
+echo 1 > /sys/block/sda/queue/iosched/low_latency
+```
+
+### Kyber
+
+**Kyber** is a token-based scheduler designed for fast devices (NVMe). It limits the number of in-flight requests per direction (reads/writes) and adjusts based on latency targets. It has minimal CPU overhead.
+
+**Best for**: Fast NVMe SSDs where the device queue is the bottleneck, not the scheduler.
+
+```bash
+# Kyber tunables
+$ ls /sys/block/nvme0n1/queue/iosched/
+read_lat_nsec  write_lat_nsec
+
+# Target latency for reads (default: 2ms)
+echo 1000000 > /sys/block/nvme0n1/queue/iosched/read_lat_nsec
+# Target latency for writes (default: 10ms)
+echo 5000000 > /sys/block/nvme0n1/queue/iosched/write_lat_nsec
+```
+
+### none (No Scheduler)
+
+Passes requests directly to the hardware queue without reordering. Appropriate when the hardware itself handles scheduling (e.g., NVMe with multiple hardware queues). Lowest CPU overhead.
+
+### Scheduler Selection Guide
+
+```mermaid
+flowchart TD
+    A["Choose I/O Scheduler"] --> B{"Device type?"}
+    B -->|"NVMe SSD"| C{"Multi-process?"}
+    B -->|"SATA SSD"| D["mq-deadline"]
+    B -->|"HDD"| E{"Desktop or Server?"}
+    B -->|"USB/SD card"| F["bfq"]
+    C -->|"Yes (databases)"| G["mq-deadline"]
+    C -->|"No (single app)"| H["none"]
+    E -->|"Desktop"| I["bfq"]
+    E -->|"Server"| D
+```
+
+## Write-Back vs Write-Through Caching
+
+The block layer and filesystem manage a **page cache** that buffers writes. Understanding the cache modes is critical for data integrity:
+
+| Mode | Behavior | Performance | Safety |
+|------|----------|-------------|--------|
+| **Write-back** | Writes go to cache, flushed later | Best | Data loss on power failure |
+| **Write-through** | Writes go to cache and disk simultaneously | Moderate | Safe |
+| **Sync** (`O_SYNC`) | Each write waits for disk completion | Slowest | Strongest guarantee |
+
+```bash
+# View current cache mode
+cat /sys/block/sda/queue/write_cache
+# [write back]
+
+# Switch to write-through (if supported)
+echo 'write through' > /sys/block/sda/queue/write_cache
+
+# Force cache flush
+sync
+hdparm -F /dev/sda  # For SATA drives
+nvme flush /dev/nvme0n1  # For NVMe drives
+```
+
+### The fsync() Journey
+
+```mermaid
+sequenceDiagram
+    participant App
+    participant VFS
+    participant FS as Filesystem (ext4)
+    participant PC as Page Cache
+    participant BL as Block Layer
+    participant HW as Hardware
+
+    App->>VFS: fsync(fd)
+    VFS->>FS: vfs_fsync()
+    FS->>PC: Find dirty pages for inode
+    FS->>BL: Submit flush/FUA requests
+    BL->>HW: Cache flush command
+    HW-->>BL: Flush complete
+    BL-->>FS: Completion
+    FS-->>App: fsync() returns
+```
+
+## Discard and TRIM
+
+SSDs and thin-provisioned storage need the operating system to inform them when blocks are no longer in use. The **discard** mechanism sends `TRIM` (SATA) or `Deallocate` (NVMe) commands to the device:
+
+```bash
+# Enable continuous discard (filesystem-level)
+mount -o discard /dev/nvme0n1p1 /data
+
+# Or use periodic fstrim (preferred — less overhead)
+fstrim /data
+fstrim -v /data
+# /data: 120.5 GiB (129387499520 bytes) trimmed
+
+# Check discard support
+lsblk -D
+# NAME   DISC-ALN DISC-GRAN DISC-MAX DISC-ZERO
+# sda           0      512B       2G         0
+# nvme0n1       0        4K       2G         0
+
+# Test discard at block layer
+blkdiscard --secure /dev/sdX  # DANGEROUS: erases all data
+```
+
+### Discard vs Secure Erase
+
+| Operation | Scope | Effect |
+|-----------|-------|--------|
+| `discard` (TRIM) | Specific block range | Marks blocks as unused |
+| `blkdiscard` | Entire device or range | Erases data, may trigger secure erase |
+| `ATA Secure Erase` | Entire drive | Firmware-level wipe |
+| `NVMe Format` | Entire namespace | Cryptographic erase or user-data erase |
+
+## Block I/O Tracing
+
+### blktrace and blkparse
+
+`blktrace` captures low-level block I/O events. It uses debugfs to hook into the block layer:
+
+```bash
+# Trace I/O on /dev/sda for 10 seconds
+blktrace -d /dev/sda -o trace &
+sleep 10
+kill %1
+
+# Parse the trace
+blkparse -i trace -o trace.txt
+
+# Output shows each I/O event:
+# 8,0    1        1     0.000000000  2645  Q   R 2048 + 8 [cat]
+# 8,0    1        2     0.000010000  2645  G   R 2048 + 8 [cat]
+# 8,0    1        3     0.000020000  2645  I   R 2048 + 8 [cat]
+# 8,0    1        4     0.000030000  2645  D   R 2048 + 8 [cat]
+# 8,0    1        5     0.000100000     0  C   R 2048 + 8 [0]
+
+# Event types:
+# Q = queued, G = get request, I = inserted, D = dispatched
+# C = complete, M = merged, A = remapped
+
+# Generate timeline and statistics
+btt -i trace.blktrace.0
+```
+
+### bpftrace for Block I/O
+
+Modern tracing with BPF:
+
+```bash
+# Trace block I/O latency histogram
+bpftrace -e '
+tracepoint:block:block_rq_complete {
+    @usecs = hist((nsecs - @start[args->dev, args->sector]) / 1000);
+}
+tracepoint:block:block_rq_issue {
+    @start[args->dev, args->sector] = nsecs;
+}
+'
+
+# Count I/O by type
+bpftrace -e '
+tracepoint:block:block_rq_issue {
+    @[args->rwbs] = count();
+}
+'
+```
+
 ## Device Mapper
 
 The device-mapper is a kernel framework that provides a generic way to create virtual block devices. It sits between the filesystem and the actual block device, enabling:
