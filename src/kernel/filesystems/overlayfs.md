@@ -372,27 +372,111 @@ struct ovl_inode {
 };
 ```
 
-## References
+## Overlay Security
 
-- [OverlayFS kernel documentation](https://www.kernel.org/doc/html/latest/filesystems/overlayfs.html)
-- [Docker overlay2 storage driver](https://docs.docker.com/storage/storagedriver/overlayfs-driver/)
-- [OverlayFS design document](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/plain/Documentation/filesystems/overlayfs.rst)
+### Security Context Labeling
 
-## Further Reading
+OverlayFS inherits security contexts from the underlying filesystem:
 
-- [The Linux Kernel Documentation](https://docs.kernel.org/)
-- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
-- [GNU Manuals](https://www.gnu.org/manual/manual.html)
-- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
-- [Planet GNU](https://planet.gnu.org/)
-- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+```bash
+# Check security contexts on overlay
+ls -Z /merged/
 
-- https://www.kernel.org/doc/html/latest/filesystems/overlayfs.html
-- https://docs.kernel.org/filesystems/overlayfs.html — Official kernel OverlayFS documentation
-- https://man7.org/linux/man-pages/man5/overlayfs.5.html (mount options)
-- https://lwn.net/Articles/396439/ — "An union filesystem for Linux"
-- https://lwn.net/Articles/612930/ — "Overlayfs: improvements and more"
-- https://docs.docker.com/storage/storagedriver/select-storage-driver/
+# SELinux MCS labels are preserved through copy-up
+# Each container gets unique categories for isolation
+
+# Docker assigns unique MCS labels
+docker run -Z myimage
+
+# Verify container isolation
+ls -Z /var/lib/docker/overlay2/*/merged/
+```
+
+### AppArmor and Overlay
+
+```bash
+# AppArmor profiles apply to overlay mounts
+# Docker default profile restricts overlay access
+
+# View AppArmor status for container
+docker inspect --format '{{.AppArmorProfile}}' <container>
+
+# AppArmor profile stacking (Linux 5.1+)
+# Multiple profiles can apply to overlay-mounted containers
+```
+
+## Advanced Container Patterns
+
+### Development Overlays
+
+```bash
+# Development overlay: base image + local changes
+mount -t overlay overlay \
+    -o lowerdir=/opt/base-image,upperdir=/home/dev/overlay-upper,workdir=/tmp/overlay-work \
+    /opt/dev-env
+
+# Changes captured in upper, base unchanged
+# Easy reset: rm -rf /home/dev/overlay-upper/*
+```
+
+### Multi-Stage Overlays
+
+```bash
+# Stage 1: Build
+mount -t overlay overlay \
+    -o lowerdir=base,upperdir=build-upper,workdir=build-work \
+    /merged-build
+# Install build tools, compile application
+
+# Stage 2: Runtime (copy only needed artifacts)
+mount -t overlay overlay \
+    -o lowerdir=base,upperdir=runtime-upper,workdir=runtime-work \
+    /merged-runtime
+```
+
+## Overlay Performance Deep Dive
+
+### Reducing Copy-Up Overhead
+
+```bash
+# Use XFS with reflinks for instant copy-up
+mkfs.xfs -m reflink=1 /dev/sdb1
+mount /dev/sdb1 /var/lib/overlay
+
+# Verify reflink support
+xfs_info /var/lib/overlay | grep reflink
+# reflink=1 means reflinks enabled
+```
+
+### Volatile Mode for Build Containers
+
+```bash
+# Enable volatile for faster writes (no fsync)
+mount -t overlay overlay \
+    -o lowerdir=/lower,upperdir=/upper,workdir=/work,volatile \
+    /merged
+
+# Warning: data loss on crash
+# Ideal for: CI/CD, build containers, ephemeral workloads
+# Don't use for: databases, persistent storage
+```
+
+### Monitoring Overlay Performance
+
+```bash
+# Monitor copy-up operations
+inotifywait -m -r /var/lib/docker/overlay2/*/upper &
+
+# Check overlay disk usage
+du -sh /var/lib/docker/overlay2/*
+
+# View overlay mount options
+mount -t overlay
+findmnt -t overlay -o TARGET,OPTIONS
+
+# Check for overlay warnings
+dmesg | grep -i overlay
+```
 
 ## Testing and Debugging
 
@@ -414,6 +498,12 @@ $ stat /merged/file.txt
   Size: 1024        Blocks: 8          IO Block: 4096   regular file
   # If in upper: shows upper device/inode
   # If in lower: shows lower device/inode
+
+# Check overlay debugfs (if available)
+cat /sys/kernel/debug/overlayfs/*/info
+
+# View overlay mount options in detail
+grep overlay /proc/mounts
 ```
 
 ### Debugging Copy-Up
@@ -432,6 +522,28 @@ c--------- 1 root root 0, 0 ... /upper/deleted_file  # Whiteout
 $ getfattr -n trusted.overlay.opaque /upper/dir
 # file: upper/dir
 trusted.overlay.opaque="y"
+
+# Check metacopy xattr
+$ getfattr -n overlay.metacopy /upper/file.txt
+```
+
+### Tracing Overlay Operations
+
+```bash
+# Trace overlay function calls
+sudo trace-cmd record -p function -l ovl_* sleep 5
+sudo trace-cmd report
+
+# Use bpftrace to trace copy-up
+sudo bpftrace -e 'kprobe:ovl_copy_up { @[comm] = count(); }'
+
+# Trace whiteout creation
+sudo bpftrace -e 'kprobe:ovl_do_whiteout { @[comm] = count(); }'
+
+# Monitor overlay layer access
+sudo bpftrace -e '
+    kprobe:ovl_lookup { @[comm, str(arg1)] = count(); }
+'
 ```
 
 ### Common Issues
@@ -455,12 +567,6 @@ trusted.overlay.opaque="y"
 ## Further Reading
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
-- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
-- [GNU Manuals](https://www.gnu.org/manual/manual.html)
-- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
-- [Planet GNU](https://planet.gnu.org/)
-- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
-
 - https://www.kernel.org/doc/html/latest/filesystems/overlayfs.html
 - https://docs.kernel.org/filesystems/overlayfs.html — Official kernel OverlayFS documentation
 - https://man7.org/linux/man-pages/man5/overlayfs.5.html (mount options)
