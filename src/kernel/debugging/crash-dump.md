@@ -6,26 +6,93 @@ A crash dump is a snapshot of the system's memory taken at the moment of a kerne
 
 **kdump** is the Linux kernel crash dump mechanism. It works by booting a minimal secondary kernel (the "capture kernel" or "kdump kernel") into a reserved memory region. When the primary kernel panics, it boots the capture kernel, which then saves the crashed kernel's memory to a dump file. This dump can later be analyzed offline.
 
-## kdump Architecture
+## kdump Internals
+
+### Memory Reservation Mechanism
+
+The `crashkernel=` parameter tells the kernel to reserve a region of physical memory at boot time using the `memblock_reserve()` API. This memory is invisible to the running kernel's page allocator:
+
+```c
+/* arch/x86/kernel/setup.c — simplified */
+static void __init reserve_crashkernel(void)
+{
+    unsigned long long crash_size, crash_base;
+
+    /* Parse crashkernel= from command line */
+    ret = parse_crashkernel(boot_command_line, ...);
+
+    /* Reserve the memory via memblock */
+    memblock_reserve(crash_base, crash_size);
+
+    /* Map it so the capture kernel can use it */
+    /* The capture kernel's initrd and command line are also placed here */
+}
+```
+
+**Key details:**
+- The reserved region must be below 4 GB on x86 (for BIOS-based systems)
+- On UEFI systems, `crashkernel=auto` lets the kernel compute an appropriate size
+- The capture kernel runs entirely within this reserved region
+- The reserved memory is marked in the e820 table as "reserved"
+
+### ELF Core Format (/proc/vmcore)
+
+The crashed kernel's memory is exposed as an ELF core file:
+
+```bash
+# /proc/vmcore is only available in the capture kernel
+# It has an ELF header with PT_LOAD segments for each memory region
+file /var/crash/*/vmcore
+# ELF 64-bit LSB core file, x86-64, version 1 (SYSV)
+
+# View ELF headers
+readelf -l /var/crash/*/vmcore
+# Program Headers:
+#   Type   Offset   VirtAddr   PhysAddr   FileSiz  MemSiz   Flg
+#   LOAD   0x...    0x...      0x00000000 0x...    0x...    RW
+#   LOAD   0x...    0x...      0x00100000 0x...    0x...    RW
+#   ...
+
+# Each PT_LOAD segment maps a physical memory range from the crashed kernel
+# makedumpfile can filter these segments to reduce dump size
+```
+
+### kexec_load() Flow
 
 ```mermaid
 sequenceDiagram
-    participant Primary as Primary Kernel
-    participant Kexec as kexec_load()
-    participant Reserved as Reserved Memory
+    participant Admin as Admin
+    participant KDUMPD as kdumpd
+    participant KEXEC as kexec_load()
+    participant MEM as Reserved Memory
+
+    Admin->>KDUMPD: systemctl start kdump
+    KDUMPD->>KEXEC: kexec -p /boot/vmlinuz --initrd=initramfs
+    KEXEC->>MEM: Load capture kernel image
+    KEXEC->>MEM: Load initramfs
+    KEXEC->>MEM: Store boot parameters
+    Note over MEM: Reserved region ready
+    Note over Admin: System runs normally...
+```
+
+### Boot Flow During Crash
+
+```mermaid
+sequenceDiagram
+    participant Kernel as Crashing Kernel
+    participant KEXEC as machine_kexec()
     participant Capture as Capture Kernel
-    participant Disk as Dump Storage
-    
-    Note over Primary: System booting
-    Primary->>Reserved: Reserve crashkernel memory (e.g., 256M)
-    Primary->>Kexec: Load capture kernel + initramfs
-    Primary->>Primary: Normal operation
-    
-    Note over Primary: Kernel panic!
-    Primary->>Kexec: Switch to capture kernel
-    Kexec->>Capture: Boot into reserved memory
-    Capture->>Capture: Minimal kernel boot
-    Capture->>Disk: Save /proc/vmcore to disk/network
+    participant Disk as Storage
+
+    Kernel->>Kernel: panic() called
+    Kernel->>Kernel: kmsg_dump(), pstore save
+    Kernel->>Kernel: Disable other CPUs (IPI crash)
+    Kernel->>KEXEC: machine_kexec(kexec_image)
+    Note over KEXEC: Switches to reserved memory
+    KEXEC->>Capture: Boot capture kernel
+    Capture->>Capture: Mount rootfs from initramfs
+    Capture->>Capture: Read /proc/vmcore
+    Capture->>Disk: makedumpfile: compress & write
     Capture->>Capture: Reboot into normal kernel
 ```
 
@@ -352,28 +419,168 @@ crash> swap
 
 ### Advanced crash Analysis
 
+### Kernel Panic Flow
+
+Understanding what happens during a kernel panic helps interpret crash dumps:
+
+```c
+/* kernel/panic.c — simplified */
+void panic(const char *fmt, ...)
+{
+    /* 1. Disable local IRQs */
+    local_irq_disable();
+
+    /* 2. Print panic message */
+    pr_emerg("Kernel panic - not syncing: %s\n", buf);
+
+    /* 3. Dump stack trace */
+    dump_stack();
+
+    /* 4. Notify kmsg_dump and pstore */
+    kmsg_dump(KMSG_DUMP_PANIC);
+
+    /* 5. Crash other CPUs (SMP) */
+    smp_send_stop();
+
+    /* 6. Run panic notifiers */
+    atomic_notifier_call_chain(&panic_notifier_list, 0, buf);
+
+    /* 7. If kdump is loaded, boot capture kernel */
+    if (!crash_kexec_post_notifiers)
+        crash_kexec(NULL);
+
+    /* 8. Otherwise, infinite loop or reboot */
+    for (;;) {
+        if (panic_timeout > 0)
+            emergency_restart();
+        cpu_relax();
+    }
+}
+```
+
+### crash Utility Advanced Commands
+
 ```bash
-# Analyze a deadlock
-crash> struct task_struct.pid,comm,state ffff88810abcd000
-#   pid = 1234
-#   comm = "bash"
-#   state = TASK_RUNNING
+# === Data Structure Inspection ===
 
-# Check lock contention
-crash> struct mutex ffff888200123456
-# owner = ffff88810abcd000  (task_struct pointer)
-# wait_list = {next = ffff888100abc000, prev = ffff888100abc000}
+# View a structure with all fields
+crash> struct task_struct ffff88810abcd000
 
-# Analyze memory corruption
-crash> kmem -s  # slab info
-crash> kmem -v  # vmalloc info
+# View specific fields only
+crash> struct task_struct.pid,comm,state,flags ffff88810abcd000
 
-# View kernel stack trace of all tasks on a specific CPU
-crash> bt -c 3  # CPU 3
+# View structure definition
+crash> struct task_struct -o
+# (shows field offsets)
 
-# View saved registers at panic
-crash> sys -c
-crash> bt -c 0
+# View union
+crash> struct siginfo ffff888100abcd00
+
+# === Linked List Traversal ===
+
+# Walk a kernel linked list
+crash> list task_struct.tasks -H ffffffff824abcde
+# Traverses the init_task.tasks linked list
+
+# Walk with field offset
+crash> list -s task_struct.pid,comm 0xffff88810abcd000
+
+# === Memory Access ===
+
+# Read raw memory (hex)
+crash> rd -x ffffffff81000000 16
+# 16 words of memory starting at that address
+
+# Read kernel virtual address
+crash> rd -k 0xffffffff824abcde
+
+# Search memory for a value
+crash> search -k 0xdeadbeef
+# Searches all kernel memory for the value
+
+# Write to memory (dangerous!)
+crash> wr 0xffff88810abcd000 0x01
+
+# === Per-CPU Data ===
+
+# View per-CPU variable
+crash> p -c runqueues
+# Shows per-CPU runqueue for each CPU
+
+# View specific CPU's data
+crash> p runqueues -c 2
+
+# === Page Table Inspection ===
+
+# Walk page tables for a virtual address
+crash> vtop 0x7ffc12345000
+# Shows PGD, PUD, PMD, PTE entries
+
+# Walk kernel page tables
+crash> kmem ffff88810abcd000
+
+# === Memory Usage Analysis ===
+
+# Detailed slab info
+crash> kmem -s | head -30
+
+# Vmalloc info
+crash> kmem -v
+
+# Buddy allocator info
+crash> kmem -i
+
+# Per-node memory info
+crash> kmem -n
+
+# === Network State ===
+
+# Show network devices
+crash> net
+
+# Show socket buffers
+crash> net -s
+
+# Show ARP table
+crash> arp
+
+# === Filesystem State ===
+
+# Show mount points
+crash> mount
+
+# Show open files for a task
+crash> files 1234
+
+# Show inode info
+crash> inode ffff888100abc000
+```
+
+### Interpreting Oops Messages
+
+```bash
+# A typical kernel oops:
+# BUG: unable to handle kernel NULL pointer dereference at 0000000000000010
+# PGD 0 P4D 0
+# Oops: 0000 [#1] SMP NOPTI
+# CPU: 2 PID: 5678 Comm: mydriver Not tainted 5.15.0-generic
+# RIP: 0010:my_function+0x42/0x100
+# Code: 48 8b 45 00 48 85 c0 74 05 48 8b 40 10 <48> 8b 00 48 89 45 f0
+# RSP: 0018:ffffc90000abcdef EFLAGS: 00010246
+# RAX: 0000000000000000 RBX: ffff88810abcd000 ...
+
+# In crash, decode this:
+crash> dis my_function 0x42
+# Shows the exact instruction that faulted
+
+crash> dis -r my_function
+# Shows raw bytes around the faulting instruction
+
+crash> bt
+# Shows the full call chain leading to the oops
+
+crash> struct task_struct ffff88810abcd000 | grep state
+# Check if the task was in a valid state
 ```
 
 ## Remote Dump Collection

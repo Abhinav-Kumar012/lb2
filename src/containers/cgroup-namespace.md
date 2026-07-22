@@ -445,6 +445,299 @@ host      # no cgroup namespace
 cgroupDriver: systemd  # or cgroupfs
 ```
 
+## systemd Cgroup Integration
+
+systemd manages the cgroup hierarchy on most modern Linux distributions.
+Understanding how systemd interacts with cgroup namespaces is critical
+for container operators.
+
+### systemd Slice Hierarchy
+
+```mermaid
+graph TD
+    ROOT["/sys/fs/cgroup/"] --> SYSTEM["system.slice/"]
+    ROOT --> USER["user.slice/"]
+    ROOT --> MACHINE["machine.slice/"]
+    SYSTEM --> DOCKER["docker-abc123.scope/"]
+    SYSTEM --> CONTAINERD["containerd.service/"]
+    MACHINE --> VM["machine-qemu.scope/"]
+    USER --> SESSION["session-1.scope/"]
+```
+
+```bash
+# View systemd cgroup tree
+systemd-cgls
+
+# View cgroup resource usage
+systemd-cgtop
+
+# Check which slice a container is in
+docker inspect --format '{{.HostConfig.CgroupParent}}' <container>
+# Usually: /system.slice or custom slice
+```
+
+### Delegating Cgroups to Container Runtimes
+
+systemd can delegate cgroup subtrees to container runtimes:
+
+```ini
+# /etc/systemd/system/containerd.service.d/delegate.conf
+[Service]
+Delegate=cpu cpuset io memory pids
+```
+
+```bash
+# Reload systemd configuration
+systemctl daemon-reload
+systemctl restart containerd
+
+# Verify delegation
+cat /sys/fs/cgroup/system.slice/containerd.service/cgroup.subtree_control
+# cpu cpuset io memory pids
+```
+
+### systemd-nspawn with Cgroup Namespaces
+
+systemd-nspawn uses cgroup namespaces by default:
+
+```bash
+# Launch container with cgroup namespace
+systemd-nspawn -D /srv/mycontainer --boot
+
+# Inside container:
+cat /proc/self/cgroup
+# 0::/
+
+# Verify cgroup namespace
+ls -la /proc/self/ns/cgroup
+# cgroup -> 'cgroup:[402653XXXX]'
+```
+
+### Kubernetes and systemd Cgroup Driver
+
+Kubernetes uses either `systemd` or `cgroupfs` as the cgroup driver:
+
+```yaml
+# /var/lib/kubelet/config.yaml
+cgroupDriver: systemd
+
+# Container runtime must match
+# containerd config:
+[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
+  SystemdCgroup = true
+```
+
+```bash
+# Check kubelet cgroup driver
+journalctl -u kubelet | grep cgroup-driver
+
+# Migrate from cgroupfs to systemd
+# 1. Drain node
+kubectl drain <node> --ignore-daemonsets
+# 2. Stop kubelet and container runtime
+# 3. Reconfigure both to use systemd
+# 4. Restart services
+# 5. Uncordon node
+kubectl uncordon <node>
+```
+
+## Cgroup v2 Delegation Patterns
+
+### Pattern 1: Flat Delegation
+
+```bash
+# Create a flat delegation for a container runtime
+sudo mkdir /sys/fs/cgroup/containers
+sudo chown container-user:container-user /sys/fs/cgroup/containers
+
+# Enable controllers for delegation
+echo "+cpu +memory +io +pids" | sudo tee /sys/fs/cgroup/cgroup.subtree_control
+
+# Container runtime creates children
+mkdir /sys/fs/cgroup/containers/container-1
+echo $$ > /sys/fs/cgroup/containers/container-1/cgroup.procs
+echo "512M" > /sys/fs/cgroup/containers/container-1/memory.max
+```
+
+### Pattern 2: Hierarchical Delegation
+
+```bash
+# Nested delegation for multi-tenant environments
+sudo mkdir /sys/fs/cgroup/tenant-a
+sudo mkdir /sys/fs/cgroup/tenant-a/app-1
+sudo mkdir /sys/fs/cgroup/tenant-a/app-2
+
+# Tenant admin manages their subtree
+sudo chown -R tenant-admin:tenant-admin /sys/fs/cgroup/tenant-a
+
+# Enable intermediate controllers
+echo "+cpu +memory" | sudo tee /sys/fs/cgroup/tenant-a/cgroup.subtree_control
+
+# App owner manages their cgroup
+sudo chown app-user:app-user /sys/fs/cgroup/tenant-a/app-1
+```
+
+### Delegation Safety Rules
+
+```mermaid
+flowchart TD
+    subgraph "Safe Delegation"
+        S1["Delegate leaf cgroups only"]
+        S2["Set ownership (chown)"]
+        S3["Enable subtree_control"]
+        S4["Delegate only needed controllers"]
+    end
+    subgraph "Unsafe Delegation"
+        U1["Delegate root cgroup"]
+        U2["Delegate without ownership"]
+        U3["Enable all controllers"]
+    end
+```
+
+**Rules for safe delegation:**
+1. Never delegate the root cgroup
+2. Always set ownership before enabling `subtree_control`
+3. Only delegate controllers the tenant needs
+4. Use `nsdelegate` mount option to enforce namespace boundaries
+5. Monitor delegated cgroups for abuse
+
+## Container Runtime Cgroup Namespace Modes
+
+| Runtime | Default Mode | Options | Notes |
+|---------|-------------|---------|-------|
+| Docker 20.10+ | `private` | `private`, `host` | cgroup ns enabled by default |
+| Podman 3.0+ | `private` | `private`, `host`, `container:<id>` | Full cgroup ns support |
+| containerd | `private` | Config via CRI | Kubernetes default |
+| CRI-O | `private` | Config via CRI | Kubernetes default |
+| LXC 4.0+ | `private` | `private`, `host` | Full support |
+
+```bash
+# Docker: check cgroup namespace mode
+docker inspect --format '{{.HostConfig.CgroupnsMode}}' <container>
+
+# Podman: specify cgroup namespace
+podman run --cgroupns=private ubuntu cat /proc/self/cgroup
+podman run --cgroupns=host ubuntu cat /proc/self/cgroup
+```
+
+## Advanced Debugging
+
+### Inspecting Cgroup Namespace Identity
+
+```bash
+# Get cgroup namespace inode number
+grep cgroup /proc/<pid>/ns/cgroup
+# or
+readlink /proc/<pid>/ns/cgroup
+# cgroup:[4026531835]
+
+# Compare two processes' cgroup namespaces
+NS1=$(readlink /proc/<pid1>/ns/cgroup | cut -d: -f2)
+NS2=$(readlink /proc/<pid2>/ns/cgroup | cut -d: -f2)
+if [ "$NS1" = "$NS2" ]; then
+    echo "Same cgroup namespace"
+else
+    echo "Different cgroup namespaces"
+fi
+
+# List all cgroup namespaces on the system
+lsns -t cgroup
+# NS TYPE  NPROCS PID USER COMMAND
+# 4026531835 cgroup 150 1 root /sbin/init
+# 4026532456 cgroup 5 1234 root container-init
+```
+
+### Tracing Cgroup Operations
+
+```bash
+# Trace cgroup operations with ftrace
+echo 1 > /sys/kernel/debug/tracing/events/cgroup/cgroup_mkdir/enable
+echo 1 > /sys/kernel/debug/tracing/events/cgroup/cgroup_rmdir/enable
+echo 1 > /sys/kernel/debug/tracing/events/cgroup/cgroup_attach_task/enable
+
+cat /sys/kernel/debug/tracing/trace_pipe
+# <...>-1234 [001] .... 12345.678: cgroup_mkdir: root=/ cgroup=container-1
+# <...>-1234 [001] .... 12345.679: cgroup_attach_task: root=/ cgroup=container-1 pid=5678
+
+# Disable tracing
+echo 0 > /sys/kernel/debug/tracing/events/cgroup/enable
+```
+
+### Monitoring Cgroup Resource Usage
+
+```bash
+#!/bin/bash
+# cgroup-ns-monitor.sh — Monitor container cgroup resources
+
+CONTAINER_PID=$1
+if [ -z "$CONTAINER_PID" ]; then
+    echo "Usage: $0 <container-pid>"
+    exit 1
+fi
+
+# Get cgroup path from container's perspective
+CGROUP_PATH=$(cat /proc/$CONTAINER_PID/cgroup | cut -d: -f3)
+
+# Full host path
+HOST_CGROUP="/sys/fs/cgroup${CGROUP_PATH}"
+
+if [ ! -d "$HOST_CGROUP" ]; then
+    echo "Error: cgroup path not found: $HOST_CGROUP"
+    exit 1
+fi
+
+echo "=== Container $CONTAINER_PID ==="
+echo "Cgroup: $CGROUP_PATH"
+echo ""
+
+# Memory usage
+echo "Memory:"
+echo "  Current: $(cat $HOST_CGROUP/memory.current 2>/dev/null || echo 'N/A') bytes"
+echo "  Max: $(cat $HOST_CGROUP/memory.max 2>/dev/null || echo 'N/A') bytes"
+echo "  Events:"
+cat $HOST_CGROUP/memory.events 2>/dev/null | sed 's/^/    /'
+
+echo ""
+echo "CPU:"
+cat $HOST_CGROUP/cpu.stat 2>/dev/null | sed 's/^/    /'
+
+echo ""
+echo "Processes: " $(wc -l < $HOST_CGROUP/cgroup.procs 2>/dev/null || echo '0')
+```
+
+## Performance Implications
+
+### Cgroup Namespace Overhead
+
+The cgroup namespace itself has minimal overhead:
+- **Creation**: One additional kernel data structure per namespace
+- **/proc translation**: Trivial path rewriting
+- **No runtime cost**: No per-syscall overhead
+
+```bash
+# Measure cgroup namespace creation time
+# Create 1000 cgroup namespaces
+for i in $(seq 1 1000); do
+    unshare --cgroup true
+done
+# Typically < 1ms per namespace
+```
+
+### Cgroup v2 Controller Overhead
+
+The real overhead comes from resource controllers, not the namespace:
+
+```bash
+# Memory controller overhead
+# Per-page accounting adds ~1-3% overhead
+
+# CPU controller overhead
+# CFS bandwidth control adds <1% overhead
+
+# IO controller overhead
+# BFQ/cfq adds measurable I/O latency
+```
+
 ## Security Implications
 
 ### Information Leak Prevention
