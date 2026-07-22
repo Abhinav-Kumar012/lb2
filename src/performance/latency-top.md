@@ -462,6 +462,334 @@ perf lock report
 
 ---
 
+## Real-World Latency Budgets
+
+### Typical Latency Targets by Application
+
+| Application | Acceptable Latency | Measurement Point |
+|-------------|-------------------|------------------|
+| HFT Trading | < 10 µs | NIC → app decision |
+| Real-time audio | < 10 ms | Input → output |
+| Web API | < 100 ms | Request → response (p99) |
+| Database query | < 5 ms | Query → result (p99) |
+| Video streaming | < 150 ms | Frame decode → display |
+| Network ping | < 1 ms (LAN) | ICMP echo → reply |
+| Disk I/O (NVMe) | < 100 µs | Submit → completion |
+| Disk I/O (SSD) | < 500 µs | Submit → completion |
+| Disk I/O (HDD) | < 10 ms | Submit → completion |
+
+### Kernel Latency Breakdown
+
+```mermaid
+graph TD
+    A["Syscall entry"] --> B["syscall handler"]
+    B --> C["VFS layer"]
+    C --> D{"Filesystem?"}
+    D -->|"ext4"| E["ext4_read/write"]
+    D -->|"network"| F["TCP/IP stack"]
+    D -->|"device"| G["Block layer"]
+    E --> H["Block I/O"]
+    F --> I["NIC driver"]
+    G --> J["I/O scheduler"]
+    H --> J
+    J --> K["NVMe/SATA driver"]
+    K --> L["Hardware"]
+    L --> M["Completion interrupt"]
+    M --> N["Wake up process"]
+    N --> O["Schedule process"]
+    O --> P["Syscall return"]
+
+    style A fill:#3182ce,color:#fff
+    style P fill:#38a169,color:#fff
+    style L fill:#e53e3e,color:#fff
+```
+
+## eBPF-Based Latency Analysis
+
+Modern Linux performance analysis uses eBPF for programmable, low-overhead
+latency tracing:
+
+### bpftrace Latency Scripts
+
+```bash
+# Track I/O latency distribution per process
+bpftrace -e '
+tracepoint:block:block_rq_issue {
+    @start[args->dev, args->sector] = nsecs;
+}
+tracepoint:block:block_rq_complete {
+    $lat = (nsecs - @start[args->dev, args->sector]) / 1000;
+    if ($lat > 0) {
+        @usecs = hist($lat);
+        @proc_usecs[comm] = hist($lat);
+    }
+    delete(@start[args->dev, args->sector]);
+}
+'
+
+# Track syscall latency per process
+bpftrace -e '
+tracepoint:raw_syscalls:sys_enter {
+    @start[tid] = nsecs;
+}
+tracepoint:raw_syscalls:sys_exit {
+    $lat = (nsecs - @start[tid]) / 1000;
+    @usecs[comm, args->id] = hist($lat);
+    delete(@start[tid]);
+}
+'
+
+# Track network latency (TCP RTT)
+bpftrace -e '
+kprobe:tcp_rcv_established {
+    $sk = (struct sock *)arg0;
+    $rtt = ((struct tcp_sock *)$sk)->srtt_us >> 3;
+    @usecs[comm] = hist($rtt);
+}
+'
+
+# Wakeup-to-running latency (scheduling delay)
+bpftrace -e '
+tracepoint:sched:sched_wakeup {
+    @wakeup[args->pid] = nsecs;
+}
+tracepoint:sched:sched_switch {
+    if (args->next_pid != 0) {
+        $lat = nsecs - @wakeup[args->next_pid];
+        if ($lat > 0) {
+            @usecs[args->next_comm] = hist($lat / 1000);
+        }
+        delete(@wakeup[args->next_pid]);
+    }
+}
+'
+
+# Track lock contention latency
+bpftrace -e '
+kprobe:mutex_lock {
+    @start[tid] = nsecs;
+}
+kretprobe:mutex_lock {
+    $lat = (nsecs - @start[tid]) / 1000;
+    @usecs[comm, kstack] = hist($lat);
+    delete(@start[tid]);
+}
+'
+```
+
+### BCC Latency Tools
+
+```bash
+# runqlat — Run queue (scheduling) latency histogram
+/usr/share/bcc/tools/runqlat
+# usecs          : count    distribution
+# 0 -> 1         : 0        |
+# 2 -> 3         : 1234     |**********                           |
+# 4 -> 7         : 5678     |****************************************|
+# 8 -> 15        : 2345     |******************                     |
+# 16 -> 31       : 567      |****                                  |
+# 32 -> 63       : 123      |*                                     |
+# 64 -> 127      : 23       |                                      |
+
+# biolatency — Block I/O latency histogram
+/usr/share/bcc/tools/biolatency
+# usecs          : count    distribution
+# 0 -> 1         : 0        |
+# 2 -> 3         : 45       |*                                     |
+# 4 -> 7         : 234      |*****                                 |
+# 8 -> 15        : 1234     |****************************************|
+# 16 -> 31       : 890      |******************************         |
+# 32 -> 63       : 456      |***************                        |
+# 64 -> 127      : 123      |****                                  |
+
+# ext4slower — Slow ext4 operations (threshold in ms)
+/usr/share/bcc/tools/ext4slower 10
+# Tracing ext4 operations slower than 10 ms
+# TIME     COMM           PID    T BYTES   OFF_KB   LAT(ms) FILENAME
+# 14:23:01 myapp          1234   R 4096    0        12.34   data.bin
+
+# xfsslower — Slow XFS operations
+/usr/share/bcc/tools/xfsslower 5
+
+# fileslower — Slow filesystem reads/writes
+/usr/share/bcc/tools/fileslower 10
+
+# tcpconnlat — TCP connection latency
+/usr/share/bcc/tools/tcpconnlat
+# PID    COMM         IP SADDR            DADDR            DPORT LAT(ms)
+# 1234   curl         4  10.0.0.1         93.184.216.34    80    23.45
+
+# cachestat — Page cache hit/miss ratio
+/usr/share/bcc/tools/cachestat
+# HITS     MISSES   DIRTIES  HITRATIO   BUFFERS_MB  CACHED_MB
+# 12345    678      12       94.79%     234         5678
+```
+
+### perf for Latency Analysis
+
+```bash
+# Record scheduling events
+perf sched record -- sleep 10
+
+# Show scheduling latency
+perf sched latency
+#   Task               |   Runtime ms  |  Switches |  Average delay ms | Maximum delay ms |
+#   my-app (1234)      |     5432.10  |      1234 |              0.45 |             12.3 |
+#   kworker (56)       |      234.56  |       567 |              0.12 |              3.4 |
+
+# Timehist for detailed view
+perf sched timehist
+
+# Lock contention analysis
+perf lock record -- sleep 5
+perf lock report
+
+# Record with call graphs for latency attribution
+perf record -g -p $PID -- sleep 10
+perf report --sort=dso,symbol
+
+# Off-CPU time analysis
+perf record -e sched:sched_switch -ag -- sleep 10
+perf report
+```
+
+## Systematic Latency Debugging
+
+### Step 1: Identify the Process
+
+```bash
+# Find processes with high latency
+pidstat -d 1    # I/O latency
+pidstat -w 1    # Context switch (voluntary = I/O, involuntary = CPU)
+
+# High voluntary context switches = I/O bound
+# High involuntary context switches = CPU contention
+```
+
+### Step 2: Classify the Latency
+
+```bash
+# Is it CPU scheduling delay?
+/usr/share/bcc/tools/runqlat
+# If p99 > 1ms → CPU contention
+
+# Is it I/O latency?
+/usr/share/bcc/tools/biolatency
+# If p99 > 10ms (HDD) or 1ms (SSD) → storage issue
+
+# Is it network latency?
+ss -ti | grep rtt  # TCP RTT
+/usr/share/bcc/tools/tcpconnlat
+
+# Is it lock contention?
+bpftrace -e 'kprobe:mutex_lock { @start[tid] = nsecs; }
+             kretprobe:mutex_lock { @usecs = hist((nsecs-@start[tid])/1000); delete(@start[tid]); }'
+
+# Is it memory pressure?
+vmstat 1
+# si/so (swap in/out) > 0 → memory pressure
+# free -h → check available memory
+```
+
+### Step 3: Find the Root Cause
+
+```bash
+# CPU: profile the process
+perf record -g -p $PID -- sleep 10
+perf report
+# Look for hot functions, lock waits, syscall overhead
+
+# I/O: trace block I/O path
+/usr/share/bcc/tools/biosnoop
+# Shows per-I/O latency with process info
+
+# Network: capture and analyze
+tcpdump -i eth0 -w /tmp/capture.pcap
+# Analyze with tshark or Wireshark
+
+# Memory: check page faults
+perf stat -e page-faults,minor-faults,major-faults -p $PID -- sleep 5
+# Major faults = disk I/O (swap or file)
+```
+
+### Step 4: Fix
+
+| Root Cause | Fix |
+|-----------|-----|
+| CPU scheduling | `taskset`, nice, cgroup CPU |
+| I/O (HDD) | SSD, readahead, I/O scheduler |
+| I/O (SSD) | NVMe, `none` scheduler, `io_uring` |
+| Lock contention | Reduce scope, RCU, per-CPU data |
+| Network | Socket tuning, Nagle disable, bigger buffers |
+| Memory | Add RAM, tune swappiness, hugepages |
+| Page faults | `mlock`, `madvise`, `fadvise` |
+
+## Latency Monitoring in Production
+
+### Continuous Monitoring Setup
+
+```bash
+# Export latency metrics for monitoring (Prometheus/Grafana)
+
+# node_exporter exposes:
+# - node_disk_io_time_seconds (I/O time)
+# - node_network_transmit_queue_length
+# - node_schedstat_waiting_seconds_total
+
+# Custom BPF exporter for application latency
+# bcc + Prometheus exporter
+
+# systemd journal logging of slow operations
+# /etc/systemd/journald.conf:
+# MaxLevelSyslog=warning
+# ForwardToSyslog=no
+```
+
+### Alerting on Latency
+
+```bash
+# Simple latency check script
+#!/bin/bash
+# Check I/O latency via iostat
+LATENCY=$(iostat -xd 1 2 | tail -n +7 | awk '{print $NF}' | sort -rn | head -1)
+if (( $(echo "$LATENCY > 50" | bc -l) )); then
+    echo "ALERT: High I/O latency: ${LATENCY}ms"
+    # Send alert
+fi
+
+# Check scheduling latency via /proc/latency_stats
+if [ -f /proc/latency_stats ]; then
+    cat /proc/latency_stats
+fi
+```
+
+## Latency Analysis Decision Tree
+
+```mermaid
+graph TD
+    A["High latency detected"] --> B{"Where?"}
+    B -->|"CPU"| C["runqlat"]
+    B -->|"Disk"| D["biolatency"]
+    B -->|"Network"| E["tcpconnlat"]
+    B -->|"Lock"| F["bpftrace mutex"]
+    C --> G{"p99 > 1ms?"}
+    G -->|Yes| H["CPU contention:<br/>taskset, nice, cgroup"]
+    G -->|No| I["Normal scheduling"]
+    D --> J{"HDD or SSD?"}
+    J -->|"HDD > 10ms"| K["Replace with SSD,<br/>tune readahead"]
+    J -->|"SSD > 1ms"| L["Check queue depth,<br/>scheduler, NVMe"]
+    E --> M{"RTT > target?"}
+    M -->|Yes| N["Check network path,<br/>buffer sizes, Nagle"]
+    F --> O["Identify lock,<br/>reduce contention"]
+
+    style A fill:#e53e3e,color:#fff
+    style H fill:#3182ce,color:#fff
+    style K fill:#3182ce,color:#fff
+    style L fill:#3182ce,color:#fff
+    style N fill:#3182ce,color:#fff
+    style O fill:#3182ce,color:#fff
+```
+
 ## Further Reading
 
 - [LatencyTOP website](https://latencytop.org/)

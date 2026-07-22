@@ -402,13 +402,69 @@ The kernel provides several powerful debugging tools:
 | Tool | Purpose |
 |------|---------|
 | **Lockdep** | Runtime lock dependency validator — detects potential deadlocks |
-| **KASAN** | Detects data races (with KCSAN) |
+| **KASAN** | Detects use-after-free and out-of-bounds access |
 | **KCSAN** | Kernel Concurrency Sanitizer — detects data races |
 | **Lock_stat** | Lock contention statistics |
 | **ftrace** | Trace lock acquisitions, contentions, and hold times |
 | **perf lock** | Lock profiling with perf |
 
 See [Lockdep](lockdep.md) for the most important of these.
+
+### Debugging Workflow
+
+```mermaid
+graph TD
+    A[Suspected synchronization bug] --> B{What symptom?}
+    B -->|Deadlock/hang| C[Enable CONFIG_PROVE_LOCKING
+Check dmesg for lockdep warnings]
+    B -->|Data corruption| D[Enable CONFIG_KCSAN
+Check for data-race reports]
+    B -->|Use-after-free| E[Enable CONFIG_KASAN
+Check KASAN reports]
+    B -->|Performance issue| F[Use perf lock record
+Analyze contention with lockstat]
+    C --> G[Fix lock ordering]
+    D --> H[Add proper locking/barriers]
+    E --> I[Fix lifetime/RCU usage]
+    F --> J[Reduce contention:
+finer locks, RCU, per-CPU data]
+```
+
+### Common Synchronization Bug Patterns
+
+| Pattern | Symptom | Fix |
+|---------|---------|-----|
+| ABBA deadlock | System hangs | Enforce lock ordering |
+| Missing lock | Data corruption, KCSAN reports | Add appropriate lock |
+| Missing barrier | Intermittent wrong values on ARM | Add `smp_wmb()`/`smp_rmb()` or `_acquire`/`_release` |
+| Sleep in atomic | `BUG: sleeping function called` | Use `GFP_ATOMIC`, restructure |
+| Use-after-free (RCU) | KASAN report | Extend RCU read-side critical section |
+| Double-free | KASAN report | Check refcounting |
+| Lockdep false positive | Lockdep warning on valid code | Use lockdep annotations (`lockdep_set_class`)|
+
+### ftrace Lock Tracing
+
+```bash
+# Enable lock tracing
+$ echo 1 > /sys/kernel/debug/tracing/events/lock/enable
+$ cat /sys/kernel/debug/tracing/trace_pipe
+
+# Trace specific lock events
+$ echo 'lock == &my_lock' > /sys/kernel/debug/tracing/events/lock/contention_begin/filter
+```
+
+### perf lock Analysis
+
+```bash
+# Record lock events for 10 seconds
+$ sudo perf lock record -- sleep 10
+
+# Show contention summary
+$ sudo perf lock report --sort acquired,contended,wait_total
+
+# Show lock dependency graph
+$ sudo perf lock contention
+```
 
 ## Lock Torture Testing
 

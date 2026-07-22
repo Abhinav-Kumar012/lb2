@@ -482,6 +482,249 @@ strace -c ./my_program
 
 ---
 
+## Advanced Filter Techniques
+
+### Multi-Level Filtering
+
+Seccomp supports **layered filters** — each new filter is prepended to the chain. The most recently installed filter runs first:
+
+```c
+/* Layer 1: Base filter (installed by container runtime) */
+/* Allows ~44 syscalls */
+
+/* Layer 2: Application filter (installed by app) */
+/* Further restricts to only needed syscalls */
+
+/* Example: Application adds its own filter on top */
+scmp_filter_ctx ctx = seccomp_init(SCMP_ACT_ALLOW);
+
+/* Block specific dangerous syscalls even if base allows them */
+seccomp_rule_add(ctx, SCMP_ACT_ERRNO(EPERM), SCMP_SYS(ptrace), 0);
+seccomp_rule_add(ctx, SCMP_ACT_ERRNO(EPERM), SCMP_SYS(mount), 0);
+seccomp_rule_add(ctx, SCMP_ACT_ERRNO(EPERM), SCMP_SYS(reboot), 0);
+
+seccomp_load(ctx);
+```
+
+### Argument-Based Filtering
+
+Filter based on syscall arguments for fine-grained control:
+
+```c
+/* Allow ioctl() only for specific terminal operations */
+seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(ioctl), 1,
+                 SCMP_A1(SCMP_CMP_EQ, TCGETS));
+seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(ioctl), 1,
+                 SCMP_A1(SCMP_CMP_EQ, TCSETS));
+
+/* Allow open() only for reading (flags & O_ACCMODE == O_RDONLY) */
+seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(openat), 1,
+                 SCMP_A2(SCMP_CMP_MASKED_EQ, O_ACCMODE, O_RDONLY));
+
+/* Allow prctl() only for specific operations */
+seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(prctl), 1,
+                 SCMP_A0(SCMP_CMP_EQ, PR_SET_NAME));
+seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(prctl), 1,
+                 SCMP_A0(SCMP_CMP_EQ, PR_GET_NAME));
+
+/* Allow socket() only for specific domains */
+seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(socket), 1,
+                 SCMP_A0(SCMP_CMP_EQ, AF_UNIX));
+seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(socket), 1,
+                 SCMP_A0(SCMP_CMP_EQ, AF_INET));
+```
+
+### BPF Jump Table Optimization
+
+For many syscalls, use a jump table pattern instead of linear scanning:
+
+```c
+/* Inefficient: linear search (O(n) per syscall) */
+BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_read, 0, 1),
+BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_write, 0, 1),
+BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+/* ... many more ... */
+
+/* Efficient: binary search or jump table */
+/* Load syscall number, subtract base, jump into table */
+BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
+BPF_STMT(BPF_ALU | BPF_SUB | BPF_K, __NR_read),  /* Normalize */
+BPF_JUMP(BPF_JMP | BPF_JGE | BPF_K, 10, 0, default_action),
+/* Jump table based on normalized value */
+```
+
+### Seccomp Notify with Supervisor
+
+The `SECCOMP_RET_USER_NOTIF` mechanism enables sophisticated supervisor programs:\n
+```c
+#include <linux/seccomp.h>
+#include <sys/ioctl.h>
+
+/* Supervisor process */
+int supervisor_loop(int notify_fd) {
+    struct seccomp_notif *req = NULL;
+    struct seccomp_notif_resp *resp = NULL;
+    struct seccomp_notif_sizes sizes;
+
+    syscall(__NR_seccomp, SECCOMP_GET_NOTIF_SIZES, 0, &sizes);
+    req = malloc(sizes.seccomp_notif);
+    resp = malloc(sizes.seccomp_notif_resp);
+
+    while (1) {
+        /* Wait for a notification */
+        if (ioctl(notify_fd, SECCOMP_IOCTL_NOTIF_RECV, req) < 0)
+            continue;
+
+        printf("PID %d called syscall %lld\n", req->pid, req->data.nr);
+
+        /* Decision logic */
+        switch (req->data.nr) {
+        case __NR_openat: {
+            /* Read filename from sandboxed process */
+            char path[PATH_MAX];
+            struct iovec iov = { path, sizeof(path) };
+            struct seccomp_notif_addfd addfd = {
+                .id = req->id,
+                .flags = SECCOMP_ADDFD_FLAG_SEND,
+            };
+
+            /* Read the path argument */
+            process_vm_readv(req->pid, &iov, 1, /* ... */);
+
+            /* Check against policy */
+            if (is_path_allowed(path)) {
+                /* Open file on behalf of sandboxed process */
+                int fd = open(path, req->data.args[1]);
+                addfd.fd = fd;
+                ioctl(notify_fd, SECCOMP_IOCTL_NOTIF_ADDFD, &addfd);
+            } else {
+                resp->id = req->id;
+                resp->error = -EACCES;
+                ioctl(notify_fd, SECCOMP_IOCTL_NOTIF_SEND, resp);
+            }
+            break;
+        }
+        default:
+            resp->id = req->id;
+            resp->error = -EPERM;
+            ioctl(notify_fd, SECCOMP_IOCTL_NOTIF_SEND, resp);
+        }
+    }
+}
+```
+
+### Systemd System Call Filtering
+
+systemd provides high-level seccomp configuration:
+
+```ini
+[Service]
+# Allow only specific syscall groups
+SystemCallFilter=@system-service @io-event @network-io
+
+# Deny specific groups
+SystemCallFilter=~@mount @reboot @swap @clock @debug
+
+# Kill process on violation (default)
+SystemCallErrorNumber=EPERM
+
+# Restrict to native architecture
+SystemCallArchitectures=native
+
+# Log violations
+SystemCallLog=@system-service
+
+# Example: Minimal service
+SystemCallFilter=read write open close mmap mprotect
+SystemCallFilter=~@privileged @resources
+```
+
+### Go seccomp Profile Generator
+
+```go
+package main
+
+import (
+    "encoding/json"
+    "fmt"
+    "os/exec"
+    "strings"
+)
+
+// Generate seccomp profile by tracing a program
+func generateProfile(binary string) {
+    // Run under strace to collect syscalls
+    cmd := exec.Command("strace", "-f", "-e", "trace=all", binary)
+    output, _ := cmd.CombinedOutput()
+
+    // Parse unique syscalls
+    syscalls := make(map[string]bool)
+    for _, line := range strings.Split(string(output), "\n") {
+        if idx := strings.Index(line, "("); idx > 0 {
+            syscall := strings.TrimSpace(line[:idx])
+            if !strings.HasPrefix(syscall, "---") {
+                syscalls[syscall] = true
+            }
+        }
+    }
+
+    // Generate profile
+    profile := map[string]interface{}{
+        "defaultAction": "SCMP_ACT_KILL_PROCESS",
+        "syscalls": []map[string]interface{}{{
+            "names": mapKeys(syscalls),
+            "action": "SCMP_ACT_ALLOW",
+        }},
+    }
+
+    json.NewEncoder(os.Stdout).Encode(profile)
+}
+```
+
+## Security Considerations
+
+### TOCTOU (Time-of-Check-Time-of-Use)
+
+When using `SECCOMP_RET_USER_NOTIF`, the supervisor reads arguments from the sandboxed process's memory. Between the read and the action, the sandboxed process could modify the arguments:
+
+```c
+/* Mitigation: use SECCOMP_IOCTL_NOTIF_ADDFD */
+/* This atomically adds a file descriptor to the sandboxed process */
+/* The supervisor opens the file and passes the fd */
+
+/* Also: use process_vm_readv for consistent reads */
+/* Pin memory pages where possible */
+```
+
+### Filter Complexity Limits
+
+The kernel limits BPF filter complexity:
+
+```bash
+# Maximum instructions per filter (default: 4096)
+cat /proc/sys/kernel/seccomp/actions_logged
+
+# Maximum filter stack depth (default: 256)
+# Each nested filter counts toward the limit
+```
+
+### Audit Logging
+
+```bash
+# Enable seccomp audit logging
+echo 1 > /proc/sys/kernel/seccomp/actions_logged
+
+# Check audit log
+ausearch -m SECCOMP
+
+# Example audit entry:
+# type=SECCOMP msg=audit(1234567890.123:456): auid=1000 uid=1000
+#   pid=1234 comm="myapp" exe="/usr/bin/myapp"
+#   sig=0 arch=c000003e syscall=16 compat=0
+#   code=SECCOMP_RET_ERRNO
+```
+
 ## Further Reading
 
 - [Linux kernel source: `kernel/seccomp.c`](https://elixir.bootlin.com/linux/latest/source/kernel/seccomp/)
