@@ -74,6 +74,92 @@ int devtmpfs_delete_node(struct device *dev) {
 }
 ```
 
+## devtmpfs Internals
+
+### Memory Model
+devtmpfs is built on the tmpfs infrastructure but with significant restrictions. It uses a dedicated tmpfs-like filesystem type (`devtmpfs_fs_type`) that prevents non-kernel code from creating files. The memory overhead is minimal:
+
+```mermaid
+graph LR
+    subgraph "devtmpfs Memory Usage"
+        A[Superblock] --> B[Inode per device node]
+        B --> C[Dentry per device node]
+        C --> D[No page cache entries]
+        D --> E[Typical: < 2MB total]
+    end
+```
+
+Key memory characteristics:
+- **No data pages**: Device nodes are zero-size; only metadata (inode + dentry) consumes memory
+- **Inode cache**: Each device node requires one inode (~500-1000 bytes)
+- **Dentry cache**: Each name requires one dentry (~200-400 bytes)
+- **No swap**: devtmpfs pages are not swappable (kernel memory)
+
+### Security Model
+devtmpfs has a strict security model that evolved over time:
+
+| Kernel Version | Security Change |
+|----------------|------------------|
+| 2.6.32 | Initial: nodes created with default mode 0600 |
+| 2.6.34 | `devtmpfs_set_node_perms()` callback added |
+| 3.x | udev can override permissions via uevent handler |
+| 5.x | `CONFIG_DEVTMPFS_SAFE` option for restrictive defaults |
+
+```c
+/* Security: devtmpfs refuses non-kernel file creation */
+static int devtmpfs_mount_called;
+
+/* Only the kernel can create files in devtmpfs */
+static const struct super_operations devtmpfs_ops = {
+    .statfs     = simple_statfs,
+    .show_options = generic_show_options,
+    /* No .create, .mkdir, etc. — kernel creates nodes directly */
+};
+```
+
+### Device Naming Convention
+devtmpfs follows a hierarchical naming scheme:
+
+```bash
+# Block devices: subsystem + index
+/dev/sda        # First SCSI/SATA disk
+/dev/sda1       # First partition on first disk
+/dev/nvme0n1    # First NVMe namespace
+/dev/nvme0n1p1  # First partition on first NVMe namespace
+
+# Character devices: subsystem + index
+/dev/tty0       # First virtual terminal
+/dev/ttyS0      # First serial port
+/dev/input/event0  # First input event device
+
+# Special naming: subsystem:device_type:index
+/dev/vga_arbiter    # VGA arbitration
+/dev/autofs         # Automount device
+```
+
+### Kernel Thread: devtmpfsd
+devtmpfs runs a kernel thread (`devtmpfsd`) that handles node creation requests:
+
+```mermaid
+sequenceDiagram
+    participant Driver as Device Driver
+    participant Core as Driver Core
+    participant Queue as Request Queue
+    participant Thread as devtmpfsd
+    participant VFS as VFS Layer
+
+    Driver->>Core: device_add()
+    Core->>Queue: enqueue request
+    Core->>Thread: wake_up(&request)
+    Thread->>Queue: dequeue request
+    Thread->>VFS: vfs_mknod() or vfs_unlink()
+    VFS->>Thread: result
+    Thread->>Core: complete(&done)
+    Core->>Driver: continue
+```
+
+The thread processes requests sequentially, ensuring proper ordering of device node operations.
+
 ## devtmpfs vs udev
 
 ```mermaid
