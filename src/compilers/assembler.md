@@ -454,24 +454,385 @@ readelf -a hello.o
 | `.pushsection`  | Save and switch section                  |
 | `.popsection`   | Restore previously saved section         |
 
+## RISC-V Examples
+
+### RISC-V Function (RV64GC)
+
+```gas
+.text
+.global fib
+.type   fib, @function
+
+fib:
+    # a0 = n
+    li      t0, 2
+    blt     a0, t0, .Lbase
+    addi    sp, sp, -16
+    sd      ra, 8(sp)
+    sd      s0, 0(sp)
+    mv      s0, a0          # save n
+    addi    a0, a0, -1      # fib(n-1)
+    call    fib
+    mv      t1, a0          # t1 = fib(n-1)
+    addi    a0, s0, -2      # fib(n-2)
+    call    fib
+    add     a0, a0, t1      # fib(n-1) + fib(n-2)
+    ld      ra, 8(sp)
+    ld      s0, 0(sp)
+    addi    sp, sp, 16
+    ret
+.Lbase:
+    ret                     # fib(0) = 0, fib(1) = 1
+.size   fib, .-fib
+```
+
+### RISC-V Linux Syscall (RV64)
+
+```gas
+.data
+msg:    .ascii  "Hello from RISC-V\n"
+.equ    msg_len, . - msg
+
+.text
+.global _start
+_start:
+    li      a7, 64          # sys_write
+    li      a0, 1           # stdout
+    la      a1, msg
+    li      a2, msg_len
+    ecall
+
+    li      a7, 93          # sys_exit
+    li      a0, 0           # status
+    ecall
+```
+
+```bash
+# Cross-compile for RISC-V
+riscv64-linux-gnu-as -o hello.o hello.s
+riscv64-linux-gnu-ld -o hello hello.o
+qemu-riscv64 ./hello
+# Output: Hello from RISC-V
+```
+
+### RISC-V Vector Extension (RVV 1.0)
+
+```gas
+.text
+.global vec_add_f64
+.type   vec_add_f64, @function
+
+vec_add_f64:
+    # a0 = a[], a1 = b[], a2 = out[], a3 = count
+    vsetvli t0, a3, e64, m1  # Set vector: 64-bit elements
+    beqz    t0, .Ldone
+.Lloop:
+    vle64.v v0, (a0)         # Load a[]
+    vle64.v v1, (a1)         # Load b[]
+    vfadd.vv v0, v0, v1      # v0 = a + b
+    vse64.v v0, (a2)         # Store out[]
+    slli    t1, t0, 3        # t0 * 8 bytes
+    add     a0, a0, t1
+    add     a1, a1, t1
+    add     a2, a2, t1
+    sub     a3, a3, t0
+    vsetvli t0, a3, e64, m1
+    bnez    t0, .Lloop
+.Ldone:
+    ret
+.size   vec_add_f64, .-vec_add_f64
+```
+
+## Inline Assembly in C
+
+GCC inline assembly allows embedding assembly within C code:
+
+### Basic Inline Assembly
+
+```c
+/* Simple inline assembly */
+static inline uint64_t rdtsc(void) {
+    uint32_t lo, hi;
+    __asm__ __volatile__ (
+        "rdtsc"
+        : "=a" (lo), "=d" (hi)  /* outputs */
+        :                       /* inputs */
+        :                       /* clobbers */
+    );
+    return ((uint64_t)hi << 32) | lo;
+}
+
+/* Memory barrier */
+static inline void barrier(void) {
+    __asm__ __volatile__ ("" : : : "memory");
+}
+
+/* System call wrapper */
+static inline long syscall3(long nr, long a1, long a2, long a3) {
+    long ret;
+    __asm__ __volatile__ (
+        "syscall"
+        : "=a" (ret)
+        : "a" (nr), "D" (a1), "S" (a2), "d" (a3)
+        : "rcx", "r11", "memory"
+    );
+    return ret;
+}
+```
+
+### Extended Inline Assembly
+
+```c
+/* Atomic compare-and-swap */
+static inline int cas(int *ptr, int old, int new) {
+    int result;
+    __asm__ __volatile__ (
+        "lock cmpxchgl %2, %1"
+        : "=a" (result), "+m" (*ptr)
+        : "r" (new), "0" (old)
+        : "memory"
+    );
+    return result;
+}
+
+/* CPUID instruction */
+static inline void cpuid(uint32_t leaf, uint32_t *eax, uint32_t *ebx,
+                         uint32_t *ecx, uint32_t *edx) {
+    __asm__ __volatile__ (
+        "cpuid"
+        : "=a" (*eax), "=b" (*ebx), "=c" (*ecx), "=d" (*edx)
+        : "a" (leaf)
+    );
+}
+```
+
+### AArch64 Inline Assembly
+
+```c
+/* Read system register */
+static inline uint64_t read_mpidr(void) {
+    uint64_t val;
+    __asm__ __volatile__ (
+        "mrs %0, mpidr_el1"
+        : "=r" (val)
+    );
+    return val;
+}
+
+/* Data cache clean/invalidate by VA */
+static inline void dc_cvac(const void *addr) {
+    __asm__ __volatile__ (
+        "dc cvac, %0"
+        : : "r" (addr) : "memory"
+    );
+}
+
+/* Yield instruction (hint to CPU) */
+static inline void cpu_relax(void) {
+    __asm__ __volatile__ ("yield" : : : "memory");
+}
+```
+
+### RISC-V Inline Assembly
+
+```c
+/* Read cycle counter */
+static inline uint64_t rdcycle(void) {
+    uint64_t val;
+    __asm__ __volatile__ (
+        "rdcycle %0"
+        : "=r" (val)
+    );
+    return val;
+}
+
+/* Memory fence */
+static inline void smp_mb(void) {
+    __asm__ __volatile__ ("fence rw, rw" : : : "memory");
+}
+
+/* Read mhartid */
+static inline uint64_t get_hartid(void) {
+    uint64_t val;
+    __asm__ __volatile__ (
+        "csrr %0, mhartid"
+        : "=r" (val)
+    );
+    return val;
+}
+```
+
+## Debugging Assembly
+
+### Using GDB with Assembly
+
+```bash
+# Compile with debug info
+as --gdwarf-4 -o hello.o hello.s
+ld -o hello hello.o
+
+# Debug with GDB
+gdb ./hello
+(gdb) break _start
+(gdb) run
+(gdb) layout asm          # Show assembly window
+(gdb) layout regs         # Show registers + assembly
+(gdb) stepi               # Step one instruction
+(gdb) info registers      # Show all registers
+(gdb) print/x $rax        # Print register in hex
+(gdb) x/10i $pc           # Show 10 instructions at PC
+(gdb) x/16xb $rsp         # Examine stack (16 bytes)
+(gdb) disassemble         # Disassemble current function
+```
+
+### Debugging Inline Assembly
+
+```bash
+# See what GCC generates from inline asm
+gcc -S -O2 -o output.s inline_test.c
+
+# Check register allocation
+gcc -S -O2 -fverbose-asm -o output.s inline_test.c
+
+# View preprocessed assembly with C source interleaved
+gcc -g -O2 -c -o test.o inline_test.c
+objdump -dS test.o
+```
+
+### Verifying Assembly Output
+
+```bash
+# Disassemble object file
+objdump -d hello.o
+
+# Show relocations (linker needs)
+objdump -r hello.o
+
+# Show symbol table
+nm hello.o
+# 0000000000000000 T _start
+# 0000000000000020 D msg
+
+# Show all ELF sections
+readelf -S hello.o
+
+# Verify instruction encoding
+objdump -d hello.o | grep "movabs"
+# Shows both disassembly and raw bytes
+```
+
+## Optimization Directives
+
+### Alignment for Performance
+
+```gas
+# Align hot loops to 16-byte boundaries
+.p2align 4
+.Lhot_loop:
+    # ... fast path ...
+    jnz .Lhot_loop
+
+# Align function entry points
+.p2align 4
+.global fast_function
+fast_function:
+    # ... function body ...
+```
+
+### Branch Prediction Hints
+
+```gas
+# GAS does not have direct branch prediction hints,
+# but GCC's __builtin_expect() generates .subsection placement
+# Cold code goes in a separate subsection (moved away from hot path)
+
+.section .text.unlikely
+.Lcold_path:
+    # Error handling, slow path
+    # Placed far from hot code for better I-cache usage
+    jmp .Lcommon_exit
+
+.section .text
+.Lhot_path:
+    # Fast path
+    testq %rax, %rax
+    jz .Lcold_path
+```
+
+### Instruction Scheduling
+
+```gas
+# GAS can schedule instructions with .sched_order
+# Usually handled by compiler, but useful in hand-written asm
+
+# On modern x86, out-of-order execution handles most scheduling
+# Focus on:
+# 1. Minimizing data dependencies
+# 2. Avoiding store-to-load forwarding stalls
+# 3. Aligning hot loops
+```
+
+## Advanced GAS Features
+
+### Conditional Assembly
+
+```gas
+.macro save_all_regs
+#ifdef __x86_64__
+    pushq %rbx
+    pushq %r12
+    pushq %r13
+    pushq %r14
+    pushq %r15
+#elif defined(__aarch64__)
+    stp x19, x20, [sp, #-16]!
+    stp x21, x22, [sp, #-16]!
+    stp x23, x24, [sp, #-16]!
+    stp x25, x26, [sp, #-16]!
+    stp x27, x28, [sp, #-16]!
+#endif
+.endm
+```
+
+### Including Binary Data
+
+```gas
+# Include a binary file (e.g., font, firmware, image)
+.section .rodata
+.global font_data
+font_data:
+    .incbin "font.bin"
+.equ font_size, . - font_data
+```
+
+### ELF Section Attributes
+
+```gas
+# Custom section with specific attributes
+.section .initcall.init,"aw",@progbits
+.align 8
+.quad my_init_function
+
+# Discarded section (for linker script)
+.section .discard,"",@progbits
+```
+
+## Cross-Architecture Assembly Quick Reference
+
+| Feature | x86-64 | AArch64 | RISC-V RV64 |
+|---------|--------|---------|-------------|
+| Syscall instruction | `syscall` | `svc #0` | `ecall` |
+| Syscall number | `%rax` | `x8` | `a7` |
+| Return register | `%rax` | `x0` | `a0` |
+| Stack pointer | `%rsp` | `sp` | `sp` |
+| Frame pointer | `%rbp` | `x29` | `s0` |
+| Call instruction | `call` | `bl` | `call` |
+| Return instruction | `ret` | `ret` | `ret` |
+| First argument | `%rdi` | `x0` | `a0` |
+| NOP | `nop` | `nop` | `nop` |
+| Fence | `mfence` | `dmb sy` | `fence rw,rw` |
+
 ## References
-
-- [The Linux Kernel Documentation](https://docs.kernel.org/)
-- [LWN.net - Linux and free software news](https://lwn.net/)
-- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
-- [GNU Manuals](https://www.gnu.org/manual/manual.html)
-- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
-- [Planet GNU](https://planet.gnu.org/)
-- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
-
-- [GNU `as` Manual](https://sourceware.org/binutils/docs/as/) — official documentation
-- [System V AMD64 ABI](https://gitlab.com/x86-psABIs/x86-64-ABI) — calling convention
-- [ARM A64 Instruction Set](https://developer.arm.com/documentation/ddi0602/latest) — ARM reference
-- [Linux syscall table (x86-64)](https://blog.rchapman.org/posts/Linux_System_Call_Table_for_x86_64/)
-- [NASM Manual](https://nasm.us/doc/) — for comparison
-- [`ld` Manual](https://sourceware.org/binutils/docs/ld/) — linker reference
-
-## Related Topics
 
 - [GCC Internals](./gcc.md) — how GCC generates assembly
 - [Linker and Linker Scripts](../linkers/linker-scripts.md) — consuming GAS output
