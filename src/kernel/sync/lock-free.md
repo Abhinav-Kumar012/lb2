@@ -99,6 +99,81 @@ rcu_read_unlock();
 - **Filesystem dcache** — Path lookups
 - **PID hash table** — Process lookup by PID
 - **Network connection tracking** — Conntrack table
+- **`struct net` namespace lookups** — Network namespace references
+- **`pid_namespace` process tables** — PID-to-task mapping
+- **SELinux policy** — Security policy lookups
+
+### RCU Implementation Variants
+
+The kernel supports multiple RCU implementations, selected via Kconfig:
+
+| Config | Description | Use Case |
+|--------|-------------|----------|
+| `CONFIG_TREE_RCU` (default) | Hierarchical tree-based RCU | SMP systems, most common |
+| `CONFIG_TINY_RCU` | Minimal single-CPU RCU | UP systems, embedded |
+| `CONFIG_PREEMPT_RCU` | Preemptible read-side critical sections | `PREEMPT` kernels |
+| `CONFIG_TASKS_RCU` | Grace periods based on voluntary context switches | Tracing, BPF |
+| `CONFIG_TASKS_TRACE_RCU` | Grace periods for tracing readers | ftrace, BPF tracing |
+
+#### Tree RCU Hierarchy
+
+Tree RCU organizes CPUs into a tree structure to efficiently detect grace periods without a global counter:
+
+```mermaid
+graph TD
+    Root[Root Node] --> N1[Node 0-3]
+    Root --> N2[Node 4-7]
+    N1 --> C0[CPU 0]
+    N1 --> C1[CPU 1]
+    N1 --> C2[CPU 2]
+    N1 --> C3[CPU 3]
+    N2 --> C4[CPU 4]
+    N2 --> C5[CPU 5]
+    N2 --> C6[CPU 6]
+    N2 --> C7[CPU 7]
+```
+
+Each node tracks whether its child CPUs have passed through a quiescent state. When all CPUs in a leaf have reported, the leaf propagates upward. When the root sees all children reported, the grace period ends. This reduces the overhead from O(N) global checks to O(log N) tree traversals.
+
+#### Sleepable RCU (SRCU)
+
+SRCU allows readers to sleep inside the critical section:
+
+```c
+#include <linux/srcu.h>
+
+DEFINE_STATIC_SRCU(my_srcu);
+
+/* Reader — can sleep! */
+int idx = srcu_read_lock(&my_srcu);
+/* ... may sleep, allocate with GFP_KERNEL, etc. ... */
+srcu_read_unlock(&my_srcu, idx);
+
+/* Writer */
+synchronize_srcu(&my_srcu);  /* Wait for all readers */
+```
+
+**Trade-off**: SRCU has higher per-reader overhead than regular RCU (it uses per-CPU counters rather than preemption disabling), but it supports sleeping readers.
+
+#### Tasks RCU
+
+Tasks RCU uses voluntary context switches as quiescent states rather than context switches in `rcu_read_lock()` critical sections. This is used primarily for tracing and BPF:
+
+```c
+/* Wait for all tasks to pass through a voluntary context switch */
+synchronize_rcu_tasks();
+```
+
+#### RCU Callback Offloading
+
+On large systems, RCU callbacks (`call_rcu()`) can consume significant CPU time. The kernel supports offloading callback processing to dedicated kthreads:
+
+```bash
+# Offload RCU callbacks to kthreads on CPUs 2-7
+$ echo 2-7 > /sys/module/rcupdate/parameters/rcu_nocbs
+```
+
+This is important for real-time and latency-sensitive workloads where RCU callback processing can cause unexpected latency spikes.
 
 ---
 
@@ -150,6 +225,21 @@ do {
 - **`xtime`** — Wall clock time
 - **`struct path`** mount point data
 - **Network statistics** — Per-CPU counters with seqlock snapshot
+- **`struct rq` runqueue clock** — Scheduler timestamp reads
+- **VFS inode size** — File size reads during `stat()`
+
+### Seqlock Performance Characteristics
+
+Seqlocks are optimal when:
+- Writers are infrequent (less than 1% of accesses)
+- Read-side data is simple (a few words)
+- Readers can tolerate retrying
+
+**Read-side cost**: On x86, `read_seqbegin()` is a single `READ_ONCE()` plus a compiler barrier — essentially free. The retry loop adds a comparison per iteration. In the common case (no concurrent writer), the read completes in a few nanoseconds.
+
+**Writer-side cost**: `write_seqlock()` is a single atomic increment plus a write barrier. On x86, this is roughly 5-10 nanoseconds. On ARM64, it involves a `DMB ISHST` barrier.
+
+**Starvation risk**: Under heavy write load, readers can starve indefinitely. The kernel does not provide a fairness mechanism for seqlock readers. If writes are frequent, use a `rwlock` or RCU instead.
 
 ### Sequence Counters (seqcount_t)
 
