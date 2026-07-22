@@ -495,6 +495,104 @@ grep -Ev "^\s*#" /etc/ssh/sshd_config | grep -Ev "^\s*$"
 grep -E "^\s*server_name" /etc/nginx/sites-enabled/*
 ```
 
+## grep Exit Codes
+
+```bash
+grep "pattern" file.txt
+# Exit code 0: match found
+# Exit code 1: no match found
+# Exit code 2: error (file not found, etc.)
+
+# Use in scripts
+if grep -q "error" logfile.txt; then
+    echo "Errors found"
+fi
+
+# Suppress errors
+grep -s "pattern" nonexistent.txt  # No error message
+
+# Count vs exit code
+grep -c "pattern" file.txt    # Prints count, exit 0 if > 0
+grep -q "pattern" file.txt    # No output, exit 0 if match
+
+# Multiple files: exit 0 if ANY file has match
+grep -l "pattern" *.txt      # Lists matching files, exit 0 if any
+```
+
+## Binary File Handling
+
+```bash
+# Default: binary files are skipped or matched as "Binary file matches"
+grep "pattern" file.bin
+
+# Treat binary as text
+grep -a "pattern" file.bin
+grep --text "pattern" file.bin
+
+# Search binary for strings
+strings file.bin | grep "pattern"
+
+# Skip binary files entirely
+grep -I "pattern" /path/
+grep --binary-files=without-match "pattern" /path/
+
+# Search specific bytes in binary
+grep -P -bo "\x89PNG" image.png    # Show byte offset of match
+```
+
+## grep with Multibyte/Unicode
+
+```bash
+# grep respects locale settings
+LC_ALL=en_US.UTF-8 grep "café" file.txt
+
+# Byte matching (ignore locale)
+LC_ALL=C grep '[\x80-\xff]' file.txt  # Non-ASCII bytes
+
+# Match Unicode characters
+grep -P '\x{00E9}' file.txt           # é (Unicode)
+grep -P '\p{Han}' file.txt            # Chinese characters
+grep -P '\p{Emoji}' file.txt          # Emoji (PCRE2)
+
+# Portable Unicode matching
+grep '[[:alpha:]]' file.txt           # Works in any locale
+```
+
+## Common grep Mistakes
+
+```bash
+# 1. Forgetting to escape regex metacharacters
+grep "file.txt" log        # . matches any character
+grep "file\.txt" log       # Correct: literal dot
+
+# 2. Not quoting patterns
+grep *.txt file             # Shell expands *.txt first!
+grep "*.txt" file           # Correct: pass pattern to grep
+
+# 3. Using grep for fixed strings (use -F)
+grep "192.168.1.1" log     # . matches any char
+grep -F "192.168.1.1" log  # Correct: literal match
+
+# 4. Grepping ps output (matches itself)
+ps aux | grep nginx         # Shows grep process too
+ps aux | grep "[n]ginx"     # Correct: excludes grep
+pgrep nginx                 # Better: use pgrep
+
+# 5. Not using -r for directories
+grep "pattern" /path/       # Error: is a directory
+grep -r "pattern" /path/    # Correct
+
+# 6. Losing line context with -o
+grep -o "error" log         # Just "error", no context
+grep -o ".*error.*" log     # Whole line with error
+
+grep -B2 -A2 "error" log   # Better: use context lines
+
+# 7. Forgetting -- for end of options
+grep -e "pattern" -- -file.txt  # File named -file.txt
+grep "pattern" -- -file.txt     # Also works
+```
+
 ## References
 
 - [grep(1) man page](https://man7.org/linux/man-pages/man1/grep.1.html)
@@ -502,9 +600,11 @@ grep -E "^\s*server_name" /etc/nginx/sites-enabled/*
 - [ripgrep documentation](https://github.com/BurntSushi/ripgrep/blob/master/GUIDE.md)
 - [POSIX Regular Expressions](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap09.html)
 - [Regular-Expressions.info](https://www.regular-expressions.info/)
+- [POSIX grep specification](https://pubs.opengroup.org/onlinepubs/9699919799/utilities/grep.html)
 
 ## Related Topics
 
 - [find](./find.md) — file search (complementary to grep)
 - [xargs](./xargs.md) — argument processing for grep pipelines
 - [POSIX Shell](./posix-shell.md) — portable grep usage
+- [Regular Expressions](./regex.md) — pattern syntax reference
