@@ -451,6 +451,7 @@ $ stat /tmp/original /tmp/link
 - [VFS documentation — inode operations](https://www.kernel.org/doc/html/latest/filesystems/vfs.html#inode-operations)
 - [include/linux/fs.h source](https://github.com/torvalds/linux/blob/master/include/linux/fs.h)
 - [The Linux VFS — Jonathan Corbet](https://lwn.net/Articles/576276/)
+- [inode(7) man page](https://man7.org/linux/man-pages/man7/inode.7.html)
 
 ## Further Reading
 
