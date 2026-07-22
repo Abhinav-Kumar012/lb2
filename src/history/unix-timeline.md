@@ -354,7 +354,20 @@ The Unix philosophy—small programs that do one thing well, connected through p
 3. Design and build software to be tried early
 4. Prefer tools to unskilled help
 
-These principles shaped not just Linux, but the entire cloud-native ecosystem of containers, microservices, and orchestration.
+These principles shaped not just Linux, but the entire cloud-native ecosystem of containers, microservices, and orchestration. Modern tools like Docker, Kubernetes, and Terraform all embody the Unix philosophy of composable, single-purpose tools connected through well-defined interfaces.
+
+### The Unix Heritage Today
+
+```bash
+# Unix tools from the 1970s are still in daily use:
+$ ls | grep ".txt" | sort | wc -l    # ls (1971), grep (1974), sort (1974), wc (1973)
+
+# Shell pipelines (1973) remain the primary composition mechanism:
+$ cat /var/log/syslog | awk '{print $5}' | sort | uniq -c | sort -rn | head
+
+# The pipe operator (|) was revolutionary in 1973 and is still fundamental:
+$ ps aux | grep nginx | awk '{print $2}' | xargs kill
+```
 
 ## Diagram: Unix Family Tree (Simplified)
 
