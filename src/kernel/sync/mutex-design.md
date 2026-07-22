@@ -585,6 +585,47 @@ timeout, the next waiter gets the lock directly.
 
 ---
 
+## 14. FAQ
+
+### Why doesn't the regular mutex support priority inheritance?
+
+Regular mutexes were designed for the general-purpose case where priority
+inversion is not a critical concern. `rt_mutex` adds PI support but at the
+cost of more complex unlock logic (priority chain walking) and additional
+overhead. For most kernel code, the optimistic spin + handoff mechanism
+provides sufficient fairness. On `PREEMPT_RT` kernels, all mutexes are
+backed by `rt_mutex` internally, so PI is available when needed.
+
+### Can mutexes be used in interrupt context?
+
+No. Mutexes are sleeping locks — the slow path calls `schedule()` to put the
+task to sleep. Interrupt context cannot sleep. Use spinlocks or other
+atomic-context-safe primitives in interrupt handlers.
+
+### What is the difference between `mutex_lock()` and `mutex_lock_interruptible()`?
+
+`mutex_lock()` sleeps as `TASK_UNINTERRUPTIBLE` — the task cannot be woken by
+signals while waiting. `mutex_lock_interruptible()` sleeps as
+`TASK_INTERRUPTIBLE` — the task can be woken by signals, and the function
+returns `-ERESTARTSYS` if interrupted. Use the interruptible variant when the
+caller may need to respond to signals (e.g., userspace-triggered operations).
+
+### How does the handoff timeout work?
+
+When a waiter has been on the wait_list for too long (measured using a
+per-waiter timestamp), it sets `MUTEX_FLAG_HANDOFF` on the mutex. The next
+unlock will directly transfer ownership to this waiter instead of letting a
+spinner steal the lock. This prevents starvation in high-contention scenarios.
+
+### Why use a raw_spinlock for wait_lock instead of a regular spinlock?
+
+`wait_lock` is held in code paths where preemption may be disabled (inside the
+optimistic spin). A regular `spin_lock` on `PREEMPT_RT` kernels would attempt
+to acquire a sleeping lock, which is not allowed with preemption disabled.
+`raw_spinlock_t` always behaves as a true spinlock regardless of RT config.
+
+---
+
 ## Cross-References
 
 * [Locking Overview](./index.md) — spinlocks, rwlocks, RCU

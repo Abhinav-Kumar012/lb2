@@ -468,6 +468,212 @@ average:
   0ms logging data
 ```
 
+
+## JBD2 Transaction Internals
+
+### Transaction States in Detail
+
+JBD2 transactions go through a well-defined state machine. Understanding
+these states is essential for debugging journal performance issues.
+
+```mermaid
+stateDiagram-v2
+    [*] --> T_RUNNING: journal_start()
+    T_RUNNING --> T_LOCKED: No new handles allowed
+    T_LOCKED --> T_FLUSH: Flush data buffers
+    T_FLUSH --> T_COMMIT: Write commit record
+    T_COMMIT --> T_FINISHED: All buffers written to final locations
+    T_FINISHED --> [*]: Free journal space
+
+    T_RUNNING --> T_RUNNING: Add handles/buffers
+    T_LOCKED --> T_LOCKED: Wait for data flush
+```
+
+### Handle and Buffer Lifecycle
+
+Every filesystem operation that modifies metadata creates a **handle**.
+Multiple handles can be active within a single transaction:
+
+```c
+/* Typical lifecycle */
+handle_t *handle = ext4_journal_start(inode, nblocks);
+
+/* Add metadata buffers to the transaction */
+struct buffer_head *bh = sb_bread(sb, block_num);
+jbd2_journal_get_write_access(handle, bh);
+/* Modify buffer contents */
+bh->b_data[0] = new_value;
+jbd2_journal_dirty_metadata(handle, bh);
+
+ext4_journal_stop(handle);
+```
+
+The `jbd2_journal_get_write_access()` call is critical — it tells JBD2
+that this buffer is about to be modified.  JBD2 may need to copy the buffer
+to the journal first (for `data=journal` mode) or just record its block
+number (for `data=ordered` and `data=writeback`).
+
+### Journal Block Format
+
+The journal on disk has a precise format:
+
+```
+Block 0: Journal Superblock
+  +-- Sequence number
+  +-- Start of valid journal
+  +-- Error flag
+  +-- Feature flags
+
+Block 1+: Transaction blocks
+  +-- Descriptor block (tag + block numbers)
+  |   +-- Tag 0: fs_block=5000, flags=ESCAPE|LAST
+  |   +-- (or data blocks for data=journal mode)
+  +-- Data blocks (if data=journal)
+  +-- Commit block (sequence + checksum)
+```
+
+## Barriers and Flush Guarantees
+
+### Why Barriers Matter
+
+Without barriers, the disk controller may reorder writes, potentially
+writing a commit record before all transaction data is on disk.  This
+could cause corruption after a crash.
+
+```mermaid
+sequenceDiagram
+    participant J as Journal
+    participant C as Disk Cache
+    participant D as Disk Platter
+
+    Note over J: Transaction data
+    J->>C: Write data blocks
+    J->>C: Write commit record
+    C->>D: Reorder: commit first!
+    Note over D: CRASH: commit exists, data missing
+```
+
+### How Barriers Fix This
+
+A barrier (FLUSH/FUA) forces the disk to flush its volatile cache:
+
+```mermaid
+sequenceDiagram
+    participant J as Journal
+    participant C as Disk Cache
+    participant D as Disk Platter
+
+    J->>C: Write data blocks
+    C->>D: Flush (barrier)
+    J->>C: Write commit record
+    C->>D: Flush (barrier)
+    Note over D: Safe: data on disk before commit
+```
+
+```bash
+# Check if barriers are enabled
+$ mount | grep ext4
+/dev/sda1 on / type ext4 (rw,relatime,data=ordered)
+# No 'barrier=0' = barriers are enabled
+
+# Disable barriers (DANGEROUS -- only with battery-backed RAID)
+$ sudo mount -o barrier=0 /dev/sda1 /data
+
+# Check disk cache status
+$ sudo hdparm -W /dev/sda
+/dev/sda:
+ write-caching = 1 (on)
+```
+
+## Recovery Process in Detail
+
+When the system boots after a crash, the journal recovery code runs
+before the filesystem is mounted:
+
+```mermaid
+flowchart TD
+    A["Boot after crash"] --> B["ext4_fill_super()"]
+    B --> C{"Journal has
+uncommitted transactions?"}
+    C -->|No| D["Normal mount"]
+    C -->|Yes| E["jbd2_journal_recover()"]
+    E --> F["Scan journal for
+complete transactions"]
+    F --> G["Replay each transaction
+(write metadata to final locations)"]
+    G --> H["Mark journal as clean"]
+    H --> D
+```
+
+```bash
+# View recovery messages in kernel log
+$ sudo dmesg | grep -i journal
+[    1.234567] EXT4-fs (sda1): recovery complete
+[    1.234568] EXT4-fs (sda1): mounted filesystem with ordered data mode
+
+# Force journal recovery (unmount first)
+$ sudo umount /dev/sda1
+$ sudo e2fsck -f /dev/sda1
+```
+
+## F2FS Logging
+
+F2FS (Flash-Friendly File System) uses a **log-structured** approach with
+multiple active logs:
+
+* **Hot log**: Frequently updated metadata (inodes, dentries)
+* **Warm log**: Less frequently updated metadata
+* **Cold log**: Data blocks, rarely updated files
+
+This separation reduces garbage collection overhead on flash storage by
+grouping data with similar update frequencies.
+
+```bash
+# View F2FS segment layout
+$ sudo dump.f2fs /dev/nvme0n1p1
+# Shows hot/warm/cold segments and their utilization
+```
+
+## Journaling Performance Analysis
+
+### Measuring Journal Overhead
+
+```bash
+# Compare journaling modes with fio
+# Test metadata-heavy workload (small random writes with fsync)
+for mode in ordered writeback journal; do
+    echo "=== data=$mode ==="
+    sudo mount -o data=$mode /dev/sdb1 /mnt/test
+    fio --name=meta --directory=/mnt/test         --rw=randwrite --bs=4k --size=1G         --numjobs=1 --runtime=30 --fsync=1         --group_reporting --minimal
+    sudo umount /mnt/test
+done
+```
+
+### Expected Performance Ratios
+
+| Workload | data=ordered | data=writeback | data=journal |
+|----------|-------------|----------------|-------------|
+| Sequential writes | 1.0x (baseline) | 1.0-1.1x | 0.5-0.7x |
+| Random fsync | 1.0x | 1.2-1.5x | 0.3-0.5x |
+| Metadata-heavy | 1.0x | 1.1-1.3x | 0.4-0.6x |
+
+### Tuning Journal Commit Interval
+
+```bash
+# Default commit interval: 5 seconds
+$ cat /proc/sys/fs/commit_interval
+5
+
+# Increase for throughput (at the cost of more data at risk)
+$ echo 30 | sudo tee /proc/sys/fs/commit_interval
+
+# Or per-mount
+$ sudo mount -o commit=30 /dev/sda1 /data
+
+# Force immediate commit
+$ sync
+```
+
 ## Further Reading
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)

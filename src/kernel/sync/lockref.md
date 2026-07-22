@@ -584,6 +584,37 @@ With this enabled, the kernel warns if:
 - **Linus Torvalds' modifications** — Simplified the API and fixed edge cases
 - **Commit 83762f2** — "lib: Add lockref infrastructure"
 
+## FAQ
+
+### Why not use `refcount_t` instead of lockref?
+
+`refcount_t` (introduced in 4.11) provides reference counting with overflow/
+underflow protection, but it doesn't have an associated lock. lockref is needed
+when the reference count must be atomically checked with lock state — for
+example, ensuring a dentry isn't being modified while its refcount changes.
+
+### What happens on 32-bit systems?
+
+On 32-bit systems, `USE_LOCKREF` is set to 0. Every lockref operation acquires
+the spinlock, making it functionally identical to a regular spinlock + int
+counter. There is no fast path. This is because `cmpxchg64()` is either
+unavailable or requires disabling interrupts on 32-bit architectures.
+
+### Can lockref be used for non-VFS data structures?
+
+Yes, but in practice it's almost exclusively used for `struct dentry`. Any data
+structure that combines a spinlock with a reference count and is accessed
+frequently from multiple CPUs could benefit from lockref. The requirement is
+that the combined lock+count must fit in 8 bytes and be naturally aligned.
+
+### How does lockref interact with RCU path walking?
+
+RCU path walking (`rcu_read_lock()` + `d_lookup()`) can read dentry names
+without taking `d_lockref`. However, to increment a dentry's refcount during
+RCU path walking, `lockref_inc()` is used. If the fast path fails (lock is
+held), the code falls back to the slow path which may need to exit the RCU
+read-side critical section and retry.
+
 ## See Also
 
 - [Dentry Cache](../filesystems/dcache.md) — VFS dentry cache
