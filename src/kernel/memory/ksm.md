@@ -685,6 +685,79 @@ systemctl status ksm       # Some distros
 grep -l "mg" /proc/*/smaps 2>/dev/null | head -5
 ```
 
+## KSM Performance Benchmarking
+
+### Measuring KSM Effectiveness
+
+```bash
+#!/bin/bash
+# ksm-benchmark.sh — Measure KSM effectiveness over time
+
+SYSFS="/sys/kernel/mm/ksm"
+DURATION=300  # 5 minutes
+INTERVAL=10   # Sample every 10 seconds
+
+for i in $(seq 1 $((DURATION / INTERVAL))); do
+    shared=$(cat $SYSFS/pages_shared)
+    sharing=$(cat $SYSFS/pages_sharing)
+    unshared=$(cat $SYSFS/pages_unshared)
+    
+    if [ "$shared" -gt 0 ]; then
+        ratio=$(echo "scale=2; $sharing / $shared" | bc)
+        saved_mb=$(( (sharing - shared) * 4096 / 1024 / 1024 ))
+    else
+        ratio=0
+        saved_mb=0
+    fi
+    
+    echo "$(date +%H:%M:%S) shared=$shared sharing=$sharing ratio=$ratio saved=${saved_mb}MB"
+    sleep $INTERVAL
+done
+```
+
+### KSM vs Transparent Huge Pages Trade-offs
+
+| Scenario | KSM | THP | Both |
+|----------|-----|-----|------|
+| Many identical pages | Best | Neutral | Good |
+| Few identical pages | Poor | Best | OK |
+| Memory-bound | Good | Good | Best |
+| CPU-bound | Overhead | Neutral | Overhead |
+| Latency-sensitive | COW risk | Good | Mixed |
+
+---
+
+## KSM in Container Environments
+
+### Kubernetes and KSM
+
+```bash
+# Enable KSM for all pods
+echo 1 > /sys/kernel/mm/ksm/run
+
+# Use ksmtuned for automatic management
+systemctl enable ksmtuned
+systemctl start ksmtuned
+
+# Monitor KSM savings per node
+kubectl describe node <node-name> | grep -A 5 "Conditions"
+# Look for memory pressure signals
+```
+
+### Per-Container KSM Control
+
+```bash
+# KSM is system-wide; per-container control via:
+# 1. cgroup memory limits (prevent one container from consuming all KSM savings)
+# 2. SELinux/AppArmor policies (restrict madvise calls)
+# 3. seccomp filters (block MADV_MERGEABLE)
+
+# Check which processes use KSM
+grep -l "ksm" /proc/*/smaps 2>/dev/null | head -10
+```
+
+---
+
 ## Related Topics
 
 - [compaction](./compaction.md) — KSM pages participate in compaction
@@ -693,5 +766,7 @@ grep -l "mg" /proc/*/smaps 2>/dev/null | head -5
 - [zones](./zones.md) — KSM operates on pages within memory zones
 - [Transparent Huge Pages](./thp.md) — THP interaction with KSM
 - [Slab Allocator](./slab-allocator.md) — How kernel objects are allocated
+- [DAMON](./damon.md) — Access monitoring can inform KSM targeting
+- [Page Reclaim](./reclaim.md) — KSM pages participate in reclaim
 - [DAMON](./damon.md) — Access monitoring can inform KSM targeting
 - [Page Reclaim](./reclaim.md) — KSM pages participate in reclaim
