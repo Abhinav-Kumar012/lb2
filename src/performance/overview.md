@@ -640,6 +640,110 @@ jq -n --arg cpu "$CPU_SCORE" --arg mem "$MEM_SCORE" \
     '{cpu_score: $cpu, mem_score: $mem, io_iops: $io}' > $RESULTS
 ```
 
+## Performance Optimization Checklist
+
+When optimizing a system, follow this systematic approach:
+
+```mermaid
+flowchart TD
+    START[Performance Problem] --> USE[Run USE Method
+(Utilization, Saturation, Errors)]
+    USE --> BOTTLENECK{Bottleneck identified?}
+    BOTTLENECK -->|Yes| FIX[Apply targeted fix]
+    BOTTLENECK -->|No| PROFILE[Profile with perf/bpftrace]
+    FIX --> MEASURE[Measure again]
+    MEASURE --> IMPROVED{Improved?}
+    IMPROVED -->|Yes| DONE[Document change]
+    IMPROVED -->|No| TRY[Revert, try different approach]
+    TRY --> USE
+    PROFILE --> USE
+```
+
+### Common Optimization Targets
+
+| Area | Tool | What to Look For |
+|------|------|------------------|
+| CPU | `perf top` | Hot functions, cache misses |
+| Memory | `vmstat 1` | Swap activity (si/so), high page faults |
+| Disk | `iostat -xz 1` | High await, high %util |
+| Network | `sar -n DEV 1` | Packet drops, retransmissions |
+| Scheduler | `pidstat -w 1` | High context switches |
+| Locks | `perf lock` | Lock contention, long hold times |
+
+## Kernel Performance Features
+
+### Transparent Huge Pages (THP)
+
+```bash
+# Check THP status
+cat /sys/kernel/mm/transparent_hugepage/enabled
+# [always] madvise never
+
+# Enable for specific application (madvise mode)
+echo madvise > /sys/kernel/mm/transparent_hugepage/enabled
+
+# Check THP usage
+grep AnonHugePages /proc/meminfo
+# AnonHugePages:   2097152 kB
+
+# THP can improve performance for large memory workloads
+# but may cause latency spikes during compaction
+# For RT workloads: echo never > .../enabled
+```
+
+### NUMA (Non-Uniform Memory Access)
+
+```bash
+# Show NUMA topology
+numactl --hardware
+# available: 2 nodes (0-1)
+# node 0 cpus: 0 1 2 3
+# node 0 size: 16384 MB
+# node 1 cpus: 4 5 6 7
+# node 1 size: 16384 MB
+
+# Bind process to NUMA node
+numactl --cpunodebind=0 --membind=0 ./my_app
+
+# Check NUMA statistics
+numastat -p <pid>
+
+# NUMA balancing
+echo 1 > /proc/sys/kernel/numa_balancing
+```
+
+### Control Groups (cgroups) for Resource Control
+
+```bash
+# CPU cgroup (limit CPU usage)
+mkdir /sys/fs/cgroup/cpu/mygroup
+echo 50000 > /sys/fs/cgroup/cpu/mygroup/cpu.cfs_quota_us  # 50% of one CPU
+echo 100000 > /sys/fs/cgroup/cpu/mygroup/cpu.cfs_period_us
+echo $PID > /sys/fs/cgroup/cpu/mygroup/cgroup.procs
+
+# Memory cgroup (limit memory)
+mkdir /sys/fs/cgroup/memory/mygroup
+echo 4G > /sys/fs/cgroup/memory/mygroup/memory.limit_in_bytes
+
+# I/O cgroup (limit I/O bandwidth)
+mkdir /sys/fs/cgroup/blkio/mygroup
+echo "8:0 1048576" > /sys/fs/cgroup/blkio/mygroup/blkio.throttle.read_bps_device
+# Limit to 1MB/s on device 8:0
+```
+
+## Performance Anti-Patterns (Expanded)
+
+| Anti-Pattern | Problem | Solution |
+|-------------|---------|----------|
+| Premature optimization | Wasted effort on non-bottlenecks | Measure first, optimize second |
+| Averaging percentiles | Hides tail latency | Track p99, p999 separately |
+| Ignoring NUMA | Cross-node memory access penalty | Use `numactl`, bind to local node |
+| Over-provisioning threads | Context switch overhead | Use thread pool, match to CPU count |
+| Synchronous I/O in hot path | Blocks execution | Use async I/O (io_uring, epoll) |
+| Lock contention | Serialized execution | Per-CPU data, RCU, lock-free structures |
+| Memory leaks | OOM kills, degraded performance | Use valgrind, ASAN, kmemleak |
+| Ignoring cache effects | Cache misses dominate | Data-oriented design, cache-friendly access |
+
 ## Related Topics
 
 - [CPU Performance](cpu.md)
