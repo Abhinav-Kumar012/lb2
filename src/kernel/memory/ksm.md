@@ -693,3 +693,5 @@ grep -l "mg" /proc/*/smaps 2>/dev/null | head -5
 - [zones](./zones.md) — KSM operates on pages within memory zones
 - [Transparent Huge Pages](./thp.md) — THP interaction with KSM
 - [Slab Allocator](./slab-allocator.md) — How kernel objects are allocated
+- [DAMON](./damon.md) — Access monitoring can inform KSM targeting
+- [Page Reclaim](./reclaim.md) — KSM pages participate in reclaim
