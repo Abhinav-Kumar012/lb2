@@ -487,6 +487,218 @@ void foo(int count, ...) {
 /* Varargs use the same A0-A7/FA0-FA7 registers */
 ```
 
+### Variadic Function Internals
+
+The `va_list` type stores the state needed to walk the argument list:
+
+```c
+/* x86_64 va_list structure (simplified) */
+typedef struct {
+    unsigned int gp_offset;    /* Offset to next GP arg in reg save area */
+    unsigned int fp_offset;    /* Offset to next FP arg in reg save area */
+    void *overflow_arg_area;   /* Pointer to stack args */
+    void *reg_save_area;       /* Pointer to saved registers */
+} va_list[1];
+
+/* va_arg extracts the next argument */
+#define va_arg(ap, type) __builtin_va_arg(ap, type)
+
+/* The compiler generates code to:
+ * 1. If gp_offset < 48 (6 regs × 8 bytes): read from reg_save_area
+ * 2. Otherwise: read from overflow_arg_area (stack)
+ */
+```
+
+```asm
+; x86_64: calling a variadic function
+; The caller must set AL to the number of XMM registers used
+; This tells the callee how much stack space to allocate for FP args
+
+mov    al, 0           ; No XMM args (for integer-only varargs)
+call   printf          ; printf("%d %d", a, b)
+; or:
+mov    al, 2           ; 2 XMM args
+call   printf          ; printf("%f %f", x, y)
+```
+
+## Tail Call Optimization
+
+Tail calls (where the last action is a function call) can be optimized to jumps:
+
+```c
+/* Tail call: no work after the call */
+int factorial(int n, int acc) {
+    if (n <= 1) return acc;
+    return factorial(n - 1, n * acc);  /* Tail call */
+}
+
+/* Non-tail call: must do multiplication after the call */
+int factorial_bad(int n) {
+    if (n <= 1) return 1;
+    return n * factorial_bad(n - 1);  /* NOT a tail call */
+}
+```
+
+```asm
+; Tail call optimization (x86_64)
+; Without TCO:
+factorial:
+    push   rbp
+    mov    rbp, rsp
+    ; ... compute ...
+    call   factorial       ; CALL pushes return address
+    ; ... multiply ...
+    pop    rbp
+    ret
+
+; With TCO:
+factorial:
+    ; ... compute ...
+    jmp    factorial       ; JMP instead of CALL (no stack growth!)
+```
+
+**Why it matters for the kernel**: Recursive kernel functions can overflow the small kernel stack (8-16 KB). GCC's `-foptimize-sibling-calls` (enabled at `-O2`) applies tail call optimization automatically.
+
+## Stack Protection and Security
+
+### Stack Canaries
+
+The kernel uses stack canaries to detect buffer overflows:
+
+```c
+/* GCC inserts a canary check around functions with buffers */
+void vulnerable_function(char *input) {
+    char buffer[64];
+    /* GCC prologue inserts:
+     *   mov rax, fs:[0x28]  ; Load canary from TLS
+     *   mov [rbp-8], rax    ; Place canary on stack
+     */
+    strcpy(buffer, input);  /* Potential overflow */
+    /* GCC epilogue checks:
+     *   mov rax, [rbp-8]
+     *   cmp rax, fs:[0x28]
+     *   jne __stack_chk_fail
+     */
+}
+
+/* The canary value is randomized at boot:
+ * Kernel: initialized in start_kernel() → stack_chk_setup()
+ * User: set by glibc during process startup
+ */
+```
+
+### Shadow Stack (Intel CET)
+
+Intel Control-flow Enforcement Technology adds a hardware shadow stack:
+
+```asm
+; Normal call: pushes return address to both stacks
+call function
+;   push return_addr → data stack
+;   push return_addr → shadow stack (hardware)
+
+; Return: pops from both stacks, compares
+ret
+;   pop from data stack → candidate return addr
+;   pop from shadow stack → expected return addr
+;   if candidate != expected → #CP exception
+```
+
+### Kernel Stack Layout Security
+
+```c
+/* Kernel stack (x86_64): typically 8KB or 16KB */
+/* CONFIG_THREAD_SIZE = 8192 (2 pages) or 16384 (4 pages) */
+
+/* Stack layout for interrupt handling (x86_64): */
+/* ┌───────────────────┐
+ * │ User RSP (if ring 3)
+ * │ SS                 │ ← Hardware pushes on interrupt
+ * │ RSP                │
+ * │ RFLAGS             │
+ * │ CS                 │
+ * │ RIP                │
+ * │ Error code         │ ← Software pushes
+ * │ Registers          │
+ * │ ...                │
+ * └───────────────────┘ ← RSP
+ */
+
+/* IST (Interrupt Stack Table) for critical handlers: */
+/* Double fault (#DF) and NMI use separate stacks */
+/* This prevents stack overflow from cascading */
+```
+
+## GDB and Calling Conventions
+
+Understanding calling conventions is essential for effective debugging:
+
+```bash
+# In GDB, inspect function arguments by register
+(gdb) info registers rdi rsi rdx rcx r8 r9  # x86_64 integer args
+(gdb) info registers x0 x1 x2 x3 x4 x5     # AArch64 args
+(gdb) info registers a0 a1 a2 a3 a4 a5     # RISC-V args
+
+# Print function arguments from stack trace
+(gdb) frame 0
+(gdb) info args
+# GDB reads DWARF info to map registers to variables
+
+# Manual argument extraction (when DWARF is missing)
+# x86_64: first arg is in RDI
+(gdb) print (char *)$rdi
+# AArch64: first arg is in X0
+(gdb) print (char *)$x0
+
+# Stack frame navigation
+(gdb) backtrace
+(gdb) frame 2        # Jump to frame 2
+(gdb) info locals    # Show local variables
+(gdb) info frame     # Show frame details (return address, saved regs)
+```
+
+### Inline Assembly Best Practices
+
+```c
+/* DO: Use compiler constraints properly */
+unsigned long read_cr0(void)
+{
+    unsigned long val;
+    asm volatile("mov %%cr0, %0" : "=r"(val));
+    return val;
+}
+
+/* DON'T: Hardcode registers (breaks with optimization) */
+unsigned long read_cr0_bad(void)
+{
+    unsigned long val;
+    asm volatile("mov %%rax, %0" : : "a"(0));  /* Wrong! */
+    return val;
+}
+
+/* DO: List all clobbered registers */
+void cpuid(uint32_t leaf, uint32_t *eax, uint32_t *ebx,
+           uint32_t *ecx, uint32_t *edx)
+{
+    asm volatile("cpuid"
+        : "=a"(*eax), "=b"(*ebx), "=c"(*ecx), "=d"(*edx)
+        : "a"(leaf)
+        /* No extra clobbers needed: cpuid only writes eax-edx */
+    );
+}
+
+/* DO: Use memory clobber for barriers */
+void memory_barrier(void)
+{
+    asm volatile("" : : : "memory");
+}
+
+/* DO: Use proper constraint letters */
+/* x86_64: a=RAX, b=RBX, c=RCX, d=RDX, S=RSI, D=RDI */
+/* AArch64: r=any GPR, w=FP/SIMD, m=memory */
+/* RISC-V: r=any GPR, f=FP, m=memory */
+```
+
 ## References and Further Reading
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
