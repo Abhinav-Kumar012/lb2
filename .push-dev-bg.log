@@ -97,3 +97,6 @@ M	src/kernel/sync/completions.md
 Your branch is ahead of 'origin/dev' by 8 commits.
   (use "git push" to publish your local commits)
 [Wed Jul 22 20:10:14 CST 2026] Committed: 392 pages, 2 files
+M	src/kernel/sync/lock-ordering.md
+Your branch is ahead of 'origin/dev' by 13 commits.
+  (use "git push" to publish your local commits)

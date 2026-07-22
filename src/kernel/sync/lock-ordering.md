@@ -544,6 +544,104 @@ mutex_lock_nested(&parent->lock, SINGLE_DEPTH_NESTING);
 mutex_lock_nested(&child->lock, DOUBLE_DEPTH_NESTING);
 ```
 
+### Lock Inversion in Practice
+
+Lock inversion commonly occurs in:
+
+1. **Tree traversal**: Locking parent then child, but another path locks child then parent
+2. **Device hierarchies**: Locking bus lock then device lock, but device removal locks device then bus
+3. **Network namespaces**: Locking namespace then socket, but socket creation locks socket then namespace
+
+### Prevention Strategies
+
+```mermaid
+graph TD
+    A[Lock Inversion Risk] --> B{Can you determine order at compile time?}
+    B -->|Yes| C[Define global ordering
+Always acquire in same order]
+    B -->|No| D{Can you use trylock?}
+    D -->|Yes| E[trylock + retry pattern]
+    D -->|No| F{Can you restructure?}
+    F -->|Yes| G[Flatten hierarchy
+Use RCU for reads]
+    F -->|No| H[Use lockdep subclasses
+Document carefully]
+```
+
+## Advanced: Lock Ordering with RCU
+
+RCU introduces a new dimension to lock ordering. RCU read-side critical sections don't acquire locks, but they do affect when writers can free memory:
+
+```c
+/* Writer: must wait for RCU readers before freeing */
+rcu_read_lock();
+p = rcu_dereference(ptr);
+/* ... use p ... */
+rcu_read_unlock();
+
+/* Later, in writer context: */
+rcu_assign_pointer(ptr, new);
+synchronize_rcu();  /* Wait for all readers to finish */
+
+/* NOW safe to modify/free old data that readers might have accessed */
+```
+
+**Key rule**: RCU read-side critical sections are not ordered with respect to locks. If you need both RCU and locks, the lock ordering rules still apply independently.
+
+### RCU + Lock Ordering Example
+
+```c
+/*
+ * Lock ordering:
+ *   1. config_mutex
+ *   2. RCU read-side (no lock, but must not block)
+ *
+ * Pattern: Writer holds config_mutex, publishes new data,
+ * then waits for RCU grace period before freeing old data.
+ * Readers use RCU only (no config_mutex needed).
+ */
+
+/* Reader */
+rcu_read_lock();
+cfg = rcu_dereference(global_config);
+if (cfg)
+    use(cfg);
+rcu_read_unlock();
+
+/* Writer */
+mutex_lock(&config_mutex);
+old = rcu_dereference_protected(global_config,
+        lockdep_is_held(&config_mutex));
+new = copy_and_modify(old);
+rcu_assign_pointer(global_config, new);
+mutex_unlock(&config_mutex);
+
+synchronize_rcu();  /* Outside the mutex! */
+kfree(old);
+```
+
+## Advanced: Lock Ordering and Workqueues
+
+Workqueue callbacks run in process context and can acquire sleeping locks. However, if a work item needs to acquire the same lock as the code that queued it, ordering must be carefully managed:
+
+```c
+/* Potential deadlock: */
+spin_lock(&my_lock);
+queue_work(my_wq, &my_work);  /* Queue work */
+spin_unlock(&my_lock);
+
+/* Work handler: */
+static void work_handler(struct work_struct *work)
+{
+    spin_lock(&my_lock);  /* DEADLOCK if work runs on same CPU */
+    /* ... */
+    spin_unlock(&my_lock);
+}
+
+/* Solution: Use a different lock or ensure work runs on different CPU */
+queue_work_on(other_cpu, my_wq, &my_work);
+```
+
 ## Lock Statistics (lockstat)
 
 The kernel provides **lock statistics** (`lockstat`) to diagnose lock contention and hold times at runtime. This is invaluable for identifying performance bottlenecks caused by locks.
