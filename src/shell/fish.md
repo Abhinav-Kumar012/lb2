@@ -513,6 +513,358 @@ chsh -s /usr/bin/fish
     └── my_config.fish
 ```
 
+## Plugin Ecosystem
+
+### Fisher
+
+Fisher is the most popular Fish plugin manager — it has zero dependencies and installs plugins directly into `~/.config/fish/`:
+
+```fish
+# Install Fisher
+curl -sL https://raw.githubusercontent.com/jorgebucaran/fisher/main/functions/fisher.fish | source && fisher install jorgebucaran/fisher
+
+# Install a plugin
+fisher install jorgebucaran/autopair.fish    # Auto-close brackets/quotes
+fisher install PatrickF1/fzf.fish            # fzf integration
+fisher install jethrokuan/z                  # Directory jumping (like z.sh)
+fisher install ilancosman/tide@v6            # Powerline-style prompt
+fisher install jorgebucaran/nvm.fish         # Node.js version manager
+fisher install franciscolourenco/done        # Notification when long commands finish
+
+# List installed plugins
+fisher list
+
+# Update all plugins
+fisher update
+
+# Remove a plugin
+fisher remove jorgebucaran/autopair.fish
+
+# Install from a gist
+fisher install https://gist.github.com/user/id
+
+# Fisher installs files directly into:
+# ~/.config/fish/functions/   (functions)
+# ~/.config/fish/completions/ (completions)
+# ~/.config/conf.d/           (conf.d snippets)
+```
+
+### Oh My Fish (OMF)
+
+Oh My Fish is an older plugin framework with a theme system:
+
+```fish
+# Install Oh My Fish
+curl https://raw.githubusercontent.com/oh-my-fish/oh-my-fish/master/bin/install | fish
+
+# Install a theme
+omf install agnoster
+
+# List available themes
+omf list
+
+# Install a plugin
+omf install bass          # Bash utility support (source bash env)
+omf install foreign-env   # Import env from other shells
+
+# Change theme
+omf theme bobthefish
+
+# Update everything
+omf update
+
+# Remove Oh My Fish
+omf destroy
+```
+
+### Popular Plugins
+
+| Plugin | Description |
+|--------|-------------|
+| `autopair.fish` | Auto-close `()`, `[]`, `{}`, `""`, `''` |
+| `fzf.fish` | fzf integration for history, files, variables |
+| `z` or `zoxide` | Fast directory jumping by frecency |
+| `tide` | Powerline prompt (like Powerlevel10k for Zsh) |
+| `bass` | Source Bash/Zsh scripts in Fish |
+| `done` | Notify when long-running commands complete |
+| `grc` | Generic colouriser for common commands |
+| `nvm.fish` | Node Version Manager for Fish |
+| `sdkman-for-fish` | SDKMAN integration for Java ecosystem |
+| `pisces` | Auto-close pairs (lighter alternative to autopair) |
+| `sponge` | Clean failed commands from history |
+| `puffer-fish` | Typing shorthand expansions (`...` → `../..`) |
+
+## fzf Integration
+
+fzf (fuzzy finder) integrates deeply with Fish:
+
+```fish
+# Install the fzf.fish plugin
+fisher install PatrickF1/fzf.fish
+
+# fzf.fish provides these key bindings (default):
+# Ctrl+R  — Search command history
+# Ctrl+T  — Search files in current directory
+# Ctrl+V  — Search environment variables
+# Alt+C   — Search subdirectories and cd into selection
+# Alt+L   — Search git log
+
+# Manual fzf integration (without plugin)
+# History search
+function fzf_history
+    history | fzf --no-sort | read -l command
+    and commandline -rb $command
+end
+bind \cr fzf_history
+
+# File search
+function fzf_files
+    set -l file (find . -type f 2>/dev/null | fzf)
+    and commandline -i $file
+end
+bind \ct fzf_files
+
+# Git branch checkout
+function fzf_git_branch
+    set -l branch (git branch -a | fzf --height 40% | string trim)
+    and git checkout $branch
+end
+```
+
+## Key Bindings
+
+Fish has configurable key bindings for both Emacs (default) and Vi mode:
+
+```fish
+# View current bindings
+bind --all
+
+# Emacs mode (default) key bindings:
+# Ctrl+A  — Beginning of line
+# Ctrl+E  — End of line
+# Ctrl+W  — Delete word backward
+# Ctrl+U  — Delete to beginning of line
+# Ctrl+K  — Delete to end of line
+# Ctrl+Y  — Paste (yank) from killring
+# Alt+D   — Delete word forward
+# Alt+L   — Lowercase word
+# Alt+U   — Uppercase word
+
+# Vi mode
+fish_vi_key_bindings
+
+# Switch back to Emacs mode
+fish_default_key_bindings
+
+# Custom key binding
+bind \cg 'git status'           # Ctrl+G runs git status
+bind \el 'ls -la'               # Alt+L runs ls -la
+
+# Bind in different modes
+bind -M insert \ce 'edit_config'  # In insert mode
+bind -M default \ce 'edit_config'  # In normal mode
+
+# Custom function bound to a key
+function __fish_toggle_sudo
+    set -l cmd (commandline)
+    if string match -q 'sudo *' $cmd
+        commandline (string replace 'sudo ' '' $cmd)
+    else
+        commandline "sudo $cmd"
+    end
+end
+bind \es __fish_toggle_sudo     # Alt+S toggles sudo prefix
+```
+
+### Vi Mode
+
+```fish
+# Enable Vi mode permanently
+set -U fish_key_bindings fish_vi_key_bindings
+
+# Vi mode indicator in prompt
+function fish_mode_prompt
+    switch $fish_bind_mode
+        case default
+            set_color --bold red
+            echo '[N] '
+        case insert
+            set_color --bold green
+            echo '[I] '
+        case replace_one
+            set_color --bold cyan
+            echo '[R] '
+        case visual
+            set_color --bold magenta
+            echo '[V] '
+    end
+    set_color normal
+end
+```
+
+## Performance and Startup Time
+
+Fish is notably fast compared to Zsh with many plugins:
+
+```fish
+# Measure Fish startup time
+time fish -i -c exit
+
+# Typical times:
+# Fish (no plugins):    ~30-50ms
+# Fish (10 plugins):    ~50-100ms
+# Zsh (Oh-My-Zsh):     ~200-500ms
+# Bash:                 ~20-40ms
+
+# Profile startup
+fish --profile /tmp/fish_prof -i -c exit
+sort -nk 2 /tmp/fish_prof | tail -20
+
+# Check what autoloads on startup
+fish -c 'functions --details fish_prompt'
+# /home/user/.config/fish/functions/fish_prompt.fish
+```
+
+### Why Fish Is Fast
+
+1. **No plugin loading at startup**: Fish uses autoloading — functions in `~/.config/fish/functions/` are loaded on first use, not at startup.
+2. **No init file scanning**: Unlike Zsh (which sources `.zshrc`), Fish reads `config.fish` once, and universal variables are cached.
+3. **Built-in completions**: Completion scripts are cached and autoloaded per-command.
+4. **Efficient C++ core**: The core shell is written in C++ with minimal startup overhead.
+
+## Fish with Modern Tools
+
+### Starship Prompt
+
+```fish
+# Install Starship
+curl -sS https://starship.rs/install.sh | sh
+
+# Add to config.fish
+# ~/.config/fish/config.fish
+starship init fish | source
+
+# Starship config: ~/.config/starship.toml
+# Shows: git status, node/python/rust versions, cmd duration, etc.
+```
+
+### zoxide (Smarter cd)
+
+```fish
+# Install zoxide
+curl -sSfL https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | sh
+
+# Add to config.fish
+zoxide init fish | source
+
+# Now use 'z' instead of 'cd'
+z projects         # Jump to most frecent match
+z foo bar          # Jump to dir matching both "foo" and "bar"
+zi                 # Interactive selection with fzf
+```
+
+### direnv (Per-directory Environment)
+
+```fish
+# Install direnv
+sudo apt install direnv   # or brew install direnv
+
+# Add to config.fish
+direnv hook fish | source
+
+# Create .envrc in a project directory
+echo 'export NODE_ENV=development' > .envrc
+direnv allow
+
+# Now the env vars activate automatically when you cd into the directory
+```
+
+## Nix and home-manager Integration
+
+```fish
+# Fish is a first-class citizen in the Nix ecosystem
+
+# Install via Nix
+nix-env -iA nixpkgs.fish
+
+# home-manager configuration
+# ~/.config/home-manager/home.nix
+{
+  programs.fish = {
+    enable = true;
+    shellInit = ''
+      set -gx EDITOR vim
+    '';
+    shellAbbrs = {
+      gs = "git status";
+      gc = "git commit";
+    };
+    plugins = [
+      {
+        name = "autopair";
+        src = pkgs.fetchFromGitHub {
+          owner = "jorgebucaran";
+          repo = "autopair.fish";
+          rev = "1.0.4";
+          sha256 = "...";
+        };
+      }
+    ];
+  };
+}
+```
+
+## Debugging Fish Scripts
+
+```fish
+# Enable debug output
+fish --debug-level=3
+
+# Debug specific categories
+fish --debug='config'      # Debug config loading
+fish --debug='complete'    # Debug completion
+fish --debug='history'     # Debug history
+
+# Trace function execution
+function myfunc --no-scope-shadowing
+    set -g fish_trace 1
+    # ... commands will be traced ...
+    set -g fish_trace 0
+end
+
+# Print debug info
+fish -c 'echo $version'
+# 3.7.0
+
+fish -c 'echo $fish_pid'
+
+# Check Fish installation
+type fish
+# fish is /usr/bin/fish
+
+# Validate syntax
+fish -n ~/.config/fish/config.fish
+# (no output = valid)
+```
+
+## Fish 4.0+ Features
+
+Recent Fish versions have added significant capabilities:
+
+```fish
+# Fish 3.6+: Improved string operations
+string match -r '(?<year>\d{4})-(?<month>\d{2})' '2024-07'
+# year=2024 month=07
+
+# Fish 3.6+: $status_stack
+# Access exit status of previous commands in a pipeline
+
+# Fish 4.0+ (planned):
+# - Rust rewrite of parts of the core
+# - Improved startup performance
+# - Better Windows support
+```
+
 ## References
 
 - [Fish Shell Documentation](https://fishshell.com/docs/current/)
@@ -520,9 +872,14 @@ chsh -s /usr/bin/fish
 - [Fish Cookbook](https://github.com/fish-shell/fish-shell/wiki)
 - [Fish Plugin Manager - Fisher](https://github.com/jorgebucaran/fisher)
 - [Oh My Fish](https://github.com/oh-my-fish/oh-my-fish)
+- [fzf.fish](https://github.com/PatrickF1/fzf.fish)
+- [Tide Prompt](https://github.com/IlanCosman/tide)
+- [Awesome Fish](https://github.com/jorgebucaran/awsm-fish) — curated plugin list
+- [Fish FAQ](https://fishshell.com/docs/current/faq.html)
 
 ## Related Topics
 
 - [Shell Overview](./overview.md) — shell types and fundamentals
 - [Zsh](./zsh.md) — alternative modern shell with POSIX compatibility
 - [POSIX Shell](./posix-shell.md) — portable scripting (what Fish deliberately avoids)
+
