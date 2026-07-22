@@ -538,6 +538,148 @@ spin_lock-torture: Writes: Total: 93746064 Max/Min: 0/0 Fail: 0
 The `rmmod` command forces a final verdict: `SUCCESS`, `FAILURE`, or `RCU_HOTPLUG`
 (indicates CPU-hotplug problems were detected even if locking was fine).
 
+## Common Synchronization Patterns
+
+### Pattern 1: Producer-Consumer with Wait Queue
+
+```c
+DECLARE_WAIT_QUEUE_HEAD(wq);
+int data_ready = 0;
+int shared_data;
+
+/* Producer */
+void producer(int value)
+{
+    shared_data = value;
+    WRITE_ONCE(data_ready, 1);
+    wake_up(&wq);
+}
+
+/* Consumer */
+void consumer(void)
+{
+    wait_event(wq, READ_ONCE(data_ready));
+    process(shared_data);
+    WRITE_ONCE(data_ready, 0);
+}
+```
+
+### Pattern 2: Per-CPU Counter with Synchronized Read
+
+```c
+DEFINE_PER_CPU(unsigned long, event_count);
+
+void record_event(void)
+{
+    this_cpu_inc(event_count);
+}
+
+unsigned long get_total_events(void)
+{
+    unsigned long total = 0;
+    int cpu;
+
+    /* Disable preemption to get a consistent snapshot */
+    get_online_cpus();
+    for_each_online_cpu(cpu)
+        total += per_cpu(event_count, cpu);
+    put_online_cpus();
+
+    return total;
+}
+```
+
+### Pattern 3: RCU-Protected Pointer Update
+
+```c
+struct config *global_config;
+
+/* Reader (any context) */
+void use_config(void)
+{
+    struct config *cfg;
+
+    rcu_read_lock();
+    cfg = rcu_dereference(global_config);
+    if (cfg)
+        do_something(cfg->value);
+    rcu_read_unlock();
+}
+
+/* Writer */
+void update_config(int new_value)
+{
+    struct config *old, *new;
+
+    new = kmalloc(sizeof(*new), GFP_KERNEL);
+    new->value = new_value;
+
+    old = rcu_dereference_protected(global_config,
+            lockdep_is_held(&config_mutex));
+    rcu_assign_pointer(global_config, new);
+    synchronize_rcu();
+    kfree(old);
+}
+```
+
+### Pattern 4: Bitflag-Based State Machine
+
+```c
+unsigned long state = 0;
+
+#define STATE_ACTIVE   0
+#define STATE_DIRTY    1
+#define STATE_STOPPING 2
+
+/* Transition: set ACTIVE if not STOPPING */
+bool try_activate(void)
+{
+    if (test_bit(STATE_STOPPING, &state))
+        return false;
+    return !test_and_set_bit(STATE_ACTIVE, &state);
+}
+
+/* Transition: set STOPPING, wait for ACTIVE to clear */
+void stop(void)
+{
+    set_bit(STATE_STOPPING, &state);
+    while (test_bit(STATE_ACTIVE, &state))
+        cpu_relax();
+}
+```
+
+### Pattern 5: Reader-Writer with Seqlock Snapshot
+
+```c
+struct timestamp {
+    seqcount_t seq;
+    u64 last_update;
+    u64 value;
+};
+
+void update_timestamp(struct timestamp *ts, u64 new_value)
+{
+    write_seqcount_begin(&ts->seq);
+    ts->last_update = ktime_get_ns();
+    ts->value = new_value;
+    write_seqcount_end(&ts->seq);
+}
+
+u64 read_timestamp(struct timestamp *ts)
+{
+    u64 value, last_update;
+    unsigned int seq;
+
+    do {
+        seq = read_seqcount_begin(&ts->seq);
+        last_update = ts->last_update;
+        value = ts->value;
+    } while (read_seqcount_retry(&ts->seq, seq));
+
+    return value;
+}
+```
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)

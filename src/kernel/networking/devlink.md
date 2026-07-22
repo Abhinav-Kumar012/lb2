@@ -452,6 +452,249 @@ CONFIG_NETDEVSIM=m        # Virtual devlink device for testing
 
 ---
 
+## Switchdev Integration
+
+Switchdev is a kernel framework for hardware-switched networking. Devlink works closely with switchdev to manage ASIC-level configuration on network switches.
+
+### Switchdev Architecture
+
+```mermaid
+graph TB
+    subgraph "User Space"
+        IP["ip link/bridge"]
+        DL["devlink"]
+    end
+    subgraph "Kernel"
+        BR["Bridge (br0)"]
+        SD["switchdev driver"]
+        DLK["devlink core"]
+    end
+    subgraph "Hardware"
+        ASIC["Switch ASIC<br/>(mlxsw, prestera, etc.)"]
+    end
+    IP --> BR
+    DL --> DLK
+    BR --> SD
+    DLK --> SD
+    SD --> ASIC
+```
+
+### Switchdev Mode Configuration
+
+```bash
+# Switchdev mode enables hardware offloading
+# The ASIC mirrors the kernel bridge/FDB state
+
+# Set device to switchdev mode
+devlink dev eswitch set pci/0000:03:00.0 mode switchdev
+
+# Legacy mode (default for NICs, no offload)
+devlink dev eswitch set pci/0000:03:00.0 mode legacy
+
+# Check current mode
+devlink dev eswitch show pci/0000:03:00.0
+# pci/0000:03:00.0: mode switchdev inline-mode none encap enable
+
+# Switchdev with SR-IOV
+# Create VFs in switchdev mode
+echo 4 > /sys/class/net/ens1f0/device/sriov_numvfs
+devlink dev eswitch set pci/0000:03:00.0 mode switchdev
+
+# VFs get representor ports in the bridge
+ip link set ens1f0_0 master br0
+ip link set ens1f0_1 master br0
+```
+
+### Forwarding Database (FDB) Offload
+
+```bash
+# When switchdev mode is active, bridge FDB entries
+# are automatically offloaded to hardware
+
+# Create bridge and add ports
+ip link add br0 type bridge
+ip link set ens1f0 master br0
+ip link set ens1f0_0 master br0
+
+# Add static FDB entry (offloaded to ASIC)
+bridge fdb add aa:bb:cc:dd:ee:ff dev ens1f0_0 master
+
+# Check offloaded entries
+bridge fdb show dev br0
+# aa:bb:cc:dd:ee:ff dev ens1f0_0 master br0
+# aa:bb:cc:dd:ee:ff dev ens1f0_0 offload
+#                   ^^^^^^^^ hardware offloaded
+```
+
+## DSA (Distributed Switch Architecture)
+
+DSA manages Ethernet switches connected to a host CPU via a management interface. Devlink provides the control plane for DSA switches.
+
+```bash
+# DSA switches appear as multiple ports under one device
+# Example: a 5-port managed switch
+
+# List DSA ports
+devlink port show
+# pci/0000:03:00.0/0: type eth netdev lan1 flavour physical port 0
+# pci/0000:03:00.0/1: type eth netdev lan2 flavour physical port 1
+# pci/0000:03:00.0/2: type eth netdev lan3 flavour physical port 2
+# pci/0000:03:00.0/3: type eth netdev lan4 flavour physical port 3
+# pci/0000:03:00.0/4: type eth netdev wan  flavour physical port 4
+# pci/0000:03:00.0/5: type eth netdev cpu  flavour cpu
+
+# Configure DSA port
+ip link set lan1 master br0
+ip link set lan2 master br0
+```
+
+## Advanced Health Reporter Workflows
+
+### Automated Health Monitoring Script
+
+```bash
+#!/bin/bash
+# Monitor devlink health reporters and alert on errors
+
+devices=$(devlink dev show -j | jq -r '.devlink.dev[].bus+"/"+.devlink.dev[].dev')
+
+for dev in $devices; do
+    reporters=$(devlink health show $dev -j 2>/dev/null | \
+        jq -r '.devlink.health[].reporter | keys[]' 2>/dev/null)
+    
+    for reporter in $reporters; do
+        state=$(devlink health show $dev reporter $reporter -j | \
+            jq -r '.devlink.health[0].reporter."$reporter".state')
+        
+        if [ "$state" = "error" ]; then
+            echo "ALERT: $dev reporter $reporter in error state"
+            devlink health dump show $dev reporter $reporter > /tmp/dump_${dev////_}_${reporter}.bin
+            devlink health recover $dev reporter $reporter
+        fi
+    done
+done
+```
+
+### Firmware Crash Recovery
+
+```bash
+# Set up automatic recovery with grace period
+devlink health set pci/0000:03:00.0 reporter fw_fatal \
+    auto_recover true auto_dump true grace_period 5000
+
+# After crash, examine dump
+devlink health dump show pci/0000:03:00.0 reporter fw_fatal | \
+    strings | head -50
+
+# Force reload device (nuclear option)
+devlink dev reload pci/0000:03:00.0
+```
+
+## Devlink and SR-IOV Workflow
+
+### Complete SR-IOV Setup with Devlink
+
+```bash
+# Step 1: Enable SR-IOV via devlink parameter
+devlink dev param set pci/0000:03:00.0 param enable_sriov cmode driverinit value true
+devlink dev reload pci/0000:03:00.0
+
+# Step 2: Create Virtual Functions
+echo 4 > /sys/class/net/ens1f0/device/sriov_numvfs
+
+# Step 3: Verify VF ports
+devlink port show | grep vf
+# pci/0000:03:00.0/10000: type eth netdev ens1f0v0 flavour vf pf 0 vf 0
+# pci/0000:03:00.0/10001: type eth netdev ens1f0v1 flavour vf pf 0 vf 1
+# pci/0000:03:00.0/10002: type eth netdev ens1f0v2 flavour vf pf 0 vf 2
+# pci/0000:03:00.0/10003: type eth netdev ens1f0v3 flavour vf pf 0 vf 3
+
+# Step 4: Set VF MAC address
+devlink port function set pci/0000:03:00.0/10000 hw_addr 00:11:22:33:44:55
+
+# Step 5: Configure rate limiting per VF
+devlink port function rate add pci/0000:03:00.0/vf0
+devlink port function rate set pci/0000:03:00.0/vf0 tx_max 10Gbit
+```
+
+### VF Rate Limiting
+
+```bash
+# Create rate objects for bandwidth control
+devlink port function rate add pci/0000:03:00.0/vf0
+devlink port function rate add pci/0000:03:00.0/vf1
+
+# Set bandwidth limits
+devlink port function rate set pci/0000:03:00.0/vf0 \
+    tx_share 1Gbit tx_max 5Gbit
+devlink port function rate set pci/0000:03:00.0/vf1 \
+    tx_share 500Mbit tx_max 2Gbit
+
+# View rate configuration
+devlink port function rate show
+
+# Delete rate object
+devlink port function rate del pci/0000:03:00.0/vf0
+```
+
+## Devlink with SmartNICs (DPU)
+
+SmartNICs (Data Processing Units) expose complex devlink hierarchies:
+
+```bash
+# SmartNIC may have multiple devlink devices
+# - Host-side NIC
+# - Embedded CPU switch
+# - eSwitch
+
+devlink dev show
+# pci/0000:03:00.0   # Host-side
+# auxiliary:host1#0   # Embedded switch
+
+# Configure SmartNIC pipeline
+# (driver-specific, example for NVIDIA BlueField)
+devlink dev param set auxiliary:host1#0 \
+    param flow_steering_mode cmode runtime value smfs
+```
+
+## Devlink Resource Monitoring
+
+```bash
+# Monitor resource utilization
+devlink resource show pci/0000:03:00.0
+
+# Example: KVD (Key-Value Database) on Spectrum ASIC
+# pci/0000:03:00.0:
+#   name kvd size 262144 occ 12345
+#   name kvd linear size 65536 occ 2048
+#   name kvd hash_single size 131072 occ 8192
+#   name kvd hash_double size 65536 occ 2105
+
+# Reallocate resources
+# (requires understanding the ASIC's resource model)
+devlink resource set pci/0000:03:00.0 path /kvd/hash_single size 196608
+devlink resource set pci/0000:03:00.0 path /kvd/hash_double size 32768
+devlink dev reload pci/0000:03:00.0
+```
+
+## Devlink Debugging with Tracing
+
+```bash
+# Enable devlink tracing
+echo 1 > /sys/kernel/debug/tracing/events/devlink/devlink_hwmsg/enable
+echo 1 > /sys/kernel/debug/tracing/events/devlink/devlink_health_reporter/enable
+
+# View devlink hardware messages
+cat /sys/kernel/debug/tracing/trace_pipe | grep devlink
+
+# Trace devlink Netlink communication
+# Use nlmon (Netlink monitor)
+ip link add nlmon0 type nlmon
+ip link set nlmon0 up
+tcpdump -i nlmon0 -w /tmp/nlmon.pcap
+# Filter for devlink family
+```
+
 ## Further Reading
 
 - [Kernel docs: devlink](https://www.kernel.org/doc/html/latest/networking/devlink/index.html)
