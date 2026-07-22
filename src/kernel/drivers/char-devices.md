@@ -509,15 +509,184 @@ This creates `/sys/class/mydev_class/mydev/my_status`.
 
 ---
 
-## 11. Comparing Registration Methods
+## 11. mmap Implementation
+
+Character devices can map device memory or kernel buffers into user space:
+
+```c
+static int my_mmap(struct file *filp, struct vm_area_struct *vma)
+{
+    unsigned long size = vma->vm_end - vma->vm_start;
+    unsigned long pfn = virt_to_phys(my_buffer) >> PAGE_SHIFT;
+
+    /* Remap kernel memory into user space */
+    if (remap_pfn_range(vma, vma->vm_start, pfn, size,
+                        vma->vm_page_prot))
+        return -EAGAIN;
+
+    return 0;
+}
+```
+
+### mmap for DMA Buffers
+
+For devices with DMA, use the DMA mapping API:
+
+```c
+static int my_mmap(struct file *filp, struct vm_area_struct *vma)
+{
+    struct my_device *dev = filp->private_data;
+    unsigned long size = vma->vm_end - vma->vm_start;
+
+    /* Map DMA-coherent memory */
+    return dma_mmap_coherent(dev->dev, vma, dev->dma_buf,
+                             dev->dma_addr, size);
+}
+```
+
+---
+
+## 12. Async I/O with char devices
+
+Character devices can support asynchronous I/O through several mechanisms:
+
+### poll() and epoll()
+
+The `poll` callback enables event-driven I/O:
+
+```c
+static __poll_t my_poll(struct file *filp, poll_table *wait)
+{
+    struct my_data *data = filp->private_data;
+    __poll_t mask = 0;
+
+    /* Register wait queue for wakeup notification */
+    poll_wait(filp, &data->read_wait, wait);
+    poll_wait(filp, &data->write_wait, wait);
+
+    if (data->rx_count > 0)
+        mask |= POLLIN | POLLRDNORM;
+    if (data->tx_free > 0)
+        mask |= POLLOUT | POLLWRNORM;
+    if (data->error)
+        mask |= POLLERR;
+
+    return mask;
+}
+```
+
+### Signaling Readiness
+
+When data arrives (e.g., in an interrupt handler), wake up waiters:
+
+```c
+/* In interrupt handler or data arrival callback */
+data->rx_count++;
+wake_up_interruptible(&data->read_wait);
+
+/* Or for epoll edge-triggered */
+if (data->fasync)
+    kill_fasync(&data->fasync, SIGIO, POLL_IN);
+```
+
+---
+
+## 13. Error Handling Patterns
+
+### Resource Cleanup with goto
+
+The kernel convention uses goto for cleanup in init/probe functions:
+
+```c
+static int __init my_init(void)
+{
+    int ret;
+
+    ret = alloc_chrdev_region(&devno, 0, 1, "mydev");
+    if (ret)
+        return ret;
+
+    cdev_init(&my_cdev, &my_fops);
+    ret = cdev_add(&my_cdev, devno, 1);
+    if (ret)
+        goto err_unreg;
+
+    my_class = class_create("myclass");
+    if (IS_ERR(my_class)) {
+        ret = PTR_ERR(my_class);
+        goto err_cdev;
+    }
+
+    return 0;
+
+err_cdev:
+    cdev_del(&my_cdev);
+err_unreg:
+    unregister_chrdev_region(devno, 1);
+    return ret;
+}
+```
+
+### Error Return Conventions
+
+| Return Value | Meaning |
+|-------------|--------|
+| `0` | Success |
+| `-EFAULT` | Bad user-space pointer |
+| `-EINVAL` | Invalid argument |
+| `-ENOMEM` | Out of memory |
+| `-ENODEV` | No such device |
+| `-EBUSY` | Device busy |
+| `-EAGAIN` | Try again (non-blocking I/O) |
+| `-ENOTTY` | Invalid ioctl command |
+| `-ERESTARTSYS` | Interrupted by signal, VFS will retry |
+
+---
+
+## 14. Comparing Registration Methods
 
 | Method | Boilerplate | Use Case |
 |---|---|---|
 | `cdev` + `class` + `device` | High | Full control, production drivers |
 | `misc_register` | Low | Simple devices, one minor |
 | `register_chrdev` (legacy) | Medium | Old drivers (deprecated for new code) |
+| `platform_driver` + `cdev` | High | Device tree / platform devices |
 
 ---
+
+## 15. Debugging Character Devices
+
+```bash
+# List registered character devices
+$ cat /proc/devices
+
+# View device nodes
+$ ls -la /dev/mydev
+
+# Trace file_operations calls
+$ sudo trace-cmd record -p function_graph -g my_read -g my_write
+
+# Monitor device access
+$ sudo inotifywait -m /dev/mydev
+
+# Check for device errors
+$ dmesg | grep mydev
+
+# View sysfs attributes
+$ cat /sys/class/mydev_class/mydev/my_status
+```
+
+---
+
+## Cross-References
+
+- [Block Devices](../block/devices.md) — the other device type
+- [Driver Model Overview](overview.md) — bus/device/driver framework
+- [Kernel APIs](../apis.md) — copy_to_user, printk, memory allocation
+- [PCI Subsystem](pci.md) — PCI character device examples
+- [Device Tree](device-tree.md) — platform device matching
+- [Interrupts](../interrupts/top-bottom-halves.md) — interrupt handling for char devices
+- [superblock](../filesystems/superblock.md) — VFS superblock integration
 
 ## Further Reading
 
