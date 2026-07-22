@@ -426,6 +426,217 @@ perf record -e ibs_op//,ldlat=100 -- ./workload
 - `tools/perf/` — userspace perf tool
 - `kernel/events/core.c` — kernel perf infrastructure
 
+## PEBS Analysis Workflow
+
+```mermaid
+flowchart TD
+    A["Performance investigation"] --> B{"What to profile?"}
+    B -->|Cache misses| C["perf mem record"]
+    B -->|Branch mispredictions| D["perf record -e branch-misses:pp"]
+    B -->|Memory latency| E["perf record -e ldlat-loads:pp"]
+    B -->|Data layout| F["perf record -e mem-loads:pp -d"]
+    C --> G["perf mem report --sort=mem,symbol"]
+    D --> H["perf report --sort=symbol"]
+    E --> I["perf report --sort=mem"]
+    F --> J["perf report --sort=mem"]
+    G --> K{"Hot data addresses?"}
+    K -->|Yes| L["Restructure data layout"]
+    K -->|No| M["Check NUMA placement"]
+    H --> N{"Hot branches?"}
+    N -->|Yes| O["Optimize branch prediction"]
+    I --> P{"High latency loads?"}
+    P -->|Yes| Q["Add prefetch or restructure"]
+```
+
+## PEBS vs AMD IBS: Practical Comparison
+
+```bash
+# Intel PEBS
+perf record -e mem-loads:pp -d -- ./workload
+perf mem report --sort=mem,symbol
+# Shows: data addresses, cache levels, NUMA nodes
+
+# AMD IBS (similar capability)
+perf record -e ibs_op// -- ./workload
+perf report --sort=symbol
+# Shows: operation latency, data addresses
+
+# AMD IBS with latency filtering
+perf record -e ibs_op//,ldlat=100 -- ./workload
+# Only records operations with latency >= 100 cycles
+```
+
+| Feature | Intel PEBS | AMD IBS |
+|---------|-----------|----------|
+| **Available since** | Nehalem (2008) | Barcelona (2007) |
+| **Data address profiling** | Yes | Yes |
+| **Cache level info** | Yes (data_src) | Yes |
+| **Latency recording** | Yes | Yes (separate counters) |
+| **Multi-event** | Yes (PEBS v2+) | Yes (separate IBS units) |
+| **Buffer mechanism** | In-memory DS area | MSR read on PMI |
+| **Overhead** | Low | Low |
+| **Kernel support** | `CONFIG_PERF_EVENTS` | `CONFIG_PERF_EVENTS` |
+
+## PEBS for Compiler Optimization
+
+PEBS data can drive compiler optimization decisions:
+
+```bash
+# Generate PEBS-based optimization report
+perf record -e instructions:pp -e branch-misses:pp -e mem-loads:pp \
+    -d -- ./workload
+
+# Analyze with perf annotate
+perf annotate --symbol=my_function --stdio
+# Percent | Source code & ASM
+# --------|------------------
+# 45.23%  | mov (%rax), %rcx    ← Hot load (cache miss)
+# 23.45%  | cmp $0, %rcx
+# 12.34%  | je .L2              ← Branch misprediction
+#  8.90%  | add $8, %rax
+
+# Use with AutoFDO (Automatic Feedback-Directed Optimization)
+# 1. Collect PEBS profile
+perf record -b -e cycles:pp -- ./workload
+
+# 2. Convert to AutoFDO format
+create_llvm_prof --binary=./workload --profile=perf.data --out=workload.afdo
+
+# 3. Compile with profile
+clang -fprofile-sample-use=workload.afdo -O2 mycode.c
+```
+
+## PEBS Overhead Measurement
+
+```bash
+# Measure PEBS overhead
+# Baseline: no PEBS
+perf stat -e cycles,instructions -- ./workload
+# cycles: 10,000,000,000
+# instructions: 8,000,000,000
+
+# With PEBS
+perf stat -e cycles,instructions -- perf record -e mem-loads:pp -- ./workload
+# cycles: 10,050,000,000  ← 0.5% overhead
+# instructions: 8,020,000,000
+
+# Overhead varies by:
+# - Event rate (higher rate = more PEBS records = more overhead)
+# - Buffer size (larger buffer = fewer interrupts)
+# - Number of precise events (more events = more overhead)
+```
+
+| Configuration | Overhead | Notes |
+|--------------|----------|-------|
+| Single PEBS event | 0.1-0.5% | Minimal impact |
+| Multiple PEBS events | 0.5-2% | Moderate |
+| System-wide PEBS | 1-5% | Higher due to all-CPU sampling |
+| PEBS + Intel PT | 2-10% | Combined tracing overhead |
+
+## PEBS in Production
+
+### Safe Production Profiling
+
+```bash
+# Low-overhead production profiling
+# 1. Use sampling frequency limit
+perf record -F 99 -e mem-loads:pp -a -- sleep 30
+# 99 Hz = ~100 samples/sec per CPU
+
+# 2. Profile specific processes only
+perf record -F 99 -e mem-loads:pp -p $(pidof myapp) -- sleep 30
+
+# 3. Use --call-graph fp for lower overhead
+perf record -F 99 -e mem-loads:pp --call-graph fp -p $(pidof myapp) -- sleep 30
+
+# 4. Rotate recording files
+perf record -F 99 -e mem-loads:pp -a \
+    --switch-output=1m -o perf.data -- sleep 300
+```
+
+### Continuous Memory Profiling
+
+```bash
+#!/bin/bash
+# continuous-pebs.sh — Periodic memory profiling
+INTERVAL=300  # 5 minutes
+DURATION=30   # 30 seconds per capture
+OUTDIR="/var/lib/perf-profiles"
+mkdir -p "$OUTDIR"
+
+while true; do
+    TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+    perf record -F 99 -e mem-loads:pp -d -a \
+        --output="$OUTDIR/pebs-$TIMESTAMP.data" -- sleep $DURATION
+
+    # Generate summary
+    perf mem report -i "$OUTDIR/pebs-$TIMESTAMP.data" \
+        --sort=mem,symbol --stdio > "$OUTDIR/pebs-$TIMESTAMP.txt" 2>/dev/null
+
+    # Cleanup old profiles (keep 7 days)
+    find "$OUTDIR" -name "pebs-*" -mtime +7 -delete
+
+    sleep $INTERVAL
+done
+```
+
+## PEBS Kernel Internals
+
+### PEBS Initialization Flow
+
+```mermaid
+sequenceDiagram
+    participant U as User (perf)
+    participant K as Kernel (perf_event)
+    participant P as PMU (Hardware)
+
+    U->>K: perf_event_open(PEBS event)
+    K->>K: Allocate PEBS buffer
+    K->>K: Allocate DS (Debug Store) area
+    K->>P: Write IA32_DS_AREA MSR
+    K->>P: Write IA32_PEBS_ENABLE MSR
+    K->>P: Write counter initial value
+    P-->>K: Counter overflow → PEBS record
+    K->>K: Process PEBS record
+    K->>U: Deliver sample to perf
+```
+
+### PEBS Record Processing
+
+```c
+/* Simplified PEBS record processing in kernel */
+static void intel_pmu_drain_pebs_nhm(struct pt_regs *regs)
+{
+    struct cpu_hw_events *cpuc = this_cpu_ptr(&cpu_hw_events);
+    struct debug_store *ds = cpuc->ds;
+    struct pebs_record_nhm *at, *top;
+    int n;
+
+    at = (struct pebs_record_nhm *)ds->pebs_buffer_base;
+    top = (struct pebs_record_nhm *)ds->pebs_index;
+
+    n = top - at;
+    if (n <= 0)
+        return;
+
+    /* Process each PEBS record */
+    for (; at < top; at++) {
+        struct perf_sample_data data;
+        struct pt_regs regs;
+
+        /* Extract precise IP */
+        regs.ip = at->ip;
+        /* Extract data address */
+        data.addr = at->data_src;
+        /* Create perf sample */
+        __intel_pmu_pebs_event(event, &regs, &data, at);
+    }
+
+    /* Reset PEBS buffer index */
+    ds->pebs_index = ds->pebs_buffer_base;
+}
+```
+
 ## Further Reading
 
 - **Documentation/admin-guide/perf/pebs.rst** — PEBS documentation
@@ -435,6 +646,8 @@ perf record -e ibs_op//,ldlat=100 -- ./workload
 - **Intel perfmon events** — <https://perfmon-events.intel.com/>
 - **Brendan Gregg's perf examples** — <https://www.brendangregg.com/perf.html>
 - **Andi Kleen's perf tools** — <https://github.com/andikleen/pmu-tools>
+- Gregg, B. *Systems Performance: Enterprise and the Cloud*, 2nd Edition (2020).
+- Gregg, B. *BPF Performance Tools* (2019).
 
 ## See Also
 
@@ -444,3 +657,6 @@ perf record -e ibs_op//,ldlat=100 -- ./workload
 - [AMD IBS](../performance/amd-ibs.md) — AMD Instruction-Based Sampling
 - [NUMA](../mm/numa.md) — NUMA memory architecture
 - [Cache Hierarchy](../arch/cache.md) — CPU cache architecture
+- [Memory Performance](memory.md)
+- [NUMA Optimization](numa.md)
+- [Benchmarking](benchmarking.md)

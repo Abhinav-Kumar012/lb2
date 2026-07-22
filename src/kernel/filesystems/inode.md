@@ -337,6 +337,34 @@ $ tune2fs -C 0 /dev/sda1
 # XFS: dynamically allocates inodes, no fixed limit
 ```
 
+### On-Disk Inode Structure (ext4)
+
+```c
+/* Simplified ext4 inode on disk */
+struct ext4_inode {
+    __le16 i_mode;          /* File mode */
+    __le16 i_uid;           /* Low 16 bits of owner UID */
+    __le32 i_size_lo;       /* Lower 32 bits of size */
+    __le32 i_atime;         /* Access time */
+    __le32 i_ctime;         /* Inode change time */
+    __le32 i_mtime;         /* Modification time */
+    __le32 i_dtime;         /* Deletion time */
+    __le16 i_gid;           /* Low 16 bits of group ID */
+    __le16 i_links_count;   /* Hard link count */
+    __le32 i_blocks_lo;     /* Blocks count (512-byte units) */
+    __le32 i_flags;         /* File flags */
+    union {
+        struct { __le32 l_i_version; } linux1;
+        /* ... OS-specific ... */
+    } osd1;
+    __le32 i_block[EXT4_N_BLOCKS]; /* Block pointers */
+    __le32 i_generation;    /* File version (for NFS) */
+    __le32 i_file_acl_lo;   /* Extended attribute block */
+    __le32 i_size_high;     /* Upper 32 bits of size */
+    /* ... more fields ... */
+};
+```
+
 ## Filesystem-Specific Inode Extensions
 
 Most filesystems embed `struct inode` within a larger structure:
@@ -381,6 +409,41 @@ $ sysctl fs.inode-nr=100000 500  # current, free threshold
 
 # Drop caches (including inodes)
 $ echo 2 > /proc/sys/vm/drop_caches  # Free dentries and inodes
+```
+
+## Inode Operations in Practice
+
+### Creating a File
+
+```mermaid
+sequenceDiagram
+    participant App as Application
+    participant VFS as VFS
+    participant Dir as Parent Inode
+    participant New as New Inode
+
+    App->>VFS: open("file.txt", O_CREAT)
+    VFS->>Dir: i_op->lookup("file.txt")
+    Dir-->>VFS: ENOENT (not found)
+    VFS->>Dir: i_op->create("file.txt", mode)
+    Dir->>New: alloc_inode() + i_op->create()
+    New->>New: Initialize i_mode, i_uid, i_gid
+    New->>New: Set i_op, i_fop
+    New-->>Dir: Return new inode
+    Dir-->>VFS: Return dentry pointing to new inode
+    VFS-->>App: Return file descriptor
+```
+
+### Hard Link Creation
+
+```bash
+# Create hard link
+$ ln /tmp/original /tmp/link
+$ stat /tmp/original /tmp/link
+  File: /tmp/original
+  Inode: 131074      Links: 2
+  File: /tmp/link
+  Inode: 131074      Links: 2    # Same inode!
 ```
 
 ## References

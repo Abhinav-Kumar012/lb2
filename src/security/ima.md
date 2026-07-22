@@ -561,6 +561,96 @@ cat /proc/cmdline | grep ima
 
 ---
 
+## 14. IMA Policy Examples for Production
+
+### Server Hardening Policy
+
+```
+# /etc/ima/ima-policy
+# Measure and appraise all executed binaries
+measure func=BPRM_CHECK
+appraise func=BPRM_CHECK
+
+# Measure kernel modules
+measure func=MODULE_CHECK
+appraise func=MODULE_CHECK
+
+# Measure firmware
+measure func=FIRMWARE_CHECK
+appraise func=FIRMWARE_CHECK
+
+# Measure files opened for execution
+measure func=FILE_MMAP mask=MAY_EXEC
+appraise func=FILE_MMAP mask=MAY_EXEC
+
+# Skip pseudo-filesystems
+dont_appraise fsmagic=0x9fa0
+dont_appraise fsmagic=0x62656572
+dont_appraise fsmagic=0x64626720
+dont_appraise fsmagic=0x01021994
+dont_appraise fsmagic=0x534f434b
+dont_appraise fsmagic=0x73636673
+```
+
+### Container Host Policy
+
+```
+# Measure and appraise container images
+measure func=BPRM_CHECK fsmagic=0xef53
+appraise func=BPRM_CHECK fsmagic=0xef53
+
+# Skip tmpfs (container writable layers)
+dont_appraise fsmagic=0x01021994
+
+# Measure and appraise kernel modules
+measure func=MODULE_CHECK
+appraise func=MODULE_CHECK
+
+# Appraise firmware
+appraise func=FIRMWARE_CHECK
+```
+
+### Development/Testing Policy
+
+```
+# Log-only mode for testing
+audit func=BPRM_CHECK
+audit func=FILE_MMAP mask=MAY_EXEC
+
+# Don't enforce appraisal
+dont_appraise fsmagic=0xef53
+```
+
+## 15. IMA and Container Security
+
+IMA can measure and appraise files inside containers:
+
+```bash
+# Mount container filesystem
+mount -t overlay overlay -o lowerdir=/var/lib/docker/overlay2/lower,
+  upperdir=/var/lib/docker/overlay2/upper,
+  workdir=/var/lib/docker/overlay2/work /mnt/container
+
+# Sign container binaries
+find /mnt/container/usr/bin -type f -executable | while read f; do
+    evmctl ima_sign --hashalgo sha256 --key /etc/keys/ima.pem "$f"
+done
+
+# IMA will measure/appraise when container executes these files
+```
+
+### Container Runtime Integration
+
+```bash
+# Docker with IMA
+# Ensure container runtime passes files through IMA hooks
+# Docker's default overlay2 driver triggers IMA hooks
+
+# Podman with IMA
+# Podman uses the same kernel interfaces
+# IMA policy applies to containerized processes
+```
+
 ## Cross-References
 
 * [SELinux](./selinux.md) — MAC policy integration
