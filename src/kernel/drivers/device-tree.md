@@ -447,9 +447,131 @@ of_platform_populate(NULL, of_default_bus_match_table, NULL, NULL);
 This walks the device tree and creates `platform_device` for each node
 with a `compatible` property that matches a registered driver.
 
----
+## 10. Device Tree Compilation and Validation
 
-## 10. Device Tree vs ACPI
+### Compilation Pipeline
+
+```mermaid
+flowchart LR
+    DTS["board.dts"] --> CPP["C Preprocessor"]
+    DTSI["soc.dtsi"] --> CPP
+    CPP --> PRE["Preprocessed DTS"]
+    PRE --> DTC["dtc compiler"]
+    DTC --> DTB["board.dtb"]
+    DTC --> WARN["Warnings/Errors"]
+    DTB --> OVERLAY["fdtoverlay"]
+    DTBO["sensor.dtbo"] --> OVERLAY
+    OVERLAY --> FINAL["final.dtb"]
+```
+
+### dtc Compiler Options
+
+```bash
+# Basic compilation
+dtc -I dts -O dtb -o board.dtb board.dts
+
+# With preprocessing (recommended for production)
+cpp -nostdinc -I include -undef -x assembler-with-cpp \
+    board.dts board.dts.preprocessed
+dtc -I dts -O dtb -o board.dtb board.dts.preprocessed
+
+# Enable all warnings
+dtc -I dts -O dtb -o board.dtb board.dts -@ -W no-unit_address_vs_reg
+
+# Deprecation warnings
+dtc -I dts -O dtb -o board.dtb board.dts -W deprecated
+
+# Quiet mode (suppress warnings)
+dtc -I dts -O dtb -q -o board.dtb board.dts
+
+# Verify DTB integrity
+dtc -I dtb -O dtb board.dtb > /dev/null
+```
+
+### Device Tree Validation (dt-validate)
+
+The kernel includes a YAML-based schema validator:
+
+```bash
+# Install dt-schema (requires Python)
+pip3 install dt-schema
+
+# Validate DTS against bindings
+make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- dt_binding_check
+
+# Validate compiled DTB
+dt-validate -s /path/to/schemas board.dtb
+
+# Validate all DTBs for a platform
+make ARCH=arm64 dtbs_check
+```
+
+### Common Compilation Errors
+
+```bash
+# Error: duplicate node names
+board.dts:15.1-20.3: ERROR: duplicate node name: serial@10000000
+# Fix: Use unique names or labels
+
+# Error: missing required property
+board.dts:20.5-25.3: ERROR: missing 'reg' property
+# Fix: Add required properties per binding
+
+# Warning: unit_address_vs_reg mismatch
+board.dts:15.1-20.3: Warning: unit name and reg address mismatch
+# Fix: Align node name with reg address
+
+# Error: incompatible string
+board.dts:20.5-25.3: ERROR: "myvendor,my-uart" not in any binding
+# Fix: Check spelling, add to compatible list in driver
+```
+
+## 11. Device Tree for Power Management
+
+### Power Domains
+
+```dts
+/* Power domain definitions */
+power: power-controller@10000000 {
+    compatible = "myvendor,power-controller";
+    reg = <0x10000000 0x1000>;
+    #power-domain-cells = <1>;
+};
+
+/* Consumer devices reference the power domain */
+uart0: serial@10010000 {
+    power-domains = <&power 0>;  /* Domain 0 */
+    /* Driver will enable/disable domain around use */
+};
+```
+
+### Runtime PM with Device Tree
+
+```c
+/* Driver runtime PM integration */
+static int my_suspend(struct device *dev)
+{
+    struct my_data *data = dev_get_drvdata(dev);
+    /* Disable clocks, regulators from DT */
+    clk_disable_unprepare(data->clk);
+    regulator_disable(data->supply);
+    return 0;
+}
+
+static int my_resume(struct device *dev)
+{
+    struct my_data *data = dev_get_drvdata(dev);
+    regulator_enable(data->supply);
+    clk_prepare_enable(data->clk);
+    return 0;
+}
+
+static const struct dev_pm_ops my_pm_ops = {
+    SET_RUNTIME_PM_OPS(my_suspend, my_resume, NULL)
+};
+```
+
+## 12. Device Tree vs ACPI
 
 | Feature | Device Tree | ACPI |
 |---|---|---|
