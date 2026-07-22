@@ -400,6 +400,14 @@ nsenter --mount --pid --net --target <pid> bash
 - Unbindable mounts prevent namespace escape via bind mount attacks
 - The `nosuid`, `nodev`, and `noexec` mount options should be used in container mount namespaces
 
+## References
+
+- [Mount namespaces man page](https://man7.org/linux/man-pages/man7/mount_namespaces.7.html)
+- [Linux kernel source: fs/namespace.c](https://github.com/torvalds/linux/blob/master/fs/namespace.c)
+- [LWN: Mount propagation](https://lwn.net/Articles/690679/)
+- [LWN: A deeper look at mount namespaces](https://lwn.net/Articles/689671/)
+- [Kernel documentation: sharedsubtree.txt](https://www.kernel.org/doc/html/latest/filesystems/sharedsubtree.txt)
+
 ## Further Reading
 
 - **Kernel documentation**: `Documentation/filesystems/sharedsubtree.txt`
