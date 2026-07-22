@@ -419,6 +419,109 @@ modinfo -F signer my_module
 scripts/verify-module-sig /lib/modules/$(uname -r)/kernel/drivers/my_module.ko
 ```
 
+## Appendix: Lockdown and Container Security
+
+Lockdown affects containers and virtual machines:
+
+```bash
+# Containers share the host kernel
+# Lockdown restrictions apply to containerized processes
+
+# Container with privileged mode may bypass some restrictions
+# But lockdown provides a hard floor
+
+# Check lockdown from inside container
+docker run --rm alpine cat /sys/kernel/security/lockdown
+# [none] integrity confidentiality
+
+# Docker with lockdown
+# Use --privileged cautiously
+docker run --privileged ...  # Bypasses many restrictions
+# But lockdown still blocks unsigned modules, /dev/mem writes, etc.
+
+# Kubernetes security context
+apiVersion: v1
+kind: Pod
+spec:
+  securityContext:
+    privileged: false  # Don't use privileged mode
+    capabilities:
+      drop:
+        - SYS_ADMIN  # Remove CAP_SYS_ADMIN
+```
+
+### Lockdown in Virtual Machines
+
+```bash
+# VMs have their own kernel
+# Lockdown in VM is independent of host lockdown
+
+# QEMU/KVM with Secure Boot
+qemu-system-x86_64 \
+  -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE.fd \
+  -drive if=pflash,format=raw,file=/tmp/OVMF_VARS.fd \
+  ...
+
+# VM kernel will enable lockdown if Secure Boot is active
+```
+
+## Appendix: Lockdown vs Other Security Features
+
+| Feature | Protects Against | Scope | Kernel Version |
+|---------|-----------------|-------|----------------|
+| Lockdown | Root→kernel escalation | Kernel integrity/confidentiality | 5.4+ |
+| SELinux | Policy-based access control | Process/file access | 2.6+ |
+| AppArmor | Path-based access control | Process/file access | 2.6.36+ |
+| seccomp | Syscall filtering | Syscall level | 3.5+ |
+| IMA/EVM | File integrity | File content/metadata | 2.6.30+ |
+| Secure Boot | Boot chain integrity | Boot process | N/A (UEFI) |
+| dm-verity | Block integrity | Root filesystem | 3.4+ |
+
+### Layered Security
+
+```
+┌─────────────────────────────────────────┐
+│  UEFI Secure Boot                       │  ← Firmware verification
+├─────────────────────────────────────────┤
+│  Kernel Lockdown (integrity)            │  ← Runtime integrity
+├─────────────────────────────────────────┤
+│  IMA/EVM                                │  ← File integrity
+├─────────────────────────────────────────┤
+│  SELinux / AppArmor                     │  ← Access control
+├─────────────────────────────────────────┤
+│  seccomp                                │  ← Syscall filtering
+├─────────────────────────────────────────┤
+│  Namespaces / cgroups                   │  ← Resource isolation
+└─────────────────────────────────────────┘
+```
+
+## Appendix: Lockdown Configuration Checklist
+
+```bash
+# 1. Enable Secure Boot in UEFI
+# 2. Install signed kernel
+apt install linux-image-$(uname -r)
+
+# 3. Verify lockdown is active
+cat /sys/kernel/security/lockdown
+# Should show: [integrity] or [confidentiality]
+
+# 4. Verify module signing
+modinfo -F sig ext4
+
+# 5. Test unsigned module is blocked
+insmod unsigned.ko 2>&1 | grep -i lockdown
+
+# 6. Verify /dev/mem is blocked
+dd if=/dev/mem of=/dev/null bs=1 count=1 2>&1 | grep -i lockdown
+
+# 7. Check kexec is blocked
+kexec -l /boot/vmlinuz 2>&1 | grep -i lockdown
+
+# 8. Review kernel logs for lockdown events
+dmesg | grep -i lockdown
+```
+
 ## See Also
 
 - [User Namespace Security](../containers/user-namespace-security.md) —
