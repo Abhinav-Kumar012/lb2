@@ -434,6 +434,324 @@ cat /sys/kernel/debug/iommu/intel/iommu0/iotlb_stats 2>/dev/null
 lspci -vvv | grep -A5 "IOMMU\|ACS\|ATS\|PRI"
 ```
 
+## ARM SMMUv3 Deep Dive
+
+SMMUv3 is ARM's next-generation IOMMU with several advanced features:
+
+### SMMUv3 vs SMMUv2
+
+| Feature | SMMUv2 | SMMUv3 |
+|---|---|---|
+| Translation | Stage 1+2 | Stage 1+2 + HTTU |
+| Page table format | ARM LPAE | ARM LPAE + HTTU |
+| PASID support | Limited | Full (SVA) |
+| PRI (Page Request) | No | Yes |
+| MSI-based fault report | No | Yes |
+| CMD queue | Register-based | Queue-based |
+| Event queue | Interrupt | Queue-based |
+| Supported page sizes | 4K, 64K | 4K, 16K, 64K |
+
+### SMMUv3 Features
+
+```mermaid
+graph TD
+    subgraph "SMMUv3 Architecture"
+        CMDQ["Command Queue<br/>Configuration"]
+        EVTQ["Event Queue<br/>Fault reporting"]
+        PRIQ["PRI Queue<br/>Page requests"]
+        STE["Stream Table<br/>Device mapping"]
+        CD["Context Descriptor<br/>Page tables"]
+    end
+    DEV["PCIe Device"] -->|"Stream ID"| STE
+    STE --> CD
+    CD -->|"Translation"| MEM["System Memory"]
+    CMDQ -->|"Configure"| STE
+    EVTQ -->|"Faults"| KERNEL["Kernel"]
+    PRIQ -->|"Page req"| KERNEL
+```
+
+### SMMUv3 Shared Virtual Addressing (SVA)
+
+SVA allows devices to share the same virtual address space as the
+CPU process, enabling direct pointer passing between CPU and device:
+
+```c
+/* Bind device to process address space */
+struct iommu_domain *domain;
+domain = iommu_domain_alloc(&pci_bus_type);
+
+/* Use SVA domain type */
+iommu_attach_device(domain, dev);
+
+/* The device can now use process virtual addresses */
+/* No IOMMU bounce buffering needed */
+```
+
+## Access Control Services (ACS)
+
+ACS is a PCIe capability that provides peer-to-peer (P2P) access
+control. It's critical for IOMMU isolation:
+
+### ACS Capabilities
+
+```bash
+# Check ACS support
+$ lspci -vvv -s 00:1f.0 | grep -A 10 "Access Control Services"
+Capabilities: [160] Access Control Services
+    ACSCap: SrcValid+ TransBlk+ ReqRedir+ CmpltRedir+
+    ACSCtl: SrcValid- TransBlk- ReqRedir- CmpltRedir-
+```
+
+### ACS Enforcement
+
+Without ACS, PCIe devices within the same IOMMU group can perform
+peer-to-peer DMA, bypassing IOMMU isolation:
+
+```mermaid
+graph TD
+    subgraph "Without ACS"
+        D1["Device 1"] -->|"P2P DMA"| D2["Device 2"]
+        D1 -.->|"Bypasses IOMMU"| IOMMU["IOMMU"]
+    end
+    subgraph "With ACS"
+        D3["Device 3"] -->|"P2P blocked"| D4["Device 4"]
+        D3 -->|"All traffic through IOMMU"| IOMMU2["IOMMU"]
+    end
+```
+
+```bash
+# Devices without ACS end up in the same IOMMU group
+# This prevents safe passthrough of individual devices
+for g in /sys/kernel/iommu_groups/*; do
+    count=$(ls $g/devices/ | wc -l)
+    if [ $count -gt 1 ]; then
+        echo "Group $(basename $g) has $count devices (ACS issue):"
+        ls $g/devices/
+    fi
+done
+```
+
+## Page Request Interface (PRI)
+
+PRI allows devices to request page faults to be resolved, enabling
+on-demand paging for devices:
+
+### PRI Flow
+
+```mermaid
+sequenceDiagram
+    participant DEV as Device
+    participant IOMMU as IOMMU
+    participant DRV as IOMMU Driver
+    participant MM as Memory Manager
+
+    DEV->>IOMMU: Access unmapped IOVA
+    IOMMU->>DRV: PRI: page request
+    DRV->>MM: Resolve fault
+    MM->>DRV: Page allocated
+    DRV->>IOMMU: Complete PRI
+    IOMMU->>DEV: Page available
+    DEV->>IOMMU: Retry access
+    IOMMU->>DEV: Access succeeds
+```
+
+### PRI in the Kernel
+
+```c
+/* PRI fault handler */
+static int my_pri_handler(struct iommu_fault *fault, void *data)
+{
+    struct device *dev = data;
+    u64 addr = fault->prm.addr;
+    u32 flags = fault->prm.flags;
+
+    /* Allocate and map the requested page */
+    ret = handle_mm_fault(addr, flags);
+
+    /* Complete the page request */
+    iommu_page_response(dev, fault, ret);
+
+    return 0;
+}
+```
+
+## Process Address Space ID (PASID)
+
+PASID enables a single device to use multiple address spaces,
+differentiated by a PASID tag in each transaction:
+
+### PASID Use Cases
+
+| Use Case | Description |
+|---|---|
+| Shared Virtual Addressing | Device uses process VA directly |
+| Virtual Functions | Each VF gets its own address space |
+| Multi-process GPU | GPU multiplexes processes via PASID |
+| NVMe host-managed | Per-namespace address spaces |
+
+### PASID Allocation
+
+```c
+/* Allocate a PASID for a device */
+int pasid = iommu_alloc_global_pasid(dev);
+if (pasid < 0)
+    return pasid;
+
+/* Enable PASID on device */
+pci_enable_pasid(dev, pasid);
+
+/* Free when done */
+iommu_free_global_pasid(dev, pasid);
+```
+
+## IOMMU and DMA Bounce Buffers (SWIOTLB)
+
+When no IOMMU is present and a device has a limited DMA mask, the
+kernel uses SWIOTLB:
+
+### SWIOTLB Architecture
+
+```mermaid
+graph LR
+    subgraph "High Memory (above 4G)"
+        APP["Application buffer"]
+    end
+    subgraph "SWIOTLB Bounce Pool"
+        BOUNCE["Bounce buffer
+    (below 4G)"]
+    end
+    subgraph "Device"
+        DEV["32-bit DMA device"]
+    end
+    APP -->|"Copy (write)"| BOUNCE
+    BOUNCE -->|"DMA"| DEV
+    DEV -->|"DMA"| BOUNCE
+    BOUNCE -->|"Copy (read)"| APP
+```
+
+### SWIOTLB Configuration
+
+```bash
+# Kernel command line
+swiotlb=64          # 64 KiB bounce buffer (in KiB)
+swiotlb=force        # Force SWIOTLB even with IOMMU
+swiotlb=noforce      # Don't force SWIOTLB
+swiotlb=2048,0       # 2 MiB, verbose
+
+# Check SWIOTLB allocation
+$ dmesg | grep swiotlb
+[    0.000000] software IO TLB: mapped [mem 0x000000007d700000-0x000000007db00000] (64MB)
+
+# Check bounce buffer usage
+$ cat /proc/vmstat | grep bounce
+nr_bounce 1234
+```
+
+## Nested IOMMU Translation (Extended)
+
+### Two-Stage Translation Detail
+
+```mermaid
+graph TD
+    subgraph "Stage 1 (Guest-controlled)"
+        GVA["Guest Virtual Address"]
+        GPT["Guest Page Table"]
+        GPA["Guest Physical Address"]
+    end
+    subgraph "Stage 2 (Host-controlled)"
+        HPT["Host Page Table"]
+        HPA["Host Physical Address"]
+    end
+    GVA --> GPT --> GPA
+    GPA --> HPT --> HPA
+```
+
+### Nested Domain Setup
+
+```c
+/* Create a nested domain for VM passthrough */
+struct iommu_domain *s1_domain, *s2_domain;
+
+/* Stage 2: host controls physical mapping */
+s2_domain = iommu_domain_alloc(&pci_bus_type);
+
+/* Attach device */
+iommu_attach_device(s2_domain, dev);
+
+/* Stage 1: guest sets up its own page tables */
+/* The IOMMU hardware combines both stages */
+/* Guest writes Stage 1 PTEs via VM exit trap */
+```
+
+## IOMMU Performance
+
+### IOTLB Optimization
+
+The IOMMU has its own TLB (IOTLB) for caching address translations:
+
+```bash
+# Check IOTLB statistics (Intel)
+$ cat /sys/kernel/debug/iommu/intel/iommu0/iotlb_stats 2>/dev/null
+# or via dmesg
+$ dmesg | grep -i iotlb
+
+# IOTLB invalidation is expensive — large mappings reduce TLB misses
+# Use huge pages (2M, 1G) in IOMMU mappings when possible
+```
+
+### Large Page Mappings
+
+```c
+/* Use large pages to reduce IOTLB pressure */
+/* Map 2 MiB instead of 4K pages when possible */
+iommu_map(domain, iova, paddr, SZ_2M, IOMMU_READ | IOMMU_WRITE);
+```
+
+### IOMMU Bypass
+
+For maximum performance (e.g., HPC), the IOMMU can be bypassed:
+
+```bash
+# Kernel command line
+intel_iommu=off         # Disable Intel IOMMU
+amd_iommu=off           # Disable AMD IOMMU
+iommu=pt                # Passthrough mode (identity mapping)
+
+# Per-device passthrough
+# Requires IOMMU group isolation
+```
+
+## IOMMU Debugging Extended
+
+### Common Issues
+
+| Issue | Symptom | Solution |
+|---|---|---|
+| DMA remap fault | `DMAR: [DMA Read]` in dmesg | Check device DMA mask |
+| IOMMU group conflict | Can't passthrough device | Use ACS override patch |
+| Interrupt remap fault | `INTR-REMAP` in dmesg | Check interrupt routing |
+| Nested fault | Guest I/O fails | Check stage 2 mapping |
+
+### Advanced Debugging
+
+```bash
+# Enable verbose IOMMU logging
+$ echo 1 > /sys/kernel/debug/iommu/intel/verbose 2>/dev/null
+
+# View DMA remap fault log
+$ cat /sys/kernel/debug/iommu/intel/iommu0/fault_log 2>/dev/null
+
+# Monitor IOMMU events with perf
+$ perf stat -e 'iommu:*/' -a sleep 10
+
+# Check device IOMMU capability
+$ lspci -vvv | grep -E "IOMMU|ATS|PRI|ACS|PASID"
+
+# View IOMMU domain info
+$ cat /sys/kernel/iommu_groups/0/type
+# identity | DMA | DMA-FQ | BLOCKED | UNMANAGED
+```
+
 ## References
 
 - [Intel VT-d Specification](https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html)

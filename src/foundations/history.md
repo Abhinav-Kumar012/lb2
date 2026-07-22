@@ -67,6 +67,37 @@ Linux 0.01 was released in September 1991. It could barely do anything — it co
 
 In December 1991, Linux 0.10 was released. By March 1992, version 0.95 was released under the **GNU General Public License (GPL)**. This was a crucial decision — the GPL ensured that Linux would remain free software forever, and it attracted a community of developers who knew their contributions would stay open.
 
+### The Early Development Environment
+
+The early Linux development process was remarkably informal:
+
+- **Communication**: Usenet newsgroups (`comp.os.minix`, later `alt.os.linux`)
+- **Code exchange**: FTP servers and email patches
+- **Version control**: None initially — Torvalds manually merged patches
+- **Build system**: Simple Makefiles, no configuration system
+- **Testing**: Developers tested on their own hardware
+
+```bash
+# What Linux 0.01 looked like (September 1991)
+$ ls linux-0.01/
+Makefile    boot/       fs/         include/    init/       kernel/     lib/        mm/
+
+# The entire kernel was about 10,000 lines of C
+$ wc -l linux-0.01/kernel/*.c
+  10000 total (approximate)
+```
+
+The kernel grew rapidly:
+
+| Version | Year | Lines of Code |
+|---|---|---|
+| 0.01 | 1991 | ~10,000 |
+| 1.0 | 1994 | ~176,000 |
+| 2.0 | 1996 | ~400,000 |
+| 2.6 | 2003 | ~5,000,000 |
+| 3.0 | 2011 | ~14,000,000 |
+| 6.0 | 2022 | ~30,000,000 |
+
 ## 1992–1993: The Tanenbaum–Torvalds Debate and the First Distros
 
 ### The Great Debate
@@ -442,6 +473,52 @@ Microsoft's evolution from Linux opponent to contributor is one of the most rema
 - **TOP500 supercomputers**: 100% run Linux
 - **Android devices**: 3+ billion active devices
 - **Web servers**: ~80% run Linux
+
+## The Linux Foundation and Governance
+
+The **Linux Foundation** (formed in 2000 from the merger of OSDL and the Free Standards Group) provides legal, financial, and organizational support for Linux development. Key roles:
+
+- Employs Linus Torvalds and other key maintainers
+- Hosts kernel summits and conferences
+- Manages trademark and legal issues
+- Funds critical infrastructure (kernel.org, CI systems)
+
+### The Benevolent Dictator Model
+
+Linux development follows a **benevolent dictator** model:
+
+1. **Linus Torvalds** makes final decisions on all code merged into the mainline
+2. **Subsystem maintainers** (100+) review and forward patches to Torvalds
+3. **Patch flow**: Developer → Subsystem tree → linux-next → Mainline
+4. All changes go through public mailing list review
+
+```mermaid
+graph TD
+    D[Developer] -->|git send-email| ML[Kernel Mailing List]
+    ML -->|Review| M[Subsystem Maintainer]
+    M -->|Merge to subsystem tree| ST[git://git.kernel.org/...]
+    ST -->|Pull request| LT[Linus Torvalds]
+    LT -->|Merge to mainline| MAIN[linux.git mainline]
+    MAIN -->|Stable backport| GKH[Greg KH: stable tree]
+```
+
+### The -rc and Stable Process
+
+```
+mainline:     v6.12 → v6.12-rc1 → ... → v6.12-rc7 → v6.13-rc1 → ...
+stable:       v6.12.1 → v6.12.2 → ... (bug fixes only)
+longterm:     v6.6.1 → v6.6.2 → ... (2-6 year support)
+```
+
+Long-term support (LTS) kernels are maintained for extended periods:
+
+| Version | Released | EOL |
+|---|---|---|
+| 5.4 | Dec 2019 | Dec 2025 |
+| 5.10 | Dec 2020 | Dec 2026 |
+| 5.15 | Oct 2021 | Dec 2026 |
+| 6.1 | Dec 2022 | Dec 2026 |
+| 6.6 | Oct 2023 | Dec 2026 |
 
 ## References and Further Reading
 
