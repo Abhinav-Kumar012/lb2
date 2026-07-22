@@ -421,6 +421,8 @@ struct mount {
 - [mount(2) man page](https://man7.org/linux/man-pages/man2/mount.2.html)
 - [Mount API documentation](https://www.kernel.org/doc/html/latest/filesystems/mount_api.html)
 - [namespaces(7) man page](https://man7.org/linux/man-pages/man7/namespaces.7.html)
+- [umount(2) man page](https://man7.org/linux/man-pages/man2/umount.2.html)
+- [pivot_root(2) man page](https://man7.org/linux/man-pages/man2/pivot_root.2.html)
 
 ## Further Reading
 

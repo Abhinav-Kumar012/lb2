@@ -100,6 +100,7 @@ Logon keys are used by:
 - **CIFS/SMB**: Store server credentials.
 - **AF_RXRPC**: Store authentication tokens.
 - **DNS**: Store DNS resolution keys.
+- **dm-crypt**: Store disk encryption keys.
 
 ### encrypted Keys
 
@@ -159,6 +160,8 @@ For keys larger than what the standard key payload can hold:
 keyctl add big_key largedata "very_large_secret_data..." @u
 ```
 
+big_key keys are stored in tmpfs by default. With `CONFIG_BIG_KEYS` enabled, they are encrypted at rest.
+
 ### keyring Type
 
 A keyring itself is a key—it contains references to other keys:
@@ -172,7 +175,21 @@ keyctl link <key_id> <keyring_id>
 
 # Unlink
 keyctl unlink <key_id> <keyring_id>
+
+# List contents
+keyctl list <keyring_id>
 ```
+
+### Key Type Security Properties
+
+| Key Type | Storage | Extractable | TPM-bound | Max Size |
+|----------|---------|-------------|-----------|----------|
+| user | Kernel memory | Yes (readable) | No | 32 KiB |
+| logon | Kernel memory | No (kernel only) | No | 32 KiB |
+| encrypted | Encrypted blob | Encrypted only | Optional | 32 KiB |
+| trusted | TPM-sealed blob | No (TPM required) | Yes | 32 KiB |
+| big_key | tmpfs (encrypted) | Depends | No | 1 MiB+ |
+| keyring | N/A | N/A | N/A | N/A |
 
 ## Process Keyrings
 
@@ -221,6 +238,19 @@ graph TD
     
     H[clone with CLONE_NEWUSER] --> I[New user keyring]
     I --> J[Isolated keyring namespace]
+```
+
+### Persistent Keyring
+
+```bash
+# Persistent keyring survives logout
+keyctl add user persistent-key "data" @p
+
+# Access persistent keyring
+keyctl show @p
+
+# Persistent keyring is created on first access
+# Lives until explicitly cleared or system reboot
 ```
 
 ## keyctl: The Command-Line Interface
@@ -291,6 +321,27 @@ keyctl session  # Start new session with new keyring
 
 # Negative keys (cache negative lookups)
 keyctl negate <key_id> <timeout> <keyring>
+
+# Get security context
+keyctl describe <key_id>
+# Output: key_id;type;uid;gid;perm;description
+```
+
+### keyctl Session Management
+
+```bash
+# Start a new session with a fresh keyring
+keyctl session
+# Runs a shell with a new session keyring
+
+# Start session with specific name
+keyctl session mysession
+
+# Run command in new session
+keyctl session mysession -- /bin/bash
+
+# Join an existing keyring
+keyctl join myring
 ```
 
 ## Kernel API (keyutils Library)
@@ -326,6 +377,10 @@ keyctl_unlink(key, KEY_SPEC_USER_KEYRING);
 key_serial_t ring = keyctl_join_keyring("myring", 
                                           KEY_SPEC_SESSION_KEYRING,
                                           KEYRING_JOIN_JOIN);
+
+/* Get keyring ID */
+key_serial_t session_id = keyctl_get_keyring_id(
+    KEY_SPEC_SESSION_KEYRING, 0);
 ```
 
 ### Request-Key Mechanism
@@ -405,6 +460,21 @@ systemd-ask-password "Enter passphrase:" | \
 # mydisk /dev/sdb1 none luks,keyring
 ```
 
+## Use in DNS Resolution
+
+The kernel's DNS resolver uses the keyring to cache DNS results:
+
+```bash
+# DNS resolver keys are stored in the keyring
+keyctl search @u dns_resolver "example.com"
+
+# View DNS cache
+keyctl list @u | grep dns_resolver
+
+# DNS keys are automatically managed by the kernel
+# They expire based on TTL
+```
+
 ## Security Properties
 
 ### Key Material Protection
@@ -442,6 +512,8 @@ Cache the absence of a key to avoid repeated lookups:
 keyctl negate <request_key_id> 300 @s
 ```
 
+Negative keys prevent repeated failed lookups for non-existent keys, improving performance.
+
 ## Namespaces and Containers
 
 Keyrings are namespace-aware:
@@ -452,6 +524,29 @@ Keyrings are namespace-aware:
 
 # Unsharing creates a new keyring namespace
 unshare --user --key myapp
+
+# Container keyring isolation
+# Docker containers get their own keyring namespace
+docker run --rm alpine keyctl show
+# Shows container's own keyring, not host's
+```
+
+### Keyring in Containers
+
+```bash
+# Container keyrings are isolated by default
+# Keys in container don't leak to host
+
+# Check container keyring
+docker run --rm alpine sh -c 'keyctl show'
+# Session Keyring
+#  12345678 --alswrv     0     0  keyring: _ses
+
+# Add key in container
+docker run --rm alpine sh -c 'keyctl add user test "data" @s; keyctl show'
+# Session Keyring
+#  12345678 --alswrv     0     0  keyring: _ses
+#  87654321 --alswrv     0     0   \_ user: test
 ```
 
 ## Troubleshooting
@@ -477,6 +572,65 @@ echo 1 > /proc/sys/kernel/keys/debug  # (if available)
 # - "Permission denied" — key permissions don't allow access
 # - "Key has been revoked" — keyctl revoke was called
 # - "Required key not available" — key not in keyring, request-key failed
+# - "Key has been invalidated" — keyctl invalidate was called
+```
+
+### Debug Commands
+
+```bash
+# List all keys in all keyrings
+cat /proc/keys
+
+# Show key usage statistics
+cat /proc/key-users
+# uid: __key_jumlah_perms
+
+# Check specific key
+keyctl describe <key_id>
+# Output: <key_id>;<type>;<uid>;<gid>;<perm>;<description>
+
+# Check keyring links
+keyctl list @s
+
+# Monitor key operations
+# Use auditd to track key operations
+ausearch -k keyring
+```
+
+### Common Error Messages
+
+```bash
+# "Key has expired"
+# Cause: keyctl timeout was reached
+# Fix: Recreate key or increase timeout
+
+# "Permission denied"
+# Cause: Key permissions don't allow access
+# Fix: Check keyctl describe, adjust with keyctl setperm
+
+# "Required key not available"
+# Cause: Key not in keyring, request-key failed
+# Fix: Add key to keyring or fix request-key.conf
+
+# "Key has been revoked"
+# Cause: keyctl revoke was called
+# Fix: Cannot unrevoke, must create new key
+
+# "Operation not permitted"
+# Cause: Trying to read logon/encrypted key from userspace
+# Fix: Use kernel API instead of keyctl print
+```
+
+## Kernel Configuration
+
+```
+CONFIG_KEYS=y                    # Kernel keyring support
+CONFIG_ENCRYPTED_KEYS=y          # Encrypted key type
+CONFIG_TRUSTED_KEYS=y            # Trusted key type (TPM)
+CONFIG_ASYMMETRIC_KEY_TYPE=y     # Asymmetric key support
+CONFIG_BIG_KEYS=y                # Big key support (>32 KiB)
+CONFIG_KEY_DH_OPERATIONS=y       # Diffie-Hellman operations
+CONFIG_KEY_NOTIFICATIONS=y       # Key change notifications
 ```
 
 ## Further Reading
