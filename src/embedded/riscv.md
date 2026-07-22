@@ -435,6 +435,48 @@ OpenSBI v1.3
 [    0.000000]   Normal   [mem 0x0000000100000000-0x000000017fffffff]
 ```
 
+### 7.3 QEMU Networking Options
+
+```bash
+# User-mode networking (NAT, simplest)
+-netdev user,id=net0,hostfwd=tcp::2222-:22
+-device virtio-net-device,netdev=net0
+# Access via: ssh -p 2222 root@localhost
+
+# TAP networking (bridge, better performance)
+sudo ip tuntap add dev tap0 mode tap
+sudo ip link set tap0 up
+sudo ip addr add 192.168.100.1/24 dev tap0
+
+qemu-system-riscv64 \
+    -netdev tap,id=net0,ifname=tap0,script=no,downscript=no \
+    -device virtio-net-device,netdev=net0
+
+# Multiple NICs
+-device virtio-net-device,netdev=net0 \
+-device virtio-net-device,netdev=net1 \
+-netdev user,id=net0 \
+-netdev user,id=net1
+```
+
+### 7.4 QEMU Debugging Features
+
+```bash
+# GDB stub (wait for debugger)
+qemu-system-riscv64 ... -s -S
+# Connect: riscv64-linux-gnu-gdb vmlinux -ex 'target remote :1234'
+
+# Trace execution
+qemu-system-riscv64 ... -d in_asm,cpu 2>trace.log
+
+# Monitor QEMU status
+qemu-system-riscv64 ... -monitor telnet:localhost:4444,server,nowait
+# In monitor: info registers, info network, info block
+
+# VirtIO debugging
+qemu-system-riscv64 ... -trace virtio_* 2>virtio.log
+```
+
 ---
 
 ## 8. RISC-V Ecosystem Status (2024–2025)
@@ -494,7 +536,154 @@ riscv64-linux-gnu-gdb vmlinux
 (gdb) continue
 ```
 
-### 9.2 QEMU GDB Stub
+## 9. RISC-V Linux Kernel Internals
+
+### 9.1 Boot Code Path
+
+```c
+/* arch/riscv/kernel/head.S — simplified boot flow */
+
+/* 1. OpenSBI jumps here (S-mode entry) */
+_start:
+    /* Set up initial stack */
+    la sp, init_thread_union + THREAD_SIZE
+    
+    /* Call start_kernel() */
+    call start_kernel
+    /* Never returns */
+
+/* arch/riscv/kernel/setup.c */
+void __init setup_arch(char **cmdline_p)
+{
+    /* Parse device tree */
+    early_init_fdt_scan_reserved_mem();
+    
+    /* Set up memory zones */
+    zone_sizes_init(min, max);
+    
+    /* Initialize SBI */
+    sbi_init();
+    
+    /* Set up trap vector */
+    trap_init();
+    
+    /* Initialize interrupt controller */
+    init_IRQ();
+}
+```
+
+### 9.2 RISC-V Specific Kernel Config
+
+```bash
+# Key RISC-V kernel options
+CONFIG_RISCV=y
+CONFIG_64BIT=y
+CONFIG_ARCH_RV64I=y
+CONFIG_SMP=y
+CONFIG_MMU=y
+CONFIG_FPU=y                    # Floating-point unit
+CONFIG_VECTOR=y                 # RISC-V Vector extension
+CONFIG_RISCV_SBI=y             # SBI interface
+CONFIG_RISCV_SBI_V01=y         # Legacy SBI v0.1 support
+CONFIG_RISCV_ISA_C=y           # Compressed instructions
+CONFIG_RISCV_ISA_V=y           # Vector extension
+CONFIG_RISCV_ISA_ZICBOM=y     # Cache-block management
+CONFIG_RISCV_ISA_ZBB=y        # Basic bit-manipulation
+CONFIG_RISCV_SBI_V01=y         # Legacy SBI support
+CONFIG_SERIAL_8250=y           # UART (ns16550)
+CONFIG_VIRTIO=y                # Virtio for QEMU
+CONFIG_VIRTIO_MMIO=y
+CONFIG_EXT4_FS=y
+```
+
+### 9.3 SBI (Supervisor Binary Interface)
+
+SBI is the firmware interface between S-mode (kernel) and M-mode (OpenSBI):
+
+```c
+/* SBI call from kernel */
+#include <asm/sbi.h>
+
+/* Set timer for next interrupt (used by clocksource) */
+void sbi_set_timer(uint64_t stime_value)
+{
+    sbi_ecall(SBI_EXT_TIME, SBI_EXT_TIME_SET_TIMER,
+              stime_value, 0, 0, 0, 0, 0);
+}
+
+/* Console output (early printk) */
+void sbi_console_putchar(int ch)
+{
+    sbi_ecall(SBI_EXT_DBCN, SBI_EXT_DBCN_CONSOLE_PUTCHAR,
+              ch, 0, 0, 0, 0, 0);
+}
+
+/* Remote fence (for TLB shootdown) */
+void sbi_remote_fence_i(unsigned long hart_mask)
+{
+    sbi_ecall(SBI_EXT_RFENCE, SBI_EXT_RFENCE_REMOTE_FENCE_I,
+              hart_mask, 0, 0, 0, 0, 0);
+}
+```
+
+### 9.4 RISC-V Vector Extension in Linux
+
+The RISC-V Vector (RVV) extension provides SIMD capabilities:
+
+```c
+/* Kernel vector usage (simplified) */
+#include <asm/vector.h>
+
+/* Enable vector for current task */
+void kernel_vector_begin(void)
+{
+    /* Save user vector state if needed */
+    riscv_v_vstate_save(current, task_pt_regs(current));
+    /* Enable vector in sstatus */
+    csr_set(CSR_SSTATUS, SR_VS);
+}
+
+void kernel_vector_end(void)
+{
+    /* Disable vector */
+    csr_clear(CSR_SSTATUS, SR_VS);
+    /* Restore user vector state */
+    riscv_v_vstate_restore(current, task_pt_regs(current));
+}
+
+/* Example: vectorized memcpy (simplified) */
+void *vector_memcpy(void *dst, const void *src, size_t n)
+{
+    kernel_vector_begin();
+    /* Use RVV instructions */
+    asm volatile(
+        "vsetvli t0, %2, e8, m8\n"
+        "vle8.v v0, (%1)\n"
+        "vse8.v v0, (%0)\n"
+        : : "r"(dst), "r"(src), "r"(n) : "t0", "v0"
+    );
+    kernel_vector_end();
+    return dst;
+}
+```
+
+## 10. RISC-V Debugging Techniques
+
+### 10.1 OpenOCD + GDB
+
+```bash
+# OpenOCD for RISC-V
+openocd -f interface/ftdi/olimex-arm-usb-tiny-h.cfg \
+    -f target/riscv.cfg
+
+# Connect GDB
+riscv64-linux-gnu-gdb vmlinux
+(gdb) target remote :3333
+(gdb) hbreak start_kernel
+(gdb) continue
+```
+
+### 10.2 QEMU GDB Stub
 
 ```bash
 # Add -s -S to QEMU command
@@ -505,6 +694,81 @@ riscv64-linux-gnu-gdb vmlinux
 (gdb) target remote :1234
 (gdb) hbreak start_kernel
 (gdb) continue
+```
+
+### 10.3 RISC-V Debug CSRs
+
+```bash
+# Read debug CSRs from GDB
+(gdb) info registers dcsr     # Debug control/status
+(gdb) info registers dpc      # Debug PC
+(gdb) info registers dscratch0 # Debug scratch
+
+# Hardware breakpoints (via debug module)
+(gdb) hbreak *0x80000000     # Set HW breakpoint at address
+(gdb) watch my_variable      # Set watchpoint
+
+# Trace execution with QEMU
+qemu-system-riscv64 ... -d exec 2>exec.log
+# Analyze: grep '0x80000' exec.log | head -20
+```
+
+### 10.4 ftrace on RISC-V
+
+```bash
+# ftrace works identically on RISC-V
+sudo trace-cmd record -p function_graph -g 'do_sys_open' -- sleep 1
+sudo trace-cmd report
+
+# Trace RISC-V specific events
+echo 1 > /sys/kernel/debug/tracing/events/riscv/enable
+
+# Kprobes on RISC-V
+sudo kprobe -a 'do_sys_openat2' -c 'printf("openat2: %s\n", arg1)'
+```
+
+## 11. RISC-V Performance Optimization
+
+### 11.1 Compiler Flags
+
+```bash
+# Optimize for specific RISC-V extension set
+# Generic RV64GC (safe baseline)
+CFLAGS="-march=rv64gc -mabi=lp64d -O2"
+
+# With vector extension
+CFLAGS="-march=rv64gcv -mabi=lp64d -O2"
+
+# With bit-manipulation extensions
+CFLAGS="-march=rv64gc_zba_zbb_zbc_zbs -mabi=lp64d -O2"
+
+# Profile-guided optimization
+# Step 1: Build with profiling
+CFLAGS="-march=rv64gc -fprofile-generate" make
+# Step 2: Run workload
+./myapp --benchmark
+# Step 3: Build with profile data
+CFLAGS="-march=rv64gc -fprofile-use" make
+```
+
+### 11.2 Kernel Performance Tuning
+
+```bash
+# Enable performance counters
+# RISC-V has hardware performance counters accessible via perf
+sudo perf stat -e cycles,instructions,cache-misses,cache-references \
+    ./myworkload
+
+# Top-down analysis
+sudo perf record -e cycles:u,instructions:u -g ./myworkload
+sudo perf report
+
+# Tune for specific SoC
+# Set CPU governor
+echo performance > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
+
+# Enable huge pages
+echo 1024 > /proc/sys/vm/nr_hugepages
 ```
 
 ---
