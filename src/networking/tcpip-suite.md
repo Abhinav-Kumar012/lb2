@@ -419,7 +419,234 @@ $ sudo ip neigh flush all
 
 ## Protocol Interactions
 
-### DNS over UDP
+### TCP State Machine
+
+TCP connections transition through a well-defined state machine:
+
+```mermaid
+stateDiagram-v2
+    [*] --> CLOSED
+    CLOSED --> LISTEN: passive open
+    CLOSED --> SYN_SENT: active open (connect)
+    LISTEN --> SYN_RCVD: SYN received
+    SYN_SENT --> ESTABLISHED: SYN-ACK received
+    SYN_SENT --> CLOSED: timeout/RST
+    SYN_RCVD --> ESTABLISHED: ACK received
+    SYN_RCVD --> CLOSED: RST/timeout
+    ESTABLISHED --> FIN_WAIT_1: close() called
+    ESTABLISHED --> CLOSE_WAIT: FIN received
+    FIN_WAIT_1 --> FIN_WAIT_2: ACK received
+    FIN_WAIT_1 --> CLOSING: FIN received
+    FIN_WAIT_1 --> TIME_WAIT: FIN+ACK received
+    FIN_WAIT_2 --> TIME_WAIT: FIN received
+    CLOSING --> TIME_WAIT: ACK received
+    CLOSE_WAIT --> LAST_ACK: close() called
+    LAST_ACK --> CLOSED: ACK received
+    TIME_WAIT --> CLOSED: 2MSL timeout
+```
+
+### State Descriptions
+
+| State | Description | Typical Duration |
+|-------|-------------|------------------|
+| `LISTEN` | Waiting for incoming connections | Until connection arrives |
+| `SYN_SENT` | SYN sent, waiting for SYN-ACK | ~1-3 seconds (timeout) |
+| `SYN_RCVD` | SYN-ACK sent, waiting for ACK | ~1-3 seconds (timeout) |
+| `ESTABLISHED` | Connection active | Application-determined |
+| `FIN_WAIT_1` | FIN sent, waiting for ACK | ~1-3 seconds |
+| `FIN_WAIT_2` | ACK received, waiting for FIN | Application-dependent |
+| `CLOSE_WAIT` | FIN received, waiting for app close | Application-dependent |
+| `CLOSING` | Both sides closing simultaneously | Brief |
+| `LAST_ACK` | FIN sent after CLOSE_WAIT, waiting for ACK | ~1-3 seconds |
+| `TIME_WAIT` | Waiting for 2×MSL (typically 60s) | 60 seconds on Linux |
+
+### Monitoring TCP States
+
+```bash
+# Count connections per state
+$ ss -tan | awk '{print $1}' | sort | uniq -c | sort -rn
+    150 ESTABLISHED
+     42 TIME_WAIT
+     15 CLOSE_WAIT
+      8 LISTEN
+      3 SYN_SENT
+
+# View TIME_WAIT connections
+$ ss -tan state time-wait | head -20
+
+# Tune TIME_WAIT (caution: affects connection reuse)
+sysctl -w net.ipv4.tcp_tw_reuse=1
+sysctl -w net.ipv4.tcp_max_tw_buckets=100000
+```
+
+## Linux Kernel Networking Stack
+
+The Linux kernel networking stack processes packets through several layers:
+
+```mermaid
+flowchart TB
+    subgraph "Ingress Path"
+        NIC["Network Interface"] --> NAPI["NAPI Polling"]
+        NAPI --> SKB["sk_buff Creation"]
+        SKB --> NETFILTER_IN["Netfilter (PREROUTING)"]
+        NETFILTER_IN --> IP_RECV["ip_rcv() — IP Layer"]
+        IP_RECV --> IP_ROUTE["ip_route_input() — Routing"]
+        IP_ROUTE --> NETFILTER_IN2["Netfilter (INPUT)"]
+        NETFILTER_IN2 --> TCP_RECV["tcp_v4_rcv() — TCP Layer"]
+        TCP_RECV --> SOCK_QUEUE["Socket Receive Queue"]
+        SOCK_QUEUE --> APP_RECV["Application recv()"]
+    end
+```
+
+```mermaid
+flowchart TB
+    subgraph "Egress Path"
+        APP_SEND["Application send()"] --> SENDMSG["tcp_sendmsg() — TCP Layer"]
+        SENDMSG --> TCP_QUEUE["TCP Write Queue"]
+        TCP_QUEUE --> IP_OUTPUT["ip_output() — IP Layer"]
+        IP_OUTPUT --> NETFILTER_OUT["Netfilter (OUTPUT)"]
+        NETFILTER_OUT --> NETFILTER_FWD["Netfilter (POSTROUTING)"]
+        NETFILTER_FWD --> NEIGH_SEND["neigh_output() — ARP/Neighbor"]
+        NEIGH_SEND --> DEV_QUEUE["dev_queue_xmit() — Device"]
+        DEV_QUEUE --> NIC_OUT["Network Interface"]
+    end
+```
+
+### sk_buff (Socket Buffer)
+
+The `sk_buff` is the kernel's packet representation:
+
+```c
+struct sk_buff {
+    /* Linked list pointers */
+    struct sk_buff *next, *prev;
+
+    /* Packet data pointers */
+    unsigned char *head;    /* Start of buffer */
+    unsigned char *data;    /* Start of data */
+    unsigned char *tail;    /* End of data */
+    unsigned char *end;     /* End of buffer */
+
+    /* Protocol headers */
+    __u16 transport_header; /* TCP/UDP header offset */
+    __u16 network_header;   /* IP header offset */
+    __u16 mac_header;       /* Ethernet header offset */
+
+    /* Metadata */
+    unsigned int len;       /* Data length */
+    __u32 priority;         /* QoS priority */
+    __u8 ip_summed;         /* Checksum state */
+
+    /* Network device */
+    struct net_device *dev;
+    struct sock *sk;        /* Owning socket */
+};
+```
+
+The sk_buff uses a clever buffer management design:
+- `head`/`end` delimit the entire buffer (including headroom for protocol headers)
+- `data`/`tail` delimit the actual packet data
+- Protocol headers are prepended (push) or removed (pull) by adjusting `data`
+
+### Netfilter Hooks
+
+Netfilter provides five hook points in the packet path:
+
+```
+Ingress:
+  ┌─────────┐
+  │PREROUTING│ → ip_rcv_finish → routing decision
+  └────┬─────┘
+       ↓
+  ┌────┴─────┐
+  │  INPUT    │ → ip_local_deliver → TCP/UDP
+  └──────────┘
+
+Egress:
+  ┌─────────┐
+  │  OUTPUT  │ → ip_output (local traffic)
+  └────┬─────┘
+       ↓
+  ┌────┴──────┐
+  │POSTROUTING│ → ip_finish_output → dev_queue_xmit
+  └───────────┘
+
+Forward:
+  PREROUTING → routing → FORWARD → POSTROUTING
+```
+
+```bash
+# View netfilter hook statistics
+$ sudo iptables -L -v -n
+
+# View conntrack table
+$ sudo conntrack -L | head -20
+
+# Count packets per hook
+$ sudo nft list ruleset
+```
+
+## ECN (Explicit Congestion Notification)
+
+ECN allows routers to signal congestion without dropping packets:
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant R as Router
+    participant S as Server
+
+    C->>S: SYN (ECN capable)
+    S->>C: SYN-ACK (ECN capable)
+    C->>S: Data (ECT bit set)
+    R->>R: Congestion detected
+    Note over R: Sets CE bit instead of dropping
+    R->>S: Data (CE bit set)
+    S->>C: ACK (ECE bit set)
+    C->>S: Data (CWR bit set)
+    Note over C,S: Sender reduces congestion window
+```
+
+```bash
+# Enable ECN
+$ sysctl -w net.ipv4.tcp_ecn=1
+# 0 = disable, 1 = request ECN, 2 = always use ECN
+
+# Check ECN status
+$ ss -t -i | grep -i ecn
+```
+
+## SCTP (Stream Control Transmission Protocol)
+
+SCTP is a reliable, message-oriented transport protocol that combines features of TCP and UDP:
+
+| Feature | TCP | UDP | SCTP |
+|---------|-----|-----|------|
+| Connection-oriented | Yes | No | Yes (association) |
+| Reliable delivery | Yes | No | Yes |
+| Ordered delivery | Yes | No | Configurable |
+| Message boundaries | No | Yes | Yes |
+| Multi-streaming | No | No | Yes |
+| Multi-homing | No | No | Yes |
+| Head-of-line blocking | Yes | N/A | Per-stream |
+
+### SCTP Use Cases
+
+- **SS7/SIGTRAN**: Telephony signaling over IP
+- **WebRTC**: Data channels use SCTP over DTLS
+- **MongoDB**: Database replication
+- **5G**: Core network interfaces
+
+```bash
+# Check SCTP support
+$ lsmod | grep sctp
+$ cat /proc/net/sctp/eps
+
+# View SCTP associations
+$ ss -s -A sctp
+```
+
+## DNS over UDP
 
 ```mermaid
 sequenceDiagram
