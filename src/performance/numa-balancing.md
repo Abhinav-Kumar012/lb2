@@ -513,6 +513,285 @@ int migrate_pages(struct list_head *l, new_page_t get_new_page,
 }
 ```
 
+
+## NUMA Balancing Deep Dive: Migration Cost Model
+
+The NUMA balancing subsystem decides whether to migrate a page based on a cost
+model that weighs the benefit of local access against the cost of migration.
+
+### Migration Decision Algorithm
+
+```mermaid
+flowchart TD
+    A[Page accessed from remote node] --> B[Record fault location]
+    B --> C{Enough faults to decide?}
+    C -->|No| D[Continue collecting]
+    C -->|Yes| E[Calculate benefit]
+    E --> F[Benefit = access_rate × remote_latency_penalty]
+    F --> G[Calculate cost]
+    G --> H[Cost = migration_time + TLB invalidation + cache cold]
+    H --> I{Benefit > Cost?}
+    I -->|Yes| J[Migrate page]
+    I -->|No| K[Keep on current node]
+    J --> L[Update page tables on all CPUs]
+```
+
+The migration cost includes:
+- **Copy cost**: copying the page content (~1 µs per 4KB page)
+- **TLB invalidation**: shooting down TLBs on all CPUs that mapped the page
+- **Cache warming**: the migrated page is cold on the destination node
+- **Page table updates**: updating PTEs across all address spaces
+
+### When Migration Hurts Performance
+
+NUMA balancing can hurt performance when:
+
+1. **False sharing**: Two threads on different nodes access the same cache line
+   but different data. The page bounces between nodes.
+2. **Read-mostly data**: Data accessed from many nodes but rarely written.
+   Migration helps one node but hurts others.
+3. **Short-lived processes**: The scanning overhead exceeds the benefit of
+   optimization before the process exits.
+4. **Thrashing**: Two nodes access the page at similar rates, causing constant
+   migration.
+
+```bash
+# Detect NUMA thrashing
+watch -n 1 'grep numa_pages_migrated /proc/vmstat'
+# If the counter increases rapidly, pages are bouncing between nodes
+
+# Mitigation: increase scan period to slow migration decisions
+echo 30000 > /proc/sys/kernel/numa_balancing_scan_period_min_ms
+```
+
+## NUMA Balancing for Specific Workloads
+
+### Virtual Machine Hosts
+
+```bash
+# For VM hosts, NUMA balancing competes with the guest's NUMA policy
+# Best approach: disable NUMA balancing, use numactl for QEMU
+
+# Disable NUMA balancing on the host
+echo 0 > /proc/sys/kernel/numa_balancing
+
+# Pin each VM to a NUMA node
+numactl --cpunodebind=0 --membind=0 qemu-system-x86_64 ...
+numactl --cpunodebind=1 --membind=1 qemu-system-x86_64 ...
+
+# Or use libvirt NUMA tuning in domain XML:
+# <numatune>
+#   <memory mode='strict' nodeset='0'/>
+# </numatune>
+```
+
+### Container Workloads
+
+```bash
+# For containers, NUMA balancing works at the host level
+# The host kernel's NUMA balancing handles page placement
+
+# Check NUMA distribution for a container's cgroup
+cat /proc/$(docker inspect --format '{{.State.Pid}}' mycontainer)/numa_maps
+
+# For Kubernetes, use topology manager
+# In kubelet config:
+# topologyManagerPolicy: single-numa-node
+# topologyManagerScope: pod
+```
+
+### High-Performance Computing (HPC)
+
+```bash
+# HPC applications typically use explicit NUMA placement
+# Disable NUMA balancing for maximum control
+echo 0 > /proc/sys/kernel/numa_balancing
+
+# Use numactl for MPI ranks
+mpirun -np 8 numactl --cpunodebind=0 --membind=0 ./rank_0_3
+mpirun -np 8 numactl --cpunodebind=1 --membind=1 ./rank_4_7
+
+# Or use Intel MPI's built-in NUMA binding
+I_MPI_PIN_DOMAIN=numa ./my_mpi_app
+```
+
+### Database Systems
+
+```bash
+# PostgreSQL: shared buffers benefit from NUMA-aware placement
+# Option 1: interleave (good for read-heavy)
+numactl --interleave=all postgres -D /data/pg
+
+# Option 2: bind to single node (good for dedicated server)
+numactl --cpunodebind=0 --membind=0 postgres -D /data/pg
+
+# MySQL/InnoDB: innodb_numa_interleave=1
+# In my.cnf:
+# [mysqld]
+# innodb_numa_interleave=1
+```
+
+## NUMA Profiling Tools
+
+### numastat Deep Dive
+
+```bash
+# System-wide NUMA statistics
+numastat
+# node0         node1
+# numa_hit       12345678   23456789   # Successful local allocations
+# numa_miss       1234567    2345678   # Had to allocate on other node
+# numa_foreign     2345678    1234567   # Other node's misses allocated here
+# interleave_hit   100000     100000   # Interleaved allocations
+
+# Per-process NUMA stats
+numastat -p postgres
+numastat -p java
+
+# Show memory distribution per node
+numastat -m
+# Node 0 Total: 32768 MB
+# Node 1 Total: 32768 MB
+
+# Show NUMA miss details
+numastat -c
+```
+
+### perf c2c (Cache-to-Cache)
+
+`perf c2c` detects false sharing and NUMA contention:
+
+```bash
+# Record cache-to-cache transfers
+sudo perf c2c record -a -- sleep 10
+
+# Show NUMA contention report
+sudo perf c2c report --stdio
+
+# The report shows:
+# - Cache lines with NUMA hits/misses
+# - Which functions cause contention
+# - NUMA node distribution per cache line
+
+# Sort by NUMA misses
+sudo perf c2c report --stdio --sort=pid,dso,symbol
+```
+
+### Intel Memory Latency Checker (MLC)
+
+```bash
+# Measure NUMA latency matrix
+mlc --latency_matrix
+# Local latency:  ~80 ns
+# Remote latency: ~150 ns
+
+# Measure bandwidth
+mlc --bandwidth_matrix
+# Local BW:  ~50 GB/s
+# Remote BW: ~25 GB/s
+
+# Inject idle latency (realistic measurement)
+mlc --idle_latency_matrix
+```
+
+## Advanced NUMA Concepts
+
+### NUMA Distance and Topology
+
+```bash
+# Show NUMA distance matrix
+numactl --hardware
+# node distances:
+# node   0   1
+#   0:  10  21
+#   1:  21  10
+# Distance 10 = local, 21 = remote (1 hop)
+
+# Hardware topology
+lstopo --of txt
+# Shows physical layout:
+# Package 0: cores 0-7, memory 32GB
+# Package 1: cores 8-15, memory 32GB
+
+# Show NUMA node details
+cat /sys/devices/system/node/node0/cpulist
+# 0-7
+```
+
+### NUMA-Aware Memory Allocation (C)
+
+```c
+#include <numa.h>
+#include <numaif.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+int main(void)
+{
+    if (numa_available() < 0) {
+        fprintf(stderr, "NUMA not available\n");
+        return 1;
+    }
+
+    int max_node = numa_max_node();
+    printf("NUMA nodes: %d\n", max_node + 1);
+
+    /* Allocate on node 0 */
+    void *local = numa_alloc_onnode(4096, 0);
+
+    /* Allocate interleaved across all nodes */
+    void *interleaved = numa_alloc_interleaved(4096);
+
+    /* Allocate on current node */
+    void *here = numa_alloc_local(4096);
+
+    /* Set memory policy for a range */
+    unsigned long nodemask = 1 << 1;  /* Node 1 */
+    mbind(local, 4096, MPOL_BIND, &nodemask,
+          sizeof(nodemask) * 8, MPOL_MF_MOVE);
+
+    /* Get current node for a pointer */
+    int node;
+    get_mempolicy(&node, NULL, 0, local, MPOL_F_NODE);
+    printf("Page on node: %d\n", node);
+
+    numa_free(local, 4096);
+    numa_free(interleaved, 4096);
+    numa_free(here, 4096);
+    return 0;
+}
+/* Compile: gcc -o numa_app numa_app.c -lnuma */
+```
+
+### NUMA and Transparent Huge Pages Interaction
+
+When THP is enabled, NUMA balancing must handle huge pages specially:
+
+```mermaid
+flowchart TD
+    A[2MB THP accessed from remote node] --> B{Can migrate as-is?}
+    B -->|Yes, on same node| C[Direct 2MB migration]
+    B -->|No, too costly or fragmented| D[Demote to 512 x 4KB pages]
+    D --> E[Migrate hot 4KB pages individually]
+    E --> F{Most pages migrated?}
+    F -->|Yes| G[Promote back to 2MB on new node]
+    F -->|No| H[Keep as 4KB pages]
+```
+
+```bash
+# Check THP + NUMA statistics
+grep -E 'thp|numa' /proc/vmstat
+# numa_pte_updates
+# numa_hint_faults
+# numa_hint_faults_local
+# numa_pages_migrated
+# thp_fault_alloc
+# thp_fault_fallback
+# thp_collapse_alloc
+
+# Disable NUMA promotion for THP (if causing issues)
+echo 0 > /proc/sys/kernel/numa_balancing_promote_rate_limit_MBps
+```
 ## Further Reading
 
 - [Linux kernel NUMA documentation](https://www.kernel.org/doc/html/latest/mm/numa.html)

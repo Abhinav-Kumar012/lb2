@@ -533,6 +533,188 @@ sbsign --key db.key --cert db.crt --output vmlinuz vmlinuz
 - Microsoft UEFI CA Signing: https://techcommunity.microsoft.com/t5/hardware-dev-center/uefi-ca-key-rotation/ba-p/3848603
 - Unified Kernel Images: https://uapi-group.org/specifications/specs/unified_kernel_image/
 
+## SBAT (Secure Boot Advanced Targeting)
+
+SBAT is a mechanism introduced in 2021 to enable fine-grained revocation of boot components without revoking entire signing certificates. It's now the primary revocation mechanism for shim and GRUB.
+
+### How SBAT Works
+
+```mermaid
+graph LR
+    subgraph "SBAT Metadata"
+        SBAT_SECTION[".sbat section<br>in EFI binary"]
+        GEN["Generation number<br>per component"]
+        VENDOR["Vendor: shim, grub, systemd-boot"]
+    end
+    subgraph "UEFI dbx"
+        DBX_ENTRY["SBAT revocation<br>policy entry"]
+    end
+    SBAT_SECTION -->|"Compared against"| DBX_ENTRY
+    DBX_ENTRY -->|"Reject if generation <"| MIN_GEN["Minimum required generation"]
+```
+
+Each EFI binary (shim, GRUB, kernel) contains an `.sbat` section with structured metadata:
+
+```csv
+# Example .sbat section content (shim)
+sbat,1,SBAT Version,sbat,1,https://github.com/rhboot/shim/blob/main/SBAT.md
+shim,3,UEFI shim,shim,1,https://github.com/rhboot/shim
+shim.x64,2,UEFI shim for x64,shim,1,https://github.com/rhboot/shim
+shim.ubuntu,2,Ubuntu shim,shim,1,https://ubuntu.com
+```
+
+### SBAT Revocation Flow
+
+```bash
+# When a vulnerability is found in GRUB:
+# 1. GRUB's SBAT generation is bumped (e.g., grub,2 → grub,3)
+# 2. A UEFI dbx update adds: "grub: minimum generation = 3"
+# 3. Any GRUB with generation < 3 is refused by shim
+
+# Check SBAT data in an EFI binary
+objdump -j .sbat -s /boot/efi/EFI/ubuntu/grubx64.efi
+
+# Check current SBAT revocation policy
+# (stored in UEFI dbx or in shim's built-in revocation list)
+mokutil --list-sbat-revocations
+```
+
+### Why SBAT Is Better Than dbx Hash Revocation
+
+| Aspect | dbx Hash Revocation | SBAT |
+|--------|-------------------|------|
+| Granularity | Per-binary hash | Per-component generation |
+| Update size | One entry per vulnerable binary | One entry per component |
+| Impact | Blocks specific binary versions | Blocks all versions below threshold |
+| Maintenance | Grows unboundedly | Compact |
+
+## dbx Updates
+
+The dbx (forbidden signatures database) is periodically updated to revoke vulnerable boot components:
+
+```bash
+# Check current dbx entries
+sudo efi-readvar -v dbx
+
+# Apply a dbx update (from a UEFI update capsule)
+sudo fwupdmgr refresh
+sudo fwupdmgr update
+
+# On systems with LVFS (Linux Vendor Firmware Service):
+sudo fwupdmgr get-updates
+sudo fwupdmgr update
+
+# Manual dbx update (using efitools)
+# WARNING: Can brick your system if done incorrectly!
+sudo UpdateVar -dbx dbx-update.auth
+
+# Check dbx entry count
+sudo efi-readvar -v dbx | grep -c "Signature"
+```
+
+## UEFI Shell
+
+For debugging Secure Boot, a UEFI shell is invaluable:
+
+```bash
+# Download the UEFI shell from Tianocore
+# https://github.com/tianocore/edk2/tree/master/ShellBinPkg
+
+# Copy to EFI partition
+sudo mkdir -p /boot/efi/EFI/tools/
+sudo cp Shell.efi /boot/efi/EFI/tools/
+
+# Add a UEFI boot entry
+sudo efibootmgr --create --disk /dev/sda --part 1 \
+    --loader '\EFI\tools\Shell.efi' --label "UEFI Shell"
+
+# In the UEFI shell, you can:
+# - List Secure Boot variables: SecureBoot -c
+# - Enroll keys: EnrollKey -c PK.der
+# - Verify signatures: VerifySign -c grubx64.efi
+# - Load drivers: load driver.efi
+```
+
+## Secure Boot and Measured Boot (TPM)
+
+Secure Boot and Measured Boot (via TPM) are complementary:
+
+```mermaid
+graph TD
+    subgraph "Secure Boot"
+        SB_VERIFY["Verify signature"]
+        SB_ALLOW["Allow/deny execution"]
+        SB_FAIL["Refuse to boot on failure"]
+    end
+    subgraph "Measured Boot"
+        MB_PCR["Extend TPM PCR"]
+        MB_LOG["Event log (TCG log)"]
+        MB_REMOTE["Remote attestation"]
+    end
+    subgraph "TPM"
+        TPM["TPM 2.0 chip"]
+        PCR["PCR[0-7]: Boot measurements"]
+    end
+
+    UEFI --> SB_VERIFY
+    UEFI --> MB_PCR
+    SB_VERIFY --> SB_ALLOW
+    MB_PCR --> TPM
+    TPM --> PCR
+    MB_LOG --> MB_REMOTE
+```
+
+```bash
+# Check TPM PCR values
+tpm2_pcrread sha256
+# PCR[0]: BIOS/UEFI firmware measurement
+# PCR[1]: UEFI configuration
+# PCR[2]: Option ROMs
+# PCR[3]: Option ROM configuration
+# PCR[4]: Boot manager measurement
+# PCR[5]: GPT partition table
+# PCR[6]: ...
+# PCR[7]: Secure Boot state (db, dbx, PK, KEK)
+
+# View the TCG event log
+sudo cat /sys/kernel/security/tpm0/binary_bios_measurements | tpm2_eventlog
+
+# Remote attestation (requires attestation server)
+# The TPM signs PCR values with its endorsement key
+# A remote server can verify the boot chain integrity
+```
+
+## Key Management Best Practices
+
+```bash
+# Key rotation strategy:
+# 1. Generate new db key annually
+# 2. Sign all new boot components with new key
+# 3. Add new key to UEFI db (keep old key enrolled until all systems updated)
+# 4. After all systems use new key-signed components, remove old key from db
+
+# Key backup (CRITICAL):
+# Store PK, KEK, and db private keys in:
+# - Hardware security module (HSM) for production
+# - Encrypted offline storage (minimum)
+# - NEVER on the same machine that uses them
+
+# Key ceremony for organizations:
+# 1. Generate keys on an air-gapped machine
+# 2. Store private keys in HSM or encrypted USB
+# 3. Distribute public keys via firmware updates
+# 4. Document key fingerprints and custodians
+# 5. Test key enrollment on non-production hardware first
+
+# Emergency key revocation:
+# If a private key is compromised:
+# 1. Generate a new key pair
+# 2. Sign a dbx update revoking the compromised key
+# 3. Distribute the dbx update to all systems
+# 4. Re-sign all boot components with the new key
+# 5. Update MOK on all systems
+```
+
 ## Related Topics
 
 - [Linux Security Overview](./overview.md) — Where Secure Boot fits in the security architecture
@@ -540,3 +722,4 @@ sbsign --key db.key --cert db.crt --output vmlinuz vmlinuz
 - [Cryptography](./cryptography.md) — Public-key cryptography used by Secure Boot
 - [SELinux](./selinux.md) — MAC that operates after Secure Boot verifies the kernel
 - [Seccomp](./seccomp.md) — Runtime restrictions after secure boot completes
+
