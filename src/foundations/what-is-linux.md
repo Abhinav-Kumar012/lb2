@@ -239,6 +239,284 @@ Linux dominates in nearly every computing category except the desktop:
 4. **Security**: Open code review, rapid patching, strong permission model
 5. **Community**: Thousands of contributors worldwide, massive corporate support (Red Hat, Google, Microsoft, Intel, etc.)
 
+## The Boot Process
+
+Understanding how Linux starts illuminates the relationship between hardware, kernel, and userspace. The boot sequence has several stages:
+
+```mermaid
+sequenceDiagram
+    participant HW as Hardware
+    participant FW as Firmware
+    participant BL as Bootloader
+    participant K as Kernel
+    participant INIT as Init System
+    
+    HW->>FW: Power on
+    FW->>FW: POST (Power-On Self-Test)
+    FW->>BL: Load bootloader from disk
+    BL->>K: Load kernel image + initramfs
+    K->>K: Decompress, initialize subsystems
+    K->>K: Mount root filesystem
+    K->>INIT: Execute /sbin/init (PID 1)
+    INIT->>INIT: Start services, getty, display manager
+```
+
+### BIOS/UEFI
+
+The firmware (BIOS or UEFI) initializes hardware and loads the bootloader. Modern systems use **UEFI** (Unified Extensible Firmware Interface), which replaced the legacy BIOS. UEFI provides:
+
+- **GPT partition tables** (replacing MBR's 2 TB limit and 4 primary partition limit)
+- **Secure Boot** — verifies cryptographic signatures of bootloaders and kernels
+- **EFI System Partition (ESP)** — a FAT32 partition holding bootloader binaries
+
+```bash
+# Check if system uses UEFI
+$ [ -d /sys/firmware/efi ] && echo "UEFI" || echo "BIOS"
+
+# View EFI boot entries
+$ efibootmgr -v
+Boot0000* ubuntu    HD(1,GPT,...)/File(\EFI\ubuntu\shimx64.efi)
+Boot0001* Windows   HD(1,GPT,...)/File(\EFI\Microsoft\Boot\bootmgfw.efi)
+```
+
+### The Bootloader: GRUB
+
+**GRUB** (GRand Unified Bootloader) is the most common Linux bootloader. It:
+
+1. Presents a menu of boot options
+2. Loads the kernel image (`vmlinuz`) into memory
+3. Loads the **initramfs** (initial RAM filesystem) — a small filesystem containing drivers needed to mount the real root filesystem
+4. Transfers control to the kernel
+
+```bash
+# GRUB configuration
+$ cat /etc/default/grub
+GRUB_DEFAULT=0
+GRUB_TIMEOUT=5
+GRUB_DISTRIBUTOR=`lsb_release -i -s 2> /dev/null || echo Debian`
+GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"
+GRUB_CMDLINE_LINUX=""
+
+# Regenerate GRUB config after changes
+$ sudo update-grub
+
+# View kernel command line parameters
+$ cat /proc/cmdline
+BOOT_IMAGE=/vmlinuz-6.8.0-40-generic root=UUID=abc123... ro quiet splash
+```
+
+### Kernel Initialization
+
+After GRUB loads the kernel, the kernel:
+
+1. **Decompresses** itself (the `vmlinuz` image is compressed)
+2. **Initializes CPU and memory** management
+3. **Starts the init process** (PID 1) — traditionally `/sbin/init`, now usually `systemd`
+4. The init process starts all other services
+
+```bash
+# What is PID 1?
+$ ps -p 1 -o comm=
+systemd
+
+# Or on older systems:
+# init
+
+# Kernel boot messages
+$ dmesg | head -20
+[    0.000000] Linux version 6.8.0-40-generic (buildd@lcy02-amd64-048)
+[    0.000000] Command line: BOOT_IMAGE=/vmlinuz-6.8.0-40-generic root=UUID=...
+[    0.000000] BIOS-provided physical RAM map:
+[    0.000000] BIOS-e820: [mem 0x0000000000000000-0x000000000009fbff] usable
+```
+
+### initramfs
+
+The **initramfs** (initial RAM filesystem) is a temporary root filesystem loaded into memory by the bootloader. It contains essential kernel modules and scripts needed to mount the real root filesystem:
+
+```bash
+# Inspect the initramfs
+$ lsinitramfs /boot/initrd.img-$(uname -r) | head -20
+.
+kernel
+kernel/x86
+kernel/x86/microcode
+kernel/x86/microcode/AuthenticAMD.bin
+bin
+bin/cat
+bin/chmod
+bin/chroot
+
+# Extract initramfs for inspection
+$ mkdir /tmp/initrd && cd /tmp/initrd
+$ unmkinitramfs /boot/initrd.img-$(uname -r) .
+```
+
+## The /proc and /sys Filesystems
+
+Linux exposes kernel and hardware information through virtual filesystems. These don't exist on disk — the kernel generates their contents dynamically.
+
+### /proc — Process and Kernel Information
+
+```bash
+# CPU information
+$ cat /proc/cpuinfo
+processor	: 0
+vendor_id	: GenuineIntel
+model name	: Intel(R) Core(TM) i7-12700K
+cpu MHz		: 3600.000
+cache size	: 25600 KB
+
+# Memory information
+$ cat /proc/meminfo
+MemTotal:       32768000 kB
+MemFree:        12345678 kB
+MemAvailable:   20000000 kB
+Buffers:          512000 kB
+Cached:          8000000 kB
+
+# Process-specific information
+$ ls /proc/self/
+attr/    cmdline  comm     cwd ->   environ  exe ->   fd/      maps
+mem      mounts   net/     oom_score  stat   status   task/
+
+# View a process's open file descriptors
+$ ls -la /proc/self/fd/
+total 0
+lrwx------ 1 user user 64 Jul 22 10:00 0 -> /dev/pts/0
+lrwx------ 1 user user 64 Jul 22 10:00 1 -> /dev/pts/0
+lrwx------ 1 user user 64 Jul 22 10:00 2 -> /dev/pts/0
+
+# Kernel version
+$ cat /proc/version
+Linux version 6.8.0-40-generic (buildd@lcy02-amd64-048)
+```
+
+### /sys — Device and Kernel Subsystem Information
+
+The **sysfs** filesystem (mounted at `/sys`) exposes kernel objects as a directory hierarchy:
+
+```bash
+# Block devices
+$ ls /sys/block/
+sda  sdb  nvme0n1
+
+# Network interfaces
+$ ls /sys/class/net/
+eth0  lo  wlan0
+
+# CPU topology
+$ cat /sys/devices/system/cpu/cpu0/topology/physical_package_id
+0
+
+# View kernel parameters (tunable)
+$ sysctl vm.swappiness
+vm.swappiness = 60
+
+# Change a parameter temporarily
+$ sudo sysctl -w vm.swappiness=10
+
+# Persistent changes in /etc/sysctl.conf or /etc/sysctl.d/
+```
+
+## Linux Security Model
+
+Linux implements a multi-layered security model:
+
+### Traditional Permissions
+
+Every file and process has an owner (UID) and group (GID). The classic rwx (read/write/execute) permission model:
+
+```bash
+$ ls -la /etc/passwd
+-rw-r--r-- 1 root root 2847 Jul 10 09:00 /etc/passwd
+# owner(root):rw-  group(root):r--  others:r--
+```
+
+### Capabilities
+
+Linux divides root's privileges into distinct **capabilities**, allowing fine-grained privilege assignment:
+
+```c
+#include <sys/prctl.h>
+#include <linux/capability.h>
+
+/* Grant only network capability instead of full root */
+prctl(PR_SET_KEEPCAPS, 1);
+setuid(unprivileged_uid);
+
+/* Set specific capability */
+struct __user_cap_header_struct hdr = { .version = _LINUX_CAPABILITY_VERSION_3 };
+struct __user_cap_data_struct data[2] = {0};
+data[0].effective = (1 << CAP_NET_RAW);
+data[0].permitted = (1 << CAP_NET_RAW);
+capset(&hdr, data);
+```
+
+Key capabilities include:
+
+| Capability | Allows |
+|---|---|
+| `CAP_NET_RAW` | Raw sockets (ping, packet capture) |
+| `CAP_SYS_ADMIN` | Mount, namespace operations, many admin tasks |
+| `CAP_NET_BIND_SERVICE` | Bind to ports below 1024 |
+| `CAP_DAC_OVERRIDE` | Bypass file permission checks |
+| `CAP_SYS_PTRACE` | Trace other processes (strace, gdb) |
+
+### Namespaces and Containers
+
+Linux **namespaces** isolate processes from each other, forming the basis of containers:
+
+| Namespace | Isolates |
+|---|---|
+| `PID` | Process IDs |
+| `NET` | Network stack |
+| `MNT` | Mount points |
+| `UTS` | Hostname |
+| `IPC` | IPC resources |
+| `USER` | UID/GID mappings |
+| `CGROUP` | Cgroup root |
+
+```bash
+# Run a process in new namespaces
+$ sudo unshare --pid --net --mount --uts --ipc --fork /bin/bash
+
+# View namespaces of a process
+$ ls -la /proc/self/ns/
+total 0
+lrwxrwxrwx 1 root root 0 Jul 22 10:00 cgroup -> 'cgroup:[4026531835]'
+lrwxrwxrwx 1 root root 0 Jul 22 10:00 ipc -> 'ipc:[4026531839]'
+lrwxrwxrwx 1 root root 0 Jul 22 10:00 mnt -> 'mnt:[4026531841]'
+lrwxrwxrwx 1 root root 0 Jul 22 10:00 net -> 'net:[4026531969]'
+lrwxrwxrwx 1 root root 0 Jul 22 10:00 pid -> 'pid:[4026531836]'
+lrwxrwxrwx 1 root root 0 Jul 22 10:00 user -> 'user:[4026531837]'
+lrwxrwxrwx 1 root root 0 Jul 22 10:00 uts -> 'uts:[4026531838]'
+```
+
+### SELinux and AppArmor
+
+Linux supports mandatory access control (MAC) through security modules:
+
+- **SELinux** (Security-Enhanced Linux) — developed by the NSA, uses security contexts and policies. Default on Red Hat/Fedora.
+- **AppArmor** — path-based security profiles. Default on Ubuntu/SUSE.
+
+```bash
+# Check SELinux status
+$ getenforce
+Enforcing
+
+# View SELinux context of a file
+$ ls -Z /etc/passwd
+system_u:object_r:passwd_file_t:s0 /etc/passwd
+
+# AppArmor profile status
+$ sudo aa-status
+profiles are loaded
+profiles are in enforce mode
+  /usr/sbin/cupsd
+  /usr/sbin/ntpd
+```
+
 ## Building and Running the Kernel
 
 For those curious about the kernel itself, here's how to build it from source:
@@ -323,6 +601,107 @@ BOOT_IMAGE=/vmlinuz-6.8.0-40-generic root=UUID=... ro quiet splash
 $ cat /proc/kallsyms | grep sys_call_table | head -3
 ffffffff8a000280 R sys_call_table
 ffffffff8a000a80 R ia32_sys_call_table
+```
+
+## Kernel Development Model
+
+The Linux kernel follows a unique development model that has produced one of the largest and most successful open-source projects in history.
+
+### The Release Cycle
+
+Since Linux 2.6 (2003), the kernel uses a time-based release cycle:
+
+```mermaid
+graph LR
+    A["Merge Window<br>~2 weeks"] --> B["RC1<br>Stabilization"]
+    B --> C["RC2-RC7<br>Bug fixes only"]
+    C --> D["Final Release<br>~7 weeks total"]
+    D --> A
+```
+
+1. **Merge window** (~2 weeks): New features are merged into the mainline tree
+2. **Release candidates** (RC1–RC7, ~5 weeks): Only bug fixes; no new features
+3. **Final release**: Linus Torvalds tags the release
+4. **Stable releases**: Greg Kroah-Hartman maintains stable branches with backported fixes
+
+```bash
+# Check current kernel version and release candidate
+$ uname -r
+6.8.0-40-generic
+
+# View the latest mainline release
+$ git -C /usr/src/linux describe --tags
+v6.12-rc5
+```
+
+### Contribution Statistics
+
+The kernel is one of the most actively developed software projects:
+
+| Metric | Value |
+|---|---|
+| Lines of code | ~30 million (2024) |
+| Contributors | 20,000+ since 1991 |
+| Companies | 1,700+ organizations |
+| Commits per release | ~10,000–15,000 |
+| Release cycle | ~9–10 weeks |
+| Active subsystems | 100+ |
+
+```bash
+# Count contributors to the kernel
+$ git -C /usr/src/linux shortlog -sn --all | wc -l
+20000+
+
+# Top contributing companies (by commits)
+$ git -C /usr/src/linux shortlog -sn --all | head -10
+```
+
+### The MAINTAINERS File
+
+The kernel source includes a `MAINTAINERS` file that maps every subsystem to its maintainer:
+
+```bash
+# Find who maintains a subsystem
+$ ./scripts/get_maintainer.pl -f drivers/net/ethernet/intel/e1000e/netdev.c
+Jeff Kirsher <jeffrey.t.kirsher@intel.com> (maintainer:INTEL ETHERNET DRIVERS)
+intel-wired-lan@lists.osuosl.org (open list:INTEL ETHERNET DRIVERS)
+netdev@vger.kernel.org (open list:NETWORKING DRIVERS)
+```
+
+### Kernel Coding Style
+
+The kernel has a strict coding style documented in `Documentation/process/coding-style.rst`:
+
+```c
+/*
+ * Indentation: tabs (8 characters wide)
+ * Braces: K&R style
+ * Naming: lowercase_with_underscores
+ * Functions: short and sweet, do one thing
+ */
+
+/* Good kernel code example */
+static int my_driver_probe(struct platform_device *pdev)
+{
+	struct my_device *dev;
+	int ret;
+
+	dev = devm_kzalloc(&pdev->dev, sizeof(*dev), GFP_KERNEL);
+	if (!dev)
+		return -ENOMEM;
+
+	ret = my_hw_init(dev);
+	if (ret)
+		return ret;
+
+	platform_set_drvdata(pdev, dev);
+	return 0;
+}
+```
+
+```bash
+# Check kernel coding style
+$ ./scripts/checkpatch.pl my_driver.c
 ```
 
 ## References and Further Reading
