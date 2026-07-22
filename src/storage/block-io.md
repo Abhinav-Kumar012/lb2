@@ -408,6 +408,299 @@ iotop -oP
 - [I/O Scheduler Documentation](https://www.kernel.org/doc/html/latest/block/switching-sched.html)
 - [blktrace man page](https://linux.die.net/man/1/blktrace)
 
+## Multi-Queue Block Layer (blk-mq) Deep Dive
+
+### Queue Topology
+
+The blk-mq architecture maps software queues to hardware queues:
+
+```mermaid
+graph TD
+    subgraph "Per-CPU Software Queues"
+        SQ0["SW Queue 0<br/>CPU 0"]
+        SQ1["SW Queue 1<br/>CPU 1"]
+        SQ2["SW Queue 2<br/>CPU 2"]
+        SQ3["SW Queue 3<br/>CPU 3"]
+    end
+    subgraph "Hardware Dispatch Queues"
+        HWQ0["HW Queue 0<br/>NVMe queue pair 0"]
+        HWQ1["HW Queue 1<br/>NVMe queue pair 1"]
+    end
+    SQ0 --> HWQ0
+    SQ1 --> HWQ0
+    SQ2 --> HWQ1
+    SQ3 --> HWQ1
+```
+
+### Tag Sets
+
+The `blk_mq_tag_set` structure defines the hardware queue topology:
+
+```c
+struct blk_mq_tag_set {
+    const struct blk_mq_ops *ops;
+    unsigned int            nr_hw_queues;   /* number of HW queues */
+    unsigned int            queue_depth;    /* max tags per HW queue */
+    unsigned int            cmd_size;       /* per-request driver data */
+    int                     numa_node;      /* NUMA affinity */
+    unsigned int            flags;          /* BLK_MQ_F_* */
+    void                    *driver_data;   /* driver private */
+};
+```
+
+### Queue Depth and Performance
+
+```bash
+# View current queue depth
+$ cat /sys/block/nvme0n1/queue/nr_requests
+1023
+
+# Check tag usage
+$ cat /sys/block/nvme0n1/mq/0/tags
+# nr_tags=1023, nr_reserved=0
+# depth=128, wake_batch=32
+# tags_in_use=45, active_queues=1
+
+# Adjust queue depth (rarely needed)
+$ echo 256 > /sys/block/nvme0n1/queue/nr_requests
+```
+
+## io_uring Block I/O
+
+io_uring provides high-performance asynchronous I/O with minimal
+system call overhead:
+
+```c
+#include <liburing.h>
+
+struct io_uring ring;
+struct io_uring_params params = {};
+
+/* Initialize io_uring */
+io_uring_queue_init_params(256, &ring, &params);
+
+/* Prepare a read submission */
+struct io_uring_sqe *sqe = io_uring_get_sqe(&ring);
+io_uring_prep_read(sqe, fd, buf, 4096, 0);
+sqe->flags |= IOSQE_FIXED_FILE;
+
+/* Submit and wait */
+io_uring_submit(&ring);
+struct io_uring_cqe *cqe;
+io_uring_wait_cqe(&ring, &cqe);
+
+printf("Read %d bytes\n", cqe->res);
+io_uring_cqe_seen(&ring, cqe);
+```
+
+### io_uring vs Traditional I/O
+
+| Aspect | read/write | aio | io_uring |
+|---|---|---|---|
+| System calls per I/O | 1 (blocking) | 1 (submit) + 1 (wait) | 0 (SQ polling) |
+| Batching | No | Yes (submit) | Yes (submit ring) |
+| Completion model | Blocking | Eventfd / polling | CQ ring / polling |
+| Buffer management | App-managed | App-managed | Provided buffers |
+| Kernel overhead | Medium | Medium | Lowest |
+
+### io_uring Block Device Access
+
+```c
+/* Open block device directly */
+int fd = open("/dev/nvme0n1", O_RDWR | O_DIRECT);
+
+/* Align buffer to block size */
+void *buf;
+posix_memalign(&buf, 4096, 4096);
+
+/* Submit via io_uring */
+struct io_uring_sqe *sqe = io_uring_get_sqe(&ring);
+io_uring_prep_read(sqe, fd, buf, 4096, offset);
+```
+
+## Writeback and Dirty Pages
+
+### Dirty Page Lifecycle
+
+```mermaid
+graph TD
+    A[Application write] --> B[Page cache
+    dirty page]
+    B --> C{Dirty ratio
+    exceeded?}
+    C -- No --> D[Continue]
+    C -- Yes --> E[Kwriteback
+    thread wakes]
+    E --> F[Select dirty pages
+    by age/priority]
+    F --> G[Create bio for
+    writeback]
+    G --> H[submit_bio]
+    H --> I[Block layer]
+    I --> J[Device]
+    J --> K[Page marked clean]
+```
+
+### Writeback Parameters
+
+```bash
+# Dirty ratio — % of total RAM before writeback starts
+$ cat /proc/sys/vm/dirty_ratio
+20
+
+# Background dirty ratio — % for background writeback
+$ cat /proc/sys/vm/dirty_background_ratio
+10
+
+# Dirty expiry time (centiseconds)
+$ cat /proc/sys/vm/dirty_expire_centisecs
+3000   # 30 seconds
+
+# Writeback interval (centiseconds)
+$ cat /proc/sys/vm/dirty_writeback_centisecs
+500    # 5 seconds
+
+# Per-device writeback
+$ cat /sys/block/sda/bdi/writeback
+# Shows writeback statistics for this device
+```
+
+### Tuning Writeback
+
+```bash
+# For databases — prefer direct I/O, reduce dirty ratios
+$ echo 5 > /proc/sys/vm/dirty_ratio
+$ echo 2 > /proc/sys/vm/dirty_background_ratio
+
+# For large file servers — increase dirty ratios
+$ echo 40 > /proc/sys/vm/dirty_ratio
+$ echo 10 > /proc/sys/vm/dirty_background_ratio
+
+# Check dirty page stats
+$ cat /proc/meminfo | grep -i dirty
+Dirty:           123456 kB
+Writeback:         5678 kB
+WritebackTmp:         0 kB
+```
+
+## I/O Throttling
+
+### Device-Mapper I/O Throttling (dm-ioband / cgroup)
+
+```bash
+# cgroup v2 I/O max limits
+$ echo "8:0 rbps=10485760 wbps=5242880" > /sys/fs/cgroup/limited/io.max
+# rbps = read bytes/sec, wbps = write bytes/sec
+
+$ echo "8:0 riops=1000 wiops=500" > /sys/fs/cgroup/limited/io.max
+# riops = read IOPS, wiops = write IOPS
+
+# Verify limits
+$ cat /sys/fs/cgroup/limited/io.max
+8:0 rbps=10485760 wbps=5242880 riops=1000 wiops=500
+```
+
+### I/O Latency Control (io.latency)
+
+```bash
+# Set latency target (microseconds)
+$ echo "8:0 target=10000" > /sys/fs/cgroup/limited/io.latency
+# If latency exceeds 10ms, throttle competing cgroups
+```
+
+## I/O Accounting
+
+### Per-Device Statistics
+
+```bash
+$ cat /proc/diskstats
+#  8  0 sda 123456 789 12345678 9012 567890 123 45678901 2345 0 6789 11357
+
+# Fields (from left):
+# major minor name
+# reads_completed reads_merged sectors_read read_time_ms
+# writes_completed writes_merged sectors_written write_time_ms
+# io_in_progress io_time_ms weighted_io_time_ms
+# discards_completed discards_merged sectors_discarded discard_time_ms
+```
+
+### Per-Process I/O
+
+```bash
+$ iotop -oP
+# Total DISK READ:  123.45 M/s | Total DISK WRITE: 67.89 M/s
+#   PID  PRIO  USER     DISK READ  DISK WRITE  SWAPIN    IO>    COMMAND
+#  1234  be/4  root     100.00 M/s    0.00 B/s  0.00 %  99.99 % dd if=/dev/sda
+```
+
+### BPF-Based I/O Analysis
+
+```bash
+# Trace I/O latency by device and operation
+bpftrace -e '
+tracepoint:block:block_rq_complete {
+    @latency[ args->dev, args->rwbs ] = hist((nsecs - @start[args->dev, args->sector]) / 1000);
+}
+tracepoint:block:block_rq_issue {
+    @start[args->dev, args->sector] = nsecs;
+}'
+
+# I/O size distribution
+bpftrace -e '
+tracepoint:block:block_rq_issue {
+    @size[comm] = hist(args->bytes / 1024);
+}'
+
+# Count I/O by operation type
+bpftrace -e '
+tracepoint:block:block_rq_issue {
+    @[args->rwbs] = count();
+}'
+```
+
+## NVMe Block I/O Specifics
+
+### NVMe I/O Path
+
+```mermaid
+sequenceDiagram
+    participant APP as Application
+    participant BL as Block Layer
+    participant NVME as NVMe Driver
+    participant SQ as NVMe SQ
+    participant CQ as NVMe CQ
+    participant SSD as NVMe SSD
+
+    APP->>BL: submit_bio()
+    BL->>NVME: queue_rq()
+    NVME->>SQ: Write SQ entry
+    NVME->>SQ: Ring SQ doorbell
+    SQ->>SSD: PCIe DMA
+    SSD->>SSD: Process command
+    SSD->>CQ: Write CQ entry
+    SSD->>NVME: MSI-X interrupt
+    NVME->>BL: blk_mq_complete_request()
+    BL->>APP: bio_endio()
+```
+
+### NVMe Queue Configuration
+
+```bash
+# Number of I/O queues
+$ cat /sys/block/nvme0n1/device/queue_count
+# 32 (one per CPU on modern systems)
+
+# Queue depth
+$ cat /sys/block/nvme0n1/queue/nr_requests
+# 1023
+
+# Polling mode (for ultra-low latency)
+$ echo 1 > /sys/block/nvme0n1/queue/io_poll
+
+# Disable I/O scheduler (best for NVMe)
+$ echo none > /sys/block/nvme0n1/queue/scheduler
+```
+
 ## Further Reading
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
