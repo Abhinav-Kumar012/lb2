@@ -428,6 +428,221 @@ iscsiadm -m node -T iqn.2026-07.com.example:target1 -p 192.168.1.100 \
 | Security | Zoning | CHAP, IPSec |
 | Best for | Mission-critical, high IOPS | Cost-effective, general use |
 
+## NVMe over Fabrics (NVMe-oF)
+
+NVMe-oF extends the NVMe protocol across network fabrics, allowing remote access to NVMe storage with near-local latency. It is rapidly replacing iSCSI and FC in new deployments.
+
+### NVMe-oF Transport Types
+
+| Transport | Protocol | Typical Latency | Use Case |
+|-----------|----------|-----------------|----------|
+| **RDMA** (RoCE/IB) | NVMe/RDMA | ~10-20μs | High-performance data centers |
+| **TCP** | NVMe/TCP | ~30-80μs | General purpose, existing Ethernet |
+| **Fibre Channel** | FC-NVMe | ~15-25μs | Existing FC infrastructure |
+| **InfiniBand** | NVMe/IB | ~10-15μs | HPC environments |
+
+### NVMe-oF Architecture
+
+```mermaid
+graph LR
+    subgraph "Host (Initiator)"
+        APP[Application] --> FS[Filesystem]
+        FS --> NVME_INIT["nvme driver<br/>nvme-fabrics"]
+    end
+    subgraph "Fabric"
+        NET["Network<br/>(Ethernet/FC/IB)"]
+    end
+    subgraph "Target (Subsystem)"
+        NVME_TGT["NVMe Target<br/>subsystem"]
+        NS1["Namespace 1<br/>NVMe SSD"]
+        NS2["Namespace 2<br/>NVMe SSD"]
+    end
+    NVME_INIT --> NET --> NVME_TGT
+    NVME_TGT --> NS1
+    NVME_TGT --> NS2
+```
+
+### NVMe/TCP Initiator Configuration
+
+```bash
+# Load the NVMe/TCP module
+modprobe nvme-tcp
+
+# Discover NVMe-oF subsystems
+discovery
+nvme discover -t tcp -a 192.168.1.100 -s 4420
+# Subsystem: nqn.2026-07.com.example:storage
+#   Transport: tcp  Address: 192.168.1.100:4420
+#   Namespace ID: 1  /dev/nvme1n1
+
+# Connect to a subsystem
+nvme connect -t tcp -a 192.168.1.100 -s 4420 \
+  -n nqn.2026-07.com.example:storage
+
+# Verify connection
+nvme list
+# /dev/nvme1n1  S5PWNX0N789012  Pure Storage  1  2.00 TB
+
+# Persistent connection (survives reboot)
+echo "transport=tcp,traddr=192.168.1.100,trsvcid=4420,
+subnqn=nqn.2026-07.com.example:storage" > /etc/nvme/discovery.conf
+
+# Auto-connect on boot
+systemctl enable --now nvme-connect@
+```
+
+### NVMe/RDMA Initiator Configuration
+
+```bash
+# Requires RDMA-capable NIC
+modprobe nvme-rdma
+
+# Discover over RDMA
+nvme discover -t rdma -a 192.168.1.100 -s 4420
+
+# Connect over RDMA
+nvme connect -t rdma -a 192.168.1.100 -s 4420 \
+  -n nqn.2026-07.com.example:storage
+
+# Check RDMA transport details
+nvme show-regs /dev/nvme1 -H | grep -i transport
+```
+
+### NVMe-oF Target Configuration (LIO)
+
+```bash
+# Using targetcli with NVMe-oF
+# 1. Create NVMe backstore
+targetcli
+# /> /backstores/block create name=nvme_lun0 dev=/dev/nvme0n1
+# 2. Create NVMe-oF target
+# /> /nvmet create subsystem nqn.2026-07.com.example:storage
+# 3. Add namespace
+# /> /nvmet/subsystems/nqn.2026-07.com.example:storage/ namespaces create 1 /backstores/block/nvme_lun0
+# 4. Add host access
+# /> /nvmet/subsystems/nqn.2026-07.com.example:storage/ allowed_hosts create nqn.2026-07.com.example:host1
+# 5. Create port
+# /> /nvmet/ports/1 create 192.168.1.100 tcp
+# 6. Bind subsystem to port
+# /> /nvmet/ports/1/subsystems create nqn.2026-07.com.example:storage
+
+# Or using nvmetcli
+nvmetcli restore /etc/nvmet/config.json
+```
+
+### NVMe-oF vs iSCSI Performance
+
+| Metric | iSCSI | NVMe/TCP | NVMe/RDMA |
+|--------|-------|----------|----------|
+| Latency (4K read) | ~150-300μs | ~50-80μs | ~15-25μs |
+| IOPS (random 4K) | ~200K | ~500K | ~1M+ |
+| CPU overhead | Moderate | Low | Very low |
+| Queue depth per LUN | 128-256 | 65536 | 65536 |
+| Multipath support | DM multipath | Native (ANA) | Native (ANA) |
+
+## FC-NVMe (NVMe over Fibre Channel)
+
+FC-NVMe allows NVMe commands to travel over existing Fibre Channel infrastructure, providing a migration path from FC-SCSI.
+
+```bash
+# Check if FC HBA supports NVMe
+ls /sys/class/fc_host/host0/
+# Look for nvme-related attributes
+
+# FC-NVMe uses new FC-4 type
+# Host must support FC-NVMe (NVMe over FC protocol)
+# Storage array must support FC-NVMe target
+
+# View NVMe namespaces via FC
+nvme list
+# Shows both local NVMe and FC-NVMe devices
+
+# FC-NVMe multipath
+multipath -ll
+# Shows paths via FC-NVMe with ANA (Asymmetric Namespace Access)
+```
+
+## SAN Design Best Practices
+
+### Fabric Redundancy
+
+```mermaid
+graph TD
+    subgraph "Server"
+        HBA0["HBA 0<br/>Port 0"]
+        HBA1["HBA 0<br/>Port 1"]
+        HBA2["HBA 1<br/>Port 0"]
+        HBA3["HBA 1<br/>Port 1"]
+    end
+    subgraph "Fabric A"
+        SWA1["Switch A1"]
+        SWA2["Switch A2"]
+    end
+    subgraph "Fabric B"
+        SWB1["Switch B1"]
+        SWB2["Switch B2"]
+    end
+    subgraph "Storage"
+        CA["Controller A<br/>Port 0,1"]
+        CB["Controller B<br/>Port 2,3"]
+    end
+    HBA0 --> SWA1
+    HBA1 --> SWA2
+    HBA2 --> SWB1
+    HBA3 --> SWB2
+    SWA1 --> CA
+    SWA2 --> CA
+    SWB1 --> CB
+    SWB2 --> CB
+```
+
+**Design rules:**
+- Always use two independent fabrics (Fabric A and B)
+- Each HBA port connects to a different fabric
+- Each fabric has redundant switches (ISL trunking)
+- Storage controllers span both fabrics
+- Minimum 4 paths per LUN (2 HBA ports × 2 controllers)
+
+### SAN Zoning Best Practices
+
+```bash
+# Single-initiator zoning (recommended)
+# Each zone has exactly ONE initiator and ONE or more targets
+# This prevents:
+# - Device login storms
+# - SCSI reservation conflicts
+# - Security breaches between hosts
+
+# Bad: multiple initiators in one zone
+# zonecreate "bad_zone", "host1_hba; host2_hba; storage_ctrl_a"
+
+# Good: single-initiator zone
+# zonecreate "host1_to_storage", "host1_hba; storage_ctrl_a_p0"
+# zonecreate "host2_to_storage", "host2_hba; storage_ctrl_a_p0"
+```
+
+### SAN Monitoring
+
+```bash
+# Monitor FC port errors
+for host in /sys/class/fc_host/host*; do
+    echo "$(basename $host):"
+    echo "  TX frames: $(cat $host/statistics/tx_frames)"
+    echo "  RX frames: $(cat $host/statistics/rx_frames)"
+    echo "  TX errors: $(cat $host/statistics/tx_frames_err)"
+    echo "  RX errors: $(cat $host/statistics/rx_frames_err)"
+    echo "  Link failures: $(cat $host/statistics/link_failure_count)"
+    echo "  Loss of sync: $(cat $host/statistics/loss_of_sync_count)"
+done
+
+# Monitor iSCSI session health
+iscsiadm -m session -P 1
+
+# SCSI error monitoring
+sg_logs /dev/sda
+sg_ses /dev/sg0
+```
+
 ## References
 
 - [iSCSI RFC 7143](https://tools.ietf.org/html/rfc7143)
