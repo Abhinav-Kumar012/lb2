@@ -364,6 +364,37 @@ With `PREEMPT_RT`, the synchronization landscape changes significantly:
 - Most interrupt handlers become threaded
 - Softirqs run in kernel threads
 
+### Preemption Model Impact on Synchronization
+
+```mermaid
+graph TD
+    A[Kernel Preemption Model] --> B{PREEMPT_NONE?}
+    B -->|Yes| C[Spinlocks rarely needed in process context
+    No preemption = no races between process threads]
+    B -->|No| D{PREEMPT_FULL?}
+    D -->|Yes| E[All spinlock-held regions are non-preemptible
+    Process context can be preempted elsewhere]
+    D -->|No| F{PREEMPT_RT?}
+    F -->|Yes| G[spinlock_t becomes sleeping lock
+    raw_spinlock_t remains true spinlock
+    Most IRQs are threaded]
+```
+
+### Preemption and Atomic Context
+
+An **atomic context** is any state where sleeping is forbidden:
+
+| Context | Atomic? | Reason |
+|---------|---------|--------|
+| Holding a spinlock | Yes | Another CPU may wait for the lock |
+| Interrupt handler (hardirq) | Yes | Cannot sleep in interrupt context |
+| Softirq handler | Yes | Runs with softirq disabled |
+| `rcu_read_lock()` | Yes | Preemption disabled (non-SRCU) |
+| Holding a mutex | No | Mutex allows sleeping |
+| Process context (no locks) | No | Can sleep freely |
+
+**Rule**: Never sleep in atomic context. Use `GFP_ATOMIC` for allocations, `kmalloc()` instead of `kvmalloc()`, and avoid any function that might call `schedule()`.
+
 ## Synchronization Debugging Tools
 
 The kernel provides several powerful debugging tools:
