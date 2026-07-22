@@ -557,6 +557,74 @@ $ tune2fs -l /dev/sda1 | grep -i quota
 #define EXT4_PRJ_QUOTA_INO  5   /* Project quota */
 ```
 
+## Backup Superblocks
+
+Most traditional Linux filesystems maintain backup copies of the superblock at known offsets. This is critical for disaster recovery when the primary superblock is corrupted.
+
+### ext4 Backup Superblocks
+
+ext4 creates backup superblocks at block group boundaries:
+
+```bash
+# List all backup superblock locations
+$ mke2fs -n /dev/sda1
+# Output shows block numbers where backups exist
+# Typically at: 1, 3, 5, 7, 9, 25, 27, 49, 81, 125, ...
+
+# Use a backup superblock to repair a corrupted filesystem
+$ e2fsck -b 32768 /dev/sda1
+
+# Mount with alternate superblock (multiply block number by block size)
+$ mount -o sb=134217728 /dev/sda1 /mnt/data  # block 32768 * 4096
+```
+
+Backup superblock placement follows the sparse_super feature (default since ext2), which stores backups only at block groups 0, 1, and powers of 3, 5, and 7:
+
+```
+Group 0:  Primary superblock
+Group 1:  Backup (block 1)
+Group 3:  Backup (block 3)
+Group 5:  Backup (block 5)
+Group 7:  Backup (block 7)
+Group 9:  Backup (block 9)
+Group 25: Backup (block 25)
+Group 27: Backup (block 27)
+Group 49: Backup (block 49)
+```
+
+### XFS Superblock Recovery
+
+XFS stores its superblock at a fixed offset (block 0) but maintains internal consistency through log replay:
+
+```bash
+# XFS repair replays the log before checking
+$ xfs_repair /dev/sdb1
+
+# If the log is corrupted, zero it first (DATA LOSS possible)
+$ xfs_repair -L /dev/sdb1
+
+# Force log zeroing and repair
+$ xfs_repair -L -f /dev/sdb1
+```
+
+### btrfs Superblock Redundancy
+
+btrfs maintains up to three superblock copies at fixed locations:
+
+```bash
+# btrfs stores superblocks at:
+#   64 KiB  (primary)
+#   64 MiB  (backup 1)
+#   256 GiB (backup 2)
+
+# Restore from backup
+$ btrfs rescue super-recover /dev/sdc1
+
+# Check all superblock copies
+$ btrfs inspect-internal dump-super /dev/sdc1
+$ btrfs inspect-internal dump-super -f /dev/sdc1  # all copies
+```
+
 ## Superblock Debugging with drgn
 
 [drgn](https://github.com/osandov/drgn) is a programmable debugger that can inspect live kernel state, including superblocks:
