@@ -596,3 +596,4 @@ dmesg | grep -i lockdown
 - **Red Hat documentation**: "Kernel lockdown mode" — RHEL-specific configuration
 - **Fedora wiki**: "SecureBoot" — Fedora's Secure Boot implementation details
 - **commit 5d48fe7**: "security: Add a locked-down LSM"
+- **OpenSSF**: "Linux Kernel Lockdown" — security hardening overview
