@@ -542,9 +542,93 @@ write to 0xffff888012345678 of size 4 by task 5678 on CPU 1:
  my_writer+0x45/0x67
 ```
 
+KCSAN works by:
+1. Randomly selecting accesses to watch
+2. Setting up a watchpoint on the accessed memory location
+3. Checking if another CPU accesses the same location concurrently
+4. Reporting a data race if both accesses are non-atomic and at least one is a write
+
 ### CONFIG_DEBUG_ATOMIC_SLEEP
 
-Warns when sleeping in atomic context (e.g., while holding a spinlock or inside `rcu_read_lock()`).
+Warns when sleeping in atomic context (e.g., while holding a spinlock or inside `rcu_read_lock()`):
+
+```
+BUG: sleeping function called from invalid context at mm/slab.h:421
+in_atomic(): 1, irqs_disabled(): 0, non_block: 0, pid: 1234, name: my_thread
+CPU: 2 PID: 1234 Comm: my_thread Not tainted 6.x.x
+Call Trace:
+ dump_stack+0x.../0x...
+ ___might_sleep+0x.../0x...
+ __kmalloc+0x.../0x...
+ my_function+0x.../0x...  /* Called while holding spinlock */
+```
+
+### Lockdep for Atomic Context
+
+Lockdep tracks which locks are held and warns about invalid operations:
+
+```
+===============================================
+WARNING: possible irq lock inversion dependency detected
+6.x.x #1 Not tainted
+----------------------------------------
+fio/1234 just changed the state of lock:
+ &rq->lock {+.+.}-{2:2}, at: scheduler_tick+0x.../0x...
+but this lock was taken by another, HARDIRQ-safe lock in the past:
+ &rq->lock {+.+.}-{2:2}
+```
+
+### Memory Ordering Verification with LKMM
+
+The **Linux Kernel Memory Model** (LKMM) is a formal model that can verify memory ordering in kernel code using the `herd7` tool:
+
+```bash
+# Install herd7 (from github.com/herd/herdtools7)
+# Then verify a litmus test:
+cat > mp-wmb-rmb.litmus << 'EOF'
+C mp-wmb-rmb
+
+{
+}
+
+P0(int *x, int *y)
+{
+    WRITE_ONCE(*x, 1);
+    smp_wmb();
+    WRITE_ONCE(*y, 1);
+}
+
+P1(int *x, int *y)
+{
+    int r0;
+    int r1;
+    r0 = READ_ONCE(*y);
+    smp_rmb();
+    r1 = READ_ONCE(*x);
+}
+
+exists (1:r0=1 /\ 1:r1=0)
+EOF
+
+herd7 -conf linux-kernel.cfg mp-wmb-rmb.litmus
+# Expected: No (the exists condition is never satisfied)
+```
+
+The LKMM can prove that specific patterns are correct or find counterexamples where reordering could cause bugs.
+
+## Atomic Instruction Latency
+
+The following table shows measured latency for common atomic instructions on modern hardware:
+
+| Instruction | x86_64 (Skylake) | x86_64 (Zen 4) | ARM64 (Neoverse N1) |
+|------------|-----------------|-----------------|---------------------|
+| `LOCK XADD` (uncontended) | ~8 cycles | ~7 cycles | ~12 cycles (LDXR/STXR) |
+| `LOCK CMPXCHG` (uncontended) | ~10 cycles | ~8 cycles | ~12 cycles (LDXR/STXR) |
+| `LOCK CMPXCHG` (contended) | ~40-200 cycles | ~35-180 cycles | ~50-300 cycles |
+| `LOCK BTS` (test-and-set bit) | ~8 cycles | ~7 cycles | ~12 cycles |
+| `MFENCE` | ~20 cycles | ~15 cycles | ~50 cycles (DMB ISH) |
+
+Contended latency depends heavily on the number of CPUs competing for the same cache line. With 64 CPUs, a contended `LOCK CMPXCHG` can take over 1000 cycles due to cache-line bouncing.
 
 ## Summary Table
 
