@@ -439,6 +439,370 @@ Enabling a controller in a cgroup means distribution of that resource across its
 
 cgroup v2 supports safe delegation of subtrees to unprivileged users. When `nsdelegate` is used, cgroup namespaces act as delegation boundaries. A delegated subtree can be managed by the namespace owner without affecting the rest of the hierarchy.
 
+## Memory OOM Handling
+
+When a cgroup exceeds its memory limit, the kernel's OOM (Out of
+Memory) killer selects and kills a process:
+
+### OOM Killer Decision Logic
+
+```c
+/* mm/oom_kill.c — simplified */
+static struct task_struct *select_bad_process(struct oom_control *oc)
+{
+    struct task_struct *p;
+    long points;
+    long best_points = 0;
+    struct task_struct *best = NULL;
+
+    /* Walk all tasks in the cgroup */
+    for_each_process(p) {
+        if (!process_in_target_cgroup(p, oc))
+            continue;
+
+        points = oom_badness(p, oc);
+        if (points > best_points) {
+            best = p;
+            best_points = points;
+        }
+    }
+    return best;
+}
+
+/* oom_badness: higher score = more likely to be killed */\long oom_badness(struct task_struct *p, struct oom_control *oc)
+{
+    long points;
+
+    /* Base: proportional to RSS + swap usage */
+    points = get_mm_rss(p->mm) + get_mm_counter(p->mm, MM_SWAPENTS);
+    points += atomic_long_read(&p->mm->nr_ptes) +
+              atomic_long_read(&p->mm->nr_pmds);
+
+    /* Adjust by oom_score_adj (-1000 to 1000) */
+    points += p->signal->oom_score_adj;
+
+    /* -1000 means immune to OOM kill */
+    if (p->signal->oom_score_adj == OOM_SCORE_ADJ_MIN)
+        return LONG_MIN;
+
+    return points > 0 ? points : 1;
+}
+```
+
+### OOM Score Adjustment
+
+```bash
+# View current OOM score
+$ cat /proc/1234/oom_score
+# 500 (higher = more likely to be killed)
+
+# Adjust OOM score
+$ echo -500 > /proc/1234/oom_score_adj
+# -1000 = never kill, 1000 = always kill first
+
+# Check OOM events per cgroup
+$ cat /sys/fs/cgroup/myapp/memory.events
+# low 0
+# high 5
+# max 2
+# oom 1       ← OOM killer was invoked
+# oom_kill 1  ← one process was killed
+# oom_group_kill 0
+
+# OOM group kill (kill entire cgroup)
+$ cat /sys/fs/cgroup/myapp/memory.events.local
+# Same as above but only for this cgroup (not subtree)
+```
+
+### OOM Handling Flow
+
+```mermaid
+flowchart TD
+    A[Process writes to memory] --> B{Under memory.max?}
+    B -->|Yes| C[Allow allocation]
+    B -->|No| D{memory.swap.max available?}
+    D -->|Yes| E[Swap out pages]
+    D -->|No| F[Invoke OOM killer]
+    F --> G[Select victim by oom_badness]
+    G --> H[Send SIGKILL to victim]
+    H --> I{Victim exited?}
+    I -->|Yes| J[Reclaim memory]
+    I -->|No| K[Force kill after timeout]
+    K --> J
+    J --> L[Retry allocation]
+```
+
+### memory.oom.group
+
+When `memory.oom.group` is set to `1`, the OOM killer kills all
+processes in the cgroup instead of just one:
+
+```bash
+# Enable group OOM kill
+$ echo 1 > /sys/fs/cgroup/myapp/memory.oom.group
+
+# When OOM occurs, ALL processes in myapp are killed
+# Useful for workloads where partial death is worse than full death
+```
+
+---
+
+## CPU Controller Internals
+
+### CFS Bandwidth Control
+
+The CPU controller uses CFS (Completely Fair Scheduler) bandwidth
+control to enforce `cpu.max` limits:
+
+```c
+/* kernel/sched/fair.c — CFS bandwidth */
+struct cfs_bandwidth {
+    raw_spinlock_t      lock;
+    ktime_t             period;          /* Scheduling period */
+    u64                 quota;           /* CPU time quota */
+    u64                 runtime;         /* Remaining runtime */
+    s64                 hierarchical_quota; /* Hierarchical limit */
+    u64                 runtime_expires; /* When runtime resets */
+    int                 period_active;   /* Timer running? */
+    /* ... */
+};
+
+/* Check if runtime is available */
+static bool cfs_bandwidth_used(void)
+{
+    return __this_cpu_read(cfs_bandwidth_used);
+}
+
+/* Distribute runtime to cgroups */
+distribute_cfs_runtime(struct cfs_bandwidth *cfs_b)
+{
+    /* Redistribute runtime from expired cgroups to others */
+    /* Uses hierarchical_quota for weighted distribution */
+}
+```
+
+### CPU Bandwidth Flow
+
+```mermaid
+sequenceDiagram
+    participant CFS as CFS Scheduler
+    participant CB as cfs_bandwidth
+    participant TG as Task Group
+    participant TASK as Running Task
+
+    CFS->>CB: Check runtime remaining
+    CB-->>CFS: runtime > 0
+    CFS->>TASK: Let task run
+    TASK->>CB: Decrement runtime
+    CB->>CB: runtime -= delta_exec
+    alt runtime exhausted
+        CB->>CFS: Throttle task group
+        CFS->>TASK: Deschedule task
+        CB->>CB: Wait for period timer
+        CB->>CB: Refill runtime (quota)
+        CB->>CFS: Unthrottle task group
+        CFS->>TASK: Reschedule task
+    end
+```
+
+### CPU Throttling Detection
+
+```bash
+# Check if your tasks are being throttled
+$ cat /sys/fs/cgroup/myapp/cpu.stat
+# usage_usec 123456789
+# user_usec 100000000
+# system_usec 23456789
+# nr_periods 1000
+# nr_throttled 42       ← 42 periods had throttling
+# throttled_usec 4200000  ← total time throttled
+
+# If nr_throttled is high, consider increasing cpu.max
+# Or use cpu.weight for proportional sharing instead
+```
+
+---
+
+## Pressure Stall Information (PSI)
+
+PSI (Linux 4.20+) measures resource pressure — how much time tasks
+spend waiting for resources:
+
+### PSI Metrics Explained
+
+```bash
+# CPU pressure
+$ cat /sys/fs/cgroup/myapp/cpu.pressure
+# some avg10=2.50 avg60=1.20 avg300=0.80 total=123456789
+# full avg10=0.00 avg60=0.00 avg300=0.00 total=0
+
+# Memory pressure
+$ cat /sys/fs/cgroup/myapp/memory.pressure
+# some avg10=0.50 avg60=0.20 avg300=0.10 total=987654321
+# full avg10=0.10 avg60=0.05 avg300=0.02 total=123456789
+
+# I/O pressure
+$ cat /sys/fs/cgroup/myapp/io.pressure
+# some avg10=3.20 avg60=1.50 avg300=0.90 total=456789123
+# full avg10=1.10 avg60=0.50 avg300=0.30 total=789123456
+```
+
+### PSI Interpretation
+
+| Metric | Meaning | Threshold |
+|---|---|---|
+| `some avg10` | % of time at least one task stalled (10s window) | >10% = noticeable |
+| `full avg10` | % of time ALL tasks stalled (10s window) | >5% = critical |
+| `total` | Total stall time in microseconds | Track for trends |
+
+### PSI Kernel Implementation
+
+```c
+/* kernel/sched/psi.c — simplified */
+struct psi_group {
+    /* Per-CPU state */
+    struct psi_group_cpu __percpu *pcpu;
+
+    /* Aggregated pressure */
+    unsigned int poll_states;
+    u64 poll_start;
+    struct psi_window poll_window[PSI_POLLS];
+
+    /* Pressure averages */
+    u64 total[PSI_STATES];
+    unsigned long avg[PSI_STATES][3]; /* avg10, avg60, avg300 */
+
+    /* ... */
+};
+
+enum psi_states {
+    PSI_IO_SOME,    /* Some tasks stalled on I/O */
+    PSI_IO_FULL,    /* All tasks stalled on I/O */
+    PSI_MEM_SOME,   /* Some tasks stalled on memory */
+    PSI_MEM_FULL,   /* All tasks stalled on memory */
+    PSI_CPU_SOME,   /* Some tasks stalled on CPU */
+    PSI_CPU_FULL,   /* All tasks stalled on CPU */
+    PSI_STATES
+};
+```
+
+### Using PSI for Auto-scaling
+
+```bash
+#!/bin/bash
+# Monitor PSI and trigger scaling
+while true; do
+    CPU_PRESSURE=$(cat /sys/fs/cgroup/myapp/cpu.pressure |
+                   grep some | awk '{print $2}' | cut -d= -f2)
+
+    if (( $(echo "$CPU_PRESSURE > 30.0" | bc -l) )); then
+        echo "High CPU pressure ($CPU_PRESSURE%) — scaling up"
+        # Trigger autoscaler
+        kubectl scale deployment myapp --replicas=$(( $(kubectl get deploy myapp -o jsonpath='{.spec.replicas}') + 1 ))
+    fi
+    sleep 10
+done
+```
+
+---
+
+## I/O Latency Controller (io.latency)
+
+The `io.latency` controller (v2, Linux 4.19+) guarantees minimum
+I/O latency by throttling competing cgroups:
+
+```bash
+# Set latency target
+# Format: $MAJOR:$MINOR target=$LATENCY_US
+$ echo "8:0 target=5000" > /sys/fs/cgroup/critical/io.latency
+# Guarantees <5ms I/O latency for this cgroup
+
+# Multiple devices
+$ echo "8:0 target=5000" > /sys/fs/cgroup/critical/io.latency
+$ echo "253:0 target=10000" > /sys/fs/cgroup/critical/io.latency
+
+# View current settings
+$ cat /sys/fs/cgroup/critical/io.latency
+# 8:0 target=5000
+```
+
+### io.latency Internals
+
+```mermaid
+graph TD
+    subgraph "Critical Cgroup"
+        C1[io.latency: target=5ms]
+        C2[io.weight: 200]
+    end
+    subgraph "Best-effort Cgroup"
+        B1[io.weight: 100]
+    end
+    subgraph "I/O Scheduler"
+        S[BFQ Scheduler]
+    end
+    C1 -->|Guarantee| S
+    C2 -->|Weight| S
+    B1 -->|Weight| S
+    S -->|Throttle best-effort
+if critical at risk| DEV[Device]
+```
+
+---
+
+## cgroup.events and Notifications
+
+cgroup.events provides polling/inotify notification for cgroup state
+changes:
+
+```c
+/* include/linux/cgroup-defs.h */
+struct cgroup_events {
+    unsigned long populated;   /* 1 if has processes */
+    unsigned long frozen;      /* 1 if frozen */
+};
+```
+
+### Waiting for All Processes to Exit
+
+```bash
+# Create a cgroup and wait for it to become empty
+$ mkdir /sys/fs/cgroup/myapp
+$ echo $$ > /sys/fs/cgroup/myapp/cgroup.procs
+
+# Poll for empty (populated=0)
+$ python3 -c "
+import select
+fd = open('/sys/fs/cgroup/myapp/cgroup.events', 'r')
+poll = select.poll()
+poll.register(fd, select.POLLPRI)
+while True:
+    events = poll.poll(-1)
+    fd.seek(0)
+    lines = fd.readlines()
+    for line in lines:
+        if 'populated' in line and '0' in line:
+            print('Cgroup is now empty!')
+            exit(0)
+"
+```
+
+### Freeze/Thaw
+
+```bash
+# Freeze all processes in a cgroup
+$ echo 1 > /sys/fs/cgroup/myapp/cgroup.freeze
+
+# Check frozen state
+$ cat /sys/fs/cgroup/myapp/cgroup.events
+# populated 1
+# frozen 1     ← processes are frozen
+
+# Thaw (unfreeze)
+$ echo 0 > /sys/fs/cgroup/myapp/cgroup.freeze
+```
+
+---
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
@@ -455,7 +819,6 @@ cgroup v2 supports safe delegation of subtrees to unprivileged users. When `nsde
 - [systemd resource control](https://www.freedesktop.org/software/systemd/man/latest/systemd.resource-control.html) — systemd cgroup integration
 - [Red Hat cgroup v2 guide](https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/9/html/managing_monitoring_and_updating_the_kernel/using-cgroups-v2-to-control-distribution-of-cpu-time-for-applications_managing-monitoring-and-updating-the-kernel)
 - [Docker resource constraints](https://docs.docker.com/config/containers/resource_constraints/)
-- [Control Group v2](https://docs.kernel.org/admin-guide/cgroup-v2.html) — Official kernel cgroup v2 documentation
 
 ## Related Topics
 
