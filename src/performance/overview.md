@@ -494,6 +494,152 @@ Always express performance improvements in terms the business cares about:
 - [Laptop Drivers — docs.kernel.org](https://docs.kernel.org/admin-guide/laptops/index.html)
 - [Energy Model documentation](https://docs.kernel.org/power/energy-model.html)
 
+## Performance Analysis Deep Dive
+
+### CPU Profiling with perf
+
+```bash
+# Record CPU profile with call graphs
+perf record -F 99 -a -g -- sleep 30
+
+# Generate flame graph
+perf script | stackcollapse-perf.pl | flamegraph.pl > cpu.svg
+
+# Top functions by CPU usage
+perf report --stdio --sort comm,dso,symbol | head -30
+# Overhead  Command      Shared Object         Symbol
+#   15.23%  mysqld       mysqld                [.] row_search_mvcc
+#   10.45%  mysqld       mysqld                [.] buf_page_get_gen
+#    5.67%  kswapd0      [kernel.kallsyms]     [.] shrink_page_list
+
+# Cache miss analysis
+perf stat -e cache-misses,cache-references,L1-dcache-load-misses \
+    -- sleep 5
+# 12,345,678  cache-misses     ( 2.34% of cache references)
+
+# Branch prediction analysis
+perf stat -e branch-misses,branch-loads -- sleep 5
+# 2,345,678  branch-misses    ( 1.23% of branch loads)
+```
+
+### Memory Analysis
+
+```bash
+# Memory allocation profiling with perf
+perf record -e kmem:kmalloc -a -- sleep 10
+perf report --stdio | head -20
+
+# Page fault analysis
+perf stat -e page-faults,minor-faults,major-faults -- sleep 5
+# 1,234  page-faults
+# 1,200  minor-faults
+#     34  major-faults  ← Check I/O subsystem!
+
+# NUMA analysis
+numastat -p <pid>
+# Per-node memory allocation
+
+# Memory bandwidth with Intel MLC
+mlc --bandwidth_matrix
+```
+
+### I/O Analysis
+
+```bash
+# Block I/O tracing
+bpftrace -e 'tracepoint:block:block_rq_issue {
+    @io_size = hist(args->bytes / 1024);
+    @io_latency = hist(args->sector);
+}'
+
+# Filesystem latency
+bpftrace -e 'kprobe:vfs_read { @start[tid] = nsecs; }
+    kretprobe:vfs_read /@start[tid]/ {
+        @us = hist((nsecs - @start[tid]) / 1000);
+        delete(@start[tid]);
+    }'
+
+# iowait analysis
+mpstat -P ALL 1 | grep -v "^CPU"
+# High iowait on specific CPU → check IRQ affinity
+```
+
+### Network Analysis
+
+```bash
+# TCP retransmission analysis
+bpftrace -e 'kprobe:tcp_retransmit_skb { @[kstack] = count(); }'
+
+# Socket buffer analysis
+ss -mtnp
+# Mem: (r0, w0, f0, t0) — receive/send buffer usage
+
+# Network latency
+bpftrace -e 'kprobe:tcp_rcv_established {
+    @start[tid] = nsecs;
+}
+kretprobe:tcp_rcv_established /@start[tid]/ {
+    @us = hist((nsecs - @start[tid]) / 1000);
+    delete(@start[tid]);
+}'
+```
+
+## Performance Methodology
+
+### The BCC/bpftrace Toolkit
+
+```bash
+# Install BCC tools
+apt install bpfcc-tools
+
+# Or use bpftrace for custom analysis
+apt install bpftrace
+
+# Essential BCC tools:
+# execsnoop    — Trace new processes
+# opensnoop    — Trace file opens
+# ext4slower   — Slow ext4 operations
+# biolatency   — Block I/O latency histogram
+# tcplife      — TCP session lifetimes
+# cachestat    — Page cache hit/miss ratio
+# profile      — CPU profiling (like perf)
+# funccount    — Function call counting
+```
+
+### Automated Performance Regression Testing
+
+```bash
+#!/bin/bash
+# perf-regression.sh — Run benchmarks and compare with baseline
+
+BASELINE="baseline.json"
+RESULTS="results.json"
+
+# Run benchmark suite
+sysbench cpu --cpu-max-prime=20000 run > /tmp/cpu.txt
+sysbench memory --memory-block-size=1K run > /tmp/mem.txt
+fio --name=test --rw=randread --bs=4k --size=1G \
+    --numjobs=4 --runtime=30 --output=/tmp/io.txt
+
+# Extract metrics
+CPU_SCORE=$(grep "events per second" /tmp/cpu.txt | awk '{print $NF}')
+MEM_SCORE=$(grep "transferred" /tmp/mem.txt | awk '{print $4}')
+IO_IOPS=$(grep "iops" /tmp/io.txt | head -1 | awk -F'[=,]' '{print $2}')
+
+# Compare with baseline
+if [ -f "$BASELINE" ]; then
+    BASELINE_CPU=$(jq -r '.cpu_score' $BASELINE)
+    REGRESSION=$(echo "$CPU_SCORE $BASELINE_CPU" | \
+        awk '{if ($1 < $2 * 0.9) print "REGRESSION"; else print "OK"}')
+    echo "CPU: $REGRESSION ($CPU_SCORE vs $BASELINE_CPU)"
+fi
+
+# Save results
+jq -n --arg cpu "$CPU_SCORE" --arg mem "$MEM_SCORE" \
+    --arg io "$IO_IOPS" \
+    '{cpu_score: $cpu, mem_score: $mem, io_iops: $io}' > $RESULTS
+```
+
 ## Related Topics
 
 - [CPU Performance](cpu.md)
@@ -501,3 +647,5 @@ Always express performance improvements in terms the business cares about:
 - [I/O Performance](io.md)
 - [Network Performance](network.md)
 - [Benchmarking](benchmarking.md)
+- [Flame Graphs](flame-graphs.md) — Visual performance profiling
+- [BCC Tools](bcc-tools.md) — BPF-based performance analysis
