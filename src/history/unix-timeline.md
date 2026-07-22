@@ -393,6 +393,181 @@ graph TD
     style MULTICS fill:#ddd,stroke:#333
 ```
 
+## The C Language and Unix
+
+The development of **C** and Unix were deeply intertwined. Dennis Ritchie developed C specifically to rewrite Unix, and the language's design reflects the needs of systems programming:
+
+### The C Timeline
+
+| Year | Event |
+|---|---|
+| 1969 | Ken Thompson writes Unix in PDP-7 assembly |
+| 1972 | Dennis Ritchie develops C (based on B, which came from BCPL) |
+| 1973 | Unix V4 rewritten in C — first OS in a high-level language |
+| 1978 | K&R C ("The C Programming Language" published) |
+| 1989 | ANSI C (C89) standardized |
+| 1999 | C99 adds `//` comments, `stdint.h`, VLAs |
+| 2011 | C11 adds `_Generic`, `_Static_assert`, threads |
+| 2023 | C23 adds `typeof`, `nullptr`, `constexpr` |
+
+The decision to write Unix in C was revolutionary. It meant:
+- **Portability**: Unix could be recompiled for new hardware
+- **Maintainability**: C is much easier to read and modify than assembly
+- **Ecosystem**: C became the lingua franca of systems programming
+
+## The BSD Networking Revolution
+
+BSD's contribution to networking cannot be overstated. The **socket API**, designed by Bill Joy and others at Berkeley in 1983, became the standard interface for network programming on virtually all operating systems:
+
+### Key BSD Networking Innovations
+
+| Innovation | Year | Impact |
+|---|---|---|
+| TCP/IP implementation | 1982 | First production-quality TCP/IP stack |
+| Socket API | 1983 | Standard network programming interface |
+| Berkeley r-commands | 1982 | rsh, rlogin, rcp (precursors to SSH) |
+| Fast File System (FFS) | 1983 | Cylinder groups, fragments, still influential |
+| `select()` | 1983 | First I/O multiplexing API |
+| `sendfile()` | 1998 | Zero-copy file serving |
+
+Without BSD's networking code, the internet revolution of the 1990s would have been delayed significantly.
+
+## The Mach Microkernel and Its Legacy
+
+**Mach**, developed at Carnegie Mellon University (1985–1994), was a microkernel that influenced operating system design for decades:
+
+### Mach's Influence
+
+```
+Mach 2.5 (1989)
+├── NeXTSTEP (1989) — Steve Jobs' company after Apple
+│   └── macOS (2001) — XNU kernel (Mach + BSD)
+│       └── iOS (2007)
+├── GNU Hurd (1990) — GNU's kernel project (Mach-based)
+│   └── Never completed
+└── L4 (1993) — Second-generation microkernel
+    └── seL4 (2009) — Formally verified microkernel
+```
+
+macOS's **XNU** kernel is literally Mach + BSD merged together, making it the most commercially successful Mach derivative.
+
+## Plan 9 and Its Legacy
+
+**Plan 9 from Bell Labs** (1992–2000) was the successor to Unix, designed by many of Unix's original creators (Ken Thompson, Dennis Ritchie, Rob Pike). Many of its innovations were independently reinvented in Linux:
+
+| Feature | Description | Adopted by |
+|---|---|---|
+| `/proc` filesystem | Process info as files | Linux, Solaris |
+| UTF-8 encoding | Universal character encoding | Linux, macOS, Windows, Go |
+| Namespaces | Per-process file views | Linux namespaces |
+| 9P protocol | Network-transparent file access | Linux (`/dev/9p`) |
+| Union mounts | Overlay filesystems | Linux OverlayFS |
+| FUSE | Filesystems in user space | Linux, macOS, FreeBSD |
+
+## Unix Market Share Evolution
+
+| Year | Unix | Windows | Linux |
+|---|---|---|---|
+| 1990 | 95% | 3% | 0% |
+| 2000 | 45% | 35% | 15% |
+| 2010 | 20% | 35% | 40% |
+| 2020 | 3% | 25% | 70% |
+
+The decline of commercial Unix was driven by cost (Linux is free), hardware flexibility (Linux runs on commodity x86), community size (thousands of contributors), and ecosystem breadth.
+
+## The Standardization Wars
+
+The fragmentation of Unix led to multiple competing standardization efforts:
+
+### Key Standards Timeline
+
+```mermaid
+timeline
+    title Unix Standardization
+    1984 : X/Open formed (European portability)
+    1985 : SVID (AT&T System V Interface Definition)
+    1988 : POSIX (IEEE 1003.1)
+    1988 : OSF formed (anti-AT&T coalition)
+    1988 : Unix International (pro-AT&T)
+    1993 : Single UNIX Spec (X/Open + POSIX merge)
+    1997 : SUSv2 published
+    2001 : Linux Standard Base (LSB)
+    2001 : SUSv3 / POSIX.1-2001
+    2008 : SUSv4 / POSIX.1-2008
+    2024 : POSIX.1-2024 (latest)
+```
+
+### The Open Group and UNIX Trademark
+
+The **Open Group** (formed from the merger of X/Open and OSF in 1996) owns the UNIX® trademark. To use it, an operating system must:
+
+1. Pass the UNIX conformance test suite
+2. Pay certification fees
+3. Comply with the Single UNIX Specification
+
+Certified UNIX systems include: macOS, AIX, HP-UX, Solaris, Inspur K-UX, EulerOS. Linux is **not** certified (the cost would be prohibitive and the practical benefit minimal).
+
+## The Commercial Unix Era (1980s–2000s)
+
+The commercial Unix era produced some of the most influential operating systems in computing history:
+
+### Sun Microsystems and Solaris
+
+Sun Microsystems (founded 1982) created **SunOS** (based on BSD) and later **Solaris** (based on SVR4). Key innovations:
+
+- **NFS** (Network File System) — transparent remote file access
+- **ZFS** — revolutionary filesystem with built-in RAID, snapshots, compression
+- **DTrace** — dynamic tracing framework for performance analysis
+- **SPARC processors** — custom RISC architecture
+- **Zones** — OS-level virtualization (precursor to containers)
+
+```bash
+# Solaris DTrace (later ported to Linux as SystemTap/eBPF)
+# Trace all file opens
+$ dtrace -n 'syscall::open:entry { printf("%s", copyinstr(arg0)); }'
+
+# ZFS on Linux (ported by OpenZFS project)
+$ zpool create tank mirror sda sdb
+$ zfs create tank/data
+$ zfs snapshot tank/data@backup
+```
+
+Sun was acquired by Oracle in 2010 for $7.4 billion. Oracle effectively discontinued Solaris development in 2017.
+
+### IBM AIX
+
+IBM's **AIX** (Advanced Interactive eXecutive) ran on POWER and later PowerPC hardware:
+
+- **JFS/JFS2** — journaling filesystem
+- **ODM** — Object Data Manager (hardware configuration database)
+- **SMIT** — System Management Interface Tool (TUI-based admin)
+- **LPAR** — logical partitioning (hardware virtualization)
+
+AIX is still supported by IBM for enterprise customers but has seen declining market share.
+
+### HP-UX
+
+Hewlett-Packard's **HP-UX** ran on PA-RISC and later Itanium:
+
+- **Veritas Volume Manager** — advanced storage management
+- **ServiceGuard** — high-availability clustering
+- **Trusted Extensions** — security labeling
+
+HP-UX was effectively killed by the Itanium debacle — Intel's Itanium processor failed to gain market acceptance, and HP's Unix business collapsed.
+
+### The Death of Commercial Unix
+
+```mermaid
+graph TD
+    SUN["Sun Solaris"] -->|Oracle 2010| DEAD1["Discontinued 2017"]
+    HP["HP-UX"] -->|Itanium dies| DEAD2["End of life"]
+    IBM["IBM AIX"] -->|Focus shifts| LINUX["Linux on POWER"]
+    SGI["SGI IRIX"] -->|Bankruptcy 2009| DEAD3["Discontinued"]
+    SCO["SCO Unix"] -->|Lawsuit loss| DEAD4["Bankrupt 2010"]
+    
+    style LINUX fill:#f96,stroke:#333,stroke-width:2px
+```
+
 ## References and Further Reading
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
