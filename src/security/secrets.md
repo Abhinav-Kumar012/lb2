@@ -497,6 +497,72 @@ keyctl timeout $(keyctl search @u user runtime-key) 3600
 keyctl clear @s
 ```
 
+## Appendix: Kernel Configuration
+
+```
+CONFIG_KEYS=y                    # Kernel keyring support
+CONFIG_ENCRYPTED_KEYS=y          # Encrypted key type
+CONFIG_TRUSTED_KEYS=y            # Trusted key type (TPM)
+CONFIG_ASYMMETRIC_KEY_TYPE=y     # Asymmetric key support
+CONFIG_SYSTEM_TRUSTED_KEYRING=y  # System-wide trusted keyring
+CONFIG_DM_CRYPT=y                # dm-crypt support
+CONFIG_BLK_DEV_DM=y              # Device mapper
+CONFIG_TCG_TPM=y                 # TPM core
+CONFIG_TCG_TIS=y                 # TPM Interface Specification
+CONFIG_TCG_CRB=y                 # TPM Command Response Buffer (TPM 2.0)
+```
+
+## Appendix: Keyring Access Control
+
+```c
+/* Key permissions (POSIX-like) */
+#define KEY_POS_VIEW    0x01000000  /* Owner: view */
+#define KEY_POS_READ    0x02000000  /* Owner: read */
+#define KEY_POS_WRITE   0x04000000  /* Owner: write */
+#define KEY_POS_SEARCH  0x08000000  /* Owner: search */
+#define KEY_POS_LINK    0x10000000  /* Owner: link */
+#define KEY_POS_SETATTR 0x20000000  /* Owner: set attributes */
+
+/* Same for group and other */
+#define KEY_GRP_READ    0x00020000
+#define KEY_OTH_READ    0x00000200
+
+/* Example: owner full access, group read, others none */
+keyctl setperm <key_id> 0x3f030000;
+```
+
+## Appendix: Troubleshooting
+
+```bash
+# Issue: "Key has expired"
+# Fix: Check timeout, recreate key without timeout
+keyctl timeout <key_id> 0  # Remove timeout
+
+# Issue: "Permission denied"
+# Fix: Check key permissions
+keyctl list @s
+# Verify UID/GID match
+
+# Issue: "Required key not available"
+# Fix: Key not in keyring, check request-key
+keyctl search @u user my-key
+# If not found, add it
+
+# Issue: "Key has been revoked"
+# Fix: Cannot unrevoke, must create new key
+
+# Issue: TPM not available
+# Fix: Check TPM driver
+dmesg | grep tpm
+ls /dev/tpm*
+modprobe tpm_tis
+
+# Issue: dm-crypt key not in keyring
+# Fix: Add key to keyring before opening volume
+keyctl add logon "cryptsetup:myvolume" "key_data" @u
+cryptsetup luksOpen /dev/sda1 mydisk --keyring-keyring=@u --keyring-key=cryptsetup:myvolume
+```
+
 ---
 
 ## Further Reading
