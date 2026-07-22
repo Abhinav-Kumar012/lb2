@@ -523,3 +523,245 @@ void optimize_access(void *addr, size_t len) {
 - [Inline Assembly](./inline-asm.md) — memory barriers and atomic operations
 - [POSIX AIO](./aio.md) — `O_DIRECT` alignment and mmap interaction
 - [Message Queues](./ipc/message-queues.md) — shared memory IPC
+
+## Virtual Memory Internals
+
+### Demand Paging
+
+Linux uses **demand paging**: pages are not physically allocated until first accessed. The kernel creates page table entries marked "not present" and allocates physical pages on page fault.
+
+```mermaid
+sequenceDiagram
+    participant App as Application
+    participant MMU as MMU/Page Table
+    participant Kernel as Kernel
+    participant Phys as Physical Memory
+
+    App->>MMU: Access virtual address
+    MMU->>MMU: Page table lookup
+    alt Page not present
+        MMU->>Kernel: Page fault
+        Kernel->>Phys: Allocate physical page
+        Kernel->>MMU: Update page table
+        MMU->>App: Retry instruction
+    else Page present
+        MMU->>Phys: Translate and access
+        Phys->>App: Data
+    end
+```
+
+### Copy-on-Write (COW)
+
+`fork()` uses COW: parent and child share the same physical pages, marked read-only. A write triggers a page fault, and the kernel copies the page.
+
+```c
+#include <unistd.h>
+#include <sys/wait.h>
+#include <stdio.h>
+#include <string.h>
+
+int main(void) {
+    char buf[4096];
+    memset(buf, 'A', sizeof(buf));
+
+    if (fork() == 0) {
+        /* Child — shares parent's pages until write */
+        buf[0] = 'B';  /* Triggers COW copy */
+        printf("Child: buf[0]=%c\n", buf[0]);
+        return 0;
+    }
+    wait(NULL);
+    printf("Parent: buf[0]=%c\n", buf[0]);  /* Still 'A' */
+    return 0;
+}
+```
+
+### Page Table Structure (x86-64)
+
+x86-64 uses a 4-level page table:
+
+```mermaid
+graph LR
+    CR3[CR3 Register] --> PML4["PML4 (512 entries)"]
+    PML4 --> PDPT["PDPT (512 entries)"]
+    PDPT --> PD["PD (512 entries)"]
+    PD --> PT["PT (512 entries)"]
+    PT --> PAGE["Physical Page (4KB)"]
+```
+
+Each level uses 9 bits of the 48-bit virtual address. With 5-level paging (Ice Lake+), addresses can reach 57 bits (128 PB).
+
+```bash
+# Check page table entries for a process
+# Using /proc/<pid>/pagemap
+sudo cat /proc/self/pagemap | xxd | head -10
+
+# Show page table statistics
+cat /proc/self/status | grep VmPTE
+# VmPTE:      132 kB  (page table overhead)
+
+cat /proc/self/status | grep VmPMD
+# VmPMD:        8 kB  (page middle directory)
+```
+
+### Huge Pages
+
+Huge pages (2MB or 1GB on x86-64) reduce TLB misses for large-memory workloads.
+
+```bash
+# Static huge pages (pre-allocated at boot)
+echo 1024 | sudo tee /proc/sys/vm/nr_hugepages  # 1024 × 2MB = 2GB
+
+# Check huge page status
+cat /proc/meminfo | grep Huge
+# HugePages_Total:    1024
+# HugePages_Free:     1024
+# HugePages_Rsvd:        0
+# Hugepagesize:       2048 kB
+
+# Transparent Huge Pages (THP) — automatic
+cat /sys/kernel/mm/transparent_hugepage/enabled
+# [always] madvise never
+
+# Enable only for programs that request it
+echo madvise | sudo tee /sys/kernel/mm/transparent_hugepage/enabled
+```
+
+```c
+/* Use huge pages in user space */
+#include <sys/mman.h>
+
+void *p = mmap(NULL, 2 * 1024 * 1024,
+               PROT_READ | PROT_WRITE,
+               MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB,
+               -1, 0);
+```
+
+## Memory-Mapped I/O
+
+### File I/O with mmap
+
+```c
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <stdio.h>
+
+int main(void) {
+    int fd = open("/etc/hostname", O_RDONLY);
+    struct stat st;
+    fstat(fd, &st);
+
+    /* Map file into memory */
+    char *data = mmap(NULL, st.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
+    if (data == MAP_FAILED) { perror("mmap"); return 1; }
+
+    /* Access file contents like a normal buffer */
+    printf("File content: %.*s\n", (int)st.st_size, data);
+
+    munmap(data, st.st_size);
+    close(fd);
+    return 0;
+}
+```
+
+### Shared Memory IPC
+
+```c
+/* Producer */
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <string.h>
+
+int main(void) {
+    int fd = shm_open("/myshm", O_CREAT | O_RDWR, 0666);
+    ftruncate(fd, 4096);
+
+    void *p = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    strcpy((char *)p, "Hello from producer!");
+
+    pause();
+    shm_unlink("/myshm");
+    return 0;
+}
+```
+
+```c
+/* Consumer */
+#include <sys/mman.h>
+#include <fcntl.h>
+#include <stdio.h>
+
+int main(void) {
+    int fd = shm_open("/myshm", O_RDONLY, 0);
+    void *p = mmap(NULL, 4096, PROT_READ, MAP_SHARED, fd, 0);
+    printf("Read: %s\n", (char *)p);
+    return 0;
+}
+```
+
+## Memory Protection
+
+```c
+#include <sys/mman.h>
+#include <signal.h>
+#include <stdio.h>
+
+void handler(int sig, siginfo_t *info, void *ucontext) {
+    printf("SIGSEGV at %p\n", info->si_addr);
+    _exit(1);
+}
+
+int main(void) {
+    struct sigaction sa = { .sa_sigaction = handler, .sa_flags = SA_SIGINFO };
+    sigaction(SIGSEGV, &sa, NULL);
+
+    void *p = mmap(NULL, 4096, PROT_READ, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    char val = *(char *)p;  /* OK */
+    *(char *)p = 'X';       /* SIGSEGV */
+    return 0;
+}
+```
+
+## Stack vs Heap: Choosing the Right Allocation
+
+| Criterion | Stack | Heap (malloc) | mmap |
+|---|---|---|---|
+| Speed | Fastest (register bump) | Fast (per-thread cache) | Slow (syscall) |
+| Size limit | ~8MB (ulimit) | Hundreds of GB | Limited by address space |
+| Automatic cleanup | Yes (scope exit) | No (manual free) | No (manual munmap) |
+| Thread safety | Per-thread (no locking) | Requires locking (global) | Per-process |
+| Use case | Small, short-lived vars | Dynamic objects | Large/mapped files |
+
+## Memory Leak Detection
+
+### Using mtrace
+
+```c
+#include <mcheck.h>
+#include <stdlib.h>
+
+int main(void) {
+    mtrace();
+    void *p = malloc(100);  /* Intentionally not freed */
+    muntrace();
+    return 0;
+}
+```
+
+```bash
+export MALLOC_TRACE=/tmp/mtrace.log
+./myapp
+mtrace ./myapp /tmp/mtrace.log
+```
+
+### Using cgroups to Limit Memory
+
+```bash
+echo 512M | sudo tee /sys/fs/cgroup/myapp/memory.max
+sudo bash -c 'echo $$ > /sys/fs/cgroup/myapp/cgroup.procs && exec ./myapp'
+cat /sys/fs/cgroup/myapp/memory.current
+```

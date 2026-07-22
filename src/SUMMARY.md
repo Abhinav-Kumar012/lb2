@@ -93,7 +93,9 @@
 - [Crash Dump](./debugging/crash-dump.md)
 - [Dynamic Debug](./debugging/dynamic-debug.md)
 - [Ebpf](./debugging/ebpf.md)
+- [Bpf Maps Helpers](./debugging/bpf-maps-helpers.md)
 - [Ftrace](./debugging/ftrace.md)
+- [Ftrace Advanced](./debugging/ftrace-advanced.md)
 - [Gdb](./debugging/gdb.md)
 - [Kernel Debugging](./debugging/kernel-debugging.md)
 - [Kfence](./debugging/kfence.md)
@@ -177,6 +179,10 @@
 - [Data Structures](./kernel/data-structures.md)
 - [Crash Dump](./kernel/debugging/crash-dump.md)
 - [Kunit](./kernel/debugging/kunit.md)
+
+## Tracing
+
+- [Kprobes Advanced](./kernel/tracing/kprobes-advanced.md)
 - [Acpi](./kernel/drivers/acpi.md)
 - [Block Drivers](./kernel/drivers/block-drivers.md)
 - [Char Devices](./kernel/drivers/char-devices.md)
@@ -356,6 +362,7 @@
 - [Sysfs](./observability/sysfs.md)
 - [Systemtap](./observability/systemtap.md)
 - [Tracepoints](./observability/tracepoints.md)
+- [Bpftrace Recipes](./observability/bpftrace-recipes.md)
 
 ---
 
@@ -376,6 +383,7 @@
 - [Overview](./performance/overview.md)
 - [Page Table Isolation](./performance/page-table-isolation.md)
 - [Pebs](./performance/pebs.md)
+- [Perf Advanced](./performance/perf-advanced.md)
 
 ---
 
