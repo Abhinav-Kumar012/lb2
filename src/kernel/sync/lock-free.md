@@ -625,6 +625,43 @@ Lock-free readers avoid this by never writing to shared data. RCU readers disabl
 - **Data races under RCU** — Always use `rcu_dereference()` for reading, `rcu_assign_pointer()` for publishing
 - **ABA problems** — Use tagged pointers or RCU
 - **Memory leaks** — Ensure all retired objects are eventually freed
+- **Grace period abuse** — Calling `synchronize_rcu()` in hot paths stalls the writer
+- **SRCU index mismatch** — Always pair `srcu_read_lock()` with the same `srcu_struct` in `srcu_read_unlock()`
+
+### Lock-Free Bug Pattern: Missing Publish Barrier
+
+A common bug pattern is publishing a pointer without proper ordering:
+
+```c
+/* BUG: On weakly-ordered archs, readers may see the pointer
+ * before the data it points to is initialized */
+new->field = value;         /* Initialize data */
+new->other = other_value;   /* Initialize more data */
+rcu_assign_pointer(ptr, new);  /* Publish — must use rcu_assign_pointer! */
+
+/* BUGGY equivalent (no ordering): */
+new->field = value;
+ptr = new;  /* On ARM, readers may see ptr == new but field == garbage */
+```
+
+`rcu_assign_pointer()` includes a store-release barrier that ensures all prior stores (the initialization of `new->field`, `new->other`) are visible before the pointer update.
+
+### Lock-Free Bug Pattern: Dangling Pointer After RCU
+
+```c
+/* BUG: Accessing data after rcu_read_unlock() */
+rcu_read_lock();
+p = rcu_dereference(ptr);
+rcu_read_unlock();
+/* p might be freed by now! */
+printk("%d\n", p->value);  /* USE-AFTER-FREE */
+
+/* CORRECT: Stay in RCU read-side critical section */
+rcu_read_lock();
+p = rcu_dereference(ptr);
+printk("%d\n", p->value);  /* Safe: p cannot be freed */
+rcu_read_unlock();
+```
 
 ### Kernel Tools
 
@@ -637,7 +674,35 @@ CONFIG_PROVE_LOCKING=y
 
 # KASAN detects use-after-free
 CONFIG_KASAN=y
+
+# RCU debugging
+CONFIG_RCU_TRACE=y        # RCU tracepoints
+CONFIG_PROVE_RCU=y        # RCU lockdep checking
+CONFIG_RCU_EQS_DEBUG=y    # Extended quiescent state debugging
 ```
+
+### KCSAN Race Report Example
+
+KCSAN reports data races with detailed information about both accesses:
+
+```
+==================================================================
+BUG: KCSAN: data-race in my_reader / my_writer
+
+read to 0xffff888012345678 of size 4 by task 1234 on CPU 0:
+ my_reader+0x23/0x45 drivers/foo.c:42
+ __run_ksoftirqd+0x... kernel/softirq.c:...
+
+write to 0xffff888012345678 of size 4 by task 5678 on CPU 1:
+ my_writer+0x45/0x67 drivers/foo.c:58
+ process_one_work+0x... kernel/workqueue.c:...
+
+Reported by Kernel Concurrency Sanitizer on:
+CPU: 1 PID: 5678 Comm: kworker/1:1 Not tainted 6.x.x
+==================================================================
+```
+
+The report shows both the read and write locations, the tasks involved, and the CPUs. This makes it straightforward to identify the race and apply the correct fix (usually adding `READ_ONCE()`/`WRITE_ONCE()` or proper locking).
 
 > **See also:** [Lockdep](./lockdep.md), [KCSAN](../debugging/kcsan.md)
 
