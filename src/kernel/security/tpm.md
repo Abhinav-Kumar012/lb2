@@ -610,6 +610,54 @@ tpm2_getcap handles-persistent
 
 # List loaded keys
 tpm2_getcap handles-transient
+
+# Measure boot chain
+systemd-analyze security
+
+# Check sealed key status
+cryptsetup luksDump /dev/sda1 | grep -i tpm
+```
+
+### Performance Diagnostics
+
+```bash
+# Measure TPM command latency
+time tpm2_getrandom 32 --hex
+
+# Typical latency: 1-5ms for hardware TPM
+# fTPM latency: <1ms (on-die)
+
+# Check for TPM timeouts
+dmesg | grep -i "tpm.*timeout"
+
+# TPM command statistics (if available)
+cat /sys/class/tpm/tpm0/ppi/version
+```
+
+---
+
+## Kernel Configuration
+
+```
+# Required for TPM support
+CONFIG_TCG_TPM=y               # Core TPM driver
+CONFIG_TCG_TIS_CORE=y          # TIS core
+CONFIG_TCG_TIS=y               # TIS interface (SPI)
+CONFIG_TCG_TIS_SPI=y           # SPI-attached TPM
+CONFIG_TCG_CRB=y               # CRB interface (ACPI)
+CONFIG_TCG_VTPM_PROXY=y        # Virtual TPM proxy
+CONFIG_TCG_TIS_ST33ZP24_SPI=y  # ST33ZP24 SPI TPM
+CONFIG_TCG_XEN=y               # Xen vTPM
+CONFIG_TCG_ATMEL=y             # Atmel TPM
+CONFIG_TCG_INFINEON=y          # Infineon TPM
+CONFIG_TCG_NUVOTON=y           # Nuvoton TPM
+CONFIG_TCG_IBMVTPM=y           # IBM vTPM (Power)
+
+# For trusted keys
+CONFIG_TRUSTED_KEYS=y          # Kernel trusted key type
+CONFIG_ENCRYPTED_KEYS=y        # Encrypted key type
+CONFIG_KEYS=y                  # Key management subsystem
+CONFIG_TPM_KEY_PARSER=y        # TPM key blob parser
 ```
 
 ---
