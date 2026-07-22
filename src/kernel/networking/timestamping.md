@@ -399,6 +399,256 @@ sudo ptp4l -i eth0 -m
 sudo phc2sys -s eth0 -c CLOCK_REALTIME -w -m
 ```
 
+### ptp4l Configuration File
+
+```ini
+# /etc/linuxptp/ptp4l.conf
+[global]
+# PTP domain (isolates different PTP networks)
+domainNumber 0
+
+# Clock type: OC (ordinary clock), BC (boundary clock), E2E, P2P
+clockClass 248
+clockAccuracy 0xFE
+offsetScaledLogVariance 0xFFFF
+
+# Transport: L2 (IEEE 802.3) or UDPv4/UDPv6
+networkTransport L2
+
+# Delay mechanism: E2E (end-to-end) or P2P (peer-to-peer)
+delay_mechanism E2E
+
+# Time stamping: hardware, software, or both
+time_stamping hardware
+
+# Logging
+verbose 1
+logging_level 6
+message_tag ptp4l
+
+# Transport specific
+[eth0]
+```
+
+### phc2sys Configuration
+
+```ini
+# /etc/linuxptp/phc2sys.conf
+[global]
+# Clock source (PHC device or interface)
+device /dev/ptp0
+
+# Clock sink (system clock)
+sink CLOCK_REALTIME
+
+# Offset correction
+offset 0
+
+# Servo (PI controller)
+pi_proportional 0.7
+pi_integral 0.3
+pi_offset 0.0
+
+# Logging
+verbose 1
+```
+
+### pmc (PTP Management Client)
+
+```bash
+# Query PTP clock properties
+sudo pmc -u -b 0 'GET CURRENT_DATA_SET'
+# CURRENT_DATA_SET
+#     stepsRemoved     0
+#     offsetFromMaster 0.000000000
+#     meanPathDelay    0.000000000
+
+# Query time properties
+sudo pmc -u -b 0 'GET TIME_PROPERTIES_DATA_SET'
+# TIME_PROPERTIES_DATA_SET
+#     currentUtcOffset      37
+#     leap61                0
+#     leap59                0
+#     timeTraceable        1
+#     frequencyTraceable    1
+#     ptpTimescale         1
+#     currentUtcOffsetValid 1
+
+# Set a clock parameter
+sudo pmc -u -b 0 'SET GRANDMASTER_SETTINGS_NP clockClass 128'
+```
+
+## Complete PTP Setup Example
+
+### Network Topology
+
+```mermaid
+graph LR
+    subgraph "PTP Grandmaster"
+        GM["GPS-disciplined clock<br/>/dev/ptp0"]
+    end
+    subgraph "Switch (Boundary Clock)"
+        SW["PTP-aware switch<br/>Transparent clock"]
+    end
+    subgraph "Slave Node"
+        SL["Linux server<br/>eth0 → /dev/ptp1"]
+    end
+    GM -->|"PTP Sync"| SW
+    SW -->|"PTP Sync"| SL
+```
+
+### Step-by-Step Setup
+
+```bash
+# 1. Verify NIC hardware timestamping support
+$ ethtool -T eth0
+Time stamping parameters for eth0:
+Capabilities:
+    hardware-transmit
+    software-transmit
+    hardware-receive
+    software-receive
+    hardware-raw-clock
+PTP Hardware Clock: 0
+Hardware Transmit Timestamp Modes:
+    off
+    on
+Hardware Receive Filter Modes:
+    none
+    all
+
+# 2. Enable hardware timestamping on the interface
+$ ethtool -L eth0 combined 4  # Ensure enough queues
+
+# 3. Start ptp4l as slave
+$ sudo ptp4l -i eth0 -s -m -H
+ptp4l[12345.678]: port 1: INITIALIZING to LISTENING on INIT_COMPLETE
+ptp4l[12345.679]: port 0: INITIALIZING to LISTENING on INIT_COMPLETE
+ptp4l[12350.123]: port 1: new foreign master 001a2b.fffe.3c4d5e
+ptp4l[12352.456]: port 1: LISTENING to UNCALIBRATED on RS_SLAVE
+ptp4l[12353.789]: port 1: UNCALIBRATED to SLAVE on MASTER_CLOCK_SELECTED
+ptp4l[12354.012]: rms 25 max 50 freq -1234 ± 5
+
+# 4. Synchronize system clock to PHC
+$ sudo phc2sys -s eth0 -c CLOCK_REALTIME -w -m
+phc2sys[12360.000]: eth0 CLOCK_REALTIME rms 5 max 10
+
+# 5. Verify synchronization
+$ pmc -u -b 0 'GET CURRENT_DATA_SET'
+CURRENT_DATA_SET
+    stepsRemoved     1
+    offsetFromMaster 0.000000125
+    meanPathDelay    0.000234567
+
+# 6. Check system clock accuracy
+$ chronyc tracking
+Reference ID    : 192.168.1.1
+Stratum         : 2
+Ref time (UTC)  : Mon Jan  1 00:00:00 2024
+System time     : 0.000000125 seconds fast
+RMS offset      : 0.000000050 seconds
+```
+
+## NIC-Specific Timestamping
+
+### Intel NICs (e1000e, igb, ixgbe, i40e, ice)
+
+```bash
+# Intel NICs have mature PTP support
+$ ethtool -T eth0 | grep -E "hardware|PTP"
+    hardware-transmit
+    hardware-receive
+    hardware-raw-clock
+PTP Hardware Clock: 0
+
+# Intel PHC adjustments
+$ phc_ctl /dev/ptp0 get
+clock time: 1704067200.123456789
+
+# Configure Intel NIC for PTP (via ethtool)
+$ ethtool -L eth0 combined 4
+
+# View Intel NIC PTP statistics
+$ ethtool -S eth0 | grep -i ptp
+ptp_tx_timestamps: 1234
+ptp_rx_timestamps: 5678
+ptp_tx_lost: 0
+```
+
+### Mellanox/NVIDIA NICs (mlx5)
+
+```bash
+# Mellanox NICs support hardware timestamping
+$ ethtool -T enp1s0f0 | grep -E "hardware|PTP"
+    hardware-transmit
+    hardware-receive
+    hardware-raw-clock
+PTP Hardware Clock: 0
+
+# Mellanox clock info
+$ phc_ctl /dev/ptp0 get
+clock time: 1704067200.123456789
+
+# Configure Mellanox timestamping
+$ ethtool --set-priv-flags enp1s0f0 tx_port_ts on
+```
+
+### Broadcom NICs (bnxt_en)
+
+```bash
+# Broadcom NIC timestamping
+$ ethtool -T eth0 | grep -E "hardware|PTP"
+    hardware-transmit
+    hardware-receive
+    hardware-raw-clock
+PTP Hardware Clock: 0
+```
+
+## NTP vs PTP
+
+```mermaid
+graph TB
+    subgraph "NTP"
+        NTP_SRV["NTP Server<br/>Stratum 1-15"]
+        NTP_CLI["NTP Client<br/>chronyd/ntpd"]
+        NTP_ACC["Accuracy: 1-10ms<br/>(typical LAN)"]
+    end
+    subgraph "PTP"
+        PTP_GM["PTP Grandmaster<br/>GPS-disciplined"]
+        PTP_BC["Boundary Clock<br/>Switch"]
+        PTP_SL["PTP Slave<br/>ptp4l"]
+        PTP_ACC["Accuracy: <1μs<br/>(hardware timestamping)"]
+    end
+    NTP_SRV --> NTP_CLI
+    NTP_CLI --> NTP_ACC
+    PTP_GM --> PTP_BC --> PTP_SL --> PTP_ACC
+```
+
+| Aspect | NTP | PTP |
+|--------|-----|-----|
+| Standard | RFC 5905 | IEEE 1588 |
+| Accuracy | 1–10 ms (LAN), 10–100 ms (WAN) | <1 μs (HW), 10–100 μs (SW) |
+| Hardware requirement | None | PTP-capable NIC with PHC |
+| Protocol | UDP port 123 | UDP 319/320 or L2 |
+| Complexity | Low | Medium-High |
+| Use case | General time sync | Telecom, finance, industrial |
+| Linux daemon | chronyd, ntpd | ptp4l, chrony (PTP mode) |
+| Cost | Free | NIC must support PTP |
+
+### Using chrony with PTP
+
+```bash
+# chrony can act as a PTP slave (Linux 5.x+)
+# /etc/chrony.conf
+# Use PTP as time source
+refclock PHC /dev/ptp0 poll 2 dpoll -2 offset 0
+
+# Or use NTP with PTP as fallback
+server 0.pool.ntp.org iburst
+server 1.pool.ntp.org iburst
+refclock PHC /dev/ptp0 poll 2 dpoll -2 offset 0 prefer
+```
+
 ## Common Use Cases
 
 1. **PTP clock synchronization** — using hardware timestamps to synchronize clocks across a network
@@ -406,6 +656,72 @@ sudo phc2sys -s eth0 -c CLOCK_REALTIME -w -m
 3. **High-frequency trading** — timestamping market data and order messages
 4. **Audio/video sync** — synchronizing media streams across network devices
 5. **Network monitoring** — precise packet timing for traffic analysis
+6. **Industrial automation** — time-critical control systems (PROFINET IRT)
+7. **5G/LTE networks** — base station synchronization (IEEE 1914.3)
+
+## Latency Measurement Example
+
+```c
+/*
+ * Measure one-way latency using SO_TIMESTAMPING
+ * Send UDP packets and compare TX/RX timestamps
+ */
+
+#include <stdio.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <linux/net_tstamp.h>
+#include <arpa/inet.h>
+
+int main() {
+    int sock = socket(AF_INET, SOCK_DGRAM, 0);
+
+    /* Enable hardware TX/RX timestamps */
+    int flags = SOF_TIMESTAMPING_SOFTWARE |
+                SOF_TIMESTAMPING_TX_SOFTWARE |
+                SOF_TIMESTAMPING_RX_SOFTWARE |
+                SOF_TIMESTAMPING_TX_HARDWARE |
+                SOF_TIMESTAMPING_RX_HARDWARE |
+                SOF_TIMESTAMPING_RAW_HARDWARE |
+                SOF_TIMESTAMPING_OPT_TSONLY;
+    setsockopt(sock, SOL_SOCKET, SO_TIMESTAMPING, &flags, sizeof(flags));
+
+    /* Send packet */
+    struct sockaddr_in addr = {
+        .sin_family = AF_INET,
+        .sin_port = htons(12345),
+    };
+    inet_pton(AF_INET, "192.168.1.100", &addr.sin_addr);
+
+    char buf[] = "timestamp test";
+    sendto(sock, buf, sizeof(buf), 0, (struct sockaddr *)&addr, sizeof(addr));
+
+    /* Receive with timestamp */
+    char recvbuf[256];
+    char cmsgbuf[256];
+    struct msghdr msg = {0};
+    struct iovec iov = { recvbuf, sizeof(recvbuf) };
+    msg.msg_iov = &iov;
+    msg.msg_iovlen = 1;
+    msg.msg_control = cmsgbuf;
+    msg.msg_controllen = sizeof(cmsgbuf);
+
+    recvmsg(sock, &msg, 0);
+
+    /* Extract timestamp */
+    struct cmsghdr *cmsg;
+    for (cmsg = CMSG_FIRSTHDR(&msg); cmsg;
+         cmsg = CMSG_NXTHDR(&msg, cmsg)) {
+        if (cmsg->cmsg_level == SOL_SOCKET &&
+            cmsg->cmsg_type == SO_TIMESTAMPING) {
+            struct timespec *ts = (struct timespec *)CMSG_DATA(cmsg);
+            printf("SW timestamp: %ld.%09ld\n", ts[0].tv_sec, ts[0].tv_nsec);
+            printf("HW timestamp: %ld.%09ld\n", ts[2].tv_sec, ts[2].tv_nsec);
+        }
+    }
+    return 0;
+}
+```
 
 ## Caveats and Gotchas
 
@@ -415,6 +731,8 @@ sudo phc2sys -s eth0 -c CLOCK_REALTIME -w -m
 - **Permissions**: `SIOCSHWTSTAMP` requires `CAP_NET_ADMIN`.
 - **Driver support varies**: not all NIC drivers support all timestamp features. Check `ethtool -T`.
 - **PTP filter mode**: some NICs only support PTP-specific filters, not `HWTSTAMP_FILTER_ALL`.
+- **Clock discipline**: PHC frequency adjustments affect all timestamps; don't adjust the PHC clock while measuring latency.
+- **Cross-NUMA effects**: reading timestamps from a NIC on a different NUMA node adds jitter.
 
 ## Source Files
 

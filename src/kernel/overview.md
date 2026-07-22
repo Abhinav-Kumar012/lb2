@@ -307,6 +307,243 @@ $ getcap /usr/bin/ping
 /usr/bin/ping = cap_net_raw+ep
 ```
 
+## Preemption Models
+
+Linux supports several preemption models that determine when the kernel
+can be preempted:
+
+| Model | Config | Description |
+|---|---|---|
+| No Forced Preemption | `PREEMPT_NONE` | Server default; best throughput |
+| Voluntary Preemption | `PREEMPT_VOLUNTARY` | Explicit preemption points |
+| Full Preemption | `PREEMPT` | Preempt almost anywhere; best latency |
+| Real-Time (PREEMPT_RT) | `PREEMPT_RT` | Full RT with threaded interrupts |
+
+```bash
+# Check current preemption model
+$ cat /sys/kernel/debug/sched/preempt
+# none | voluntary | full
+
+# Or from kernel config
+$ zcat /proc/config.gz | grep PREEMPT
+CONFIG_PREEMPT_NONE=y
+# CONFIG_PREEMPT_VOLUNTARY is not set
+# CONFIG_PREEMPT is not set
+```
+
+### Real-Time Kernel (PREEMPT_RT)
+
+The PREEMPT_RT patchset makes the Linux kernel fully preemptible:
+
+- **Threaded interrupts**: IRQ handlers run as kernel threads.
+- **Priority inheritance**: Spinlocks become RT-mutexes.
+- **Deterministic latency**: Sub-100µs worst-case latency.
+
+```bash
+# Check if running RT kernel
+$ uname -v
+# Look for "PREEMPT_RT" in version string
+$ uname -v
+Linux version 6.1.0-rt7 (... #1 SMP PREEMPT_RT ...)
+
+# View RT latency
+$ cyclictest -t1 -p80 -i1000 -l1000
+# T: 0 (12345) P:80 I:1000 C:  1000 Min:      1 Act:    3 Max:   15
+```
+
+## Kernel Debugging and Tracing
+
+### printk and dmesg
+
+```c
+/* Kernel log levels */
+#define KERN_EMERG    "<0>"   /* System is unusable */
+#define KERN_ALERT    "<1>"   /* Action must be taken immediately */
+#define KERN_CRIT     "<2>"   /* Critical conditions */
+#define KERN_ERR      "<3>"   /* Error conditions */
+#define KERN_WARNING  "<4>"   /* Warning conditions */
+#define KERN_NOTICE   "<5>"   /* Normal but significant */
+#define KERN_INFO     "<6>"   /* Informational */
+#define KERN_DEBUG    "<7>"   /* Debug-level messages */
+
+pr_info("driver loaded: version %s\n", VERSION);
+pr_err("device timeout on %s\n", dev_name(dev));
+```
+
+```bash
+# View kernel messages
+$ dmesg | tail -20
+$ dmesg -l err,crit,alert,emerg  # Only errors and above
+$ dmesg --follow  # Live follow
+
+# Control console log level
+$ cat /proc/sys/kernel/printk
+7       4       1       7
+# console_loglevel default_level minimum_level boot_delay
+```
+
+### Dynamic Debug
+
+```bash
+# Enable debug messages for a specific module
+$ echo 'module my_driver +p' > /sys/kernel/debug/dynamic_debug/control
+
+# Enable all debug messages in a file
+$ echo 'file drivers/net/ethernet/intel/e1000e/netdev.c +p' > /sys/kernel/debug/dynamic_debug/control
+
+# View all enabled debug points
+$ cat /sys/kernel/debug/dynamic_debug/control | grep '=p'
+```
+
+### kprobes and kretprobes
+
+```c
+#include <linux/kprobes.h>
+
+static struct kprobe kp = {
+    .symbol_name = "do_sys_open",
+};
+
+static int handler_pre(struct kprobe *p, struct pt_regs *regs)
+{
+    pr_info("do_sys_open called\n");
+    return 0;
+}
+
+static int __init kprobe_init(void)
+{
+    kp.pre_handler = handler_pre;
+    return register_kprobe(&kp);
+}
+```
+
+### ftrace
+
+```bash
+# List available tracers
+$ cat /sys/kernel/debug/tracing/available_tracers
+function function_graph nop
+
+# Trace a specific function
+$ echo 'do_sys_open' > /sys/kernel/debug/tracing/set_ftrace_filter
+$ echo function > /sys/kernel/debug/tracing/current_tracer
+$ echo 1 > /sys/kernel/debug/tracing/tracing_on
+$ cat /sys/kernel/debug/tracing/trace_pipe | head -20
+
+# Function graph tracer
+$ echo function_graph > /sys/kernel/debug/tracing/current_tracer
+$ echo 1 > /sys/kernel/debug/tracing/tracing_on
+```
+
+### BPF and bpftrace
+
+```bash
+# Trace system calls
+$bpftrace -e 'tracepoint:syscalls:sys_enter_openat { printf("%s %s\n", comm, str(args->filename)); }'
+
+# Count syscalls by process
+$bpftrace -e 'tracepoint:raw_syscalls:sys_enter { @[comm] = count(); }'
+
+# Trace block I/O latency
+$bpftrace -e '
+tracepoint:block:block_rq_complete {
+    @usecs = hist((nsecs - @start[args->dev, args->sector]) / 1000);
+}
+tracepoint:block:block_rq_issue {
+    @start[args->dev, args->sector] = nsecs;
+}'
+```
+
+## Namespaces and Containers
+
+Linux namespaces provide process isolation:
+
+| Namespace | Flag | Isolates |
+|---|---|---|
+| PID | `CLONE_NEWPID` | Process IDs |
+| Network | `CLONE_NEWNET` | Network stack |
+| Mount | `CLONE_NEWNS` | Filesystem mounts |
+| UTS | `CLONE_NEWUTS` | Hostname |
+| IPC | `CLONE_NEWIPC` | IPC resources |
+| User | `CLONE_NEWUSER` | User/group IDs |
+| Cgroup | `CLONE_NEWCGROUP` | Cgroup root |
+| Time | `CLONE_NEWTIME` | System clocks |
+
+```bash
+# Create a namespace
+$ unshare --pid --net --mount --uts --ipc --fork /bin/bash
+
+# List namespaces of a process
+$ ls -la /proc/$$/ns/
+total 0
+lrwxrwxrwx 1 root root 0 Jul 21 10:00 cgroup -> 'cgroup:[4026531835]'
+lrwxrwxrwx 1 root root 0 Jul 21 10:00 ipc -> 'ipc:[4026531839]'
+lrwxrwxrwx 1 root root 0 Jul 21 10:00 mnt -> 'mnt:[4026531841]'
+lrwxrwxrwx 1 root root 0 Jul 21 10:00 net -> 'net:[4026531969]'
+lrwxrwxrwx 1 root root 0 Jul 21 10:00 pid -> 'pid:[4026531836]'
+```
+
+## Control Groups (cgroups)
+
+cgroups provide resource limiting, prioritization, and accounting:
+
+```bash
+# cgroup v2 hierarchy
+$ mount | grep cgroup
+cgroup2 on /sys/fs/cgroup type cgroup2 (rw,nosuid,nodev,noexec)
+
+# Create a cgroup
+$ mkdir /sys/fs/cgroup/mygroup
+
+# Set CPU limit
+$ echo 50000 100000 > /sys/fs/cgroup/mygroup/cpu.max
+# 50% of one CPU (50ms per 100ms period)
+
+# Set memory limit
+$ echo 1073741824 > /sys/fs/cgroup/mygroup/memory.max
+# 1 GiB limit
+
+# Assign process
+$ echo $PID > /sys/fs/cgroup/mygroup/cgroup.procs
+
+# View stats
+$ cat /sys/fs/cgroup/mygroup/cpu.stat
+usage_usec 123456789
+user_usec 100000000
+system_usec 23456789
+```
+
+## seccomp (System Call Filtering)
+
+seccomp restricts which system calls a process can make:
+
+```c
+#include <linux/seccomp.h>
+#include <linux/filter.h>
+#include <linux/audit.h>
+
+/* BPF filter to allow only read, write, exit */
+struct sock_filter filter[] = {
+    BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, nr)),
+    BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, __NR_read, 0, 1),
+    BPF_STMT(BPF_RET+BPF_K, SECCOMP_RET_ALLOW),
+    BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, __NR_write, 0, 1),
+    BPF_STMT(BPF_RET+BPF_K, SECCOMP_RET_ALLOW),
+    BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, __NR_exit_group, 0, 1),
+    BPF_STMT(BPF_RET+BPF_K, SECCOMP_RET_ALLOW),
+    BPF_STMT(BPF_RET+BPF_K, SECCOMP_RET_KILL_PROCESS),
+};
+```
+
+```bash
+# Check seccomp status
+$ cat /proc/$$/status | grep Seccomp
+Seccomp:    0    # 0=disabled, 1=strict, 2=filter
+
+# Use strace to see seccomp kills
+$strace -f ./sandboxed_app 2>&1 | grep SECCOMP
+```
+
 ## Kernel Version Numbers
 
 Linux kernel versions follow the format `MAJOR.MINOR.PATCH`:
