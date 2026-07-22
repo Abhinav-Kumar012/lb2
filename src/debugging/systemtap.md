@@ -529,3 +529,294 @@ sudo stap -DINTERRUPTIBLE=1 myprobe.stp
 - [Valgrind](./valgrind.md) — binary analysis
 - [Sanitizers](./sanitizers.md) — compile-time instrumentation
 - [perf](./overview.md#perf) — performance profiling
+
+## SystemTap Scripting Language Deep Dive
+
+### Variables and Types
+
+SystemTap supports several data types:
+
+```bash
+# Global variables (shared across probes)
+global counter, averages, histograms
+
+# Local variables (probe-scoped)
+probe begin {
+    local x = 42           # integer
+    local msg = "hello"     # string
+    local arr[5]            # array
+}
+
+# Type inference — SystemTap infers types from usage
+probe syscall.open {
+    global counts
+    counts[execname()] += 1   # integer by inference
+}
+```
+
+### Associative Arrays
+
+Associative arrays are indexed by tuples (multiple keys):
+
+```bash
+# Multi-dimensional indexing
+global stats
+
+probe syscall.read {
+    stats[execname(), pid(), "read"] <<< $count
+}
+
+probe end {
+    foreach ([name, pid, op] in stats+) {
+        printf("%s pid=%d op=%s: count=%d avg=%d\n",
+            name, pid, op,
+            @count(stats[name, pid, op]),
+            @avg(stats[name, pid, op]))
+    }
+}
+
+# Filtering and sorting
+foreach ([name, pid] in stats+ limit 10) {
+    # Only top 10 entries
+}
+
+# Delete entries
+delete stats["nginx", 1234, "read"]
+delete stats  # Clear all
+```
+
+### String Operations
+
+```bash
+# String functions
+probe begin {
+    local s = "Hello World"
+    printf("length: %d\n", strlen(s))          # 11
+    printf("substr: %s\n", substr(s, 0, 5))    # Hello
+    printf("upper: %s\n", strtoupper(s))        # HELLO WORLD
+    printf("lower: %s\n", strtolower(s))        # hello world
+    printf("contains: %d\n", strcontains(s, "World"))  # 6
+    
+    # Regexp
+    if (s =~ /Hello/) { printf("matches\n") }
+    if (s !~ /Goodbye/) { printf("no match\n") }
+    
+    # Regexp extraction
+    local match = regexp_match("file.txt", "(.*)\\.(.*)")
+    if (match) {
+        printf("name=%s ext=%s\n", match[1], match[2])
+    }
+}
+
+# sprintf for string building
+probe syscall.open {
+    local msg = sprintf("%s opened %s (pid=%d)", execname(), filename, pid())
+    printf("%s\n", msg)
+}
+```
+
+### Control Flow
+
+```bash
+# if/else
+probe syscall.open {
+    if (execname() == "nginx") {
+        printf("nginx: %s\n", filename)
+    } else if (execname() == "sshd") {
+        printf("sshd: %s\n", filename)
+    }
+}
+
+# while loop
+probe begin {
+    local i = 0
+    while (i < 10) {
+        printf("%d\n", i)
+        i++
+    }
+}
+
+# for loop (via while)
+probe begin {
+    for (local i = 0; i < 10; i++) {
+        printf("%d\n", i)
+    }
+}
+
+# foreach with sorting
+foreach ([key] in array+) { ... }   # ascending
+foreach ([key] in array-) { ... }   # descending
+foreach ([key] in array) { ... }    # arbitrary order
+```
+
+### Functions
+
+```bash
+# User-defined functions
+function format_bytes:string(bytes:long) {
+    if (bytes > 1073741824) {
+        return sprintf("%.2f GB", bytes / 1073741824.0)
+    } else if (bytes > 1048576) {
+        return sprintf("%.2f MB", bytes / 1048576.0)
+    } else if (bytes > 1024) {
+        return sprintf("%.2f KB", bytes / 1024.0)
+    }
+    return sprintf("%d B", bytes)
+}
+
+# Private functions (not exported to tapsets)
+private function helper:long(x:long) {
+    return x * 2
+}
+
+# Using functions
+probe syscall.read {
+    printf("Read %s\n", format_bytes($count))
+}
+```
+
+### Target Variables
+
+SystemTap can access function parameters and local variables (requires debuginfo):
+
+```bash
+# Access kernel function parameters
+probe kernel.function("vfs_read") {
+    printf("file=%p count=%d pos=%d\n",
+        $file,
+        $count,
+        $file->f_pos)
+}
+
+# Access struct members
+probe kernel.function("do_sys_open") {
+    printf("filename=%s flags=%x\n",
+        $filename,
+        $flags)
+}
+
+# Process variables (userspace)
+probe process("/usr/bin/myapp").function("main") {
+    printf("argc=%d\n", $argc)
+}
+
+# Dereference pointers safely
+probe kernel.function("vfs_read") {
+    if ($file != 0 && $file->f_path.dentry != 0) {
+        printf("inode=%p\n", $file->f_path.dentry->d_inode)
+    }
+}
+```
+
+## SystemTap in Production
+
+### Compilation for Deployment
+
+```bash
+# Compile on development machine
+stap -r 5.15.0-generic -v -p4 -m myprobe myprobe.stp
+# Produces: myprobe.ko
+
+# Copy to production
+scp myprobe.ko production:/opt/probes/
+
+# Load on production (no compiler needed)
+ssh production sudo staprun -o /tmp/output.log /opt/probes/myprobe.ko
+
+# Load with background output
+ssh production sudo staprun -b -o /tmp/output.log /opt/probes/myprobe.ko
+# -b = background mode, output goes to file
+
+# Stop
+ssh production sudo kill $(cat /tmp/output.log.pid)
+```
+
+### Permanent Monitoring Setup
+
+```bash
+# /etc/systemd/system/myprobe.service
+[Unit]
+Description=SystemTap probe
+After=network.target
+
+[Service]
+Type=forking
+ExecStart=/usr/bin/staprun -b -o /var/log/myprobe.log /opt/probes/myprobe.ko
+ExecStop=/bin/kill $MAINPID
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### Controlling Overhead
+
+```bash
+# Rate-limit probe actions
+probe syscall.read {
+    # Only log every 1000th read
+    if (count++ % 1000 == 0) {
+        printf("...\n")
+    }
+}
+
+# Use sampling — timer-based instead of every-event
+probe timer.s(1) {
+    # Sample once per second instead of every event
+    printf("reads/sec: %d\n", read_count)
+    read_count = 0
+}
+
+# Limit collection time
+probe begin {
+    target_pid = pid()
+}
+
+probe syscall.open /pid() == target_pid/ {
+    # Only trace target process
+    printf("%s\n", filename)
+}
+
+# Use $context for conditional tracing
+probe syscall.open {
+    if (execname() == "nginx" || execname() == "postgres") {
+        printf("%s: %s\n", execname(), filename)
+    }
+}
+```
+
+## SystemTap vs Other Tools
+
+### When to Choose SystemTap
+
+| Use Case | SystemTap | bpftrace | perf |
+|---|---|---|---|
+| Complex scripting with control flow | ✅ Excellent | ⚠️ Limited | ❌ |
+| Kernel function argument access | ✅ Yes (debuginfo) | ⚠️ Limited | ❌ |
+| User-space probing | ✅ Yes (uprobes) | ✅ Yes | ❌ |
+| Production safety | ⚠️ Module can crash | ✅ Verified | ✅ Safe |
+| Deployment (pre-compiled) | ✅ .ko transfer | ✅ Script transfer | ✅ Binary only |
+| Security visibility | ✅ Full kernel access | ✅ Sandboxed | ⚠️ Limited |
+| Learning curve | Steep (custom lang) | Medium (awk-like) | Low |
+
+### Migration from SystemTap to bpftrace
+
+```bash
+# SystemTap: trace open() with filename
+sudo stap -e 'probe syscall.open { printf("%s %s\n", execname(), argstr) }'
+
+# bpftrace equivalent
+sudo bpftrace -e 'tracepoint:syscalls:sys_enter_openat { printf("%s %s\n", comm, str(args->filename)); }'
+
+# SystemTap: histogram of read sizes
+sudo stap -e 'global h; probe syscall.read { h <<< $count } probe end { @hist_log(h) }'
+
+# bpftrace equivalent
+sudo bpftrace -e 'tracepoint:syscalls:sys_exit_read /args->ret > 0/ { @bytes = hist(args->ret); }'
+
+# SystemTap: count syscalls by process
+sudo stap -e 'global c; probe syscall.* { c[execname()]++ } probe end { foreach (p in c+) printf("%s: %d\n", p, c[p]) }'
+
+# bpftrace equivalent
+sudo bpftrace -e 'tracepoint:raw_syscalls:sys_enter { @[comm] = count(); }'
+```
