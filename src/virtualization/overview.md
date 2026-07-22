@@ -636,6 +636,94 @@ lspci | grep "Virtual Function"
 | Isolation | Strong | Strong | Strong |
 | Use case | General | High-perf I/O | Network virtualization |
 
+## Live Migration
+
+Live migration moves a running VM between hosts without downtime:
+
+```mermaid
+sequenceDiagram
+    participant S as Source Host
+    participant D as Destination Host
+    participant VM as Running VM
+
+    S->>D: Pre-copy: transfer memory pages
+    Note over S: VM continues running
+    S->>D: Dirty pages re-sent (iterative)
+    S->>D: Stop VM, transfer final state
+    S->>D: Device state, CPU registers
+    D->>D: Resume VM on destination
+    Note over VM: < 100ms downtime
+```
+
+```bash
+# Live migration with virsh
+virsh migrate --live <vm-name> qemu+ssh://dest-host/system
+
+# With postcopy (migrate first, then fetch pages on demand)
+virsh migrate --live --postcopy <vm-name> qemu+ssh://dest-host/system
+
+# Check migration status
+virsh domjobinfo <vm-name>
+```
+
+## Nested Virtualization
+
+Running a hypervisor inside a VM:
+
+```bash
+# Enable nested virtualization (Intel)
+echo "options kvm_intel nested=Y" > /etc/modprobe.d/kvm.conf
+modprobe -r kvm_intel && modprobe kvm_intel
+
+# Enable nested virtualization (AMD)
+echo "options kvm_amd nested=1" > /etc/modprobe.d/kvm.conf
+modprobe -r kvm_amd && modprobe kvm_amd
+
+# Check nested support
+cat /sys/module/kvm_intel/parameters/nested
+# Y
+
+# Run KVM inside a VM
+qemu-system-x86_64 -enable-kvm ...
+```
+
+## VM Management with libvirt
+
+libvirt provides a unified API for managing different hypervisors:
+
+```bash
+# Define a VM
+cat > vm.xml << 'EOF'
+<domain type='kvm'>
+  <name>test-vm</name>
+  <memory unit='GiB'>4</memory>
+  <vcpu>2</vcpu>
+  <os>
+    <type arch='x86_64'>hvm</type>
+  </os>
+  <devices>
+    <disk type='file' device='disk'>
+      <source file='/var/lib/libvirt/images/disk.qcow2'/>
+      <target dev='vda' bus='virtio'/>
+    </disk>
+    <interface type='bridge'>
+      <source bridge='br0'/>
+      <model type='virtio'/>
+    </interface>
+  </devices>
+</domain>
+EOF
+
+virsh define vm.xml
+virsh start test-vm
+virsh console test-vm
+
+# Resource management
+virsh setvcpus test-vm 4 --config    # Change vCPU count
+virsh setmaxmem test-vm 8G --config  # Change max memory
+virsh schedinfo test-vm --set cpu_shares=2048  # CPU weight
+```
+
 ## Related Topics
 
 - [KVM Internals](./kvm.md) — deep dive into KVM's kernel implementation
