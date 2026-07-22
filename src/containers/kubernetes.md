@@ -621,6 +621,116 @@ kubectl exec mypod -- strace -f -p 1
 bpftrace -e 'tracepoint:seccomp:seccomp_filter { printf("%s: %d\n", comm, args->syscall); }'
 ```
 
+## Pod Lifecycle and Kernel Interaction
+
+### Pod Creation Sequence
+
+```mermaid
+sequenceDiagram
+    participant API as API Server
+    participant KL as kubelet
+    participant CRI as containerd
+    participant RUNC as runc
+    participant K as Kernel
+
+    API->>KL: Pod spec (desired state)
+    KL->>CRI: RunPodSandbox
+    CRI->>RUNC: Create (infra container)
+    RUNC->>K: clone(CLONE_NEWPID|CLONE_NEWNET|...)
+    K-->>RUNC: Container process (PID 1 = pause)
+    RUNC-->>CRI: Sandbox ID
+
+    KL->>CRI: PullImage (if needed)
+    KL->>CRI: CreateContainer (app container)
+    CRI->>RUNC: Create container spec
+    RUNC->>K: Setup namespaces, cgroups, seccomp
+    KL->>CRI: StartContainer
+    CRI->>RUNC: exec container process
+    K-->>RUNC: Application running
+```
+
+### Pod Termination
+
+```bash
+# When a pod is deleted:
+# 1. API server marks pod as Terminating
+# 2. kubelet sends SIGTERM to container PID 1
+# 3. Waits for terminationGracePeriodSeconds (default 30s)
+# 4. If still running, sends SIGKILL
+# 5. Container runtime cleans up namespaces and cgroups
+# 6. kubelet reports pod as terminated
+
+# Configure grace period
+spec:
+  terminationGracePeriodSeconds: 60
+  containers:
+  - name: app
+    lifecycle:
+      preStop:
+        exec:
+          command: ["/bin/sh", "-c", "sleep 5"]
+```
+
+## Resource Management
+
+### CPU Cgroup Configuration
+
+```bash
+# Kubernetes CPU requests/limits map to cgroup v2:
+# requests.cpu = 250m  -> cpu.weight = 25 (250/1000 * 100)
+# limits.cpu = 500m    -> cpu.max = 50000 100000 (50% of one core)
+
+# Verify in container
+$ cat /sys/fs/cgroup/cpu.weight
+25
+
+$ cat /sys/fs/cgroup/cpu.max
+50000 100000
+```
+
+### Memory Cgroup Configuration
+
+```bash
+# Kubernetes memory limits map to cgroup v2:
+# limits.memory = 256Mi -> memory.max = 268435456
+
+# Verify in container
+$ cat /sys/fs/cgroup/memory.max
+268435456
+
+$ cat /sys/fs/cgroup/memory.current
+134217728  # Current usage in bytes
+
+# OOM behavior
+$ cat /sys/fs/cgroup/memory.events
+low 0        # Memory below low threshold
+high 0       # Memory above high threshold
+max 0        # Memory limit exceeded (OOM kill)
+oom 0        # OOM killer invoked
+oom_kill 0   # Processes killed by OOM
+```
+
+### Quality of Service (QoS) Classes
+
+Kubernetes assigns QoS classes based on resource requests/limits:
+
+| QoS Class | Condition | OOM Score | Behavior |
+|-----------|-----------|-----------|----------|
+| **Guaranteed** | requests = limits for all containers | Low (-998) | Last to be evicted |
+| **Burstable** | requests < limits | Medium (2-1000) | Evicted before Guaranteed |
+| **BestEffort** | No requests or limits | High (1000) | First to be evicted |
+
+```bash
+# Check QoS class
+$ kubectl get pod mypod -o jsonpath='{.status.qosClass}'
+Guaranteed
+
+# cgroup hierarchy reflects QoS:
+# /sys/fs/cgroup/kubepods/guaranteed/pod<uid>/
+# /sys/fs/cgroup/kubepods/burstable/pod<uid>/
+# /sys/fs/cgroup/kubepods/besteffort/pod<uid>/
+```
+
 ## References
 
 1. Kubernetes Documentation. [https://kubernetes.io/docs/](https://kubernetes.io/docs/)
