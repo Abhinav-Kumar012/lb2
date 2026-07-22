@@ -492,6 +492,270 @@ podman auto-update --dry-run
 podman auto-update
 ```
 
+## Podman Machine (macOS/Windows)
+
+Podman Machine runs a Linux VM to support containers on non-Linux platforms:
+
+```bash
+# Initialize a Podman Machine VM
+podman machine init
+podman machine init --cpus 4 --memory 8192 --disk-size 50
+
+# Start the VM
+podman machine start
+
+# List VMs
+podman machine ls
+# NAME                    VM TYPE    CREATED        LAST UP    CPUS    MEMORY    DISK SIZE
+# podman-machine-default  qemu       2 minutes ago  Just now   4       8GiB      50GiB
+
+# SSH into the VM
+podman machine ssh
+
+# Stop the VM
+podman machine stop
+
+# Remove the VM
+podman machine rm
+
+# Use Apple's Virtualization framework (macOS, faster)
+podman machine init --user-mode-networking
+```
+
+## Container Healthchecks
+
+Podman supports container healthchecks for monitoring container liveness:
+
+```bash
+# Run with a healthcheck
+podman run -d --name web \
+  --health-cmd 'curl -f http://localhost/ || exit 1' \
+  --health-interval 30s \
+  --health-timeout 3s \
+  --health-retries 3 \
+  --health-start-period 10s \
+  nginx:latest
+
+# Check health status
+podman healthcheck run web
+podman inspect --format '{{.State.Health.Status}}' web
+# healthy | unhealthy | starting
+
+# View healthcheck logs
+podman inspect --format '{{json .State.Health.Log}}' web | jq .
+```
+
+### Healthcheck in Containerfile
+
+```dockerfile
+FROM docker.io/library/nginx:latest
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost/ || exit 1
+```
+
+## Container Checkpoint/Restore (CRIU)
+
+Podman supports live checkpointing and restore using CRIU (Checkpoint/Restore In Userspace):
+
+```bash
+# Checkpoint a running container
+podman container checkpoint web
+
+# Restore the container
+podman container restore web
+
+# Checkpoint to a directory (for migration)
+podman container checkpoint --export /tmp/checkpoint.tar.gz web
+
+# Restore on another host
+podman container restore --import /tmp/checkpoint.tar.gz
+
+# Checkpoint with established TCP connections
+podman container checkpoint --tcp-established web
+```
+
+## Container Image Security
+
+### Image Signing with sigstore/cosign
+
+```bash
+# Sign an image with cosign
+cosign sign --key cosign.key myregistry.local/myapp:v1.0
+
+# Verify image signature
+cosign verify --key cosign.pub myregistry.local/myapp:v1.0
+
+# Podman can enforce signature verification
+# /etc/containers/policy.json
+{
+  "default": [{"type": "reject"}],
+  "transports": {
+    "docker": {
+      "myregistry.local": [{
+        "type": "sigstoreSigned",
+        "keyPath": "/etc/pki/cosign.pub"
+      }]
+    }
+  }
+}
+```
+
+### Image Scanning with Trivy
+
+```bash
+# Scan image for vulnerabilities
+trivy image myapp:latest
+
+# Scan with severity filter
+trivy image --severity HIGH,CRITICAL myapp:latest
+
+# Scan Containerfile before build
+trivy config Containerfile
+```
+
+## Advanced Rootless Networking
+
+Rootless containers use slirp4netns or pasta for networking:
+
+### slirp4netns (default)
+
+```bash
+# slirp4netns: user-mode networking via TAP device
+# Slower but widely compatible
+podman run --network slirp4netns:mtu=9000 alpine ping -c 1 8.8.8.8
+
+# Port forwarding with slirp4netns
+podman run -p 8080:80 nginx
+# Under the hood: slirp4netns forwards ports from host to guest
+```
+
+### pasta (recommended, faster)
+
+```bash
+# pasta: native user-mode networking (since Podman 4.3)
+# Faster than slirp4netns, better latency
+podman run --network pasta alpine ping -c 1 8.8.8.8
+
+# Set as default for rootless
+echo '[containers]
+network_backend = "pasta"' >> ~/.config/containers/containers.conf
+```
+
+### Rootless Port Forwarding Limitations
+
+```bash
+# Rootless can't bind ports < 1024 by default
+# Solution 1: use sysctl
+sysctl net.ipv4.ip_unprivileged_port_start=80
+
+# Solution 2: use a port >= 1024
+podman run -p 8080:80 nginx
+
+# Solution 3: use a reverse proxy (nginx, haproxy) as root
+```
+
+## Podman Secrets
+
+Manage sensitive data without embedding in images:
+
+```bash
+# Create a secret
+echo 'mydbpassword' | podman secret create db-password -
+podman secret create api-key /path/to/key-file
+
+# List secrets
+podman secret ls
+
+# Use secret in a container
+podman run -d --secret db-password,type=env,target=DB_PASSWORD myapp
+podman run -d --secret api-key,type=mount,target=/run/secrets/api-key myapp
+
+# Remove secret
+podman secret rm db-password
+```
+
+## Podman Events and Logging
+
+```bash
+# Stream container events
+podman events
+# 2026-07-22 10:00:00.123456789 +0800 CST container start abc123 (image=nginx:latest, name=web)
+# 2026-07-22 10:05:00.987654321 +0800 CST container stop abc123 (image=nginx:latest, name=web)
+
+# Filter events
+podman events --filter container=web
+podman events --filter event=start
+podman events --filter type=container
+
+# Container logging driver
+podman run -d --log-driver journald nginx
+podman run -d --log-driver k8s-file --log-opt path=/var/log/containers/web.log nginx
+```
+
+## Podman and Buildah
+
+Buildah is the underlying build engine for Podman:
+
+```bash
+# Buildah can build images without Docker/Podman
+budah bud -t myapp:latest .
+
+# Buildah scriptable image building
+budah from alpine
+budah copy alpine-working-container app /usr/local/bin/
+budah config --entrypoint '/usr/local/bin/app' alpine-working-container
+budah commit alpine-working-container myapp:latest
+
+# Podman uses Buildah internally for `podman build`
+# But you can use Buildah directly for more control
+```
+
+## Troubleshooting
+
+### Common Issues
+
+```bash
+# Container won't start — check logs
+podman logs web
+podman inspect web | jq '.[0].State'
+
+# Rootless networking issues
+podman unshare cat /proc/self/uid_map
+podman machine ssh  # Check VM networking (macOS/Windows)
+
+# Permission denied errors
+podman unshare ls -la /path/to/volume
+# Files in volumes may be owned by host UID, not container UID
+# Fix: podman unshare chown 1000:1000 /path/to/volume
+
+# Image pull failures
+podman info | grep -i registries
+podman pull --retry 3 docker.io/library/alpine
+
+# Container stuck in "removing" state
+podman rm -f web
+podman rm --force --depend web
+
+# Clean up everything
+podman system prune -a --volumes
+```
+
+### Debug Mode
+
+```bash
+# Enable debug logging
+podman --log-level=debug run alpine echo hello 2>&1 | head -50
+
+# Trace system calls
+strace -f podman run alpine echo hello
+
+# Check storage driver
+podman info | grep -i storage
+# graphDriverName: overlay
+# graphRoot: /home/user/.local/share/containers/storage
+```
+
 ## References
 
 - [Podman Documentation](https://podman.io/docs/) — official docs
@@ -500,6 +764,8 @@ podman auto-update
 - [Podman Rootless](https://github.com/containers/podman/blob/main/docs/tutorials/rootless_tutorial.md) — rootless guide
 - [LWN: Podman and daemonless containers](https://lwn.net/Articles/761021/) — design rationale
 - [Red Hat: Podman vs Docker](https://www.redhat.com/sysadmin/podman-docker-comparison) — comparison
+- [Buildah Documentation](https://buildah.io/)
+- [CRIU Project](https://criu.org/)
 
 ## Related Topics
 
@@ -507,3 +773,4 @@ podman auto-update
 - [OCI Standards](./oci.md) — standards Podman implements
 - [containerd](./containerd.md) — alternative container runtime
 - [Container Security](./security.md) — security best practices
+- [Buildah](./buildah.md) — standalone image building
