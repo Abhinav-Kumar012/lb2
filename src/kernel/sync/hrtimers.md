@@ -534,6 +534,88 @@ MODULE_LICENSE("GPL");
 - **Use legacy timers** (`mod_timer`, `schedule_timeout`) for coarse
   timeouts where jiffie precision is sufficient and lower overhead is desired
 
+## HRTimer Callback Execution Context
+
+Understanding where hrtimer callbacks run is critical for correct usage:
+
+```text
+┌─────────────────────────────────────────────────────┐
+│              Interrupt Context (hardirq)             │
+│                                                      │
+│  hrtimer_interrupt()                                 │
+│    ├─ expire hard hrtimers (is_hard=1)               │
+│    │   └─ callback runs with IRQs disabled           │
+│    │       (must be fast, no sleeping!)              │
+│    └─ raise HRTIMER_SOFTIRQ for soft timers         │
+│                                                      │
+├─────────────────────────────────────────────────────┤
+│              Softirq Context                         │
+│                                                      │
+│  __do_softirq()                                      │
+│    └─ hrtimer_run_softirq()                          │
+│        └─ expire soft hrtimers (is_soft=1)           │
+│            └─ callback runs in softirq context       │
+│                (still can't sleep, but less urgent)  │
+│                                                      │
+├─────────────────────────────────────────────────────┤
+│              Process Context                         │
+│                                                      │
+│  (hrtimers do NOT run in process context directly)   │
+│  (use workqueue from callback if you need to sleep)  │
+└─────────────────────────────────────────────────────┘
+```
+
+### Callback Return Values
+
+| Return | Effect |
+|--------|--------|
+| `HRTIMER_NORESTART` | Timer is not restarted, goes to INACTIVE state |
+| `HRTIMER_RESTART` | Timer is re-enqueued with updated expiry |
+
+When returning `HRTIMER_RESTART`, the callback should call
+`hrtimer_forward_now()` to update the expiry time, otherwise the timer
+fires immediately in an infinite loop.
+
+## HRTimer Migration
+
+When a CPU goes offline, its hrtimers need to be migrated to a surviving CPU.
+The migration is handled by `migrate_hrtimers()`:
+
+```c
+/* kernel/time/hrtimer.c */
+void migrate_hrtimers(unsigned int dying_cpu)
+{
+    struct hrtimer_cpu_base *old_base;
+    struct hrtimer_cpu_base *new_base;
+
+    old_base = per_cpu_ptr(&hrtimer_bases, dying_cpu);
+    new_base = per_cpu_ptr(&hrtimer_bases, smp_processor_id());
+
+    /* Lock both bases and migrate all active timers */
+    /* ... rb-tree splice operations ... */
+}
+```
+
+## Timer Cascading and Overflow
+
+The legacy timer wheel uses **cascading** — timers far in the future are
+placed in higher-order buckets and cascade down as time advances. hrtimers
+do NOT cascade: every timer is in the rb-tree sorted by exact expiry.
+
+This is a fundamental design difference:
+
+```text
+Legacy Timer Wheel (cascading):          hrtimer (no cascading):
+  Bucket 0: [0-255ms]                      rb-tree sorted by expiry:
+  Bucket 1: [256ms-63.75s]                    [100ns]
+  Bucket 2: [63.75s-4.56h]                   /      \
+  Bucket 3: [4.56h-...]                   [50ns]   [500ns]
+                                         /    \        \
+  Cascade: timer moves from              [25ns][75ns]  [750ns]
+  higher bucket to lower bucket
+  as time approaches
+```
+
 ## Version History
 
 | Kernel | Changes |
