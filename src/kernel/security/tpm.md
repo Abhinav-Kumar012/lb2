@@ -675,6 +675,7 @@ CONFIG_TPM_KEY_PARSER=y        # TPM key blob parser
 | `drivers/char/tpm/tpm_vtpm.c` | Virtual TPM driver |
 | `include/linux/tpm.h` | TPM API header |
 | `security/keys/trusted-keys/` | Kernel trusted key subsystem |
+| `security/keys/encrypted-keys/` | Encrypted key subsystem |
 
 ---
 
