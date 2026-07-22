@@ -355,7 +355,171 @@ service --status-all
 | Timer management | cron | systemd timers |
 | Snapshots/rollback | No | Yes |
 
-### Migrating Init Scripts to systemd Units
+### Init Script Internals
+
+### How `service` Works
+
+The `service` command is a wrapper that locates and executes init scripts:
+
+```bash
+# What service actually does (simplified)
+#!/bin/bash
+SERVICE=$1
+ACTION=$2
+
+# Search order:
+# 1. /etc/init.d/$SERVICE
+# 2. Upstart job (if applicable)
+# 3. systemd unit (if applicable)
+
+if [ -x /etc/init.d/$SERVICE ]; then
+    /etc/init.d/$SERVICE $ACTION
+fi
+```
+
+```bash
+# Trace what service does
+bash -x service nginx start 2>&1 | head -30
+
+# service also sets environment variables:
+# LANG, TERM, PATH, CONSOLETYPE
+# It redirects output to the console if available
+```
+
+### Init Script Execution Order
+
+Scripts execute in numerical order (S00 first, S99 last). The ordering matters for dependencies:
+
+| Priority | Typical Services | Reason |
+|----------|-----------------|--------|
+| S01-S09 | udev, sysfs, modules | Hardware must be ready first |
+| S10-S19 | networking, syslog | Network and logging infrastructure |
+| S20-S29 | sshd, cron | Core services |
+| S30-S39 | databases (mysql, postgresql) | Data stores |
+| S40-S49 | web servers (nginx, apache) | Application servers |
+| S80-S99 | custom application services |
+
+```bash
+# View actual boot order
+ls -la /etc/rc3.d/S* | awk '{print $NF}'
+
+# Change priority (Debian)
+update-rc.d nginx defaults 90 10
+# S90nginx in start runlevels, K10nginx in stop runlevels
+
+# Change priority (RHEL)
+chkconfig --level 3 nginx on
+# Modify the header: # chkconfig: 2345 90 10
+```
+
+### Custom Runlevel Example
+
+Create a custom runlevel for maintenance mode:
+
+```bash
+# Create custom runlevel 4 (unused by default on RHEL)
+mkdir -p /etc/rc.d/rc4.d
+
+# Copy only essential services
+cd /etc/rc.d/rc4.d
+ln -s ../init.d/network S10network
+ln -s ../init.d/sshd S20sshd
+ln -s ../init.d/syslog S05syslog
+
+# Switch to maintenance runlevel
+init 4
+
+# Or set as default in /etc/inittab:
+# id:4:initdefault:
+```
+
+## Boot Profiling (SysV Init)
+
+Measuring boot time with SysV init requires manual tools:
+
+```bash
+# 1. Print timestamps during boot
+# Add to /etc/init.d/rcS:
+# echo "$(date +%s.%N) rcS start" >> /tmp/boot-profile.log
+
+# 2. Use bootchart (if available)
+apt install bootchartd
+# Add bootchartd to kernel boot args or init.d
+# Generates SVG/PNG timeline of boot process
+
+# 3. Measure individual script time
+time /etc/init.d/nginx start
+# real    0m0.234s
+# user    0m0.012s
+# sys     0m0.020s
+
+# 4. Use `initctl` timing (if available)
+# Some SysV implementations log execution time
+
+# 5. Compare with systemd (if migrating)
+systemd-analyze
+# Startup finished in 1.234s (kernel) + 3.456s (userspace) = 4.690s
+systemd-analyze blame
+# Shows per-service startup time
+```
+
+## SysV Init Security Considerations
+
+| Concern | Risk | Mitigation |
+|---------|------|------------|
+| Init scripts run as root | Any script bug = root exploit | Review all scripts, use `set -e` |
+| No sandboxing | Services share full system access | Use chroot, ulimit, SELinux |
+| PID file races | PID files can be forged | Use `start-stop-daemon --background` |
+| No capability dropping | Services retain all root capabilities | Use `capsh` or `setpriv` in scripts |
+| Log tampering | Logs in plain text files | Forward to remote syslog, use log signing |
+| World-writable scripts | Script modification = root exploit | `chmod 755` on all init scripts |
+
+```bash
+# Secure init script best practices
+# 1. Use start-stop-daemon (prevents PID races)
+start-stop-daemon --start --background --make-pidfile \
+    --pidfile /var/run/myservice.pid \
+    --exec /usr/bin/myservice
+
+# 2. Drop privileges
+start-stop-daemon --start --background --make-pidfile \
+    --pidfile /var/run/myservice.pid \
+    --chuid myservice:myservice \
+    --exec /usr/bin/myservice
+
+# 3. Set resource limits
+ulimit -n 65536    # Open files
+ulimit -s 8192     # Stack size
+
+# 4. Set umask
+umask 022
+```
+
+## Other Init Systems Compared
+
+| Init System | Distribution | Supervision | Parallel Boot | Dependencies |
+|-------------|-------------|-------------|---------------|-------------|
+| SysV init | Debian, RHEL (legacy) | None | No | Manual (LSB headers) |
+| systemd | Most modern distros | cgroup-based | Yes | Automatic |
+| OpenRC | Gentoo, Alpine | Optional (s6) | Yes | Explicit |
+| runit | Void Linux | Built-in (runit) | Yes | Minimal |
+| s6 | Artix (optional) | Built-in (s6) | Yes | Declarative |
+| Shepherd | GNU Guix | Built-in | Yes | Guile-based |
+
+```bash
+# OpenRC comparison (Gentoo/Alpine)
+rc-service nginx start        # Like service nginx start
+rc-update add nginx default   # Like chkconfig nginx on
+rc-status                     # Like service --status-all
+
+# runit comparison (Void Linux)
+ln -s /etc/sv/nginx /var/service/  # Enable service
+sv status nginx                    # Check status
+sv start nginx                     # Start service
+sv restart nginx                   # Restart service
+```
+
+## Migrating Init Scripts to systemd Units
 
 ```bash
 # Old SysV script: /etc/init.d/myservice
@@ -499,7 +663,73 @@ tail -f /var/log/messages           journalctl -f -u myservice
 | Gentoo | OpenRC (default) | SysV-compatible |
 | Void Linux | runit | Different but simple |
 
-## References
+## SysV Init Quick Reference
+
+```bash
+# SysV                              # systemd
+service myservice start             systemctl start myservice
+service myservice stop              systemctl stop myservice
+service myservice restart           systemctl restart myservice
+service myservice reload            systemctl reload myservice
+service myservice status            systemctl status myservice
+service --status-all                systemctl list-units --type=service
+chkconfig myservice on              systemctl enable myservice
+chkconfig myservice off             systemctl disable myservice
+chkconfig --list                    systemctl list-unit-files
+runlevel                            systemctl get-default
+init 3                              systemctl isolate multi-user.target
+init 0                              systemctl poweroff
+init 6                              systemctl reboot
+tail -f /var/log/messages           journalctl -f -u myservice
+```
+
+## Rescue and Recovery with SysV Init
+
+SysV init's simplicity makes it useful for recovery scenarios:
+
+### Booting into Single-User Mode
+
+```bash
+# At GRUB prompt, edit kernel line:
+# Add "single" or "1" to kernel parameters
+# kernel /vmlinuz root=/dev/sda1 ro single
+
+# This boots to runlevel 1 (single user)
+# Root shell without password (physical console only)
+# Only essential services running
+
+# From single user, you can:
+# 1. Fix /etc/fstab errors
+mount -o remount,rw /
+vi /etc/fstab
+
+# 2. Reset root password
+passwd root
+
+# 3. Fix broken init scripts
+ls /etc/rc3.d/S*
+# Remove or rename broken symlinks
+mv /etc/rc3.d/S99broken /etc/rc3.d/K01broken
+
+# 4. Fix filesystem errors
+fsck /dev/sda1
+```
+
+### Emergency Init Script
+
+```bash
+# If /sbin/init is broken, boot with:
+# init=/bin/bash
+# At GRUB: kernel /vmlinuz root=/dev/sda1 ro init=/bin/bash
+
+# You get a raw shell. To fix:
+mount -o remount,rw /
+mount -a
+# Fix the issue, then:
+exec /sbin/init
+```
+
+## Further Reading
 
 - [init(8) man page](https://man7.org/linux/man-pages/man8/init.8.html)
 - [inittab(5) man page](https://man7.org/linux/man-pages/man5/inittab.5.html)

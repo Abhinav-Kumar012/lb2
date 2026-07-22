@@ -448,6 +448,245 @@ flowchart TD
 
 ---
 
+## Frontswap API and Evolution
+
+### How zswap Hooks into the Swap Path
+
+zswap intercepts swap-out requests via the **frontswap** API. Frontswap is a shim layer between the swap subsystem and in-memory caching backends:
+
+```mermaid
+flowchart TD
+    A[Page swap-out] --> B{frontswap registered?}
+    B -->|Yes| C[frontswap_store]
+    C --> D[zswap_store]
+    D --> E{Compress + fit in pool?}
+    E -->|Yes| F[Page cached in zswap]
+    E -->|No| G[Reject - write to swap device]
+    B -->|No| G
+```
+
+### Frontswap Deprecation (Linux 6.x)
+
+The frontswap API is being **deprecated** in Linux 6.x in favor of a more direct integration:
+
+```c
+/* Old: frontswap hooks (deprecated) */
+frontswap_store(swpentry, page);
+frontswap_load(swpentry, page);
+
+/* New: direct zswap hooks in swap path (Linux 6.8+) */
+swap_writepage_folio() {
+    /* Check zswap directly without frontswap */
+    if (zswap_store(folio))
+        return;  /* Page cached in zswap */
+    /* Otherwise, write to swap device */
+}
+```
+
+The new integration eliminates the frontswap indirection layer, simplifying the code and improving performance.
+
+### ZSWAP_STORE_FAILED Flag
+
+When zswap rejects a page (poor compression, pool full), the swap subsystem falls through to the real swap device. The `SWAP_FLAG_ZSWAP_STORE_FAILED` flag marks entries that were rejected:
+
+```c
+/* mm/swap.c */
+static int swap_writepage_folio(struct folio *folio, struct swap_iocb *plug)
+{
+    /* Try zswap first */
+    if (zswap_store(folio)) {
+        /* Stored in zswap -- no disk I/O */
+        return 0;
+    }
+    /* zswap rejected -- fall through to swap device */
+    return __swap_writepage_folio(folio, plug);
+}
+```
+
+---
+
+## Detailed Writeback Mechanics
+
+### When Does Writeback Happen?
+
+Writeback occurs when the zswap pool exceeds `max_pool_percent`. The kernel uses a **shrinker** mechanism:
+
+```c
+/* mm/zswap.c -- shrinker callback */
+static unsigned long zswap_shrink_count(struct shrinker *shrinker,
+                                         struct shrink_control *sc)
+{
+    /* Return number of reclaimable pages */
+    return atomic_read(&zswap_stored_pages);
+}
+
+static unsigned long zswap_shrink_scan(struct shrinker *shrinker,
+                                        struct shrink_control *sc)
+{
+    /* Evict LRU entries until we've freed enough */
+    unsigned long nr_to_scan = sc->nr_to_scan;
+    unsigned long nr_freed = 0;
+
+    while (nr_freed < nr_to_scan) {
+        struct zswap_entry *entry = zswap_lru_entry();
+        if (!entry)
+            break;
+        zswap_writeback_entry(entry);
+        nr_freed++;
+    }
+    return nr_freed;
+}
+```
+
+### Writeback Cost
+
+Writing back an entry from zswap to the swap device involves:
+
+1. **Decompress** the page from zswap (CPU cost)
+2. **Allocate** a page from the swap cache
+3. **Write** the page to the swap device (I/O cost)
+4. **Free** the zpool allocation
+
+This is more expensive than a direct swap-out because of the decompression step. However, it happens infrequently compared to the number of cache hits.
+
+### Disabling Writeback
+
+```bash
+# Disable writeback (zswap will reject new entries when pool is full)
+# This is useful when using zram as the swap device
+# (no I/O savings from writeback to another compressed device)
+
+echo N > /sys/module/zswap/parameters/enabled  # Disable zswap entirely
+# Or set max_pool_percent to a very high value
+echo 90 > /sys/module/zswap/parameters/max_pool_percent
+```
+
+---
+
+## zpool Backend Comparison
+
+### zsmalloc
+
+zsmalloc is the **default** backend. It packs objects of different sizes into fixed-size zspage groups:
+
+- **Pros**: Very high density (low internal fragmentation), fast allocation
+- **Cons**: Cannot reclaim individual pages easily (compaction needed)
+
+```c
+/* mm/zsmalloc.c -- simplified */
+struct zs_pool {
+    struct size_class *size_class[ZS_SIZE_CLASSES];
+    /* Each size class manages objects of a specific size */
+};
+```
+
+### zbud
+
+zbud stores **at most two** compressed pages per physical page:
+
+- **Pros**: Simple, predictable
+- **Cons**: Low density (max 50% utilization)
+
+### z3fold
+
+z3fold stores **at most three** compressed pages per physical page:
+
+- **Pros**: Better density than zbud
+- **Cons**: More complex allocation logic
+
+### Density Comparison
+
+| Backend | Max Entries/Page | Typical Utilization | Best For |
+|---------|-----------------|---------------------|----------|
+| zbud | 2 | ~40-50% | Predictability |
+| z3fold | 3 | ~55-65% | Balanced |
+| zsmalloc | Many | ~70-85% | Density (default) |
+
+---
+
+## Huge Page Support (Linux 6.8+)
+
+Starting with Linux 6.8, zswap can accept **transparent huge pages (THP)**:
+
+```bash
+# Enable huge page acceptance
+echo Y > /sys/module/zswap/parameters/accept_huge
+```
+
+When `accept_huge=Y`, zswap compresses entire 2MB huge pages instead of splitting them into 4KB pages first. This can improve compression ratio (more data to compress = better patterns) and reduce the number of zswap entries.
+
+However, huge page zswap entries are more expensive to evict (must decompress and write back 2MB instead of 4KB).
+
+---
+
+## Debugging and Troubleshooting
+
+### zswap Not Working
+
+```bash
+# 1. Check if zswap is enabled
+cat /sys/module/zswap/parameters/enabled
+# Should be Y
+
+# 2. Check if swap is configured
+swapon --show
+# NAME      TYPE      SIZE
+# /dev/sda2 partition 8G
+
+# 3. Check if compression is working
+grep zswap /proc/vmstat
+# zswpout_pages 0 -- zswap is not receiving pages
+# Check that frontswap is registered
+grep frontswap /proc/kallsyms
+
+# 4. Check pool status
+cat /sys/kernel/debug/zswap/stored_pages
+# 0 -- no pages stored
+```
+
+### Poor Compression Ratio
+
+```bash
+# Check compression ratio
+STORED=$(cat /sys/kernel/debug/zswap/stored_pages)
+SIZE=$(cat /sys/kernel/debug/zswap/pool_total_size)
+if [ "$STORED" -gt 0 ] && [ "$SIZE" -gt 0 ]; then
+    echo "Compression ratio: $(echo "scale=2; $STORED * 4096 / $SIZE" | bc)x"
+fi
+# If < 1.5x, consider switching compressor
+
+# Try different compressor
+echo zstd > /sys/module/zswap/parameters/compressor
+# zstd has better ratio but higher CPU
+```
+
+### High Rejection Rate
+
+```bash
+# Check rejection reasons
+cat /sys/kernel/debug/zswap/reject_compress_poor  # Compression ratio too low
+cat /sys/kernel/debug/zswap/reject_alloc_fail    # Allocation failed
+cat /sys/kernel/debug/zswap/reject_kmemcache_fail  # kmem_cache failed
+
+# If reject_compress_poor is high:
+# - Try a better compressor (zstd)
+# - Increase max_pool_percent
+# - Accept that some pages are better on swap device
+```
+
+### Pool Limit Hits
+
+```bash
+# Check how often the pool limit is hit
+cat /sys/kernel/debug/zswap/pool_limit_hit
+# If increasing rapidly, either:
+# - Increase max_pool_percent
+# - Add more swap device space
+# - Reduce memory pressure (add RAM)
+```
+
+---
+
 ## Key Source Files
 
 | File | Contents |
