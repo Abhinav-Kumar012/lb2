@@ -318,6 +318,32 @@ sequenceDiagram
     Note over Comp: done = 0 (consumed)
 ```
 
+### Multiple Waiters Scenario
+
+```mermaid
+sequenceDiagram
+    participant T1 as Thread 1
+    participant T2 as Thread 2
+    participant T3 as Thread 3
+    participant Comp as Completion (done=0)
+    participant Sig as Signaler
+
+    T1->>Comp: wait_for_completion() → sleeps
+    T2->>Comp: wait_for_completion() → sleeps
+    T3->>Comp: wait_for_completion() → sleeps
+    
+    Sig->>Comp: complete()
+    Note over Comp: done++, wakes ONE waiter
+    Comp->>T1: Wake up!
+    Note over T2,T3: Still sleeping
+    
+    Sig->>Comp: complete_all()
+    Note over Comp: done = UINT_MAX/2
+    Comp->>T2: Wake up!
+    Comp->>T3: Wake up!
+    Note over T2,T3: Both woken
+```
+
 ## complete() vs complete_all()
 
 ```mermaid
