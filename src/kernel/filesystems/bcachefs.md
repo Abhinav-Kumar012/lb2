@@ -399,6 +399,129 @@ bcachefs dump /dev/sdb1
 3. **ENOSPC on "free" space**: bcachefs reserves space for CoW operations;
    `bcachefs fs usage` shows the actual situation
 
+## Implementation Details
+
+### Key Source Files
+
+- **`fs/bcachefs/`** — Main bcachefs implementation
+  - `btree.c` — B-tree operations
+  - `btree_gc.c` — B-tree garbage collection
+  - `btree_iter.c` — B-tree iterator
+  - `buckets.c` — Bucket allocator
+  - `checksum.c` — Checksumming
+  - `compression.c` — Compression support
+  - `dirent.c` — Directory entries
+  - `extents.c` — Extent management
+  - `fs.c` — VFS interface
+  - `inode.c` — Inode operations
+  - `io.c` — I/O path
+  - `journal.c` — Journal management
+  - `keylist.c` — Key list operations
+  - `move.c` — Data movement (GC)
+  - `movinggc.c` — Moving GC
+  - `replicas.c` — Replica management
+  - `snapshot.c` — Snapshot implementation
+  - `super.c` — Superblock operations
+
+### B-Tree Node Format
+
+```c
+/* Simplified btree node format */
+struct btree_node {
+    /* Header */
+    __le64 flags;           /* Node type, level, etc. */
+    __le64 seq;             /* Sequence number */
+    struct bpos min_key;    /* Minimum key */
+    struct bpos max_key;    /* Maximum key */
+    __le32 csum;            /* CRC32 checksum */
+    
+    /* Key format descriptor */
+    struct bkey_format format;
+    
+    /* Keys and values */
+    /* ... variable length ... */
+};
+```
+
+### Bucket Allocator
+
+The bucket allocator manages storage allocation:
+
+```c
+/* Bucket states */
+enum bucket_state {
+    BUCKET_FREE,        /* Available for allocation */
+    BUCKET_DIRTY,       /* Contains live data */
+    BUCKET_CLEAN,       /* Data flushed to disk */
+    BUCKET_STALE,       /* Data no longer referenced */
+};
+
+/* Bucket allocation */
+struct bucket *bcachefs_alloc_bucket(struct bch_fs *c, 
+                                      enum bucket_state state);
+```
+
+### Journal Structure
+
+```c
+/* Journal entry format */
+struct journal_entry {
+    __le64 seq;             /* Journal sequence number */
+    __le32 csum;            /* CRC32 checksum */
+    __le32 flags;           /* Entry flags */
+    __le64 last_seq;        /* Last committed sequence */
+    /* Followed by journal keys */
+    struct journal_key keys[];
+};
+```
+
+## Performance Tuning
+
+### Mount Options
+
+```bash
+# Bcachefs mount options
+mount -t bcachefs /dev/sdb1 /mnt/bcachefs
+
+# Common options:
+# -o compression=zstd         # Enable compression
+# -o compression_level=3      # Compression level
+# -o data_replicas=2          # Number of data replicas
+# -o metadata_replicas=2      # Number of metadata replicas
+# -o gc_reserve_percent=15    # GC reserve percentage
+# -o target_reserve_percent=20 # Target reserve percentage
+```
+
+### Benchmarking
+
+```bash
+# Basic benchmark
+fio --name=bcachefs-test \
+    --filename=/mnt/bcachefs/testfile \
+    --size=1G \
+    --rw=randrw \
+    --bs=4k \
+    --numjobs=4 \
+    --time_based \
+    --runtime=60
+
+# Check compression ratio
+bcachefs fs usage /mnt/bcachefs
+# Shows: compressed, uncompressed, ratio
+```
+
+### Performance Characteristics
+
+| Workload | Bcachefs | ext4 | XFS | Btrfs |
+|----------|----------|------|-----|-------|
+| Sequential read | Good | Good | Good | Good |
+| Sequential write | Good | Good | Good | Good |
+| Random read | Good | Good | Good | Good |
+| Random write | Good | Good | Good | Good |
+| Metadata heavy | Good | Good | Good | Good |
+| Compression | Good | N/A | N/A | Good |
+| Snapshots | Good | N/A | N/A | Good |
+
 ## References
 
 - [bcachefs kernel documentation](https://www.kernel.org/doc/html/latest/filesystems/bcachefs.html)
