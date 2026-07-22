@@ -631,6 +631,235 @@ nameserver 8.8.4.4
 options rotate
 ```
 
+## DNS Protocol Internals
+
+### Message Format
+
+DNS messages have a fixed header followed by four sections:
+
+```
++--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+|                      ID                           |
++--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+|QR|   Opcode  |AA|TC|RD|RA|   Z    |   RCODE     |
++--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+|                    QDCOUNT                        |
++--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+|                    ANCOUNT                        |
++--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+|                    NSCOUNT                        |
++--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+|                    ARCOUNT                        |
++--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+```
+
+| Flag | Meaning |
+|------|---------|
+| QR | 0=query, 1=response |
+| AA | Authoritative answer |
+| TC | Truncated (use TCP) |
+| RD | Recursion desired |
+| RA | Recursion available |
+| RCODE | Response code (0=NOERROR, 2=SERVFAIL, 3=NXDOMAIN) |
+
+### EDNS0 (Extension Mechanisms)
+
+EDNS0 extends DNS with larger UDP payloads and additional features:
+
+```bash
+# Query with EDNS0 (default buffer size 4096)
+$ dig +edns=0 example.com
+
+# Check EDNS0 support
+$ dig +edns +dnssec example.com
+
+# Set custom UDP buffer size
+$ dig +bufsize=8192 example.com
+```
+
+### DNS over TCP
+
+When responses exceed 512 bytes (or 4096 with EDNS0), DNS falls back to TCP:
+
+```bash
+# Force TCP query
+$ dig +tcp example.com
+
+# TCP is also used for:
+# - Zone transfers (AXFR/IXFR)
+# - DNSSEC responses (large signatures)
+# - DNS-over-TLS (port 853)
+# - DNS-over-HTTPS (port 443)
+```
+
+## DNSSEC Deep Dive
+
+### DNSSEC Chain of Trust
+
+DNSSEC creates a chain of trust from the root zone to individual domains:
+
+```mermaid
+flowchart TD
+    ROOT["Root Zone
+(.)"] -->|"DS record"| TLD["TLD Zone
+(.com)"]
+    TLD -->|"DS record"| DOMAIN["Domain Zone
+(example.com)"]
+    DOMAIN -->|"RRSIG"| A["A record
+example.com"]
+```
+
+Each zone signs its records with a private key and publishes:
+* **DNSKEY**: Public key for verification
+* **RRSIG**: Signature over record sets
+* **DS**: Delegation Signer (hash of child's DNSKEY)
+
+### DNSSEC Validation
+
+```bash
+# Query with DNSSEC validation
+$ dig +dnssec example.com
+;; ANSWER SECTION:
+example.com.        86400   IN  A   93.184.216.34
+example.com.        86400   IN  RRSIG A 13 2 86400 (
+                20240101000000 20231221000000
+                12345 example.com.
+                abc123signature... )
+
+# Verify the chain
+$ dig +dnssec +multi example.com DNSKEY
+
+# Check DS record at parent
+$ dig +dnssec example.com DS
+```
+
+### Configuring systemd-resolved for DNSSEC
+
+```bash
+# /etc/systemd/resolved.conf
+[Resolve]
+DNSSEC=yes
+# Options: yes, no, allow-downgrade
+
+# Check DNSSEC status
+$ resolvectl status | grep DNSSEC
+# DNSSEC supported by current servers: yes
+```
+
+## Modern DNS Protocols
+
+### DNS-over-TLS (DoT)
+
+DoT encrypts DNS queries using TLS on port 853:
+
+```bash
+# Configure systemd-resolved for DoT
+# /etc/systemd/resolved.conf
+[Resolve]
+DNS=1.1.1.1#cloudflare-dns.com
+DNS=8.8.8.8#dns.google
+DNSOverTLS=yes
+
+# Test DoT manually
+$ openssl s_client -connect 1.1.1.1:853 -servername cloudflare-dns.com
+
+# Using drill with TLS
+$ drill -T example.com @1.1.1.1
+```
+
+### DNS-over-HTTPS (DoH)
+
+DoH sends DNS queries as HTTPS requests on port 443:
+
+```bash
+# curl with DoH
+$ curl --doh-url https://cloudflare-dns.com/dns-query https://example.com
+
+# Using Firefox (built-in DoH)
+# about:config -> network.trr.mode = 2 (DoH first, fall back to DNS)
+
+# DoH endpoint discovery
+$ curl -s -H 'Accept: application/dns-json'     'https://cloudflare-dns.com/dns-query?name=example.com&type=A'
+```
+
+### DoT vs DoH Comparison
+
+| Feature | DoT | DoH |
+|---------|-----|-----|
+| Port | 853 | 443 |
+| Protocol | TLS | HTTPS/2 |
+| Firewall bypass | Hard (port 853 blocked) | Easy (port 443 indistinguishable) |
+| Caching | Server-side | Browser/server-side |
+| Overhead | Low | Slightly higher |
+| Privacy | Good | Better (mixes with web traffic) |
+
+## DNS Resolver Internals
+
+### glibc Stub Resolver
+
+The glibc resolver is configured via `/etc/resolv.conf` and uses the
+following resolution order:
+
+```mermaid
+flowchart TD
+    APP["getaddrinfo()"] --> NSS{"nsswitch.conf?"}
+    NSS -->|"files"| HOSTS["/etc/hosts"]
+    NSS -->|"dns"| RESOLV["/etc/resolv.conf"]
+    NSS -->|"mymachines"| MACHINES["systemd-machined"]
+    RESOLV --> QUERY["Send DNS query"]
+    QUERY --> NS1["nameserver 1"]
+    QUERY --> NS2["nameserver 2"]
+    NS1 --> CACHE["Result"]
+    NS2 --> CACHE
+```
+
+### getaddrinfo() in Detail
+
+```c
+#include <netdb.h>
+#include <stdio.h>
+
+struct addrinfo hints = {
+    .ai_family = AF_UNSPEC,      // IPv4 or IPv6
+    .ai_socktype = SOCK_STREAM,  // TCP
+    .ai_flags = AI_ADDRCONFIG,   // Only query for configured families
+};
+
+struct addrinfo *result;
+int ret = getaddrinfo("example.com", "443", &hints, &result);
+
+if (ret == 0) {
+    for (struct addrinfo *rp = result; rp; rp = rp->ai_next) {
+        char host[NI_MAXHOST];
+        getnameinfo(rp->ai_addr, rp->ai_addrlen,
+                    host, sizeof(host), NULL, 0, NI_NUMERICHOST);
+        printf("Address: %s
+", host);
+    }
+    freeaddrinfo(result);
+}
+```
+
+### DNS TTL and Caching
+
+```bash
+# Check TTL of a record
+$ dig +nocmd +noall +answer +ttlid example.com
+example.com.        86400   IN  A   93.184.216.34
+
+# Common TTL values
+# 300 (5 min)  - CDN records, dynamic content
+# 3600 (1 hr)  - Standard records
+# 86400 (24h)  - Stable records, NS records
+# 604800 (7d)  - Root hints, rarely changing
+
+# Flush systemd-resolved cache
+$ resolvectl flush-caches
+
+# Flush nscd cache
+$ sudo systemctl restart nscd
+```
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
