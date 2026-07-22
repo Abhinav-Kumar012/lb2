@@ -492,6 +492,150 @@ flowchart LR
 - [Confidential Computing Consortium](https://confidentialcomputing.io/)
 - [VMware Virtualization Basics](https://www.vmware.com/topics/glossary/content/virtualization)
 
+## Virtio Device Model
+
+Virtio is the standard paravirtualized I/O framework for KVM/QEMU. It
+defines a common interface between guest drivers and host backends:
+
+### Virtio Architecture
+
+```mermaid
+flowchart LR
+    subgraph Guest
+        APP[App] --> VFS[VFS/Block Layer]
+        VFS --> FE[virtio-blk frontend]
+        FE --> VRING[virtqueue]
+    end
+    subgraph Host
+        VRING -->|shared memory| BE[virtio-blk backend]
+        BE --> VHOST[vhost-kernel]
+        VHOST --> DISK[Host Block Device]
+    end
+```
+
+### Virtio Transport Options
+
+| Transport | Description | Performance |
+|-----------|-------------|-------------|
+| `virtio-pci` | PCI device emulation | Good, standard |
+| `virtio-mmio` | Memory-mapped I/O (ARM/embedded) | Good, lightweight |
+| `vhost-net` | Kernel-level network backend | Excellent |
+| `vhost-user` | Userspace backend (DPDK) | Excellent |
+| `virtio-vdpa` | Hardware-accelerated (SmartNICs) | Best |
+
+### Virtio Device Types
+
+```bash
+# Common virtio devices
+# virtio-blk   — Block device (disk)
+# virtio-net   — Network interface
+# virtio-scsi  — SCSI controller
+# virtio-gpu   — Graphics adapter
+# virtio-serial — Serial port
+# virtio-balloon — Memory balloon
+# virtio-fs    — Shared filesystem (virtiofs)
+# virtio-vsock — Host-guest communication
+
+# Check virtio devices in guest
+lspci | grep -i virtio
+# 00:03.0 Ethernet controller: Red Hat, Inc. Virtio network device
+# 00:04.0 SCSI storage controller: Red Hat, Inc. Virtio block device
+```
+
+## Memory Virtualization
+
+### Two-Level Address Translation
+
+Hardware-assisted virtualization uses nested page tables to translate
+guest virtual addresses to host physical addresses:
+
+```mermaid
+flowchart LR
+    GVA[Guest Virtual
+Address] -->|Guest Page Table| GPA[Guest Physical
+Address]
+    GPA -->|EPT/NPT
+(Shadow Page Table)| HPA[Host Physical
+Address]
+```
+
+### EPT/NPT Performance Impact
+
+| Scenario | Without EPT | With EPT |
+|----------|-------------|----------|
+| TLB miss cost | ~2000 cycles (VM exit) | ~200 cycles (hardware walk) |
+| Memory-intensive | 30-50% overhead | 5-15% overhead |
+| Compute-intensive | 2-5% overhead | 1-3% overhead |
+
+### Memory Overcommit
+
+```bash
+# KVM memory overcommit with KSM (Kernel Same-page Merging)
+# Merges identical pages across VMs
+
+# Enable KSM
+echo 1 > /sys/kernel/mm/ksm/run
+echo 1000 > /sys/kernel/mm/ksm/pages_to_scan
+
+# Check KSM stats
+cat /sys/kernel/mm/ksm/pages_shared
+# Number of shared pages (memory saved)
+
+# Balloon driver: dynamically adjust VM memory
+virsh setmem <vm-name> 2G  # Reduce to 2GB
+virsh setmem <vm-name> 4G  # Increase to 4GB
+```
+
+## I/O Virtualization
+
+### Device Passthrough (VFIO)
+
+VFIO allows direct assignment of physical devices to VMs:
+
+```bash
+# Check IOMMU support
+dmesg | grep -i iommu
+# Intel: DMAR, VT-d
+# AMD: AMD-Vi
+
+# Bind device to vfio-pci driver
+echo "8086 10fb" > /sys/bus/pci/drivers/vfio-pci/new_id
+
+# Launch VM with passthrough
+qemu-system-x86_64 \
+    -device vfio-pci,host=03:00.0 \
+    ...
+
+# Check VFIO device status
+lspci -vvv -s 03:00.0
+```
+
+### SR-IOV (Single Root I/O Virtualization)
+
+SR-IOV creates virtual functions (VFs) from a physical function (PF):
+
+```bash
+# Enable SR-IOV on NIC
+echo 4 > /sys/class/net/eth0/device/sriov_numvfs
+
+# List VFs
+lspci | grep "Virtual Function"
+
+# Assign VF to VM via VFIO
+# Each VF appears as a separate PCI device
+```
+
+### virtio vs Passthrough vs SR-IOV
+
+| Feature | virtio | VFIO Passthrough | SR-IOV |
+|---------|--------|-------------------|--------|
+| Performance | Good | Native | Near-native |
+| Live migration | Yes | No (device state) | Limited |
+| Guest driver | virtio (any OS) | Native driver | Native driver |
+| Hardware required | No | IOMMU | SR-IOV capable NIC |
+| Isolation | Strong | Strong | Strong |
+| Use case | General | High-perf I/O | Network virtualization |
+
 ## Related Topics
 
 - [KVM Internals](./kvm.md) — deep dive into KVM's kernel implementation
@@ -499,3 +643,5 @@ flowchart LR
 - [Xen Hypervisor](./xen.md) — paravirtualization and the Xen architecture
 - [Container Overview](../containers/overview.md) — lightweight virtualization alternatives
 - [Embedded Linux](../embedded/overview.md) — virtualization in embedded contexts
+- [Network Bridging](../kernel/networking/bridging.md) — VM networking with bridges
+- [VFIO](../kernel/drivers/vfio.md) — device passthrough framework
