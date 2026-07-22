@@ -30,7 +30,27 @@ graph TB
     style CPU1 fill:#3182ce,color:#fff
 ```
 
-### Inspecting NUMA Topology
+### NUMA Distance Matrix
+
+The **SLIT (System Locality Information Table)** from ACPI defines the relative distance between NUMA nodes. The kernel reads this at boot:
+
+```c
+/* arch/x86/kernel/acpi/numa.c (simplified) */
+void __init acpi_numa_slit_init(struct acpi_table_slit *slit)
+{
+    int i, j;
+    for (i = 0; i < slit->locality_count; i++) {
+        for (j = 0; j < slit->locality_count; j++) {
+            /* Distance from node i to node j */
+            int d = slit->entry[i * slit->locality_count + j];
+            /* Store in numa_distance[] matrix */
+            numa_distance[i][j] = d;
+        }
+    }
+}
+```
+
+The distance is relative: 10 = local (same node), higher values = proportionally slower. The kernel uses this for fallback allocation decisions.
 
 ```bash
 # Show NUMA nodes
@@ -67,6 +87,39 @@ cat /sys/devices/system/node/node0/meminfo
 # Node 0 MemUsed:     33554432 kB
 ```
 
+### Multi-Socket vs Chiplet NUMA
+
+Modern CPUs exhibit NUMA characteristics even within a single socket:
+
+```mermaid
+graph TB
+    subgraph "AMD EPYC Single Socket (4 CCDs)"
+        subgraph "NUMA Node 0 (CCD 0-1)"
+            C0["Cores 0-15<br/>L3: 32MB"]
+            M0["Memory Channel 0-1"]
+        end
+        subgraph "NUMA Node 1 (CCD 2-3)"
+            C1["Cores 16-31<br/>L3: 32MB"]
+            M1["Memory Channel 2-3"]
+        end
+        C0 <-->|"Infinity Fabric"| C1
+    end
+```
+
+```bash
+# Check if NPS (NUMA nodes per socket) is configured
+# AMD EPYC: NPS setting in BIOS determines topology
+# NPS1: All cores in one NUMA node (flat)
+# NPS2: 2 NUMA nodes per socket
+# NPS4: 4 NUMA nodes per socket
+
+# Detect actual topology
+numactl --hardware | head -3
+# NPS1: available: 1 nodes (0)
+# NPS2: available: 2 nodes (0-1)
+# NPS4: available: 4 nodes (0-3)
+```
+
 ## Scheduling Domains
 
 The Linux scheduler organizes CPUs into a hierarchy of **scheduling domains**. Each domain represents a set of CPUs that share certain properties (caches, NUMA nodes, physical packages). The scheduler uses this hierarchy for load balancing decisions.
@@ -75,15 +128,47 @@ The Linux scheduler organizes CPUs into a hierarchy of **scheduling domains**. E
 
 ```mermaid
 graph TD
-    MC["MC Domain (Multi-Core)<br/>All CPUs on same socket<br/>Fast migration"]
-    MC --> SMT["SMT Domain (Hyper-Threads)<br/>Same physical core<br/>Fastest migration"]
-    MC --> NUMA0["NUMA Domain (Node 0)<br/>CPUs 0-15<br/>Slower migration"]
-    MC --> NUMA1["NUMA Domain (Node 1)<br/>CPUs 16-31<br/>Slowest migration"]
+    NUMA["NUMA Domain<br/>All CPUs in system<br/>Slowest migration"]
+    NUMA --> MC0["MC Domain Node 0<br/>CPUs 0-15 on socket 0<br/>Medium migration"]
+    NUMA --> MC1["MC Domain Node 1<br/>CPUs 16-31 on socket 1<br/>Medium migration"]
+    MC0 --> SMT0["SMT Domain<br/>Hyper-thread pairs<br/>Fastest migration"]
+    MC1 --> SMT1["SMT Domain<br/>Hyper-thread pairs<br/>Fastest migration"]
 
-    style MC fill:#2b6cb0,color:#fff
-    style SMT fill:#38a169,color:#fff
-    style NUMA0 fill:#d69e2e,color:#fff
-    style NUMA1 fill:#d69e2e,color:#fff
+    style NUMA fill:#d69e2e,color:#fff
+    style MC0 fill:#2b6cb0,color:#fff
+    style MC1 fill:#2b6cb0,color:#fff
+    style SMT0 fill:#38a169,color:#fff
+    style SMT1 fill:#38a169,color:#fff
+```
+
+### Scheduling Domain Kernel Structures
+
+```c
+/* include/linux/sched/sd_flags.h — domain flags */
+#define SD_SHARE_CPUCAPACITY   0x0001  /* SMT: share CPU capacity */
+#define SD_SHARE_PKG_RESOURCES 0x0002  /* MC: share package resources */
+#define SD_NUMA                0x0004  /* NUMA domain */
+#define SD_SHARE_POWERDOMAIN   0x0008  /* Share power domain */
+
+/* kernel/sched/topology.c — domain build */
+struct sched_domain *build_sched_domain(struct sched_domain_topology_level *tl,
+                                         const struct cpumask *cpu_map,
+                                         struct sched_domain_attr *attr,
+                                         struct sched_domain *child,
+                                         int cpu)
+{
+    struct sched_domain *sd;
+
+    sd = *per_cpu_ptr(d.sd, cpu);
+    sd->flags = tl->flags;
+    sd->span_weight = cpumask_weight(tl->mask(cpu));
+
+    /* NUMA domains have higher imbalance tolerance */
+    if (sd->flags & SD_NUMA)
+        sd->imbalance_pct = 125;  /* Allow 25% imbalance before migrating */
+
+    return sd;
+}
 ```
 
 ### Inspecting Scheduling Domains
@@ -114,17 +199,23 @@ cat /proc/sys/kernel/sched_domain/cpu0/domain2/imbalance_pct
 # 125  (NUMA domain: more tolerant of imbalance)
 ```
 
+### Domain Load Balancing Intervals
+
+Each domain level has different balance intervals:
+
+| Domain | min_interval | max_interval | Behavior |
+|--------|-------------|-------------|----------|
+| SMT | 1ms | 4ms | Very frequent balancing |
+| MC | 4ms | 64ms | Moderate balancing |
+| NUMA | 8ms | 400ms | Infrequent, expensive balancing |
+
+The scheduler uses exponential backoff: if a balance attempt finds nothing to migrate, the interval doubles up to `max_interval`.
+
 ## NUMA Balancing
 
 Linux implements **Automatic NUMA Balancing** (since Linux 3.8) using a mechanism called **NUMA hinting faults**. The kernel periodically unmaps pages and notes which CPU faults on them, building a picture of which nodes access which memory.
 
 ### How NUMA Balancing Works
-
-1. **Scan phase**: The kernel periodically clears PTE access bits on a task's pages
-2. **Fault phase**: When the task accesses the page, a minor fault occurs
-3. **Accounting**: The kernel records which NUMA node faulted and which node the page is on
-4. **Migration decision**: If the page is accessed frequently from a remote node, it's migrated locally
-5. **Task migration**: If most of a task's memory is on another node, the task may be migrated
 
 ```mermaid
 sequenceDiagram
@@ -140,6 +231,59 @@ sequenceDiagram
     Note over Kernel: After N faults on same page...
     Kernel->>Node0: Migrate page to Node 0
     Task->>Node0: Access page → local hit!
+```
+
+The NUMA balancing mechanism uses **PROT_NONE** PTE entries to detect page access patterns:
+
+1. **Scan phase**: The kernel periodically changes PTE permissions to `PROT_NONE` (no access) on random pages
+2. **Fault phase**: When the task accesses the page, a **NUMA hinting fault** occurs (not a real fault — the page is valid)
+3. **Accounting**: The kernel records which NUMA node faulted and which node the page is on
+4. **Migration decision**: If the page is accessed frequently from a remote node, it's migrated locally
+5. **Task migration**: If most of a task's memory is on another node, the task may be migrated
+
+```c
+/* mm/mprotect.c — simplified NUMA hinting fault */
+static vm_fault_t do_numa_page(struct vm_fault *vmf)
+{
+    struct page *page = vmf->page;
+    int nid = page_to_nid(page);           /* Node where page lives */
+    int cpu = smp_processor_id();          /* CPU that faulted */
+    int last_nid = numa_pages_allocated[nid];
+
+    /* Record the fault for later migration decisions */
+    task_numa_fault(vmf->vma, vmf->address, nid, cpu);
+
+    /* Restore proper PTE permissions */
+    /* ... */
+
+    return 0;
+}
+```
+
+### NUMA Balancing Scan Algorithm
+
+The kernel scans a task's memory at a rate proportional to its working set size:
+
+```c
+/* kernel/sched/fair.c — task_numa_work() */
+static void task_numa_work(struct callback_head *work)
+{
+    struct task_struct *p = current;
+    struct mm_struct *mm = p->mm;
+    unsigned long nr_pte_updates = 0;
+    long runtime = p->se.sum_exec_runtime;
+
+    /* Scan rate: proportional to task's memory footprint */
+    /* Scan size: numa_balancing_scan_size_mb (default 256MB) */
+    unsigned long pages_to_scan = numa_balancing_scan_size_mb *
+                                   (1024 * 1024 / PAGE_SIZE);
+
+    /* Walk VMAs and mark pages for NUMA hinting */
+    walk_page_range(mm, start, end, &numa_walk_ops, &nr_pte_updates);
+
+    /* Re-arm the scan timer with adaptive period */
+    /* Period adapts based on how many faults were observed */
+}
 ```
 
 ### Configuring NUMA Balancing
@@ -172,6 +316,22 @@ cat /proc/sys/kernel/numa_balancing_promote_rate_limit_MBps
 # 65536
 ```
 
+### Adaptive Scan Period
+
+The scan period adapts based on observed NUMA behavior:
+
+```mermaid
+graph TD
+    SCAN["Scan task memory"] --> FAULT{"How many NUMA<br/>hinting faults?"}
+    FAULT -->|"Few faults<br/>(stable placement)"| SLOWER["Increase scan period<br/>Scan less often"]
+    FAULT -->|"Many faults<br/>(unstable placement)"| FASTER["Decrease scan period<br/>Scan more often"]
+    SLOWER --> SCAN
+    FASTER --> SCAN
+```
+
+- **Few faults** → memory is well-placed → scan less often (save CPU)
+- **Many faults** → memory is misplaced → scan more often (migrate faster)
+
 ### Monitoring NUMA Balancing
 
 ```bash
@@ -199,6 +359,27 @@ cat /proc/<pid>/numa_maps
 
 # Detailed per-VMA info
 cat /proc/<pid>/numa_maps | column -t
+```
+
+### Interpreting numa_maps
+
+```bash
+# numa_maps output format:
+# <address> <policy> <anon>=<pages> <dirty>=<pages> <active>=<pages> N0=<p> N1=<p> ...
+
+# Example analysis:
+cat /proc/$(pidof postgres)/numa_maps
+# 00400000 default file=/usr/lib/postgresql/14/bin/postgres mapped=100 N0=90 N1=10
+# → 90% local, 10% remote — good placement
+
+# 7f1234000000 anon dirty=500 N0=100 N1=400
+# → 80% remote — might need migration or numactl pinning
+
+# Policy field values:
+# default    → MPOL_DEFAULT (use process default)
+# bind:0     → MPOL_BIND (pinned to node 0)
+# interleave → MPOL_INTERLEAVE (spread across nodes)
+# preferred:1 → MPOL_PREFER (prefer node 1, fallback allowed)
 ```
 
 ## Memory Placement Policies
@@ -265,9 +446,61 @@ int main() {
 # Compile: gcc -lnuma numademo.c -o numademo
 ```
 
+### Memory Policy Kernel Implementation
+
+```c
+/* mm/mempolicy.c — simplified set_mempolicy() */
+SYSCALL_DEFINE3(set_mempolicy, int, mode, unsigned long __user *, nmask,
+                unsigned long, maxnode)
+{
+    struct mempolicy *new;
+
+    switch (mode) {
+    case MPOL_DEFAULT:
+        new = NULL;  /* Remove explicit policy */
+        break;
+    case MPOL_BIND:
+        /* Only allocate from specified nodes */
+        new = mpol_new(mode, nmask);
+        break;
+    case MPOL_PREFER:
+        /* Prefer specified node, fallback to others */
+        new = mpol_new(mode, nmask);
+        break;
+    case MPOL_INTERLEAVE:
+        /* Round-robin page allocation across nodes */
+        new = mpol_new(mode, nmask);
+        break;
+    }
+
+    /* Apply to all future allocations */
+    current->mempolicy = new;
+    return 0;
+}
+```
+
 ### Memory Tiering (Linux 5.15+)
 
 Modern systems with multiple memory tiers (DRAM + CXL/persistent memory) use NUMA-based tiering:
+
+```mermaid
+graph TB
+    subgraph "Fast Tier (DRAM)"
+        N0["NUMA Node 0<br/>DRAM: 128GB<br/>Latency: ~80ns"]
+        N1["NUMA Node 1<br/>DRAM: 128GB<br/>Latency: ~80ns"]
+    end
+    subgraph "Slow Tier (CXL/PMEM)"
+        N2["NUMA Node 2<br/>CXL Memory: 512GB<br/>Latency: ~300ns"]
+    end
+    N0 <-->|"Hot pages stay"| N0
+    N1 <-->|"Hot pages stay"| N1
+    N2 -->|"Cold pages demoted"| N2
+    N2 -->|"Hot pages promoted"| N0
+
+    style N0 fill:#38a169,color:#fff
+    style N1 fill:#38a169,color:#fff
+    style N2 fill:#d69e2e,color:#fff
+```
 
 ```bash
 # Check memory tiers
@@ -281,6 +514,31 @@ echo 1 > /proc/sys/kernel/numa_balancing  # Enable
 
 # Migration threshold (pages accessed more than this get promoted)
 cat /proc/sys/kernel/numa_balancing_promote_rate_limit_MBps
+```
+
+## NUMA and Cgroup cpuset
+
+Cgroups v2's `cpuset` controller can pin tasks to specific NUMA nodes:
+
+```bash
+# Create a cpuset cgroup pinned to NUMA node 0
+mkdir /sys/fs/cgroup/numa_node0
+echo "0-15" > /sys/fs/cgroup/numa_node0/cpuset.cpus
+echo "0" > /sys/fs/cgroup/numa_node0/cpuset.mems
+
+# Move a process into the cgroup
+echo $PID > /sys/fs/cgroup/numa_node0/cgroup.procs
+
+# The process can only use CPUs 0-15 and memory from node 0
+```
+
+```mermaid
+graph LR
+    subgraph "Cgroup: db_server"
+        PROC["PostgreSQL<br/>PID 1234"]
+    end
+    PROC -->|"cpuset.cpus = 0-15"| CPU["NUMA Node 0 CPUs"]
+    PROC -->|"cpuset.mems = 0"| MEM["NUMA Node 0 Memory"]
 ```
 
 ## Practical Performance Tuning
@@ -303,6 +561,17 @@ numastat -p postgres
 #                  Node 0   Node 1    Total
 # ---------------  ------   ------   ------
 # postgres           4096        0     4096
+```
+
+### Case Study: In-Memory Database (Redis/Memcached)
+
+```bash
+# Redis: single-threaded, pin to one NUMA node
+numactl --cpunodebind=0 --membind=0 redis-server
+
+# For multi-instance: one instance per NUMA node
+numactl --cpunodebind=0 --membind=0 redis-server --port 6379
+numactl --cpunodebind=1 --membind=1 redis-server --port 6380
 ```
 
 ### Identifying NUMA Issues
@@ -341,6 +610,22 @@ numastat
 numastat -c | head -20
 ```
 
+### NUMA-Aware Application Design Patterns
+
+```mermaid
+graph TD
+    subgraph "Pattern 1: Partitioned Workers"
+        W1["Worker 0<br/>allocates on Node 0<br/>runs on CPU 0-7"]
+        W2["Worker 1<br/>allocates on Node 1<br/>runs on CPU 8-15"]
+    end
+    subgraph "Pattern 2: First-Touch"
+        FT["Thread 0 allocates → Node 0 local<br/>Thread 1 allocates → Node 1 local<br/>(default Linux policy)"]
+    end
+    subgraph "Pattern 3: Interleaved Shared"
+        SH["Shared buffer<br/>interleave=all<br/>spreads across nodes"]
+    end
+```
+
 ## NUMA and the Scheduler
 
 The scheduler's NUMA placement decisions are influenced by several tunables:
@@ -363,6 +648,43 @@ cat /proc/sys/kernel/sched_numa_prefer_sibling
 # 0
 ```
 
+### NUMA Task Placement Decision
+
+When a task wakes up, the scheduler considers NUMA topology:
+
+```mermaid
+graph TD
+    WAKE["Task wakes up"] --> PREV{"Previous CPU<br/>idle?"}
+    PREV -->|Yes| RUNPREV["Run on previous CPU<br/>(cache warm)"]
+    PREV -->|No| SAME{"Same NUMA node<br/>idle CPU available?"}
+    SAME -->|Yes| RUNLOCAL["Run on same node<br/>(memory local)"]
+    SAME -->|No| OTHER{"Other node<br/>idle CPU available?"}
+    OTHER -->|Yes| RUNREMOTE["Run on other node<br/>(memory remote)"]
+    OTHER -->|No| BALANCE["Load balancer picks<br/>least loaded CPU"]
+
+    style RUNPREV fill:#38a169,color:#fff
+    style RUNLOCAL fill:#3182ce,color:#fff
+    style RUNREMOTE fill:#d69e2e,color:#fff
+```
+
+### Preventing NUMA Bouncing
+
+NUMA "bouncing" occurs when a task or page frequently migrates between nodes:
+
+```bash
+# Increase imbalance tolerance (less eager migration)
+echo 150 > /proc/sys/kernel/sched_domain/cpu0/domain2/imbalance_pct
+
+# Defer migrations
+echo 1 > /proc/sys/kernel/sched_numa_balancing_migrate_deferred
+
+# Increase migration cost estimate
+echo 1000000 > /proc/sys/kernel/sched_migration_cost_ns  # 1ms
+
+# Disable automatic NUMA balancing entirely (if using manual pinning)
+echo 0 > /proc/sys/kernel/numa_balancing
+```
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
@@ -377,9 +699,13 @@ cat /proc/sys/kernel/sched_numa_prefer_sibling
 - [set_mempolicy(2) man page](https://man7.org/linux/man-pages/man2/set_mempolicy.2.html)
 - [Linux NUMA memory policy](https://www.kernel.org/doc/Documentation/admin-guide/mm/numa_memory_policy.rst)
 - [Mel Gorman's NUMA balancing patches](https://lwn.net/Articles/524977/)
+- [NUMA Automatic Balancing — Linux Kernel Internals](https://kernel-internals.org/sched/numa-balancing/) — Detailed internals
+- [CXL Memory Tiering](https://docs.kernel.org/mm/cxl_memory_hotplug.html) — Linux CXL tiering documentation
 
 ## Related Topics
 
 - [Process Priorities](./priorities.md) — CPU scheduling priority
 - [Deadline Scheduling](./deadline-scheduling.md) — Real-time scheduling
 - [Cgroups](./cgroups.md) — cpuset controller for NUMA pinning
+- [Scheduling Domains](./sched-domains.md) — Domain hierarchy details
+- [Memory Tiering](../mm/memory-tiering.md) — Hot/cold page migration

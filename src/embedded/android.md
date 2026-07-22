@@ -432,6 +432,249 @@ perfetto -c /data/misc/perfetto-configs/config.pbtx -o trace.pb
 
 ---
 
+## 9. DMA-BUF Heaps and Buffer Sharing
+
+### From ION to DMA-BUF Heaps
+
+Android historically used the **ION** allocator for shared memory between the CPU, GPU, camera, and display. ION was an Android-specific kernel driver (`drivers/staging/android/ion`). Starting with Android 12 and kernel 5.6+, ION is replaced by the mainline **DMA-BUF Heaps** framework.
+
+```mermaid
+graph LR
+    subgraph "Legacy (Android <12)"
+        ION[ION Allocator]
+        ION -->|"alloc"| HEAP_SYSTEM["system heap"]
+        ION -->|"alloc"| HEAP_CMA["CMA heap"]
+        ION -->|"alloc"| HEAP_CARVEOUT["carveout heap"]
+    end
+    subgraph "Modern (Android 12+)"
+        DMABUF["DMA-BUF Heaps"]
+        DMABUF -->|"alloc"| HEAP_SYSTEM2["system heap"]
+        DMABUF -->|"alloc"| HEAP_CMA2["CMA heap"]
+        DMABUF -->|"alloc"| HEAP_SECURE["secure heap"]
+    end
+```
+
+### DMA-BUF Heaps in Practice
+
+```bash
+# List available DMA-BUF heaps
+ls /dev/dma_heap/
+# system  system-uncached  cma
+
+# Allocate from user space (Android uses libdmabufheap)
+# C code example:
+#include <linux/dma-heap.h>
+#include <sys/ioctl.h>
+
+int heap_fd = open("/dev/dma_heap/system", O_RDWR);
+struct dma_heap_allocation_data data = {
+    .len = 4096 * 256,  /* 1MB */
+    .fd_flags = O_RDWR | O_CLOEXEC,
+};
+ioctl(heap_fd, DMA_HEAP_IOCTL_ALLOC, &data);
+int buf_fd = data.fd;  /* DMA-BUF file descriptor */
+
+# Check DMA-BUF usage
+cat /sys/kernel/debug/dma_buf/bufinfo
+# Or with dmabuf_dump (Android tool)
+dmabuf_dump
+```
+
+### Buffer Sharing Between Subsystems
+
+DMA-BUF enables zero-copy sharing between GPU, camera, display, and codec:
+
+```mermaid
+sequenceDiagram
+    participant Camera
+    participant DMA as DMA-BUF
+    participant GPU
+    participant Display
+
+    Camera->>DMA: Allocate buffer (DMA-BUF heap)
+    Camera->>DMA: Write frame data
+    Camera->>GPU: Export DMA-BUF fd
+    GPU->>DMA: Import and process (GPU shader)
+    GPU->>Display: Export DMA-BUF fd
+    Display->>DMA: Import and scan out
+    Note over Camera,Display: Zero-copy: same physical pages used throughout
+```
+
+## 10. Android Kernel Security Model
+
+### SELinux in Android
+
+Android enforces mandatory access control via **SELinux** in enforcing mode. Every process, file, socket, and IPC endpoint has a security context:
+
+```bash
+# View SELinux status
+getenforce
+# Enforcing
+
+# View process context
+ps -Z
+# u:r:system_server:s0     system    1234 567 ...
+# u:r:platform_app:s0:...  u0_a12   5678 567 ...
+
+# View file context
+ls -Z /system/bin/app_process
+# u:object_r:zygote_exec:s0 /system/bin/app_process
+
+# SELinux policy denials (audit log)
+logcat | grep "avc: denied"
+# avc: denied { read } for name="config" dev="dm-0" ...
+# scontext=u:r:untrusted_app:s0:... tcontext=u:object_r:system_data_file:s0
+```
+
+### Android Security Features
+
+| Feature | Description | Kernel Component |
+|---------|-------------|------------------|
+| SELinux | Mandatory access control | LSM hooks |
+| seccomp-bpf | Syscall filtering | `kernel/seccomp.c` |
+| Verified Boot | Kernel integrity | dm-verity |
+| dm-verity | Block-level filesystem integrity | `drivers/md/dm-verity.c` |
+| Namespace isolation | App sandboxing | PID/network/mount namespaces |
+| MTE | Memory Tagging Extension | ARMv8.5-A hardware |
+
+### dm-verity
+
+dm-verity provides read-only filesystem integrity verification. The kernel checks every block read against a Merkle tree hash:
+
+```bash
+# dm-verity block device mapper
+# Verity table format:
+# <version> <dev> <hash_dev> <data_block_size> <hash_block_size>
+# <num_data_blocks> <hash_start_block> <algorithm> <root_hash> <salt>
+
+# View dm-verity device
+dmsetup table
+# 0 12345678 verity 1 /dev/sda /dev/sda 4096 4096 1543209 1 sha256 ...
+
+# If verification fails, the kernel logs:
+dmesg | grep verity
+# verity: sha256 verification failed
+# verity: block 12345: expected ...
+```
+
+## 11. Android Kernel Debugging Tools
+
+### Perfetto
+
+Perfetto is Android's system-wide tracing tool, replacing systrace:
+
+```bash
+# Capture a trace with Perfetto
+perfetto -c - --txt <<EOF
+buffers: {
+    size_kb: 65536
+    fill_policy: RING_BUFFER
+}
+data_sources: {
+    config {
+        name: "linux.ftrace"
+        ftrace_config {
+            ftrace_events: "sched/sched_switch"
+            ftrace_events: "power/cpu_frequency"
+            ftrace_events: "binder/binder_transaction"
+        }
+    }
+}
+duration_ms: 10000
+EOF
+# View at https://ui.perfetto.dev/
+
+# Kernel-level tracing
+perfetto -c config.pbtx -o /data/misc/perfetto-traces/trace.pb
+```
+
+### Binder Debugging
+
+```bash
+# View binder state
+cat /sys/kernel/debug/binder/state
+# Shows all binder procs, threads, nodes, and transactions
+
+# View binder transactions
+cat /sys/kernel/debug/binder/transactions
+
+# View binder statistics
+cat /sys/kernel/debug/binder/stats
+
+# View binder per-process info
+cat /sys/kernel/debug/binder/proc/<pid>
+
+# Trace binder transactions with ftrace
+echo 1 > /sys/kernel/debug/tracing/events/binder/enable
+cat /sys/kernel/debug/tracing/trace_pipe
+```
+
+### Wakelock Debugging
+
+```bash
+# View all wakeup sources (kernel)
+cat /sys/kernel/debug/wakeup_sources
+# name          active_count  event_count  expire_count
+# wakeup_count  active_since  total_time  max_time
+# last_change  prevent_suspend_time
+
+# Android-specific: dumpsys power
+dumpsys power | grep -A 30 "Wake Locks:"
+
+# Battery historian for visual wakelock analysis
+# 1. Capture bugreport
+adb bugreport bugreport.zip
+# 2. Upload to https://bathist.ef.lc/
+```
+
+## 12. Vendor Hooks
+
+Android GKI 2.0 introduced **vendor hooks** — tracepoint-like hooks that allow vendor modules to inject custom behavior into the GKI kernel without modifying its source:
+
+```c
+/* Vendor hook declaration (in GKI kernel) */
+DECLARE_HOOK(android_vh_binder_transaction,
+    TP_PROTO(struct binder_proc *proc, struct binder_transaction *t),
+    TP_ARGS(proc, t));
+
+/* Vendor module registers a hook */
+#include <trace/hooks/binder.h>
+
+static void my_binder_hook(void *data, struct binder_proc *proc,
+                           struct binder_transaction *t)
+{
+    /* Custom vendor logic */
+}
+
+static int __init my_module_init(void)
+{
+    register_trace_android_vh_binder_transaction(
+        my_binder_hook, NULL);
+    return 0;
+}
+```
+
+### Vendor Hook Categories
+
+| Category | Example Hooks | Purpose |
+|----------|---------------|--------|
+| Binder | `android_vh_binder_transaction` | IPC monitoring |
+| Scheduler | `android_vh_scheduler_tick` | Custom scheduling |
+| Memory | `android_vh_page_cache_forced_ra` | Read-ahead tuning |
+| Network | `android_vh_tcp_rcv_established` | TCP processing |
+| Power | `android_vh_cpu_idle` | Idle state management |
+
+## 13. Android Kernel Version Matrix
+
+| Android Version | Kernel | GKI | Key Features |
+|-----------------|--------|-----|-------------|
+| Android 10 | 4.14, 4.19 | — | ION, ashmem |
+| Android 11 | 5.4 | GKI 1.0 | Initial GKI |
+| Android 12 | 5.10 | GKI 2.0 | Vendor hooks, DMA-BUF heaps |
+| Android 13 | 5.15 | GKI 2.0 | MTE support, improved binder |
+| Android 14 | 6.1 | GKI 2.0+ | Rust support, erofs default |
+| Android 15 | 6.6 | GKI 2.0+ | 16K page support, improved MTE |
+
 ## Further Reading
 
 - [Android Binder IPC Mechanism — docs.kernel.org](https://docs.kernel.org/driver-api/binder.html)
@@ -443,3 +686,5 @@ perfetto -c /data/misc/perfetto-configs/config.pbtx -o trace.pb
 - [Android Treble Architecture](https://source.android.com/docs/core/architecture)
 - [Perfetto System Profiling](https://perfetto.dev/)
 - [binder(4) man page](https://man7.org/linux/man-pages/man4/binder.4.html)
+- [DMA-BUF Heaps Documentation](https://docs.kernel.org/driver-api/dma-buf.html)
+- [SELinux for Android](https://source.android.com/docs/security/features/selinux)
