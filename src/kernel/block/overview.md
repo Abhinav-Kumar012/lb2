@@ -506,6 +506,145 @@ io_uring benefits for block I/O:
 * **Polled I/O**: Busy-poll for ultra-low latency (NVMe)
 * **Chain submissions**: Linked operations without intermediate waits
 
+## 16. Bio Splitting and Queue Limits
+
+When a bio exceeds the device's capabilities (too many sectors, too many
+scatter-gather segments), the block layer automatically splits it:
+
+```mermaid
+flowchart LR
+    A["Large bio
+(256 sectors)"] --> B{"Exceeds
+max_sectors?"}
+    B -->|Yes| C["Split into
+multiple bios"]
+    C --> D["bio 1 (128 sectors)"]
+    C --> E["bio 2 (128 sectors)"]
+    D --> F["Submit to queue"]
+    E --> F
+```
+
+```bash
+# View device queue limits
+$ cat /sys/block/sda/queue/max_sectors_kb
+1280
+
+$ cat /sys/block/sda/queue/max_segments
+128
+
+$ cat /sys/block/sda/queue/logical_block_size
+512
+
+$ cat /sys/block/sda/queue/physical_block_size
+4096
+
+# Adjust max sectors per request
+$ echo 512 > /sys/block/sda/queue/max_sectors_kb
+```
+
+### Advanced Format (4K Sectors)
+
+Modern drives use 4096-byte physical sectors but may present 512-byte
+logical sectors for compatibility (512e).  Misaligned I/O causes
+read-modify-write penalties:
+
+```bash
+# Check alignment
+$ sudo parted /dev/sda align-check optimal 1
+1 aligned
+
+# Verify sector sizes
+$ sudo fdisk -l /dev/sda
+Sector size (logical/physical): 512 bytes / 4096 bytes
+```
+
+## 17. NVMe and blk-mq
+
+NVMe devices are the primary driver for blk-mq's design.  A typical NVMe
+device has 64+ hardware submission queues, each with deep queue depth:
+
+```mermaid
+graph TD
+    subgraph "NVMe Device"
+        SQ0["Submission Queue 0
+(CPU 0)"]
+        SQ1["Submission Queue 1
+(CPU 1)"]
+        SQ2["Submission Queue N
+(CPU N)"]
+        CQ0["Completion Queue 0"]
+        CQ1["Completion Queue 1"]
+    end
+
+    SQ0 --> CQ0
+    SQ1 --> CQ1
+    SQ2 --> CQ0
+```
+
+```bash
+# View NVMe queue configuration
+$ cat /sys/block/nvme0n1/queue/nr_requests
+1023
+
+# Check NVMe queue count
+$ cat /proc/interrupts | grep nvme
+# One interrupt per queue (per-CPU)
+
+# NVMe device information
+$ sudo nvme id-ctrl /dev/nvme0
+# Shows MQES (max queue entries), number of queues, etc.
+```
+
+## 18. Zoned Block Devices
+
+Zoned block devices (SMR HDDs, ZNS SSDs) require sequential writes within
+zones.  The block layer supports this via zone operations:
+
+```bash
+# Check if device supports zones
+$ cat /sys/block/nvme0n1/queue/zoned
+none  # or host-managed, host-aware
+
+# List zones
+$ sudo blkzone report /dev/nvme0n1
+  start: 0x000000000, len 0x080000, cap 0x080000, wptr 0x000000000,   type: 2(sequential_write_required), cond: 14(not_wp), reset: 0
+
+# Zone operations
+$ sudo blkzone reset /dev/nvme0n1       # Reset all zones
+$ sudo blkzone open /dev/nvme0n1        # Open a zone
+$ sudo blkzone close /dev/nvme0n1       # Close a zone
+```
+
+The `REQ_OP_ZONE_APPEND` operation is used for sequential writes to
+zoned devices, letting the device choose the write position.
+
+## 19. Block Device Encryption (dm-crypt)
+
+dm-crypt provides transparent block device encryption through the device
+mapper:
+
+```bash
+# Open an encrypted device
+$ sudo cryptsetup luksOpen /dev/sda1 encrypted_vol
+
+# View dm-crypt status
+$ sudo dmsetup status encrypted_vol
+0 209715200 crypt aes-xts-plain64 0 0 0 0
+
+# The encrypted volume appears as /dev/mapper/encrypted_vol
+# All I/O goes through the block layer -> dm-crypt -> underlying device
+```
+
+```mermaid
+flowchart TB
+    APP["Application"] --> FS["Filesystem"]
+    FS --> BL["Block Layer"]
+    BL --> DM["Device Mapper
+(dm-crypt)"]
+    DM -->|"encrypt"| BL2["Block Layer"]
+    BL2 --> DEV["Physical Device"]
+```
+
 ## Further Reading
 
 - [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
