@@ -468,6 +468,273 @@ watchdog -v -f /dev/watchdog0
 
 ---
 
+## Watchdog Daemon Patterns
+
+### Simple Watchdog Daemon
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <fcntl.h>
+#include <sys/ioctl.h>
+#include <linux/watchdog.h>
+#include <unistd.h>
+#include <signal.h>
+#include <sys/stat.h>
+
+static int wdt_fd = -1;
+static volatile int running = 1;
+
+void handle_signal(int sig) {
+    running = 0;
+}
+
+int health_check(void) {
+    /* Implement your health checks here */
+    /* Return 1 if healthy, 0 if not */
+
+    /* Check critical processes */
+    if (system("pgrep critical_daemon > /dev/null") != 0)
+        return 0;
+
+    /* Check disk space */
+    struct statfs fs;
+    if (statfs("/", &fs) == 0) {
+        if (fs.f_bavail < fs.f_blocks * 5 / 100)  /* < 5% free */
+            return 0;
+    }
+
+    /* Check network connectivity */
+    if (system("ping -c 1 -W 2 gateway > /dev/null 2>&1") != 0)
+        return 0;
+
+    return 1;
+}
+
+int main(void) {
+    int timeout = 30;
+
+    /* Open watchdog */
+    wdt_fd = open("/dev/watchdog0", O_RDWR);
+    if (wdt_fd < 0) {
+        perror("open watchdog");
+        return 1;
+    }
+
+    /* Set timeout */
+    ioctl(wdt_fd, WDIOC_SETTIMEOUT, &timeout);
+
+    /* Daemonize */
+    if (daemon(0, 0) < 0) {
+        perror("daemon");
+        close(wdt_fd);
+        return 1;
+    }
+
+    /* Signal handling */
+    signal(SIGTERM, handle_signal);
+    signal(SIGINT, handle_signal);
+
+    /* Main loop */
+    while (running) {
+        if (health_check()) {
+            /* Pet the watchdog */
+            ioctl(wdt_fd, WDIOC_KEEPALIVE, NULL);
+        } else {
+            /* Health check failed - don't pet */
+            /* Watchdog will reset the system */
+            fprintf(stderr, "Health check failed!\n");
+        }
+        sleep(timeout / 3);  /* Pet at 1/3 of timeout */
+    }
+
+    /* Clean shutdown */
+    write(wdt_fd, "V", 1);  /* Magic close */
+    close(wdt_fd);
+    return 0;
+}
+```
+
+### Watchdog with Pretimeout Warning
+
+```c
+#include <stdio.h>
+#include <fcntl.h>
+#include <sys/ioctl.h>
+#include <linux/watchdog.h>
+#include <unistd.h>
+
+int main(void) {
+    int fd = open("/dev/watchdog0", O_RDWR);
+    if (fd < 0) return 1;
+
+    /* Set timeout to 60 seconds */
+    int timeout = 60;
+    ioctl(fd, WDIOC_SETTIMEOUT, &timeout);
+
+    /* Set pretimeout to 40 seconds (20s warning before reset) */
+    int pretimeout = 40;
+    ioctl(fd, WDIOC_SETPRETIMEOUT, &pretimeout);
+
+    /* Set pretimeout handler to panic */
+    /* This triggers a kernel panic before the hard reset */
+    /* allowing kdump to capture a crash dump */
+    char *governor = "panic";
+    /* Note: governor is set via sysfs, not ioctl */
+
+    printf("Timeout: %d, Pretimeout: %d\n", timeout, pretimeout);
+    printf("System will panic at %d seconds, reset at %d seconds\n",
+           timeout - pretimeout, timeout);
+
+    while (1) {
+        ioctl(fd, WDIOC_KEEPALIVE, NULL);
+        sleep(10);
+    }
+
+    return 0;
+}
+```
+
+## Watchdog in Production Systems
+
+### Server Watchdog Configuration
+
+```bash
+#!/bin/bash
+# production-watchdog.sh - Server watchdog setup
+
+# Load hardware watchdog
+modprobe iTCO_wdt
+
+# Configure timeout
+echo 60 > /sys/class/watchdog/watchdog0/timeout
+echo 40 > /sys/class/watchdog/watchdog0/pretimeout
+
+# Set pretimeout governor
+echo "panic" > /sys/class/watchdog/watchdog0/pretimeout_governor
+
+# Configure systemd watchdog
+cat > /etc/systemd/system.conf.d/watchdog.conf << EOF
+[Manager]
+RuntimeWatchdogSec=30
+RuntimeWatchdogPreSec=20
+ShutdownWatchdogSec=5min
+EOF
+
+systemctl daemon-reload
+
+echo "Watchdog configured:"
+systemd-analyze watchdog
+```
+
+### Embedded Linux Watchdog
+
+```bash
+#!/bin/sh
+# /etc/init.d/watchdog - Embedded watchdog script
+
+WATCHDOG_DEV=/dev/watchdog0
+TIMEOUT=30
+CHECK_INTERVAL=10
+
+start() {
+    echo "Starting watchdog daemon"
+    # Set timeout
+    echo $TIMEOUT > /sys/class/watchdog/watchdog0/timeout
+
+    # Start watchdog petting in background
+    while true; do
+        # Check system health
+        if check_health; then
+            echo 1 > $WATCHDOG_DEV
+        fi
+        sleep $CHECK_INTERVAL
+    done &
+    echo $! > /var/run/watchdog.pid
+}
+
+check_health() {
+    # Check memory usage
+    local mem_free=$(awk '/MemFree/ {print $2}' /proc/meminfo)
+    if [ "$mem_free" -lt 10240 ]; then
+        return 1
+    fi
+
+    # Check load average
+    local load=$(cat /proc/loadavg | awk '{print $1}' | cut -d. -f1)
+    if [ "$load" -gt 10 ]; then
+        return 1
+    fi
+
+    # Check critical filesystem
+    if ! mountpoint -q /data; then
+        return 1
+    fi
+
+    return 0
+}
+
+stop() {
+    echo "Stopping watchdog daemon"
+    if [ -f /var/run/watchdog.pid ]; then
+        kill $(cat /var/run/watchdog.pid)
+        rm /var/run/watchdog.pid
+    fi
+    # Magic close
+    echo V > $WATCHDOG_DEV
+}
+
+case "$1" in
+    start) start ;;
+    stop) stop ;;
+    restart) stop; start ;;
+esac
+```
+
+## Watchdog and kdump Integration
+
+When a watchdog fires, you often want a crash dump for post-mortem analysis:
+
+```bash
+# Configure kdump to capture watchdog-triggered panics
+# /etc/default/grub
+GRUB_CMDLINE_LINUX="crashkernel=256M softlockup_panic=1"
+
+# Configure watchdog to panic before reset
+echo 1 > /proc/sys/kernel/softlockup_panic
+echo "panic" > /sys/class/watchdog/watchdog0/pretimeout_governor
+
+# Enable kdump
+systemctl enable kdump
+systemctl start kdump
+
+# After watchdog reset, analyze crash dump
+# crash /var/crash/*/vmlinux /var/crash/*/vmcore
+```
+
+## Watchdog Testing
+
+```bash
+# Test watchdog timeout
+#!/bin/bash
+# test-watchdog.sh - Verify watchdog resets the system
+
+# Open watchdog and DON'T pet it
+exec 3>/dev/watchdog0
+# Don't write anything
+# System should reset after timeout
+
+# For software testing, simulate a hang:
+# 1. Start a CPU-intensive task
+while true; do :; done &
+
+# 2. Disable preemption (kernel only)
+# This simulates a soft lockup
+
+# Monitor for watchdog message
+dmesg -w | grep -i watchdog
+```
+
 ## Further Reading
 
 - [Linux kernel source: `drivers/watchdog/`](https://elixir.bootlin.com/linux/latest/source/drivers/watchdog/)
