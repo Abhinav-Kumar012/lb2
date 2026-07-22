@@ -640,6 +640,51 @@ badblocks -v /dev/sda1
 
 ---
 
+## Suspend/Resume Security
+
+dm-crypt has special handling for system suspend:
+
+```mermaid
+sequenceDiagram
+    participant User as User
+    participant Kernel as Kernel
+    participant DC as dm-crypt
+    participant RAM as RAM
+    participant Disk as Disk
+
+    User->>Kernel: systemctl suspend
+    Kernel->>DC: crypt_postsuspend()
+    DC->>DC: Flush pending I/O
+    DC->>RAM: Wipe key material from CPU caches
+    Kernel->>RAM: Enter S3 sleep
+    Note over RAM: Key remains in RAM
+    Kernel->>RAM: Resume from S3
+    Kernel->>DC: crypt_resume()
+    DC->>DC: Reload key material
+```
+
+**Security concern**: During S3 suspend, the encryption key remains in RAM. An attacker with physical access can perform a cold boot attack to extract the key. Mitigations:
+
+- Use S4 (hibernate) instead of S3 (suspend)
+- Enable memory encryption (AMD SME/SEV, Intel TME)
+- Use `CONFIG_RESET_ATTACK_MITIGATION` for automatic wipe
+
+---
+
+## fscrypt vs dm-crypt
+
+| Aspect | dm-crypt | fscrypt |
+|--------|----------|--------|
+| Scope | Full block device | Per-file/per-directory |
+| Filesystem | Any | ext4, f2fs, btrfs |
+| Key granularity | Per-device | Per-key (policy) |
+| Performance | Full I/O path | Inline with filesystem |
+| Metadata | Not encrypted | Can encrypt filenames |
+| Use case | Full disk encryption | Mobile, per-user encryption |
+| Integration | Device Mapper | Filesystem built-in |
+
+---
+
 ## Source Files
 
 | File | Contents |
