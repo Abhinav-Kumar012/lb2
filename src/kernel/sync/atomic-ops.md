@@ -430,6 +430,8 @@ shared_var++;
 atomic_inc(&shared_atomic_var);
 ```
 
+On x86, `shared_var++` compiles to `mov`, `add`, `mov` — three separate instructions. Another CPU can interleave between any of them. Even if the variable is aligned and fits in a cache line, the read-modify-write is not atomic without a `LOCK` prefix.
+
 ### Torn Reads/Writes
 
 ```c
@@ -440,6 +442,8 @@ shared_64bit_var = value;
 atomic64_set(&shared_64bit_var, value);
 WRITE_ONCE(shared_64bit_var, value);  /* 64-bit arch only */
 ```
+
+A **torn read** occurs when a 64-bit value is read as two separate 32-bit loads. If another CPU writes the value between the two loads, the reader sees a mix of old and new bits. This is particularly dangerous for pointers on 32-bit systems.
 
 ### Missing Memory Barriers
 
@@ -460,6 +464,8 @@ smp_rmb();       /* Or use smp_load_acquire */
 printk("%d\n", data);  /* Now guaranteed to see 42 */
 ```
 
+The `smp_wmb()` ensures the store to `data` is visible to other CPUs before the store to `ready`. Without it, the CPU or compiler may reorder the stores, and the reader may see `ready == 1` but `data == 0`.
+
 ### Using Plain Variables with Concurrent Access
 
 ```c
@@ -471,6 +477,48 @@ if (shared_flag) {
 /* GOOD: Use READ_ONCE to ensure a fresh read */
 if (READ_ONCE(shared_flag)) {
     do_something();
+}
+```
+
+Without `READ_ONCE()`, the compiler may:
+- Cache the value in a register and never re-read from memory
+- Elide the read entirely if it determines the value hasn't changed
+- Split a 64-bit read into two 32-bit reads (torn read)
+
+### Atomic Operations on Volatile
+
+```c
+/* BAD: volatile does NOT make operations atomic */
+volatile int counter;
+counter++;  /* Still not atomic! volatile only prevents compiler caching */
+
+/* GOOD: Use atomic_t */
+atomic_t counter = ATOMIC_INIT(0);
+atomic_inc(&counter);  /* Truly atomic */
+```
+
+`volatile` only prevents the compiler from caching or eliding accesses. It does NOT prevent:
+- CPU reordering of memory operations
+- Torn reads/writes on multi-word values
+- Hardware-level race conditions between CPUs
+
+### Double-Fetch in User-Space Copy
+
+```c
+/* BAD: TOCTOU with user-space pointer */
+if (get_user(addr, &user_ptr) == 0) {
+    /* Another thread might change user_ptr here! */
+    if (get_user(val, (int __user *)addr) == 0) {  /* Double fetch */
+        process(val);
+    }
+}
+
+/* GOOD: Fetch once, use local copy */
+if (get_user(addr, &user_ptr) == 0) {
+    int val;
+    if (get_user(val, (int __user *)addr) == 0) {
+        process(val);
+    }
 }
 ```
 
