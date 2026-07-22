@@ -399,25 +399,27 @@ bcachefs dump /dev/sdb1
 3. **ENOSPC on "free" space**: bcachefs reserves space for CoW operations;
    `bcachefs fs usage` shows the actual situation
 
-## See Also
+## References
 
-- [Ring Buffer](../../debugging/ring-buffer.md) — data structures used in
-  log-structured filesystems
-- [Kernel Lockdown](../../security/lockdown.md) — restrictions on filesystem
-  encryption key access
-- [vmpressure](../memory/vmpressure.md) — memory pressure affecting filesystem
-  cache behavior
+- [bcachefs kernel documentation](https://www.kernel.org/doc/html/latest/filesystems/bcachefs.html)
+- [bcachefs.org](https://bcachefs.org/)
+- [LWN: A new filesystem for Linux](https://lwn.net/Articles/747355/)
+- [LWN: Bcachefs makes progress](https://lwn.net/Articles/934689/)
+- [Linux Plumbers Conference talk](https://lpc.events/event/16/contributions/1253/)
 
 ## Further Reading
+
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
 
 - **Kernel source**: `fs/bcachefs/`
 - **Documentation**: `Documentation/filesystems/bcachefs/`
 - **Bcachefs wiki**: https://bcachefs.org/
-- **LWN article**: ["A new filesystem for Linux"](https://lwn.net/Articles/747355/) —
-  design overview
-- **LWN article**: ["Bcachefs makes progress"](https://lwn.net/Articles/934689/) —
-  merge status and feature summary
-- **Kent Overstreet's talk**: "bcachefs: a new COW filesystem for Linux" —
-  Linux Plumbers Conference
-- **Comparison**: https://bcachefs.org/Status/ — current feature status and
-  known issues
+- **LWN article**: ["A new filesystem for Linux"](https://lwn.net/Articles/747355/) — design overview
+- **LWN article**: ["Bcachefs makes progress"](https://lwn.net/Articles/934689/) — merge status and feature summary
+- **Kent Overstreet's talk**: "bcachefs: a new COW filesystem for Linux" — Linux Plumbers Conference
+- **Comparison**: https://bcachefs.org/Status/ — current feature status and known issues
