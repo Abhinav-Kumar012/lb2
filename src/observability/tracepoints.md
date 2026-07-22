@@ -29,6 +29,30 @@ graph TD
 4. When enabled, they write structured data to the kernel ring buffer
 5. Consumers read events from the ring buffer
 
+### Tracepoint vs kprobe vs uprobe
+
+```mermaid
+graph TB
+    subgraph "Tracing Mechanisms"
+        TP["Tracepoints<br/>Static, stable, low-overhead<br/>Defined in kernel source<br/>Structured data"]
+        KP["kprobes<br/>Dynamic, any kernel function<br/>Breakpoint-based<br/>Function arguments"]
+        UP["uprobes<br/>Dynamic, userspace functions<br/>Breakpoint-based<br/>Function arguments"]
+    end
+
+    TP -->|"Best for"| TP_USE["Known kernel events<br/>Block I/O, scheduler, network"]
+    KP -->|"Best for"| KP_USE["Kernel internals<br/>Any function entry/return"]
+    UP -->|"Best for"| UP_USE["Application tracing<br/>Library calls, syscalls"]
+```
+
+| Feature | Tracepoints | kprobes | uprobes |
+|---------|-------------|---------|---------|
+| Definition | Static (kernel source) | Dynamic (any function) | Dynamic (userspace) |
+| Stability | Stable API | Tied to kernel version | Tied to binary |
+| Overhead | Near-zero when disabled | Breakpoint overhead | Breakpoint overhead |
+| Data format | Structured fields | Raw function args | Raw function args |
+| Filter | Built-in field filtering | BPF filtering | BPF filtering |
+| Permission | Usually root | Root | Root or ptrace |
+
 ## Listing Tracepoints
 
 ```bash
@@ -125,6 +149,26 @@ cat /sys/kernel/debug/tracing/trace_pipe | head -20
 # <...>-1234  [001] d... 12345.680000: block_rq_complete: 8,0 WS () 12345678 + 8 [0]
 ```
 
+### Via perf
+
+```bash
+# Record tracepoint events with perf
+perf record -e block:block_rq_issue -e block:block_rq_complete -a sleep 10
+
+# Report
+perf report --stdio | head -20
+
+# Stat (count events)
+perf stat -e block:block_rq_issue -e block:block_rq_complete -a sleep 10
+# Performance counter stats for 'system wide':
+#     1,234  block:block_rq_issue
+#     1,230  block:block_rq_complete
+
+# Record with call graph
+perf record -g -e block:block_rq_issue -a sleep 10
+perf script | head -30
+```
+
 ## Common Tracepoint Categories
 
 ### Scheduler Tracepoints
@@ -141,6 +185,14 @@ trace-cmd report | head -20
 
 # Wakeup events
 trace-cmd record -e sched:sched_wakeup sleep 5
+
+# Scheduler latency analysis
+trace-cmd record -e sched:sched_switch -e sched:sched_wakeup sleep 10
+trace-cmd report | awk '/sched_wakeup/ && /next_comm="mysqld"/ { print }'
+
+# CPU migration
+trace-cmd record -e sched:sched_migrate_task sleep 5
+# Shows when processes move between CPUs
 ```
 
 ### Block I/O Tracepoints
@@ -156,6 +208,22 @@ cat /sys/kernel/debug/tracing/events/block/block_rq_complete/format
 
 # Trace I/O with latency
 trace-cmd record -e block:block_rq_issue -e block:block_rq_complete sleep 10
+
+# Calculate I/O latency from trace
+trace-cmd report | awk '
+/block_rq_issue/ { start[$6] = $4 }
+/block_rq_complete/ && start[$6] { 
+    latency = $4 - start[$6]
+    printf "%s sector=%s latency=%.3fms\n", $1, $6, latency * 1000
+    delete start[$6]
+}'
+
+# Block I/O request merging
+trace-cmd record -e block:block_bio_backmerge -e block:block_bio_frontmerge sleep 10
+
+# I/O scheduler events
+ls /sys/kernel/debug/tracing/events/block/
+# block_rq_issue, block_rq_complete, block_rq_insert, block_rq_requeue
 ```
 
 ### Network Tracepoints
@@ -173,6 +241,22 @@ ls /sys/kernel/debug/tracing/events/tcp/
 
 # Trace TCP retransmissions
 trace-cmd record -e tcp:tcp_retransmit_skb sleep 30
+
+# TCP state changes
+trace-cmd record -e tcp:tcp_set_state sleep 10
+# Shows: TCP_ESTABLISHED, TCP_CLOSE, TCP_SYN_SENT, etc.
+
+# Network device events
+trace-cmd record -e net:netif_receive_skb -e net:net_dev_xmit sleep 5
+
+# NAPI events
+ls /sys/kernel/debug/tracing/events/napi/
+# napi_poll
+trace-cmd record -e napi:napi_poll sleep 5
+
+# Socket events
+ls /sys/kernel/debug/tracing/events/sock/
+# inet_sock_set_state  sock_rcvqueue_full  sock_send_length
 ```
 
 ### Memory Tracepoints
@@ -188,6 +272,18 @@ ls /sys/kernel/debug/tracing/events/oom/
 
 # Trace page allocation
 trace-cmd record -e kmem:mm_page_alloc sleep 5
+
+# Track memory allocations by size
+trace-cmd record -e kmem:kmalloc sleep 5
+trace-cmd report | awk '/kmalloc/ { print $NF }' | sort -n | tail -20
+
+# Compaction events
+ls /sys/kernel/debug/tracing/events/compaction/
+# mm_compaction_begin  mm_compaction_end  mm_compaction_migratepages
+
+# Huge page events
+ls /sys/kernel/debug/tracing/events/huge_memory/
+# mm_collapse_huge_page  mm_khugepaged_scan_pmd
 ```
 
 ### Syscall Tracepoints
@@ -201,6 +297,58 @@ ls /sys/kernel/debug/tracing/events/syscalls/
 trace-cmd record -e syscalls:sys_enter_openat sleep 5
 trace-cmd report | head -10
 # bash-1234  [000] 12345.678: sys_enter_openat: dfd: 0xffffff9c filename: "/etc/hostname" flags: 0x0 mode: 0x0
+
+# Trace all openat syscalls
+trace-cmd record -e syscalls:sys_enter_openat -e syscalls:sys_exit_openat sleep 5
+
+# Trace write syscalls (file I/O)
+trace-cmd record -e syscalls:sys_enter_write sleep 5
+
+# Filter by process
+trace-cmd record -e 'syscalls:sys_enter_openat --filter pid == 1234' sleep 5
+```
+
+### Filesystem Tracepoints
+
+```bash
+# ext4 tracepoints
+ls /sys/kernel/debug/tracing/events/ext4/
+# ext4_da_write_begin  ext4_da_write_end  ext4_sync_file_enter
+# ext4_sync_file_exit  ext4_journal_start  ext4_journal_stop
+
+# Trace ext4 writes
+trace-cmd record -e ext4:ext4_da_write_begin -e ext4:ext4_da_write_end sleep 5
+
+# VFS tracepoints
+ls /sys/kernel/debug/tracing/events/filemap/
+# mm_filemap_add_to_page_cache  mm_filemap_delete_from_page_cache
+
+# Trace page cache operations
+trace-cmd record -e filemap:mm_filemap_add_to_page_cache sleep 5
+
+# Btrfs tracepoints
+ls /sys/kernel/debug/tracing/events/btrfs/
+# btrfs_transaction_commit  btrfs_sync_file  btrfs_cow_block
+```
+
+### IRQ and Interrupt Tracepoints
+
+```bash
+# IRQ tracepoints
+ls /sys/kernel/debug/tracing/events/irq/
+# irq_handler_entry  irq_handler_exit  softirq_entry  softirq_exit
+# softirq_raise  irq_matrix_alloc  irq_matrix_free
+
+# Trace IRQ handlers
+trace-cmd record -e irq:irq_handler_entry -e irq:irq_handler_exit sleep 5
+
+# Softirq tracing
+trace-cmd record -e irq:softirq_entry -e irq:softirq_exit sleep 5
+trace-cmd report | awk '/softirq/ { print }' | head -20
+
+# IRQ latency analysis
+trace-cmd record -e irq:irq_handler_entry -e irq:irq_handler_exit \
+    --filter irq == 34 sleep 10
 ```
 
 ## trace-cmd: Advanced Usage
@@ -219,6 +367,9 @@ trace-cmd record -e 'block:block_rq_issue --filter bytes > 4096' sleep 10
 
 # Multiple filters (AND)
 trace-cmd record -e 'block:block_rq_issue --filter rwbs ~ "W" && bytes > 4096' sleep 10
+
+# Filter with string matching
+trace-cmd record -e 'block:block_rq_issue --filter comm ~ "dd"' sleep 10
 ```
 
 ### Record with Triggers
@@ -229,6 +380,12 @@ echo 'block:block_rq_issue:stacktrace' > /sys/kernel/debug/tracing/events/block/
 
 # Count trigger
 echo 'block:block_rq_issue:count()' > /sys/kernel/debug/tracing/events/block/block_rq_issue/trigger
+
+# Trace with snapshot trigger
+echo 'block:block_rq_issue:snapshot' > /sys/kernel/debug/tracing/events/block/block_rq_issue/trigger
+
+# Enable trigger on first N events
+echo 'block:block_rq_issue:enable_event(sched:sched_switch):count(10)' > /sys/kernel/debug/tracing/events/block/block_rq_issue/trigger
 ```
 
 ### trace-cmd Profile
@@ -238,6 +395,13 @@ echo 'block:block_rq_issue:count()' > /sys/kernel/debug/tracing/events/block/blo
 trace-cmd profile -e sched:sched_switch -e block:block_rq_issue sleep 10
 
 # Output includes function counts and latency
+```
+
+### trace-cmd Stream
+
+```bash
+# Stream events in real-time (like trace_pipe)
+trace-cmd stream -e sched:sched_switch -e block:block_rq_issue
 ```
 
 ## Tracepoint Event Format
@@ -266,6 +430,79 @@ cat /sys/kernel/debug/tracing/events/sched/sched_switch/format
 # print fmt: "prev_comm=%s prev_pid=%d prev_prio=%d prev_state=%s%s ==> next_comm=%s next_pid=%d next_prio=%d", ...
 ```
 
+## bpftrace with Tracepoints
+
+### One-Liners
+
+```bash
+# Count syscalls by type
+bpftrace -e 'tracepoint:raw_syscalls:sys_enter { @[comm] = count(); }'
+
+# Histogram of block I/O sizes
+bpftrace -e 'tracepoint:block:block_rq_issue { @bytes = hist(args->bytes); }'
+
+# Trace TCP connections
+bpftrace -e 'tracepoint:tcp:tcp_set_state { printf("%s %s -> %s\n", comm, ntop(args->saddr), ntop(args->daddr)); }'
+
+# Trace OOM kills
+bpftrace -e 'tracepoint:oom:mark_victim { printf("OOM victim: %s (pid %d)\n", comm, pid); }'
+
+# Trace context switches by process
+bpftrace -e 'tracepoint:sched:sched_switch { @[args->prev_comm] = count(); }'
+
+# Trace file opens with filename
+bpftrace -e 'tracepoint:syscalls:sys_enter_openat { printf("%s opened %s\n", comm, str(args->filename)); }'
+
+# Trace page faults
+bpftrace -e 'tracepoint:exceptions:page_fault_user { @[comm, ustack(5)] = count(); }'
+
+# Trace IRQ latency
+bpftrace -e '
+tracepoint:irq:irq_handler_entry { @start[args->irq] = nsecs; }
+tracepoint:irq:irq_handler_exit /@start[args->irq]/ { 
+    @usecs = hist((nsecs - @start[args->irq]) / 1000); 
+    delete(@start[args->irq]); 
+}'
+```
+
+### bpftrace Scripts
+
+```bpftrace
+#!/usr/local/bin/bpftrace
+// /usr/local/bin/io_latency.bt
+// Trace block I/O latency distribution
+
+tracepoint:block:block_rq_issue {
+    @start[args->dev, args->sector] = nsecs;
+}
+
+tracepoint:block:block_rq_complete
+/@start[args->dev, args->sector]/ {
+    $latency = (nsecs - @start[args->dev, args->sector]) / 1000;
+    @usecs = hist($latency);
+    @bytes[args->rwbs] = hist(args->nr_sector * 512);
+    delete(@start[args->dev, args->sector]);
+}
+
+END {
+    clear(@start);
+}
+```
+
+```bpftrace
+#!/usr/local/bin/bpftrace
+// /usr/local/bin/tcp_retransmits.bt
+// Trace TCP retransmissions with details
+
+tracepoint:tcp:tcp_retransmit_skb {
+    printf("RETRANSMIT: %s:%d -> %s:%d (%s)\n",
+        ntop(args->saddr), args->sport,
+        ntop(args->daddr), args->dport,
+        comm);
+    @[comm] = count();
+}
+```
+
 ## Performance Overhead
 
 ```bash
@@ -278,6 +515,36 @@ perf stat -e cycles,instructions -- sleep 5  # Baseline
 echo 1 > /sys/kernel/debug/tracing/events/sched/sched_switch/enable
 perf stat -e cycles,instructions -- sleep 5  # With tracepoint enabled
 echo 0 > /sys/kernel/debug/tracing/events/sched/sched_switch/enable
+```
+
+### Overhead Comparison
+
+| Method | Per-event Overhead | Notes |
+|--------|-------------------|-------|
+| Disabled tracepoint | 0 ns | NOP instruction |
+| Enabled tracepoint (no reader) | ~100 ns | Conditional check + NOP |
+| Enabled tracepoint (ftrace) | ~200-500 ns | Ring buffer write |
+| Enabled tracepoint (perf) | ~200-500 ns | Perf ring buffer |
+| BPF on tracepoint | ~1-5 μs | BPF program execution |
+| kprobe (dynamic) | ~1-3 μs | Breakpoint + BPF |
+
+### Minimizing Overhead
+
+```bash
+# 1. Use filters to reduce event volume
+trace-cmd record -e 'block:block_rq_issue --filter bytes > 65536' sleep 10
+
+# 2. Use triggers instead of continuous recording
+echo 'block:block_rq_issue:count()' > /sys/kernel/debug/tracing/events/block/block_rq_issue/trigger
+
+# 3. Record for short durations
+trace-cmd record -e sched:sched_switch sleep 1  # 1 second only
+
+# 4. Use per-CPU buffers (reduce contention)
+echo 8192 > /sys/kernel/debug/tracing/buffer_size_kb
+
+# 5. Filter by CPU
+trace-cmd record -e sched:sched_switch --cpus 0,1 sleep 10
 ```
 
 ## Tracepoint API (Kernel Programming)
@@ -306,6 +573,46 @@ DECLARE_TRACE(subsys_eventname,
 
 /* Must be outside protection */
 #include <trace/define_trace.h>
+```
+
+### TRACE_EVENT Macro (Recommended)
+
+The `TRACE_EVENT()` macro provides a richer interface with structured data:
+
+```c
+/* include/trace/events/block.h */
+TRACE_EVENT(block_rq_issue,
+
+    TP_PROTO(struct request *rq),
+
+    TP_ARGS(rq),
+
+    TP_STRUCT__entry(
+        __field(  dev_t,  dev           )
+        __field(  sector_t, sector       )
+        __field(  unsigned int, nr_sector )
+        __field(  unsigned int, bytes     )
+        __array(  char,   rwbs,   8     )
+        __array(  char,   comm,   16    )
+        __dynamic_array(char, cmd, rq->cmd_len)
+    ),
+
+    TP_fast_assign(
+        __entry->dev       = rq->rq_disk ? disk_devt(rq->rq_disk) : 0;
+        __entry->sector    = blk_rq_pos(rq);
+        __entry->nr_sector = blk_rq_sectors(rq);
+        __entry->bytes     = blk_rq_bytes(rq);
+        blk_fill_rwbs(__entry->rwbs, rq->cmd_flags);
+        memcpy(__entry->comm, current->comm, TASK_COMM_LEN);
+        memcpy(__entry->cmd, rq->cmd, rq->cmd_len);
+    ),
+
+    TP_printk("%d,%d %s %u (%s) %llu + %u [%s]",
+        MAJOR(__entry->dev), MINOR(__entry->dev),
+        __entry->rwbs, __entry->bytes,
+        __entry->cmd, (unsigned long long)__entry->sector,
+        __entry->nr_sector, __entry->comm)
+);
 ```
 
 ### Using Tracepoints in Code
@@ -390,6 +697,57 @@ EXPORT_TRACEPOINT_SYMBOL(subsys_eventname);
 ### Naming Convention
 
 Tracepoint names are global to the kernel: `subsys_event` format (e.g., `sched_switch`, `block_rq_issue`, `tcp_retransmit_skb`). The naming scheme limits collisions between subsystems.
+
+## Practical Tracepoint Recipes
+
+### Recipe: I/O Latency Monitoring
+
+```bash
+#!/bin/bash
+# Monitor block I/O latency in real-time
+echo "Monitoring I/O latency (Ctrl+C to stop)"
+trace-cmd stream -e block:block_rq_issue -e block:block_rq_complete | \
+    awk '
+    /block_rq_issue/ { start[$6] = $4 }
+    /block_rq_complete/ && start[$6] {
+        latency = ($4 - start[$6]) * 1000
+        if (latency > 10) printf "SLOW I/O: sector=%s latency=%.2fms\n", $6, latency
+        delete start[$6]
+    }'
+```
+
+### Recipe: Network Connection Tracking
+
+```bash
+#!/bin/bash
+# Track new TCP connections
+trace-cmd stream -e tcp:tcp_set_state | \
+    awk '/TCP_SYN_SENT/ { 
+        gsub(/.*saddr=/, ""); gsub(/ daddr.*/, "")
+        print strftime("%H:%M:%S"), "NEW CONN:", $0 
+    }'
+```
+
+### Recipe: Scheduler Analysis
+
+```bash
+#!/bin/bash
+# Find processes with most context switches
+trace-cmd record -e sched:sched_switch sleep 10
+trace-cmd report | awk '/sched_switch/ { count[$1]++ } END {
+    for (p in count) printf "%6d %s\n", count[p], p
+}' | sort -rn | head -20
+```
+
+### Recipe: OOM Investigation
+
+```bash
+#!/bin/bash
+# Monitor OOM events and memory pressure
+trace-cmd stream -e oom:mark_victim -e oom:oom_score_adj_update | \
+    awk '/mark_victim/ { print "OOM VICTIM:", $0 }
+         /oom_score_adj/ { print "SCORE CHANGE:", $0 }'
+```
 
 ## References
 

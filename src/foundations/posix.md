@@ -412,6 +412,41 @@ char path[256];
 confstr(_CS_PATH, path, sizeof(path));  /* Default PATH */
 ```
 
+## POSIX Compliance Testing
+
+Several tools help verify POSIX compliance of shell scripts and C programs:
+
+### ShellCheck
+
+```bash
+# Install shellcheck
+$ sudo apt install shellcheck
+
+# Check a script for POSIX compliance
+$ shellcheck --shell=sh myscript.sh
+
+# Example output:
+# In myscript.sh line 5:
+# [[ "$x" =~ pattern ]]
+# ^-- SC2039: In POSIX sh, [[ ]] is undefined.
+```
+
+### POSIX Test Suites
+
+The **PCTS** (POSIX Conformance Test Suite) and **LTP** (Linux Test Project) help verify compliance:
+
+```bash
+# Run LTP (Linux Test Project)
+$ git clone https://github.com/linux-test-project/ltp.git
+$ cd ltp
+$ make autotools
+$ ./configure
+$ make -j$(nproc)
+$ sudo make install
+$ cd /opt/ltp
+$ sudo ./runltp -p -l result.log -f syscalls
+```
+
 ## POSIX and Container Runtimes
 
 POSIX interfaces define the baseline that container runtimes must support. Container isolation relies on:
@@ -422,6 +457,195 @@ POSIX interfaces define the baseline that container runtimes must support. Conta
 - **seccomp** (Linux-specific): System call filtering
 
 The OCI (Open Container Initiative) runtime spec implicitly assumes POSIX-like behavior.
+
+### Minimal POSIX Environment for Containers
+
+A minimal container needs these POSIX interfaces at minimum:
+
+```c
+/* Container runtime requires: */
+clone()          /* Create namespaces */
+execve()         /* Run the container process */
+waitpid()        /* Monitor container process */
+kill()           /* Signal container process */
+
+/* Inside the container: */
+open(), read(), write()   /* File I/O */
+socket(), bind(), connect()  /* Networking */
+mmap(), brk()            /* Memory allocation */
+pipe(), dup2()           /* Process communication */
+```
+
+## POSIX Threads Deep Dive
+
+### Thread Safety
+
+POSIX defines which functions are **thread-safe** (can be called from multiple threads simultaneously) and which are not:
+
+| Thread-Safe | Not Thread-Safe |
+|---|---|
+| `read()`, `write()` | `gethostbyname()` |
+| `malloc()`, `free()` | `strtok()` |
+| `pthread_*()` | `rand()` (use `rand_r()`) |
+| `localtime_r()` | `localtime()` (use `_r` variant) |
+| `getaddrinfo()` | `getservbyname()` |
+
+The `_r` suffix denotes reentrant (thread-safe) versions of functions:
+
+```c
+/* Non-reentrant (NOT thread-safe) */
+char *strtok(char *str, const char *delim);
+
+/* Reentrant (thread-safe) */
+char *strtok_r(char *str, const char *delim, char **saveptr);
+
+/* Non-reentrant */
+struct tm *localtime(const time_t *timep);
+
+/* Reentrant */
+struct tm *localtime_r(const time_t *timep, struct tm *result);
+```
+
+### POSIX Thread Attributes
+
+```c
+#include <pthread.h>
+
+/* Create a detached thread */
+pthread_attr_t attr;
+pthread_attr_init(&attr);
+pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+pthread_attr_setstacksize(&attr, 2 * 1024 * 1024);  /* 2 MB stack */
+
+pthread_t thread;
+pthread_create(&thread, &attr, thread_func, NULL);
+pthread_attr_destroy(&attr);
+
+/* Set thread name (for debugging) */
+pthread_setname_np(thread, "worker-thread-1");
+
+/* Thread-local storage */
+__thread int tls_var = 0;  /* GCC extension, widely supported */
+
+/* POSIX thread-specific data (more portable) */
+pthread_key_t key;
+pthread_key_create(&key, NULL);
+pthread_setspecific(key, (void *)42);
+int *val = (int *)pthread_getspecific(key);
+```
+
+### Reader-Writer Locks
+
+```c
+#include <pthread.h>
+
+pthread_rwlock_t rwlock = PTHREAD_RWLOCK_INITIALIZER;
+
+/* Multiple readers can hold the lock simultaneously */
+pthread_rwlock_rdlock(&rwlock);
+/* Read shared data */
+pthread_rwlock_unlock(&rwlock);
+
+/* Writers get exclusive access */
+pthread_rwlock_wrlock(&rwlock);
+/* Modify shared data */
+pthread_rwlock_unlock(&rwlock);
+```
+
+### Condition Variable Patterns
+
+```c
+/* Producer-consumer with condition variables */
+#include <pthread.h>
+#include <stdio.h>
+
+#define QUEUE_SIZE 100
+static int queue[QUEUE_SIZE];
+static int head = 0, tail = 0, count = 0;
+static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t not_full = PTHREAD_COND_INITIALIZER;
+static pthread_cond_t not_empty = PTHREAD_COND_INITIALIZER;
+
+void *producer(void *arg) {
+    for (int i = 0; i < 1000; i++) {
+        pthread_mutex_lock(&mutex);
+        while (count == QUEUE_SIZE)
+            pthread_cond_wait(&not_full, &mutex);
+        queue[tail] = i;
+        tail = (tail + 1) % QUEUE_SIZE;
+        count++;
+        pthread_cond_signal(&not_empty);
+        pthread_mutex_unlock(&mutex);
+    }
+    return NULL;
+}
+
+void *consumer(void *arg) {
+    for (int i = 0; i < 1000; i++) {
+        pthread_mutex_lock(&mutex);
+        while (count == 0)
+            pthread_cond_wait(&not_empty, &mutex);
+        int val = queue[head];
+        head = (head + 1) % QUEUE_SIZE;
+        count--;
+        pthread_cond_signal(&not_full);
+        pthread_mutex_unlock(&mutex);
+        printf("Consumed: %d\n", val);
+    }
+    return NULL;
+}
+```
+
+## POSIX Real-Time Extensions
+
+POSIX.1b (1993) added real-time capabilities:
+
+### High-Resolution Timers
+
+```c
+#include <time.h>
+
+struct timespec ts;
+clock_gettime(CLOCK_MONOTONIC, &ts);
+
+/* Sleep with nanosecond precision */
+struct timespec req = { .tv_sec = 0, .tv_nsec = 500000 };  /* 500 μs */
+nanosleep(&req, NULL);
+
+/* Clock resolution */
+struct timespec res;
+clock_getres(CLOCK_MONOTONIC, &res);
+printf("Resolution: %ld ns\n", res.tv_nsec);
+```
+
+### Real-Time Scheduling
+
+```c
+#include <sched.h>
+
+/* Set real-time scheduling policy */
+struct sched_param param;
+param.sched_priority = 50;  /* 1 (low) to 99 (high) */
+sched_setscheduler(0, SCHED_FIFO, &param);
+
+/* Or SCHED_RR for round-robin real-time */
+sched_setscheduler(0, SCHED_RR, &param);
+
+/* Check priority limits */
+int max = sched_get_priority_max(SCHED_FIFO);  /* Typically 99 */
+int min = sched_get_priority_min(SCHED_FIFO);  /* Typically 1 */
+```
+
+### POSIX Asynchronous I/O
+
+```c
+#include <aio.h>
+
+/* See the AIO chapter for detailed examples */
+struct aiocb cb;
+/* ... initialize ... */
+aio_read(&cb);  /* Non-blocking read */
+```
 
 ## Further Reading
 

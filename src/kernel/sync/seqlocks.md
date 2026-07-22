@@ -41,6 +41,23 @@ sequenceDiagram
     R->>R: 6 == 6 → SUCCESS
 ```
 
+### Even/Odd Invariant
+
+The sequence counter maintains a critical invariant:
+
+- **Even**: No writer active, data is stable and consistent
+- **Odd**: Writer is modifying data, readers should retry
+
+```mermaid
+graph LR
+    E["sequence = N<br/>(even)<br/>STABLE"] -->|"write_seqlock()"| O["sequence = N+1<br/>(odd)<br/>UPDATING"]
+    O -->|"write_sequnlock()"| E2["sequence = N+2<br/>(even)<br/>STABLE"]
+
+    style E fill:#38a169,color:#fff
+    style O fill:#e53e3e,color:#fff
+    style E2 fill:#38a169,color:#fff
+```
+
 ## API Reference
 
 ### Writer Side
@@ -95,6 +112,70 @@ do {
 ```
 
 **Critical constraint**: The reader's critical section must not modify any shared state, must not sleep, and must not have side effects that would be problematic if repeated.
+
+### Writer Implementation
+
+```c
+/* include/linux/seqlock.h — write_seqlock() */
+static inline void write_seqlock(seqlock_t *sl)
+{
+    spin_lock(&sl->lock);       /* Serialize writers */
+    sl->sequence++;              /* Even → odd (data unstable) */
+    smp_wmb();                   /* Ensure sequence update visible before data */
+}
+
+static inline void write_sequnlock(seqlock_t *sl)
+{
+    smp_wmb();                   /* Ensure data writes visible before sequence */
+    sl->sequence++;              /* Odd → even (data stable) */
+    spin_unlock(&sl->lock);
+}
+```
+
+### Reader Implementation
+
+```c
+/* include/linux/seqlock.h — read_seqbegin() */
+static inline unsigned read_seqbegin(const seqlock_t *sl)
+{
+    unsigned ret = READ_ONCE(sl->sequence);
+    smp_rmb();  /* Ensure sequence read before data reads */
+    return ret;
+}
+
+static inline unsigned read_seqretry(const seqlock_t *sl, unsigned start)
+{
+    smp_rmb();  /* Ensure data reads before sequence re-read */
+    return READ_ONCE(sl->sequence) != start;
+}
+```
+
+### Memory Barrier Placement
+
+```mermaid
+graph TD
+    subgraph "Writer"
+        W1["smp_wmb() after sequence++ (odd)"]
+        W2["Write data"]
+        W3["smp_wmb() before sequence++ (even)"]
+    end
+    subgraph "Reader"
+        R1["Read sequence → start"]
+        R2["smp_rmb()"]
+        R3["Read data"]
+        R4["smp_rmb()"]
+        R5["Read sequence → end"]
+        R6{"start == end?"}
+        R6 -->|Yes| OK["Consistent!"]
+        R6 -->|No| RETRY["Retry!"]
+    end
+
+    W1 --> W2 --> W3
+    R1 --> R2 --> R3 --> R4 --> R5 --> R6
+
+    style OK fill:#38a169,color:#fff
+    style RETRY fill:#e53e3e,color:#fff
+```
 
 ## Complete Example: Statistics Counter
 
@@ -169,6 +250,51 @@ do {
 
 `seqcount_t` is useful when you already have external serialization (e.g., a per-CPU lock) and just need the retry mechanism for readers.
 
+### seqcount_t Implementation
+
+```c
+/* include/linux/seqlock.h */
+static inline void raw_write_seqcount_begin(seqcount_t *s)
+{
+    s->sequence++;
+    smp_wmb();
+}
+
+static inline void raw_write_seqcount_end(seqcount_t *s)
+{
+    smp_wmb();
+    s->sequence++;
+}
+```
+
+## seqcount_LOCKNAME_t Variants
+
+The kernel provides typed seqcount variants that associate the write-side lock with the seqcount, enabling lockdep validation:
+
+| Variant | Associated Lock | Use Case |
+|---------|----------------|----------|
+| `seqcount_spinlock_t` | spinlock_t | General kernel data |
+| `seqcount_raw_spinlock_t` | raw_spinlock_t | RT-safe paths |
+| `seqcount_rwlock_t` | rwlock_t | Reader-writer locked data |
+| `seqcount_mutex_t` | mutex | Sleepable write paths |
+| `seqcount_ww_mutex_t` | ww_mutex | GPU buffer objects |
+
+```c
+/* Example: seqcount with associated spinlock */
+typedef struct {
+    seqcount_spinlock_t seqcount;
+    spinlock_t lock;
+    /* protected data */
+} my_data_t;
+
+/* Writer — lockdep can verify lock is held */
+spin_lock(&data->lock);
+write_seqcount_begin(&data->seqcount.seqcount);
+/* modify data */
+write_seqcount_end(&data->seqcount.seqcount);
+spin_unlock(&data->lock);
+```
+
 ## Use Cases in the Linux Kernel
 
 ### Timekeeping
@@ -222,6 +348,27 @@ struct mount {
 };
 ```
 
+### Kernel Time Access (jiffies)
+
+```c
+/* include/linux/jiffies.h */
+extern seqcount_t jiffies_lock;
+
+/* Fast jiffies read with seqcount */
+u64 get_jiffies_64(void)
+{
+    unsigned int seq;
+    u64 ret;
+
+    do {
+        seq = read_seqcount_begin(&jiffies_lock);
+        ret = jiffies_64;
+    } while (read_seqcount_retry(&jiffies_lock, seq));
+
+    return ret;
+}
+```
+
 ## Seqlock vs RCU
 
 Both seqlocks and RCU optimize for read-heavy workloads, but they have different properties:
@@ -246,6 +393,17 @@ Both seqlocks and RCU optimize for read-heavy workloads, but they have different
 - The data structure is large (linked lists, trees, hash tables)
 - Pointer-based indirection is natural
 - You need zero reader-side overhead
+
+```mermaid
+graph TD
+    DATA{"What kind of data?"} --> SMALL["Small, fixed-size<br/>(counters, timestamps,<br/>struct snapshot)"]
+    DATA --> LARGE["Large, pointer-based<br/>(linked lists, trees,<br/>hash tables)"]
+    SMALL --> SEQ["Use seqlock<br/>Retry-based consistency"]
+    LARGE --> RCU["Use RCU<br/>Pointer-swap consistency"]
+
+    style SEQ fill:#3182ce,color:#fff
+    style RCU fill:#38a169,color:#fff
+```
 
 ## Seqlock vs rwlock
 
@@ -341,6 +499,26 @@ P(retry) ≈ (write_duration × write_frequency) / read_frequency
 
 For typical read-mostly workloads (e.g., timekeeping: billions of reads per second, a few writes per second), the retry probability is negligible.
 
+### Performance vs Alternatives
+
+```mermaid
+graph LR
+    subgraph "Read Cost"
+        SEQ_R["Seqlock<br/>2 loads + compare<br/>(essentially free)"]
+        RW_R["rwlock<br/>atomic inc/dec<br/>(cache-line bounce)"]
+        MUTEX_R["Mutex<br/>lock/unlock<br/>(may block)"]
+    end
+    subgraph "Write Cost"
+        SEQ_W["Seqlock<br/>spinlock + 2 inc<br/>(light)"]
+        RW_W["rwlock<br/>spinlock<br/>(blocks readers)"]
+        MUTEX_W["Mutex<br/>lock/unlock<br/>(blocks everyone)"]
+    end
+
+    style SEQ_R fill:#38a169,color:#fff
+    style RW_R fill:#d69e2e,color:#fff
+    style MUTEX_R fill:#e53e3e,color:#fff
+```
+
 ## Advanced: seqcount_latch_t
 
 The **latch** variant provides two copies of the data. Writers update the inactive copy and then flip the latch. Readers always get a consistent copy without retrying:
@@ -362,6 +540,52 @@ do {
 
 This is used in the timekeeping subsystem where even the rare retry is too expensive.
 
+### Latch Implementation
+
+```mermaid
+graph TD
+    subgraph "Latch: Two Data Copies"
+        D0["data[0]<br/>Copy A"]
+        D1["data[1]<br/>Copy B"]
+    end
+    W["Writer"] -->|"sequence is even<br/>update data[1]"| D1
+    W2["Writer"] -->|"sequence is odd<br/>update data[0]"| D0
+    R["Reader"] -->|"seq & 1 == 0<br/>read data[0]"| D0
+    R2["Reader"] -->|"seq & 1 == 1<br/>read data[1]"| D1
+```
+
+### Latch Use Case: Timekeeping
+
+```c
+/* kernel/time/timekeeping.c (simplified) */
+struct tk_read_base {
+    u64 cycle_last;
+    u64 mult;
+    u64 xtime_nsec;
+    /* ... */
+};
+
+struct timekeeper {
+    struct tk_read_base base[2];  /* Two copies! */
+    seqcount_latch_t seq;
+};
+
+/* Reader: always gets consistent time data */
+u64 ktime_get_mono_fast_ns(void)
+{
+    struct timekeeper *tk = &tk_core.timekeeper;
+    struct tk_read_base *base;
+    unsigned int seq;
+
+    do {
+        seq = raw_read_seqcount_latch(&tk->seq);
+        base = &tk->base[seq & 1];  /* Read from stable copy */
+    } while (read_seqcount_latch_retry(&tk->seq, seq));
+
+    return base->xtime_nsec;
+}
+```
+
 ## Debugging Seqlocks
 
 ### Detecting Read-Side Violations
@@ -381,27 +605,34 @@ The spinlock portion of `seqlock_t` is tracked by lockstat:
 $ sudo cat /proc/lock_stat | grep seqlock
 ```
 
+### Common Pitfalls
+
+```c
+/* BAD: Pointer dereference in reader */
+do {
+    seq = read_seqbegin(&my_seqlock);
+    ptr = data->pointer;        /* OK: read pointer */
+    val = ptr->field;           /* DANGER: pointer may be stale! */
+} while (read_seqretry(&my_seqlock, seq));
+
+/*
+ * Seqlocks CANNOT protect data containing pointers that change.
+ * If a writer updates `data->pointer`, the reader may follow
+ * a freed pointer. Use RCU for pointer-based data.
+ */
+```
+
+### Detecting Stale Pointer Access
+
+```bash
+# Enable KASAN to catch use-after-free from stale seqlock pointers
+CONFIG_KASAN=y
+CONFIG_KASAN_GENERIC=y
+```
+
 ## Seqlock Internals (from docs.kernel.org)
 
 The kernel documentation at `docs.kernel.org/locking/seqlock.html` provides the authoritative reference for sequence counters and sequential locks. Key details from the official documentation:
-
-### Sequence Counters (seqcount_t)
-
-This is the raw counting mechanism without writer protection. Write side critical sections must be serialized by an external lock. If the write serialization primitive doesn't implicitly disable preemption, preemption must be explicitly disabled before entering the write side section.
-
-### Sequence Counters with Associated Locks (seqcount_LOCKNAME_t)
-
-These variants associate the lock used for writer serialization at initialization time, enabling lockdep to validate that write side critical sections are properly serialized. The lock association is a NOOP if lockdep is disabled (no storage or runtime overhead). Available variants:
-
-- `seqcount_spinlock_t`
-- `seqcount_raw_spinlock_t`
-- `seqcount_rwlock_t`
-- `seqcount_mutex_t`
-- `seqcount_ww_mutex_t`
-
-### Latch Sequence Counters (seqcount_latch_t)
-
-A multiversion concurrency control mechanism where the embedded seqcount_t counter even/odd value switches between two copies of protected data. This allows the read path to safely interrupt its own write side critical section. Use when write side sections cannot be protected from interruption by readers (typically when the read side can be invoked from NMI handlers).
 
 ### Three Categories of Seqlock Readers
 
@@ -410,6 +641,25 @@ The documentation defines three types of readers for `seqlock_t`:
 1. **Normal sequence readers**: Never block a writer, must retry if a writer is in progress. Writers do not wait for sequence readers.
 2. **Locking readers** (`read_seqlock_excl`): Wait if a writer or another locking reader is in progress. Exclusive — only one locking reader can acquire it.
 3. **Conditional lockless/locking readers** (`read_seqbegin_or_lock`): Try lockless first (even marker), fall back to locking read (odd marker) to avoid reader starvation during write spikes.
+
+```c
+/* Conditional reader pattern */
+unsigned int seq;
+int need_lock = 0;  /* Start lockless */
+
+do {
+    seq = read_seqbegin(&my_seqlock);
+    if (need_lock) {
+        spin_lock(&my_seqlock.lock);
+        seq = 1;  /* Force odd to detect we hold lock */
+    }
+    /* Read data */
+    need_lock = 1;  /* Next iteration, use locking path */
+} while (read_seqretry(&my_seqlock, seq));
+
+if (need_lock)
+    spin_unlock(&my_seqlock.lock);
+```
 
 ### Key Constraint
 
