@@ -404,6 +404,346 @@ Measured on typical server workloads:
 | Nginx | < 0.2% | HTTP request throughput |
 | MySQL | < 0.5% | sysbench |
 
+## KFENCE Test Suite (KUnit)
+
+KFENCE includes a comprehensive KUnit test suite that validates all error detection capabilities. These tests can run in a QEMU virtual machine or on real hardware:
+
+```bash
+# Run KFENCE KUnit tests
+# Requires a kernel built with CONFIG_KUNIT=y and CONFIG_KFENCE_KUNIT_TEST=y
+
+# In-tree testing (kernel 5.15+)
+./tools/testing/kunit/kunit.py run kfence
+
+# Or boot a test kernel and run:
+# The tests are registered as a KUnit module
+modprobe kfence_test
+
+# View test results in dmesg
+# Expected output for each test case:
+#     ok 1 - test_out_of_bounds_read
+#     ok 2 - test_out_of_bounds_write
+#     ok 3 - test_use_after_free_read
+#     ok 4 - test_double_free
+#     ok 5 - test_invalid_addr_free
+#     ok 6 - test_shrink_memcache
+```
+
+### Test Cases Covered
+
+| Test Case | Error Type | Expected Detection |
+|-----------|-----------|--------------------|
+| `test_out_of_bounds_read` | OOB read | Guard page fault → report |
+| `test_out_of_bounds_write` | OOB write | Guard page fault → report |
+| `test_use_after_free_read` | UAF read | Freed page fault → report |
+| `test_use_after_free_write` | UAF write | Freed page fault → report |
+| `test_double_free` | Double free | Free-list state check |
+| `test_invalid_addr_free` | Invalid free | Address validation |
+| `test_shrink_memcache` | Cache shrink | Metadata consistency |
+| `test_memcache_types` | Various caches | Per-cache allocation |
+
+### Writing Custom KFENCE Tests
+
+You can write KFENCE tests for your own kernel modules using the KUnit framework:
+
+```c
+#include <kunit/test.h>
+#include <linux/slab.h>
+#include <linux/kfence.h>
+
+static void test_my_module_oob(struct kunit *test)
+{
+    char *buf;
+    int i;
+
+    /* Allocate a buffer that might land in KFENCE pool */
+    buf = kmalloc(32, GFP_KERNEL);
+    KUNIT_ASSERT_NOT_NULL(test, buf);
+
+    /* Write within bounds */
+    for (i = 0; i < 32; i++)
+        buf[i] = 'A';
+
+    /* Note: intentionally writing past end would trigger KFENCE,
+     * but we DON'T do that in tests — KFENCE's own tests cover this.
+     * This test verifies normal operation doesn't false-positive. */
+
+    kfree(buf);
+}
+
+static struct kunit_case my_kfence_cases[] = {
+    KUNIT_CASE(test_my_module_oob),
+    {},
+};
+
+static struct kunit_suite my_kfence_suite = {
+    .name = "my_module_kfence",
+    .test_cases = my_kfence_cases,
+};
+kunit_test_suite(my_kfence_suite);
+```
+
+## Production Deployment Guide
+
+### Deployment Checklist
+
+```mermaid
+flowchart TD
+    A["Deploy KFENCE in Production"] --> B{"Kernel version ≥ 5.12?"}
+    B -->|No| C["Upgrade kernel first"]
+    B -->|Yes| D{"Memory budget available?"}
+    D -->|No| E["Reduce num_objects"]
+    D -->|Yes| F["Enable in kernel config"]
+    F --> G["Set boot parameters"]
+    G --> H["Deploy to staging"]
+    H --> I["Run workload benchmarks"]
+    I --> J{"Overhead < 1%?"}
+    J -->|No| K["Increase sample_interval"]
+    J -->|Yes| L["Deploy to production"]
+    L --> M["Monitor dmesg for reports"]
+    M --> N{"Bug found?"}
+    N -->|Yes| O["Reproduce with KASAN"]
+    N -->|No| P["Continue monitoring"]
+```
+
+### Recommended Production Settings
+
+```bash
+# Conservative (minimal overhead, catches major bugs)
+kfence.sample_interval=100
+kfence.num_objects=100
+# Memory cost: ~100 * 2 * 4KB = ~800KB
+
+# Balanced (good coverage, still low overhead)
+kfence.sample_interval=50
+kfence.num_objects=200
+# Memory cost: ~200 * 2 * 4KB = ~1.6MB
+
+# Aggressive (more bugs caught, slightly higher overhead)
+kfence.sample_interval=10
+kfence.num_objects=500
+# Memory cost: ~500 * 2 * 4KB = ~4MB
+```
+
+### Monitoring KFENCE in Production
+
+```bash
+#!/bin/bash
+# /usr/local/bin/kfence-monitor.sh
+# Monitor dmesg for KFENCE reports and alert
+
+KFENCE_LOG="/var/log/kfence-reports.log"
+ALERT_EMAIL="security-team@example.com"
+
+# Watch for KFENCE reports
+dmesg -w | while IFS= read -r line; do
+    if echo "$line" | grep -q "BUG: KFENCE"; then
+        echo "$(date -Iseconds) $line" >> "$KFENCE_LOG"
+        
+        # Capture the full report (next 20 lines)
+        dmesg | grep -A 20 "BUG: KFENCE" >> "$KFENCE_LOG"
+        
+        # Send alert
+        echo "KFENCE bug detected on $(hostname): $line" | \
+            mail -s "KFENCE Alert: $(hostname)" "$ALERT_EMAIL"
+        
+        # Log to syslog for centralized collection
+        logger -p kern.err "KFENCE: $line"
+    fi
+done
+```
+
+```bash
+# systemd service for the monitor
+# /etc/systemd/system/kfence-monitor.service
+[Unit]
+Description=KFENCE Bug Monitor
+After=systemd-journald.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/kfence-monitor.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### Integrating with Existing Monitoring
+
+```bash
+# Prometheus: export KFENCE stats via node_exporter textfile collector
+#!/bin/bash
+# /var/lib/node_exporter/kfence.prom
+
+STATS_FILE="/sys/kernel/debug/kfence/stats"
+if [ -f "$STATS_FILE" ]; then
+    total=$(awk '/^total:/ {print $2}' "$STATS_FILE")
+    errors=$(awk '/^buggy:/ {print $2}' "$STATS_FILE")
+    cat <<EOF
+# HELP kfence_allocations_total Total KFENCE allocations
+# TYPE kfence_allocations_total counter
+kfence_allocations_total $total
+# HELP kfence_errors_total Total KFENCE errors detected
+# TYPE kfence_errors_total counter
+kfence_errors_total $errors
+EOF
+fi
+```
+
+## Interaction with Other Kernel Debugging Tools
+
+### KFENCE + KASAN
+
+```mermaid
+graph TD
+    A["Development / CI"] --> B["Enable KASAN"]
+    B --> C["Deterministic detection"]
+    C --> D["Full coverage, high overhead"]
+    
+    E["Production / Staging"] --> F["Enable KFENCE"]
+    F --> G["Statistical detection"]
+    G --> H["Low coverage, near-zero overhead"]
+    
+    I["Bug in production"] --> J{"Reproducible in dev?"}
+    J -->|Yes| K["Use KASAN for detailed report"]
+    J -->|No| L["KFENCE catches it with stack trace"]
+    L --> M["Fix based on stack + allocation/free info"]
+```
+
+### KFENCE + kmemleak
+
+KMEMLEAK detects memory leaks. KFENCE can complement it:
+
+```bash
+# Both enabled simultaneously
+# KFENCE: catches memory corruption
+# kmemleak: catches memory leaks
+
+# Check kmemleak reports
+echo scan > /sys/kernel/debug/kmemleak
+cat /sys/kernel/debug/kmemleak
+```
+
+### KFENCE + lockdep
+
+Lockdep detects lock ordering violations. Both can run together:
+
+```bash
+# Boot with both enabled
+# kfence.sample_interval=100 lockdep=1
+
+# Lockdep overhead is higher (~5%), but for debugging
+# lock ordering issues, it's invaluable.
+# KFENCE adds negligible overhead on top.
+```
+
+## Advanced: Understanding Error Reports
+
+### Anatomy of a KFENCE Report
+
+```
+==================================================================
+BUG: KFENCE: out-of-bounds read in my_driver_read+0x42/0x100
+
+Out-of-bounds read at 0xffffffff82c0a001 (1B):     ← What and where
+ my_driver_read+0x42/0x100                          ← Faulting function + offset
+ vfs_read+0x9b/0x1b0                                ← Call chain
+ ksys_read+0x67/0xe0                                ← ...
+ do_syscall_64+0x5c/0x90                            ← Syscall entry
+ entry_SYSCALL_64_after_hwframe+0x44/0xae
+
+Allocated by task 1234:                             ← Who allocated it
+ kmalloc_trace+0x30/0x80
+ my_driver_open+0x20/0x60                           ← Allocation site
+ do_sys_open+0x2e7/0x3b0
+ do_syscall_64+0x5c/0x90
+
+Freed by task 1234:                                 ← Who freed it
+ kfree+0x68/0x120
+ my_driver_close+0x40/0x80                          ← Free site
+ __fput+0x8c/0x250
+ task_work_run+0x78/0xa0
+
+CPU: 2 PID: 5678 Comm: my_app Not tainted 6.1.0+    ← Context info
+==================================================================
+```
+
+### Interpreting the Report
+
+| Field | Meaning | Action |
+|-------|---------|--------|
+| **BUG: KFENCE: ...** | Error type | OOB, UAF, or double-free |
+| **Out-of-bounds read/write** | Access direction | Read = info leak risk; Write = corruption |
+| **at 0x...** | Faulting address | Guard page or freed page |
+| **Allocated by** | Allocation stack trace | Where the object was created |
+| **Freed by** | Free stack trace | Where the object was destroyed |
+| **task PID: TID** | Process context | Which process triggered it |
+| **Not tainted** | Kernel taint status | Clean kernel or vendor-tainted |
+
+### Example: Fixing a Real Bug from KFENCE
+
+Suppose KFENCE reports:
+```
+BUG: KFENCE: out-of-bounds write in net_rx_action+0x123/0x200
+
+Out-of-bounds write at 0xffff...001 (4B):
+ net_rx_action+0x123/0x200
+ __do_softirq+0xd0/0x2c0
+
+Allocated by task 42:
+ kmalloc_trace+0x30/0x80
+ netdev_alloc_skb+0x40/0x80
+ net_driver_rx+0x100/0x200
+```
+
+**Diagnosis**: The network driver allocates an skb with `kmalloc`, but `net_rx_action` writes past the allocated buffer. The fix would be to increase the allocation size or fix the offset calculation in the driver.
+
+## Automated Bug Reproduction
+
+Since KFENCE is sampling-based, bugs are probabilistic. Strategies to increase catch rate:
+
+### 1. Decrease Sampling Interval
+
+```bash
+# Catch more bugs (higher overhead)
+kfence.sample_interval=1
+kfence.num_objects=1000
+```
+
+### 2. Stress Test with KFENCE
+
+```bash
+#!/bin/bash
+# Run workload in a loop with KFENCE enabled
+WORKLOAD="./my_stress_test"
+MAX_ITERATIONS=10000
+
+for i in $(seq 1 $MAX_ITERATIONS); do
+    $WORKLOAD 2>&1 > /dev/null
+    
+    # Check for KFENCE reports
+    if dmesg | tail -50 | grep -q "BUG: KFENCE"; then
+        echo "KFENCE bug found on iteration $i"
+        dmesg | tail -50
+        exit 0
+    fi
+done
+
+echo "No KFENCE bug found in $MAX_ITERATIONS iterations"
+```
+
+### 3. Combine with Fuzzing
+
+```bash
+# syzkaller with KFENCE
+# In syzkaller config:
+# {
+#   "kernel_cmdline": "kfence.sample_interval=1 kfence.num_objects=500"
+# }
+```
+
 ## Cross-References
 
 - [Slab Allocator](../kernel/memory/slab-allocator.md) - How kernel heap allocation works
@@ -423,3 +763,4 @@ Measured on typical server workloads:
 - [Alexander Potapenko's KFENCE talk](https://www.youtube.com/watch?v=Qn6kFjPwQXQ)
 - [KASAN documentation](https://www.kernel.org/doc/html/latest/dev-tools/kasan.html)
 - [Google's KernelSanitizer page](https://github.com/google/sanitizers)
+- [KUnit testing framework](https://www.kernel.org/doc/html/latest/dev-tools/kunit/index.html)

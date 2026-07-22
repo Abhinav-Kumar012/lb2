@@ -74,7 +74,89 @@ int main(void) {
 }
 ```
 
-### lio_listio — Batch Submission
+### glibc POSIX AIO Internals
+
+On Linux, glibc implements POSIX AIO using **user-space threads** — one thread per pending request. This means:
+
+- Each `aio_read()` or `aio_write()` spawns a new thread (or reuses one from a pool)
+- The thread performs a synchronous `read()` or `write()` in the background
+- Completion notification happens via the thread callback or signal
+
+This design has significant overhead:
+
+| Overhead Source | Impact |
+|---|---|
+| Thread creation | ~50–100 μs per request (without pool) |
+| Context switching | Kernel scheduler overhead |
+| Memory | Each thread needs a stack (~8 KB default) |
+| Scalability | Thousands of threads = thousands of stacks |
+
+```bash
+# Verify glibc AIO uses threads
+$ strace -f ./aio_demo 2>&1 | grep clone
+clone(child_stack=NULL, flags=CLONE_CHILD_CLEARTID|...) = 12345
+clone(child_stack=NULL, flags=CLONE_CHILD_CLEARTID|...) = 12346
+```
+
+For these reasons, POSIX AIO on Linux is generally **not recommended** for high-performance applications. Use `io_uring` or `epoll`+non-blocking I/O instead.
+
+## Signal-Based AIO Notification
+
+POSIX AIO can notify completion via signals instead of polling:
+
+```c
+#include <aio.h>
+#include <signal.h>
+#include <fcntl.h>
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
+
+static volatile int aio_done = 0;
+
+static void aio_handler(int sig, siginfo_t *info, void *context) {
+    struct aiocb *cb = (struct aiocb *)info->si_value.sival_ptr;
+    int ret = aio_return(cb);
+    printf("AIO complete: read %d bytes\n", ret);
+    aio_done = 1;
+}
+
+int main(void) {
+    /* Set up signal handler */
+    struct sigaction sa;
+    sa.sa_sigaction = aio_handler;
+    sa.sa_flags = SA_SIGINFO;
+    sigemptyset(&sa.sa_mask);
+    sigaction(SIGUSR1, &sa, NULL);
+
+    /* Prepare AIO request */
+    struct aiocb cb;
+    char buf[4096];
+    memset(&cb, 0, sizeof(cb));
+    cb.aio_fildes = open("/tmp/testfile", O_RDONLY);
+    cb.aio_buf = buf;
+    cb.aio_nbytes = sizeof(buf);
+    cb.aio_offset = 0;
+
+    /* Request signal on completion */
+    cb.aio_sigevent.sigev_notify = SIGEV_SIGNAL;
+    cb.aio_sigevent.sigev_signo = SIGUSR1;
+    cb.aio_sigevent.sigev_value.sival_ptr = &cb;
+
+    /* Submit */
+    aio_read(&cb);
+
+    /* Wait for signal */
+    while (!aio_done) {
+        pause();  /* Block until signal arrives */
+    }
+
+    close(cb.aio_fildes);
+    return 0;
+}
+```
+
+## lio_listio — Batch Submission
 
 `lio_listio` submits multiple operations in a single call, reducing syscall overhead:
 
@@ -96,6 +178,61 @@ cb2.aio_lio_opcode = LIO_WRITE;
 
 struct aiocb *list[] = { &cb1, &cb2 };
 lio_listio(LIO_WAIT, list, 2, NULL);
+```
+
+### lio_listio with Signal Notification
+
+For non-blocking batch operations with notification:
+
+```c
+#include <aio.h>
+#include <signal.h>
+#include <string.h>
+#include <stdio.h>
+
+static volatile int completed = 0;
+
+static void batch_handler(int sig) {
+    completed = 1;
+}
+
+int main(void) {
+    signal(SIGUSR1, batch_handler);
+
+    struct aiocb cbs[10];
+    char bufs[10][4096];
+    struct aiocb *list[10];
+
+    for (int i = 0; i < 10; i++) {
+        memset(&cbs[i], 0, sizeof(cbs[i]));
+        cbs[i].aio_fildes = open("/tmp/testfile", O_RDONLY);
+        cbs[i].aio_buf = bufs[i];
+        cbs[i].aio_nbytes = 4096;
+        cbs[i].aio_offset = i * 4096;
+        cbs[i].aio_lio_opcode = LIO_READ;
+        list[i] = &cbs[i];
+    }
+
+    /* Notification when all complete */
+    struct sigevent sig;
+    memset(&sig, 0, sizeof(sig));
+    sig.sigev_notify = SIGEV_SIGNAL;
+    sig.sigev_signo = SIGUSR1;
+
+    lio_listio(LIO_NOWAIT, list, 10, &sig);
+
+    /* Do other work while I/O proceeds */
+    while (!completed) {
+        /* ... */
+    }
+
+    for (int i = 0; i < 10; i++) {
+        ssize_t ret = aio_return(&cbs[i]);
+        printf("Read %zd bytes from chunk %d\n", ret, i);
+        close(cbs[i].aio_fildes);
+    }
+    return 0;
+}
 ```
 
 ## Linux Native AIO: libaio (io_submit)
@@ -235,6 +372,80 @@ int main(void) {
 gcc -o uring_demo uring_demo.c -luring
 ```
 
+### io_uring Advanced Features
+
+**SQPOLL mode** — kernel thread polls the SQ, eliminating `io_uring_submit()` syscalls:
+
+```c
+struct io_uring_params params;
+memset(&params, 0, sizeof(params));
+params.flags = IORING_SETUP_SQPOLL;
+params.sq_thread_idle = 2000;  /* Kernel thread idle timeout (ms) */
+
+struct io_uring ring;
+io_uring_queue_init_params(8, &ring, &params);
+
+/* Now submissions don't need a syscall — kernel thread polls the SQ */
+struct io_uring_sqe *sqe = io_uring_get_sqe(&ring);
+io_uring_prep_read(sqe, fd, buf, sizeof(buf), 0);
+io_uring_sqe_set_data(sqe, my_context);
+/* No io_uring_submit() needed in SQPOLL mode */
+```
+
+**Registered buffers** — pre-register buffers with the kernel to avoid per-I/O mapping:
+
+```c
+/* Register buffers once */
+struct iovec iovecs[4];
+for (int i = 0; i < 4; i++) {
+    iovecs[i].iov_base = aligned_alloc(4096, 65536);
+    iovecs[i].iov_len = 65536;
+}
+io_uring_register_buffers(&ring, iovecs, 4);
+
+/* Use registered buffer index instead of pointer */
+struct io_uring_sqe *sqe = io_uring_get_sqe(&ring);
+io_uring_prep_read_fixed(sqe, fd, NULL, 65536, 0, 1);  /* buffer index 1 */
+```
+
+**Linked operations** — chain I/O operations so they execute in sequence:
+
+```c
+/* Read then write — linked */
+struct io_uring_sqe *sqe1 = io_uring_get_sqe(&ring);
+io_uring_prep_read(sqe1, in_fd, buf, 4096, 0);
+sqe1->flags |= IOSQE_IO_LINK;
+
+struct io_uring_sqe *sqe2 = io_uring_get_sqe(&ring);
+io_uring_prep_write(sqe2, out_fd, buf, 4096, 0);
+
+io_uring_submit(&ring);
+/* sqe2 only executes if sqe1 succeeds */
+```
+
+### io_uring Multishot Operations
+
+Since Linux 6.0, **multishot** operations allow a single submission to generate multiple completions — ideal for accept loops and receive operations:
+
+```c
+/* Multishot accept: one submission, many connections */
+struct io_uring_sqe *sqe = io_uring_get_sqe(&ring);
+io_uring_prep_multishot_accept(sqe, listen_fd, NULL, NULL, 0);
+io_uring_sqe_set_data64(sqe, ACCEPT_COOKIE);
+io_uring_submit(&ring);
+
+/* Each new connection generates a CQE */
+while (1) {
+    struct io_uring_cqe *cqe;
+    io_uring_wait_cqe(&ring, &cqe);
+    if (cqe->res >= 0) {
+        int client_fd = cqe->res;
+        handle_client(client_fd);
+    }
+    io_uring_cqe_seen(&ring, cqe);
+}
+```
+
 ### Performance Comparison
 
 | Feature | POSIX AIO | libaio | io_uring |
@@ -260,6 +471,86 @@ flowchart TD
     F -->|No| G[libaio with O_DIRECT]
     D -->|Yes| H[POSIX AIO or epoll+threads]
     D -->|No| G
+```
+
+### When to Use Each Interface
+
+| Use Case | Recommended Interface |
+|---|---|
+| New high-performance server (Linux ≥ 5.1) | `io_uring` |
+| Database with O_DIRECT | `io_uring` or `libaio` |
+| Portable POSIX application | `epoll` + non-blocking I/O |
+| Simple file copy utility | Synchronous `read()`/`write()` |
+| Legacy Linux (< 5.1) | `epoll` + thread pool |
+| Network server | `io_uring` or `epoll` |
+
+## Error Handling Patterns
+
+All async I/O interfaces require careful error handling:
+
+### POSIX AIO Error Handling
+
+```c
+if (aio_read(&cb) < 0) {
+    perror("aio_read");
+    return -1;
+}
+
+/* After completion */
+int err = aio_error(&cb);
+if (err == EINPROGRESS) {
+    /* Still pending */
+} else if (err != 0) {
+    /* Error occurred */
+    fprintf(stderr, "AIO error: %s\n", strerror(err));
+} else {
+    /* Success */
+    ssize_t bytes = aio_return(&cb);
+}
+```
+
+### io_uring Error Handling
+
+```c
+struct io_uring_cqe *cqe;
+io_uring_wait_cqe(&ring, &cqe);
+
+if (cqe->res < 0) {
+    /* cqe->res is -errno */
+    fprintf(stderr, "I/O error: %s\n", strerror(-cqe->res));
+} else if (cqe->res == 0 && expected > 0) {
+    /* EOF */
+} else {
+    /* Success: cqe->res = bytes transferred */
+    process_data(buf, cqe->res);
+}
+io_uring_cqe_seen(&ring, cqe);
+```
+
+## O_DIRECT Alignment Requirements
+
+Both `libaio` and direct I/O with `io_uring` require proper alignment:
+
+```c
+/* O_DIRECT requires: */
+/* - Buffer aligned to filesystem block size (typically 512 or 4096) */
+/* - Offset aligned to filesystem block size */
+/* - Size is a multiple of filesystem block size */
+
+void *buf;
+posix_memalign(&buf, 4096, 4096);  /* Aligned allocation */
+int fd = open("file", O_RDONLY | O_DIRECT);
+pread(fd, buf, 4096, 0);  /* Offset 0, size 4096 — all aligned */
+```
+
+```bash
+# Check filesystem block size
+$ stat -f /tmp
+  Block size: 4096
+
+# Or via /proc
+$ cat /proc/mounts | grep /tmp
+tmpfs /tmp tmpfs rw,nosuid,nodev 0 0
 ```
 
 ## Practical Example: aio_cmp.c
