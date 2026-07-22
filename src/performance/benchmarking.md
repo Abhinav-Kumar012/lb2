@@ -384,26 +384,313 @@ echo 3 > /proc/sys/vm/drop_caches
 systemctl stop cron atd
 ```
 
+## Benchmark Analysis Workflow
+
+```mermaid
+flowchart TD
+    A["Define benchmark goal"] --> B{"Choose tool"}
+    B -->|CPU| C["sysbench cpu / perf bench"]
+    B -->|Memory| D["sysbench memory / STREAM"]
+    B -->|Disk| E["fio"]
+    B -->|Network| F["iperf3"]
+    B -->|Database| G["sysbench oltp / pgbench"]
+    C --> H["Run with controlled environment"]
+    D --> H
+    E --> H
+    F --> H
+    G --> H
+    H --> I{"Multiple iterations?"}
+    I -->|"≥5 runs"| J["Calculate mean, stdev, percentiles"]
+    I -->|"< 5 runs"| K["Add more iterations"]
+    J --> L["Compare to baseline"]
+    L --> M{"Regression detected?"}
+    M -->|Yes| N["Profile with perf/bpftrace"]
+    M -->|No| O["Document and archive"]
+```
+
+## Statistical Analysis of Benchmark Results
+
+Raw benchmark numbers are meaningless without statistical analysis:
+
+### Calculating Variability
+
+```bash
+#!/bin/bash
+# bench-stats.sh — Run benchmark N times and compute statistics
+TOOL="sysbench cpu --cpu-max-prime=20000 --threads=$(nproc) --time=30"
+RUNS=10
+RESULTS=()
+
+for i in $(seq 1 $RUNS); do
+    RESULT=$($TOOL run 2>/dev/null | grep "events per second" | awk '{print $NF}')
+    RESULTS+=($RESULT)
+    echo "Run $i: $RESULT events/sec"
+done
+
+# Calculate mean
+MEAN=$(echo "${RESULTS[@]}" | tr ' ' '\n' | awk '{sum+=$1} END {printf "%.2f", sum/NR}')
+
+# Calculate standard deviation
+STDEV=$(echo "${RESULTS[@]}" | tr ' ' '\n' | awk -v mean=$MEAN '{sum+=($1-mean)^2} END {printf "%.2f", sqrt(sum/NR)}')
+
+# Calculate coefficient of variation
+CV=$(echo "scale=2; $STDEV / $MEAN * 100" | bc)
+
+echo ""
+echo "=== Results ==="
+echo "Mean: $MEAN events/sec"
+echo "StdDev: $STDEV"
+echo "CV: $CV%"
+
+if (( $(echo "$CV > 5" | bc -l) )); then
+    echo "WARNING: High variability (CV > 5%). Check for interference."
+fi
+```
+
+### Interpreting Results
+
+| Coefficient of Variation | Interpretation |
+|------------------------|----------------|
+| < 2% | Excellent — very stable |
+| 2-5% | Good — acceptable noise |
+| 5-10% | Fair — investigate interference |
+| > 10% | Poor — results unreliable |
+
+## Active Benchmarking
+
+Brendan Gregg's **Active Benchmarking** methodology emphasizes understanding *why*
+numbers are what they are, not just *what* they are:
+
+```bash
+# Step 1: Run benchmark and profile simultaneously
+perf record -F 99 -a -g -- sysbench cpu --cpu-max-prime=20000 --threads=4 --time=30 run
+
+# Step 2: Generate flame graph
+perf script | stackcollapse-perf.pl | flamegraph.pl > bench_flame.svg
+
+# Step 3: Identify where time is spent
+# If 60% of samples are in sysbench_prime(), the benchmark is CPU-bound
+# If 30% are in kernel, investigate syscalls
+
+# Step 4: Use perf stat for hardware counters
+perf stat -a -- sysbench cpu --cpu-max-prime=20000 --threads=4 --time=30 run
+# 1,234,567,890  instructions   # IPC = 1.23
+# 1,000,000,000  cycles
+#     5,678,901  cache-misses   # 2.34%
+#   243,567,890  cache-references
+```
+
+## Database Benchmarking
+
+### pgbench (PostgreSQL)
+
+```bash
+# Initialize pgbench database
+pgbench -i -s 100 mydb  # Scale factor 100 = ~10M rows
+
+# Run benchmark
+pgbench -c 32 -j 8 -T 300 mydb
+# transaction type: TPC-B (sort of)
+# scaling factor: 100
+# query mode: simple
+# number of clients: 32
+# number of threads: 8
+# duration: 300 s
+# number of transactions actually processed: 456789
+# latency average = 21.024 ms
+# tps = 1522.345678 (including connections establishing)
+# tps = 1523.456789 (excluding connections establishing)
+
+# Custom SQL benchmark
+pgbench -c 32 -j 8 -T 300 -f my_query.sql mydb
+```
+
+### MySQL Benchmark with sysbench
+
+```bash
+# Prepare
+sysbench oltp_read_write --mysql-host=localhost --mysql-user=root \
+    --mysql-db=sbtest --table-size=10000000 --tables=10 --threads=32 prepare
+
+# Read-write benchmark
+sysbench oltp_read_write --mysql-host=localhost --mysql-user=root \
+    --mysql-db=sbtest --table-size=10000000 --tables=10 --threads=32 \
+    --time=300 --report-interval=10 run
+
+# Read-only benchmark
+sysbench oltp_read_only --mysql-host=localhost --mysql-user=root \
+    --mysql-db=sbtest --table-size=10000000 --tables=10 --threads=32 \
+    --time=300 run
+
+# Point select benchmark (simple lookups)
+sysbench oltp_point_select --mysql-host=localhost --mysql-user=root \
+    --mysql-db=sbtest --table-size=10000000 --tables=10 --threads=64 \
+    --time=300 run
+```
+
+## Micro-Benchmarks
+
+### lmbench
+
+```bash
+# Install lmbench
+apt install lmbench
+
+# Run all benchmarks
+lmbench_all
+
+# Key results:
+# - Context switch latency: 2-5 μs
+# - Pipe latency: 3-8 μs
+# - Socket latency: 10-30 μs
+# - Memory read latency: varies by cache level
+```
+
+### stress-ng
+
+```bash
+# Install
+apt install stress-ng
+
+# CPU stress test
+stress-ng --cpu $(nproc) --timeout 60s --metrics-brief
+# stress-ng: info:  [1234] dispatching hogs: 32 cpu
+# stress-ng: info:  [1234] stressor      bogo ops real time  usr time  sys time
+# stress-ng: info:  [1234] cpu           1234567   60.00s   1890.56s   12.34s
+
+# Memory stress test
+stress-ng --vm 4 --vm-bytes 2G --timeout 60s --metrics-brief
+
+# Disk I/O stress test
+stress-ng --iomix 4 --timeout 60s --metrics-brief
+
+# All-round system stress
+stress-ng --cpu 8 --vm 2 --vm-bytes 1G --io 4 --timeout 300s
+```
+
+## Benchmark Automation
+
+### Benchmark CI Pipeline
+
+```yaml
+# .github/workflows/benchmark.yml
+name: Performance Benchmark
+on: [push, pull_request]
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tools
+        run: sudo apt install -y sysbench fio iperf3
+      - name: CPU benchmark
+        run: sysbench cpu --cpu-max-prime=20000 --threads=$(nproc) --time=30 run > cpu.txt
+      - name: Memory benchmark
+        run: sysbench memory --memory-block-size=1M --memory-total-size=10G --threads=$(nproc) run > mem.txt
+      - name: Upload results
+        uses: actions/upload-artifact@v3
+        with:
+          name: benchmark-results
+          path: '*.txt'
+```
+
+### Regression Detection
+
+```bash
+#!/bin/bash
+# detect-regression.sh — Compare current benchmark to baseline
+BASELINE="$1"
+CURRENT="$2"
+THRESHOLD=10  # 10% regression threshold
+
+if [[ -z "$BASELINE" || -z "$CURRENT" ]]; then
+    echo "Usage: $0 <baseline.json> <current.json>"
+    exit 1
+fi
+
+# Compare fio results
+BASELINE_IOPS=$(jq '.jobs[0].read.iops' "$BASELINE")
+CURRENT_IOPS=$(jq '.jobs[0].read.iops' "$CURRENT")
+
+DELTA=$(echo "scale=2; ($CURRENT_IOPS - $BASELINE_IOPS) / $BASELINE_IOPS * 100" | bc)
+
+echo "Baseline IOPS: $BASELINE_IOPS"
+echo "Current IOPS:  $CURRENT_IOPS"
+echo "Delta:         $DELTA%"
+
+if (( $(echo "$DELTA < -$THRESHOLD" | bc -l) )); then
+    echo "REGRESSION DETECTED: ${DELTA}% drop in IOPS"
+    exit 1
+fi
+
+echo "No regression detected."
+```
+
+## Benchmark Anti-Patterns
+
+### Anti-Pattern: Benchmarking the Cache, Not the Device
+
+```bash
+# DON'T: Benchmark buffered I/O (measures page cache speed)
+fio --name=bad --filename=/tmp/test --rw=read --bs=1M --size=1G
+# Result: 10 GB/s (RAM speed, not disk speed!)
+
+# DO: Use direct I/O to bypass page cache
+fio --name=good --filename=/dev/sda --rw=read --bs=1M --size=1G --direct=1
+# Result: 550 MB/s (actual disk speed)
+```
+
+### Anti-Pattern: Single Run
+
+```bash
+# DON'T: Trust a single benchmark run
+fio --name=once --rw=randread --bs=4k --direct=1 --runtime=5
+# Could be affected by background tasks, thermal throttling, etc.
+
+# DO: Multiple runs with warm-up
+for i in $(seq 1 5); do
+    fio --name=run-$i --rw=randread --bs=4k --direct=1 \
+        --runtime=60 --time_based --output-format=json >> results.json
+done
+```
+
+### Anti-Pattern: Wrong Block Size
+
+```bash
+# DON'T: Use 4K for sequential throughput test
+fio --name=bad --rw=read --bs=4k --direct=1 --size=1G
+# Tests IOPS, not bandwidth
+
+# DO: Match block size to workload
+fio --name=throughput --rw=read --bs=1M --direct=1 --size=1G   # Throughput
+fio --name=iops --rw=randread --bs=4k --direct=1 --size=1G     # IOPS
+fio --name=database --rw=randread --bs=8k --direct=1 --size=1G  # Database
+```
+
 ## References
 
 - [fio Documentation](https://fio.readthedocs.io/)
 - [sysbench Documentation](https://github.com/akopytov/sysbench)
 - [Phoronix Test Suite](https://www.phoronix-test-suite.com/)
 - [iperf3 Documentation](https://iperf.fr/iperf-doc.php)
+- Gregg, B. *Systems Performance: Enterprise and the Cloud*, 2nd Edition (2020).
+- [Active Benchmarking — Brendan Gregg](https://www.brendangregg.com/activebenchmarking.html)
+- [Evaluating the Evaluation: A Benchmarking Checklist — Brendan Gregg](https://www.brendangregg.com/blog/2018-06-30/benchmarking-checklist.html)
 
 ## Further Reading
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
-- [LWN.net - Linux and free software news](https://lwn.net/)
+- [LWN.net — Linux and free software news](https://lwn.net/)
 - [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
 - [GNU Manuals](https://www.gnu.org/manual/manual.html)
 - [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
 - [Planet GNU](https://planet.gnu.org/)
 - [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
-
-- <https://www.brendangregg.com/linuxperf.html> - Linux performance tools
-- <https://github.com/akopytov/sysbench> - sysbench on GitHub
-- <https://openbenchmarking.org/> - Open benchmarking results
+- <https://www.brendangregg.com/linuxperf.html> — Linux performance tools
+- <https://github.com/akopytov/sysbench> — sysbench on GitHub
+- <https://openbenchmarking.org/> — Open benchmarking results
+- <https://www.brendangregg.com/blog/2018-06-30/benchmarking-checklist.html> — Benchmarking checklist
 
 ## Related Topics
 
@@ -411,3 +698,5 @@ systemctl stop cron atd
 - [I/O Performance](io.md)
 - [CPU Performance](cpu.md)
 - [Network Performance](network.md)
+- [Memory Performance](memory.md)
+- [NUMA Optimization](numa.md)
