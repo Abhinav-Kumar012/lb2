@@ -444,9 +444,252 @@ struct ksm_stable_node {
 - [LWN: KSM: sharing memory between virtual machines](https://lwn.net/Articles/306704/)
 - [LWN: KSM part 2](https://lwn.net/Articles/330589/)
 
+## KSM in Virtualization Platforms
+
+### Proxmox VE
+
+Proxmox VE exposes KSM through its web interface and configuration files:
+
+```bash
+# Enable KSM in Proxmox
+# /etc/default/pve-ha-manager or via web UI: Datacenter → Options → KSM
+
+# Proxmox uses ksmtuned (from qemu-kvm) to dynamically adjust KSM
+# based on memory pressure:
+systemctl status ksmtuned
+
+# Check KSM savings
+pvesh get /nodes/<node>/status
+# Look for "ksm_saving" field
+
+# Proxmox KSM configuration
+# /etc/ksmtuned.conf
+KSM_MONITOR_INTERVAL=60
+KSM_SLEEP_MSEC=10
+KSM_NPAGES_BOOST=300
+KSM_NPAGES_DECAY=-50
+KSM_NPAGES_MIN=128
+KSM_NPAGES_MAX=1250
+KSM_THRES_COEF=20
+KSM_THRES_CONST=2048
+```
+
+### RHEL / libvirt
+
+```bash
+# Enable KSM for libvirt-managed VMs
+systemctl enable ksmtuned
+systemctl start ksmtuned
+
+# In libvirt domain XML, enable KSM per-VM:
+# <memoryBacking>
+#   <nosharepages/>
+# </memoryBacking>
+# Note: <nosharepages/> DISABLES KSM for this VM
+# Omit the tag to allow KSM
+
+# Check KSM stats for a specific VM
+virsh dommemstat <vm-name>
+# actual 1048576
+# swap_in 0
+# swap_out 0
+# major_fault 0
+# minor_fault 12345
+# unused 524288
+# available 2097152
+# rss 1048576
+# usable 2097152
+```
+
+### QEMU/KVM KSM Options
+
+```bash
+# QEMU command-line KSM options
+qemu-system-x86_64 \
+    -m 4G \
+    -object memory-backend-ram,id=mem0,size=4G,merge=on \
+    -machine memory-backend=mem0 \
+    ...
+
+# merge=on: allow KSM to merge this VM's pages
+# merge=off: prevent KSM from merging this VM's pages
+
+# Monitor KSM for QEMU via QMP
+{"execute": "qmp_capabilities"}
+{"execute": "query-memory-size-summary"}
+```
+
+## KSM Monitoring and Alerting
+
+### Monitoring Script
+
+```bash
+#!/bin/bash
+# ksm-monitor.sh — Monitor KSM effectiveness and alert on issues
+
+SYSFS="/sys/kernel/mm/ksm"
+LOG_FILE="/var/log/ksm-stats.log"
+
+shared=$(cat $SYSFS/pages_shared)
+sharing=$(cat $SYSFS/pages_sharing)
+unshared=$(cat $SYSFS/pages_unshared)
+scans=$(cat $SYSFS/full_scans)
+run=$(cat $SYSFS/run)
+
+if [ "$run" != "1" ]; then
+    echo "WARNING: KSM is not running (run=$run)" | logger -p kern.warning
+    exit 1
+fi
+
+# Calculate savings
+if [ "$shared" -gt 0 ]; then
+    ratio=$(echo "scale=2; $sharing / $shared" | bc)
+    saved_mb=$(( (sharing - shared) * 4096 / 1024 / 1024 ))
+else
+    ratio=0
+    saved_mb=0
+fi
+
+# Log stats
+echo "$(date -Iseconds) shared=$shared sharing=$sharing " \
+     "unshared=$unshared ratio=$ratio saved=${saved_mb}MB " \
+     "scans=$scans" >> "$LOG_FILE"
+
+# Alert if savings are unexpectedly low
+if [ "$saved_mb" -lt 100 ] && [ "$unshared" -gt 100000 ]; then
+    echo "WARNING: KSM savings low ($saved_mb MB) with $unshared unshared pages" | \
+        logger -p kern.warning
+fi
+```
+
+### Prometheus Metrics
+
+```bash
+#!/bin/bash
+# Export KSM metrics for Prometheus node_exporter
+OUTPUT_DIR="/var/lib/node_exporter"
+SYSFS="/sys/kernel/mm/ksm"
+
+cat > "$OUTPUT_DIR/ksm.prom" <<EOF
+# HELP ksm_pages_shared Number of shared pages in KSM
+# TYPE ksm_pages_shared gauge
+ksm_pages_shared $(cat $SYSFS/pages_shared)
+# HELP ksm_pages_sharing Number of pages sharing KSM pages
+# TYPE ksm_pages_sharing gauge
+ksm_pages_sharing $(cat $SYSFS/pages_sharing)
+# HELP ksm_pages_unshared Pages scanned but not shared
+# TYPE ksm_pages_unshared gauge
+ksm_pages_unshared $(cat $SYSFS/pages_unshared)
+# HELP ksm_full_scans_total Total KSM full scans completed
+# TYPE ksm_full_scans_total counter
+ksm_full_scans_total $(cat $SYSFS/full_scans)
+# HELP ksm_run KSM running state (0=stopped, 1=running, 2=unmerging)
+# TYPE ksm_run gauge
+ksm_run $(cat $SYSFS/run)
+EOF
+```
+
+## KSM with Huge Pages (THP)
+
+KSM can work with Transparent Huge Pages (THP), but there are trade-offs:
+
+```mermaid
+flowchart TD
+    A["2MB THP Page"] --> B{"KSM scan?"}
+    B -->|"Content matches another THP"| C["Merge via COW"]
+    B -->|"No match"| D["Leave as-is"]
+    C --> E["Both PTEs point to same 2MB page"]
+    E --> F{"Write to page?"}
+    F -->|Yes| G["COW: split to 4KB pages + copy"]
+    F -->|No| H["Continue sharing"]
+```
+
+```bash
+# KSM and THP interaction
+# By default, KSM scans both 4KB and 2MB pages
+
+# Check THP settings
+cat /sys/kernel/mm/transparent_hugepage/enabled
+# [always] madvise never
+
+# For KSM-heavy workloads, consider:
+# 1. THP=madvise (not 'always') — only use THP where requested
+# 2. Let KSM handle deduplication at 4KB granularity
+# 3. Monitor THP splitting overhead
+
+# Check THP splitting events
+grep thp_split /proc/vmstat
+```
+
+## KSM Troubleshooting
+
+### High CPU Usage from ksmd
+
+```bash
+# Symptom: ksmd consuming too much CPU
+# Check ksmd CPU usage
+top -p $(pgrep ksmd)
+
+# Solutions:
+# 1. Reduce scanning aggressiveness
+echo 200 > /sys/kernel/mm/ksm/sleep_millisecs  # Increase sleep time
+echo 50 > /sys/kernel/mm/ksm/pages_to_scan    # Reduce pages per cycle
+
+# 2. Use the advisor (auto-tune)
+echo scan-time > /sys/kernel/mm/ksm/advisor
+
+# 3. Limit ksmd CPU with cgroups (extreme case)
+systemctl set-property ksmd.service CPUQuota=50%
+```
+
+### Poor Deduplication Ratio
+
+```bash
+# Symptom: pages_sharing / pages_shared ratio is low (< 2.0)
+
+# Check what's being shared
+cat /sys/kernel/mm/ksm/pages_shared    # 10000
+cat /sys/kernel/mm/ksm/pages_sharing   # 12000
+# Ratio = 1.2 — poor
+
+# Possible causes:
+# 1. VMs have different OS versions → fewer identical pages
+# 2. Memory is being written too fast → pages change before merge
+# 3. KSM is scanning too slowly
+
+# Solutions:
+# - Ensure VMs run similar OS/library versions
+# - Increase pages_to_scan for faster scanning
+# - Use the advisor for automatic tuning
+```
+
+### KSM Not Running
+
+```bash
+# Check if KSM is enabled
+cat /sys/kernel/mm/ksm/run
+# 0 = not running
+
+# Enable it
+echo 1 > /sys/kernel/mm/ksm/run
+
+# Check if ksmd daemon is running
+pgrep ksmd
+
+# On systemd systems, ksmd is managed by:
+systemctl status ksmtuned  # RHEL/Fedora
+systemctl status ksm       # Some distros
+
+# Verify MADV_MERGEABLE is being called
+# (check /proc/<pid>/smaps for 'mg' VmFlag)
+grep -l "mg" /proc/*/smaps 2>/dev/null | head -5
+```
+
 ## Related Topics
 
 - [compaction](./compaction.md) — KSM pages participate in compaction
 - [numa](./numa.md) — `merge_across_nodes` controls NUMA merging
 - [aslr](./aslr.md) — KSM can be used to bypass ASLR
 - [zones](./zones.md) — KSM operates on pages within memory zones
+- [Transparent Huge Pages](./thp.md) — THP interaction with KSM
+- [Slab Allocator](./slab-allocator.md) — How kernel objects are allocated

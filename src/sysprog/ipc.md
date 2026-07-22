@@ -375,6 +375,152 @@ int fd = shm_open("/myshm", O_CREAT | O_RDWR, 0660);
 - Permission bits checked on access
 - Creator can modify permissions via `shmctl()`/`msgctl()`/`semctl()`
 
+### IPC Security Best Practices
+
+```c
+/* 1. Use IPC_PRIVATE for untrusted environments */
+int shmid = shmget(IPC_PRIVATE, size, IPC_CREAT | 0600);
+/* Only the creating process and its children can access */
+
+/* 2. Set restrictive permissions */
+int fd = shm_open("/myshm", O_CREAT | O_RDWR | O_EXCL, 0600);
+/* O_EXCL prevents race conditions with existing objects */
+
+/* 3. Use ftruncate + mmap instead of shmat for POSIX shm */
+int fd = shm_open("/myshm", O_CREAT | O_RDWR, 0600);
+ftruncate(fd, 4096);
+void *ptr = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+/* mmap gives more control over memory protection */
+mprotect(ptr, 4096, PROT_READ);  /* Make read-only after setup */
+
+/* 4. Clean up IPC objects when done */
+shm_unlink("/myshm");  /* Remove from namespace */
+```
+
+### Checking for IPC Leaks
+
+```bash
+# Find IPC objects owned by a user
+$ ipcs -u
+
+# Show all IPC objects with creator info
+$ ipcs -a
+
+# Find orphaned shared memory segments
+$ ipcs -m | awk '$6 == 0 {print $2}'  # nattch == 0
+
+# Clean up all IPC objects for current user
+$ ipcrm --all
+
+# POSIX shared memory cleanup
+$ ls /dev/shm/
+$ rm /dev/shm/unused_object
+
+# POSIX message queue cleanup
+$ ls /dev/mqueue/
+$ rm /dev/mqueue/unused_queue
+```
+
+## Advanced IPC Patterns
+
+### Memory-Mapped File IPC
+
+Two processes can communicate through a memory-mapped file:
+
+```c
+#include <sys/mman.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <string.h>
+
+/* Process A: create and write */
+int fd = open("/tmp/shared.dat", O_CREAT | O_RDWR, 0644);
+ftruncate(fd, 4096);
+void *ptr = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+sprintf(ptr, "Hello from PID %d", getpid());
+msync(ptr, 4096, MS_SYNC);
+
+/* Process B: open and read */
+int fd = open("/tmp/shared.dat", O_RDONLY);
+void *ptr = mmap(NULL, 4096, PROT_READ, MAP_SHARED, fd, 0);
+printf("Received: %s\n", (char *)ptr);
+```
+
+**Advantages over pipes:**
+- Random access to shared data
+- Survives process restarts (data persists on disk)
+- Can be much larger than pipe buffers
+
+**Disadvantages:**
+- Requires synchronization (no built-in signaling)
+- File must be on a filesystem (not tmpfs for pure IPC)
+
+### futex-Based Synchronization
+
+`futex` (Fast Userspace muTEX) is the building block for efficient synchronization:
+
+```c
+#include <linux/futex.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+
+static int futex_wait(int *addr, int expected) {
+    return syscall(SYS_futex, addr, FUTEX_WAIT, expected, NULL, NULL, 0);
+}
+
+static int futex_wake(int *addr, int n) {
+    return syscall(SYS_futex, addr, FUTEX_WAKE, n, NULL, NULL, 0);
+}
+
+/* Simple mutex using futex */
+static int mutex = 0;  /* 0 = unlocked, 1 = locked, 2 = locked with waiters */
+
+void lock(void) {
+    int expected = 0;
+    if (__atomic_compare_exchange_n(&mutex, &expected, 1, 0,
+                                    __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
+        return;  /* Fast path: uncontended */
+    }
+    /* Slow path: someone else holds the lock */
+    while (__atomic_exchange_n(&mutex, 2, __ATOMIC_ACQUIRE) != 0) {
+        futex_wait(&mutex, 2);
+    }
+}
+
+void unlock(void) {
+    if (__atomic_exchange_n(&mutex, 0, __ATOMIC_RELEASE) == 2) {
+        futex_wake(&mutex, 1);  /* Wake one waiter */
+    }
+}
+```
+
+The key insight: in the uncontended case, `lock()` and `unlock()` are just atomic operations — no syscall needed. The kernel is only involved when there's actual contention.
+
+### pidfd: Modern Process Interaction
+
+Since Linux 5.3, `pidfd` provides race-free process interaction:
+
+```c
+#include <sys/pidfd.h>
+#include <signal.h>
+
+/* Open a pidfd for a child process */
+int pidfd = pidfd_open(pid, 0);
+
+/* Send signal via pidfd (no PID reuse race) */
+pidfd_send_signal(pidfd, SIGTERM, NULL, 0);
+
+/* Wait for process exit */
+struct pollfd pfd = { .fd = pidfd, .events = POLLIN };
+poll(&pfd, 1, -1);  /* Blocks until process exits */
+
+/* Use with epoll for event-driven process monitoring */
+struct epoll_event ev = { .events = EPOLLIN, .data.fd = pidfd };
+epoll_ctl(epoll_fd, EPOLL_CTL_ADD, pidfd, &ev);
+```
+
+**Why pidfd matters:** PIDs can be reused after a process exits. Traditional `kill(pid, sig)` can accidentally signal the wrong process. `pidfd` binds to the specific process instance.
+
 ## Performance Comparison
 
 Typical benchmarks on modern hardware (Intel i7, DDR4):
@@ -389,6 +535,48 @@ Typical benchmarks on modern hardware (Intel i7, DDR4):
 | System V message queue | ~15 | 1,500 |
 
 *Note: These are approximate and vary significantly by workload, message size, and hardware.*
+
+### Benchmarking IPC
+
+```c
+/* Simple ping-pong benchmark: measure round-trip latency */
+#include <stdio.h>
+#include <time.h>
+#include <unistd.h>
+
+#define ITERATIONS 100000
+
+int main(void) {
+    int pipe1[2], pipe2[2];
+    pipe(pipe1); pipe(pipe2);
+
+    struct timespec start, end;
+    clock_gettime(CLOCK_MONOTONIC, &start);
+
+    if (fork() == 0) {
+        /* Child: echo back */
+        char buf[64];
+        for (int i = 0; i < ITERATIONS; i++) {
+            read(pipe1[0], buf, 1);
+            write(pipe2[1], "x", 1);
+        }
+        _exit(0);
+    }
+
+    /* Parent: send and receive */
+    char buf[64];
+    for (int i = 0; i < ITERATIONS; i++) {
+        write(pipe1[1], "x", 1);
+        read(pipe2[0], buf, 1);
+    }
+
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    double us = (end.tv_sec - start.tv_sec) * 1e6 +
+                (end.tv_nsec - start.tv_nsec) / 1e3;
+    printf("Pipe round-trip: %.2f μs\n", us / ITERATIONS);
+    return 0;
+}
+```
 
 ## References
 
