@@ -481,23 +481,288 @@ ssize_t n2 = syscall(__NR_read, fd, buf, sizeof(buf));
 - Bypassing glibc behavior (e.g., cancellation points)
 - Testing and debugging
 
+## ARM64 System Calls
+
+ARM64 Linux uses the `SVC` (Supervisor Call) instruction for system calls:
+
+### ARM64 Calling Convention
+
+```asm
+// ARM64 syscall convention:
+// x8 = syscall number
+// x0-x5 = arguments (6 args max)
+// x0 = return value
+
+mov x8, #64         // __NR_write
+mov x0, #1          // fd = stdout
+ldr x1, =msg        // buf
+mov x2, #13         // count
+svc #0               // invoke syscall
+// Return value in x0
+```
+
+### ARM64 vs x86-64 Comparison
+
+| Aspect | x86-64 | ARM64 |
+|--------|--------|-------|
+| Instruction | `SYSCALL` | `SVC #0` |
+| Syscall number register | `%rax` | `x8` |
+| Arguments | `%rdi, %rsi, %rdx, %r10, %r8, %r9` | `x0-x5` |
+| Return value | `%rax` | `x0` |
+| Clobbered by kernel | `%rcx, %r11` | `x0-x7, x30` |
+| Entry point | `IA32_LSTAR` MSR | `vectors` page |
+| Error convention | Negative errno | Negative errno |
+
+### ARM64 Kernel Entry
+
+```asm
+// arch/arm64/kernel/entry.S
+el0_sync:
+    kernel_entry 0
+    mrs x25, esr_el1          // Exception Syndrome Register
+    lsr x24, x25, #ESR_ELx_EC_SHIFT // Exception class
+    cmp x24, #ESR_ELx_EC_SVC64  // SVC from AArch64?
+    b.eq el0_svc
+    // ... handle other exceptions ...
+
+el0_svc:
+    adrp stbl, sys_call_table   // Load syscall table
+    // ... lookup and dispatch ...
+```
+
+## Syscall Auditing
+
+The audit subsystem can track all system calls:
+
+```bash
+# Enable syscall auditing
+sudo auditctl -a always,exit -F arch=b64 -S openat -F success=1
+sudo auditctl -a always,exit -F arch=b64 -S execve
+
+# Search audit logs
+sudo ausearch -sc execve --interpret
+# type=EXECVE msg=audit(1690000000.123:456): argc=3 a0="ls" a1="-la" a2="/tmp"
+
+# Audit all syscalls for a specific user
+sudo auditctl -a always,exit -F arch=b64 -S all -F uid=1000
+
+# Monitor file access
+sudo auditctl -w /etc/passwd -p wa -k passwd_access
+sudo ausearch -k passwd_access
+
+# Performance impact: auditing adds ~5-10% syscall overhead
+# Only audit what you need
+```
+
+## Syscall Error Handling
+
+### The Negative Errno Convention
+
+```c
+/* Kernel return convention: 
+ * - Success: non-negative value (often bytes transferred)
+ * - Error: negative errno value
+ *
+ * glibc wrapper: sets errno and returns -1
+ */
+
+ssize_t n = read(fd, buf, sizeof(buf));
+if (n < 0) {
+    /* errno is set by glibc */
+    switch (errno) {
+    case EAGAIN:     /* Non-blocking, try again later */
+    case EINTR:      /* Interrupted by signal, retry */
+    case EIO:        /* I/O error */
+    case EFAULT:     /* Bad buffer address */
+    case EBADF:      /* Bad file descriptor */
+        break;
+    }
+}
+```
+
+### EINTR Handling
+
+```c
+/* Many syscalls can be interrupted by signals and return EINTR.
+ * The correct pattern is to retry: */
+
+ssize_t safe_read(int fd, void *buf, size_t count)
+{
+    ssize_t n;
+    do {
+        n = read(fd, buf, count);
+    } while (n < 0 && errno == EINTR);
+    return n;
+}
+
+/* Functions that can return EINTR:
+ * read(), write(), open(), close(), connect(), accept(),
+ * waitpid(), sem_wait(), mq_receive(), nanosleep(), etc.
+ */
+```
+
+### Common Syscall Pitfalls
+
+```c
+/* 1. TOCTOU (Time-of-Check-Time-of-Use) vulnerability */
+/* BAD: race between access() and open() */
+if (access(filename, W_OK) == 0) {
+    fd = open(filename, O_WRONLY);  // File may have changed!
+}
+/* GOOD: use open() with O_CREAT and handle EACCES */
+fd = open(filename, O_WRONLY | O_CREAT | O_EXCL, 0600);
+
+/* 2. Short reads/writes */
+/* read()/write() may return fewer bytes than requested */
+ssize_t total = 0;
+while (total < count) {
+    ssize_t n = write(fd, buf + total, count - total);
+    if (n < 0) {
+        if (errno == EINTR) continue;
+        return -1;
+    }
+    total += n;
+}
+
+/* 3. Signal safety */
+/* Only async-signal-safe functions can be called from signal handlers */
+/* Safe: write(), read(), _exit(), kill() */
+/* Unsafe: malloc(), printf(), mutex_lock() */
+```
+
+## Syscall Categories
+
+### Common Syscall Families
+
+| Category | Key Syscalls | Man Section |
+|----------|-------------|-------------|
+| File I/O | `open`, `read`, `write`, `close`, `lseek` | 2 |
+| Process | `fork`, `execve`, `wait4`, `exit`, `kill` | 2 |
+| Memory | `mmap`, `munmap`, `brk`, `mprotect`, `madvise` | 2 |
+| Network | `socket`, `bind`, `listen`, `accept`, `connect` | 2 |
+| IPC | `pipe`, `shmget`, `msgget`, `semget` | 2 |
+| Time | `clock_gettime`, `nanosleep`, `timerfd` | 2 |
+| Security | `seccomp`, `prctl`, `capset`, `pivot_root` | 2 |
+| Signals | `sigaction`, `sigprocmask`, `signalfd` | 2 |
+
+### Syscall Frequency Analysis
+
+```bash
+# What syscalls does a typical program make?
+strace -c ls /tmp 2>&1 | tail -15
+% time     seconds  usecs/call     calls    errors syscall
+------ ----------- ----------- --------- --------- ----------------
+  0.00    0.000000           0         1           read
+  0.00    0.000000           0         3           write
+  0.00    0.000000           0         5           open
+  0.00    0.000000           0         5           close
+  0.00    0.000000           0         8           fstat
+  0.00    0.000000           0        12           mmap
+  0.00    0.000000           0         3           mprotect
+  0.00    0.000000           0         1           munmap
+  0.00    0.000000           0         1           brk
+  ...
+100.00    0.000123                     42           total
+
+# System-wide syscall profiling
+sudo perf stat -e 'raw_syscalls:sys_enter' -a sleep 5
+# 123,456 raw_syscalls:sys_enter
+```
+
+## Syscall Interposition
+
+Syscall interposition allows you to intercept and modify syscall behavior:
+
+### ptrace-based Interposition
+
+```c
+/* strace uses ptrace to intercept syscalls */
+#include <sys/ptrace.h>
+#include <sys/wait.h>
+
+pid_t child = fork();
+if (child == 0) {
+    /* Child: request tracing */
+    ptrace(PTRACE_TRACEME, 0, NULL, NULL);
+    execvp("ls", (char *[]){"ls", NULL});
+} else {
+    /* Parent: intercept syscalls */
+    int status;
+    while (waitpid(child, &status, 0) > 0) {
+        struct ptrace_syscall_info info;
+        ptrace(PTRACE_GET_SYSCALL_INFO, child, sizeof(info), &info);
+        /* info.op.nr = syscall number */
+        /* info.entry.args[0..5] = arguments */
+        ptrace(PTRACE_SYSCALL, child, NULL, NULL);
+    }
+}
+```
+
+### seccomp Notify
+
+```c
+/* seccomp user notification (since Linux 5.0) */
+/* Allows a supervisor process to handle syscalls for another process */
+
+#include <linux/seccomp.h>
+#include <sys/ioctl.h>
+
+/* Supervisor sets up notification fd */
+struct seccomp_notif_addfd addfd = {
+    .id = req->id,
+    .newfd = new_fd,
+};
+ioctl(notify_fd, SECCOMP_IOCTL_NOTIF_ADDFD, &addfd);
+```
+
+## io_uring: Batching Syscalls
+
+`io_uring` reduces syscall overhead by batching I/O operations:
+
+```c
+/* Traditional: 1 syscall per I/O
+ * read() -> syscall -> return
+ * read() -> syscall -> return
+ * read() -> syscall -> return
+ *
+ * io_uring: submit multiple I/Os, then wait for all
+ * io_uring_submit() -> 1 syscall, 3 I/Os
+ */
+
+#include <liburing.h>
+
+struct io_uring ring;
+io_uring_queue_init(32, &ring, 0);
+
+/* Submit 3 reads in one syscall */
+for (int i = 0; i < 3; i++) {
+    struct io_uring_sqe *sqe = io_uring_get_sqe(&ring);
+    io_uring_prep_read(sqe, fds[i], bufs[i], 4096, 0);
+}
+io_uring_submit(&ring);  /* Single syscall for all 3 */
+
+/* Wait for all completions */
+for (int i = 0; i < 3; i++) {
+    struct io_uring_cqe *cqe;
+    io_uring_wait_cqe(&ring, &cqe);
+    /* Process completion */
+    io_uring_cqe_seen(&ring, cqe);
+}
+```
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
 - [LWN.net - Linux and free software news](https://lwn.net/)
-- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
-- [GNU Manuals](https://www.gnu.org/manual/manual.html)
-- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
-- [Planet GNU](https://planet.gnu.org/)
-- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
-
 - [Linux System Call Table (x86-64)](https://filippo.io/linux-syscall-table/)
+- [Linux System Call Table (ARM64)](https://arm64.syscall.sh/)
 - [man 2 syscall](https://man7.org/linux/man-pages/man2/syscall.2.html)
 - [man 2 syscalls](https://man7.org/linux/man-pages/man2/syscalls.2.html)
 - [Kernel source: arch/x86/entry/entry_64.S](https://elixir.bootlin.com/linux/latest/source/arch/x86/entry/entry_64.S)
-- [Kernel source: arch/x86/entry/syscalls/](https://elixir.bootlin.com/linux/latest/source/arch/x86/entry/syscalls)
+- [Kernel source: arch/arm64/kernel/entry.S](https://elixir.bootlin.com/linux/latest/source/arch/arm64/kernel/entry.S)
 - [seccomp(2) man page](https://man7.org/linux/man-pages/man2/seccomp.2.html)
-- ["What Every Programmer Should Know About Floating-Point Arithmetic" — but for syscalls](https://blog.packagecloud.io/using-strace-to-find-the-cause-of-slow-system-calls/)
+- [io_uring documentation](https://kernel.dk/io_uring.pdf)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
 
 ## Related Topics
 
@@ -507,3 +772,4 @@ ssize_t n2 = syscall(__NR_read, fd, buf, sizeof(buf));
 - [io_uring](./io-uring.md) — Modern async syscall interface
 - [ELF Format](./elf.md) — How binaries invoke syscalls
 - [Dynamic Linking](./dynamic-linking.md) — How `libc` wraps syscalls
+- [Seccomp](../security/seccomp.md) — Syscall filtering
