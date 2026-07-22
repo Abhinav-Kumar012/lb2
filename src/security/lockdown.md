@@ -283,6 +283,18 @@ Lockdown significantly impacts kernel debugging:
 
 Workaround: use a debug kernel with lockdown disabled, or sign debugging modules.
 
+### perf
+
+```bash
+# perf partially works under lockdown
+perf stat ls           # OK - counting events
+perf record -g ls      # OK - sampling
+perf probe -a func     # Blocked - kprobe creation requires write
+
+# In confidentiality mode
+perf top               # Blocked - reads kernel symbols
+```
+
 ## Distributions and Lockdown
 
 ### Fedora/RHEL
@@ -320,6 +332,15 @@ On most distributions, lockdown can be disabled by:
 
 **Warning**: disabling lockdown reduces system security, especially on systems
 exposed to network access.
+
+```bash
+# Disable lockdown via kernel command line
+# Edit GRUB config:
+GRUB_CMDLINE_LINUX_DEFAULT="quiet splash lockdown=none"
+sudo update-grub
+
+# Or at boot: edit GRUB entry and add lockdown=none
+```
 
 ## Building a Custom Kernel with Lockdown
 
@@ -373,6 +394,30 @@ Known bypass techniques (and mitigations):
 | `kexec` to malicious kernel | Blocked; `kexec_file_load` requires signature |
 | EFI variable modification | Blocked                      |
 | `/proc/kcore` memory read | Blocked in confidentiality   |
+| DMA via Thunderbolt     | IOMMU, Thunderbolt security    |
+| Physical memory access  | Full-disk encryption, TPM      |
+
+## Debugging Lockdown Issues
+
+```bash
+# Check if lockdown is active
+cat /sys/kernel/security/lockdown
+
+# Check why a specific operation is blocked
+dmesg | grep -i lockdown
+# Lockdown: insmod: unsigned module loading is restricted
+# Lockdown: /dev/mem: kmem access is restricted
+
+# Check Secure Boot state
+mokutil --sb-state
+
+# Check if module is signed
+modinfo -F sig my_module
+modinfo -F signer my_module
+
+# Verify kernel module signing
+scripts/verify-module-sig /lib/modules/$(uname -r)/kernel/drivers/my_module.ko
+```
 
 ## See Also
 
@@ -382,8 +427,9 @@ Known bypass techniques (and mitigations):
   affected by lockdown
 - [Page Table Isolation](../performance/page-table-isolation.md) — another
   kernel security hardening feature
-- [Thermal Framework](../kernel/drivers/thermal.md) — kernel subsystems
-  with debugfs interfaces affected by lockdown
+- [IMA/EVM](./ima.md) — integrity measurement and appraisal
+- [Secure Boot](./secure-boot.md) — UEFI trust chain
+- [LSM Framework](./lsm.md) — Linux Security Module framework
 
 ## Further Reading
 
