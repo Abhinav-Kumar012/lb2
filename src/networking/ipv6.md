@@ -429,6 +429,318 @@ $ ndisc6 2001:db8::1 eth0   # Send NDP queries
 $ rdisc6 eth0
 ```
 
+## IPv6 Routing in Linux
+
+### Enabling IPv6 Forwarding
+
+```bash
+# Enable IPv6 forwarding (for routers/gateways)
+sysctl -w net.ipv6.conf.all.forwarding=1
+
+# Make persistent in /etc/sysctl.conf
+net.ipv6.conf.all.forwarding = 1
+
+# Disable Router Advertisements when forwarding (router behavior)
+sysctl -w net.ipv6.conf.eth0.accept_ra=2
+# 0 = don't accept RA
+# 1 = accept RA when not forwarding
+# 2 = accept RA even when forwarding (for upstream gateway)
+```
+
+### IPv6 Static Routing
+
+```bash
+# Add a static route
+ip -6 route add 2001:db8:cafe::/48 via fe80::1 dev eth0
+
+# Add a default route
+ip -6 route add default via fe80::1 dev eth0
+
+# Route with metric
+ip -6 route add 2001:db8:dead::/48 via fe80::2 dev eth1 metric 200
+
+# View the IPv6 routing table
+ip -6 route show
+# 2001:db8::/32 via fe80::1 dev eth0 proto ra metric 100 pref medium
+# 2001:db8:cafe::/64 dev eth1 proto kernel metric 256 pref medium
+# fe80::/64 dev eth0 proto kernel metric 256 pref medium
+# default via fe80::1 dev eth0 proto ra metric 100 pref medium
+```
+
+### OSPFv3 with FRRouting
+
+```bash
+# Install FRR (Free Range Routing)
+apt install frr
+
+# Enable ospf6d daemon
+# /etc/frr/daemons
+ospf6d=yes
+
+# /etc/frr/frr.conf
+frr defaults traditional
+hostname router1
+!
+router ospf6
+  ospf6 router-id 10.0.0.1
+  interface eth0 area 0.0.0.0
+  interface eth1 area 0.0.0.1
+  redistribute connected
+  redistribute static
+!
+interface eth0
+  ipv6 ospf6 passive
+  ipv6 ospf6 cost 10
+!
+interface eth1
+  ipv6 ospf6 cost 100
+!
+
+# Start FRR
+systemctl enable --now frr
+
+# Verify OSPFv3 neighbors
+vtysh -c "show ipv6 ospf6 neighbor"
+vtysh -c "show ipv6 ospf6 route"
+```
+
+### IPv6 Policy-Based Routing
+
+```bash
+# Create custom routing table
+echo "200 isp1" >> /etc/iproute2/rt_tables
+echo "201 isp2" >> /etc/iproute2/rt_tables
+
+# Add routes to custom tables
+ip -6 route add default via 2001:db8:1::1 dev eth0 table isp1
+ip -6 route add default via 2001:db8:2::1 dev eth1 table isp2
+
+# Policy rules: source-based routing
+ip -6 rule add from 2001:db8:1::/48 table isp1
+ip -6 rule add from 2001:db8:2::/48 table isp2
+
+# Verify
+ip -6 rule show
+ip -6 route show table isp1
+```
+
+## IPv6 Segment Routing (SRv6)
+
+Segment Routing over IPv6 (SRv6) uses IPv6 extension headers to encode a forwarding path as an ordered list of segments. Linux supports SRv6 since kernel 5.10+.
+
+```bash
+# SRv6 requires:
+# - CONFIG_IPV6_SEG6_LWTUNNEL=y
+# - CONFIG_IPV6_SEG6_HMAC=y
+
+# Create an SRv6 tunnel
+ip route add 2001:db8:cafe::/48 encap seg6 mode encap segs 2001:db8::1,2001:db8::2 dev eth0
+
+# SRv6 End function (endpoint behavior)
+ip -6 route add 2001:db8::1/128 encap seg6local action End dev lo
+
+# SRv6 End.DX6 (decap and cross-connect)
+ip -6 route add 2001:db8::2/128 encap seg6local action End.DX6 nh6 :: dev eth1
+
+# View SRv6 configuration
+ip -6 route show encap
+```
+
+## IPv6 Network Namespaces
+
+```bash
+# Create an IPv6-enabled namespace
+ip netns add ns1
+ip link add veth-h type veth peer name veth-n
+ip link set veth-n netns ns1
+
+# Assign IPv6 addresses
+ip -6 addr add 2001:db8::1/64 dev veth-h
+ip netns exec ns1 ip -6 addr add 2001:db8::2/64 dev veth-n
+
+# Enable interfaces
+ip link set veth-h up
+ip netns exec ns1 ip link set veth-n up
+ip netns exec ns1 ip link set lo up
+
+# Test
+ip netns exec ns1 ping6 2001:db8::1
+
+# IPv6 in Docker networks
+docker network create --ipv6 --subnet=2001:db8:docker::/64 ipv6net
+```
+
+## IPv6 Happy Eyeballs (RFC 8305)
+
+Happy Eyeballs v2 is an algorithm that attempts connections over both IPv6 and IPv4 simultaneously, preferring IPv6 but falling back to IPv4 quickly if IPv6 is broken.
+
+```mermaid
+sequenceDiagram
+    participant App
+    participant DNS
+    participant IPv6 as IPv6 Path
+    participant IPv4 as IPv4 Path
+
+    App->>DNS: Resolve example.com
+    DNS-->>App: AAAA: 2001:db8::1, A: 192.0.2.1
+    Note over App: Start connection attempts
+    App->>IPv6: Connect [2001:db8::1]:443
+    Note over App: Wait 250ms (Connection Attempt Delay)
+    App->>IPv4: Connect [192.0.2.1]:443
+    Note over IPv6: Connection succeeded
+    App->>App: Use IPv6 connection
+    App->>IPv4: Cancel IPv4 attempt
+```
+
+```bash
+# Linux system libraries (glibc) implement Happy Eyeballs
+# Applications using getaddrinfo() + connect() get it automatically
+
+# curl explicitly implements it
+curl -v https://example.com/
+# * Trying 2001:db8::1:443...
+# * Trying 192.0.2.1:443...
+# * Connected to example.com (2001:db8::1) port 443
+
+# Configure system-wide address preference
+# /etc/gai.conf
+# Prefer IPv6 over IPv4
+precedence ::1/128       50
+precedence ::/0          40
+precedence 2002::/16     30
+precedence ::/96         20
+precedence ::ffff:0:0/96 10
+```
+
+## IPv6-Only Networking
+
+Modern networks are moving toward IPv6-only operation with translation mechanisms for legacy IPv4 access.
+
+### NAT64 with Jool
+
+```bash
+# Install Jool (kernel module NAT64/SIIT)
+apt install jool-dkms jool-tools
+
+# Configure SIIT (stateless translation)
+modprobe jool_siit
+jool_siit instance add --pool6 2001:db8:64:ff9b::/96
+jool_siit eamt add 2001:db8:64:ff9b:c000:201 192.0.2.1
+
+# Configure NAT64 (stateful translation)
+modprobe jool
+jool instance add --pool6 2001:db8:64:ff9b::/96 \
+  --pool4 192.0.2.100-192.0.2.200
+
+# Verify
+jool status display
+```
+
+### DNS64
+
+```bash
+# BIND9 DNS64 configuration
+# /etc/bind/named.conf.options
+options {
+    dns64 2001:db8:64:ff9b::/96 {
+        clients { any; };
+        mapped { !10.0.0.0/8; any; };
+        exclude { 2001:db8:64:ff9b::/96; };
+    };
+};
+```
+
+## IPv6 Privacy and Security Hardening
+
+### Temporary Addresses (RFC 4941)
+
+```bash
+# Enable privacy extensions
+sysctl -w net.ipv6.conf.all.use_tempaddr=2
+sysctl -w net.ipv6.conf.default.use_tempaddr=2
+
+# Temporary address lifetime
+sysctl -w net.ipv6.conf.all.temp_prefered_lft=86400    # 1 day preferred
+sysctl -w net.ipv6.conf.all.temp_valid_lft=604800       # 7 days valid
+
+# View temporary addresses
+ip -6 addr show temporary
+```
+
+### Stable Privacy Addresses (RFC 7217)
+
+```bash
+# Use stable-privacy instead of EUI-64
+# Prevents address scanning based on MAC vendor
+sysctl -w net.ipv6.conf.all.addr_gen_mode=1
+sysctl -w net.ipv6.conf.default.addr_gen_mode=1
+
+# Custom secret key for stable-privacy generation
+sysctl -w net.ipv6.conf.all.stable_secret="$(openssl rand -hex 16)"
+```
+
+### IPv6 Firewall Hardening
+
+```bash
+# Drop invalid packets
+ip6tables -A INPUT -m conntrack --ctstate INVALID -j DROP
+
+# Allow established connections
+ip6tables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+
+# Allow essential ICMPv6
+ip6tables -A INPUT -p icmpv6 --icmpv6-type echo-request -j ACCEPT
+ip6tables -A INPUT -p icmpv6 --icmpv6-type echo-reply -j ACCEPT
+ip6tables -A INPUT -p icmpv6 --icmpv6-type router-solicitation -j ACCEPT
+ip6tables -A INPUT -p icmpv6 --icmpv6-type router-advertisement -j ACCEPT
+ip6tables -A INPUT -p icmpv6 --icmpv6-type neighbour-solicitation -j ACCEPT
+ip6tables -A INPUT -p icmpv6 --icmpv6-type neighbour-advertisement -j ACCEPT
+ip6tables -A INPUT -p icmpv6 --icmpv6-type redirect -j ACCEPT
+
+# Rate limit Router Advertisements from unauthorized sources
+ip6tables -A INPUT -p icmpv6 --icmpv6-type router-advertisement \
+  -m mac --mac-source aa:bb:cc:dd:ee:ff -j ACCEPT
+ip6tables -A INPUT -p icmpv6 --icmpv6-type router-advertisement -j DROP
+
+# Drop all other traffic
+ip6tables -A INPUT -j DROP
+
+# Save rules
+ip6tables-save > /etc/iptables/rules.v6
+```
+
+### RA Guard (Layer 2)
+
+```bash
+# On managed switches (Cisco example)
+# interface GigabitEthernet0/1
+#   ipv6 nd raguard
+#   ipv6 nd raguard attach-policy RA-GUARD-POLICY
+
+# Linux-based RA guard using ebtables
+ebtables -A FORWARD -p IPv6 --ip6-proto ipv6-icmp \
+  --ip6-icmpv6-type router-advertisement -j DROP
+```
+
+## IPv6 Performance Tuning
+
+```bash
+# Increase neighbor cache size
+sysctl -w net.ipv6.neigh.default.gc_thresh1=4096
+sysctl -w net.ipv6.neigh.default.gc_thresh2=8192
+sysctl -w net.ipv6.neigh.default.gc_thresh3=16384
+
+# Tune neighbor discovery timeout
+sysctl -w net.ipv6.neigh.default.retrans_time_ms=1000
+sysctl -w net.ipv6.neigh.default.base_reachable_time_ms=30000
+
+# Increase IPv6 route cache size
+sysctl -w net.ipv6.route.max_size=2097152
+
+# Enable IPv6 multipath routing
+sysctl -w net.ipv6.conf.all.accept_source_route=0
+```
+
 ## Further Reading
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)

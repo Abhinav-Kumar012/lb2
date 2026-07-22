@@ -475,6 +475,158 @@ pr_debug_ratelimited("message: %d\n", value);
 
 ---
 
+## Advanced Techniques
+
+### Combining with ftrace
+
+Dynamic debug can be combined with ftrace for more detailed tracing:
+
+```bash
+# Enable dynamic debug messages via ftrace
+# First, enable ftrace for print events
+echo 1 > /sys/kernel/tracing/events/enable
+
+# Then enable dynamic debug
+module e1000e +p" > /sys/kernel/debug/dynamic_debug/control
+
+# Use trace-cmd to capture with timing
+sudo trace-cmd record -e print -p nop sleep 5
+sudo trace-cmd report | head -50
+```
+
+### Filtering with grep and awk
+
+```bash
+# Enable debug and capture with timestamp filtering
+echo "module iwlwifi +p" > /sys/kernel/debug/dynamic_debug/control
+
+# Capture and filter by timestamp
+dmesg -T | awk '/iwlwifi/ && /2024-01-15 10:3[0-9]/' > filtered.log
+
+# Extract specific fields from dyndbg output
+dmesg | grep 'e1000e' | awk '{print $1, $3, $5, $0}' | column -t
+
+# Count debug messages per function
+dmesg | grep -oP '\[.*?\] \K\S+' | sort | uniq -c | sort -rn | head
+```
+
+### Dynamic Debug in Containers
+
+When debugging kernel modules from containers:
+
+```bash
+# Container needs CAP_SYS_ADMIN or debugfs mounted
+# Mount debugfs in container
+docker run --privileged -v /sys/kernel/debug:/sys/kernel/debug myimage
+
+# Or more granularly
+docker run --cap-add=SYS_ADMIN \
+  -v /sys/kernel/debug/dynamic_debug/control:/sys/kernel/debug/dynamic_debug/control \
+  myimage
+
+# From container, enable debug
+module e1000e +p" > /sys/kernel/debug/dynamic_debug/control
+```
+
+### Debug Workflow for Kernel Modules
+
+A systematic approach to debugging kernel module issues:
+
+```bash
+#!/bin/bash
+# workflow.sh - Systematic dynamic debug workflow
+
+MODULE="$1"
+ISSUE="$2"  # e.g., "probe", "init", "io"
+
+CONTROL="/sys/kernel/debug/dynamic_debug/control"
+
+if [ -z "$MODULE" ]; then
+    echo "Usage: $0 <module> [issue]"
+    exit 1
+fi
+
+echo "=== Step 1: Check if module is loaded ==="
+lsmod | grep "$MODULE"
+
+echo "=== Step 2: Enable all debug for module ==="
+echo "module $MODULE +pflm" > "$CONTROL"
+
+echo "=== Step 3: Reproduce the issue ==="
+echo "Press Enter after reproducing..."
+read -r
+
+echo "=== Step 4: Collect debug output ==="
+LOG="debug_${MODULE}_$(date +%Y%m%d_%H%M%S).log"
+dmesg | grep -i "$MODULE" > "$LOG"
+echo "Debug saved to: $LOG"
+
+echo "=== Step 5: Disable debug ==="
+echo "module $MODULE -p" > "$CONTROL"
+
+echo "=== Step 6: Summary ==="
+grep -c "." "$LOG"
+echo "messages captured"
+```
+
+### Performance-Sensitive Debugging
+
+When debugging performance-critical paths:
+
+```bash
+# Use pr_debug_ratelimited() in code to avoid flooding
+# pr_debug_ratelimited("value: %d\n", val);
+
+# Enable only specific lines to minimize overhead
+echo "file drivers/net/e1000e/netdev.c line 1823 +p" > \
+    /sys/kernel/debug/dynamic_debug/control
+
+# Enable debug for a short window
+module e1000e +p" > /sys/kernel/debug/dynamic_debug/control
+sleep 0.5
+echo "module e1000e -p" > /sys/kernel/debug/dynamic_debug/control
+
+# Use perf to correlate with dynamic debug
+perf record -g -e cycles -- sleep 1 &
+module e1000e +p" > /sys/kernel/debug/dynamic_debug/control
+sleep 1
+echo "module e1000e -p" > /sys/kernel/debug/dynamic_debug/control
+wait
+perf report
+```
+
+### Dynamic Debug vs printk Levels
+
+| Feature | Dynamic Debug (dyndbg) | printk Levels |
+|---------|----------------------|---------------|
+| Compile-time | Messages compiled in | Messages compiled in |
+| Runtime control | Per-call-site | Per-message level |
+| Overhead when disabled | One branch per site | None |
+| Granularity | Function/file/module/line | Global level only |
+| Production use | Excellent | Risky (too verbose) |
+| Output destination | Same as printk | Same (kmsg, console) |
+
+### Common dyndbg Patterns
+
+```bash
+# Pattern 1: Debug a specific driver during probe
+echo "func my_driver_probe +pflm" > /sys/kernel/debug/dynamic_debug/control
+
+# Pattern 2: Debug error paths only
+echo "format \"error\" +p" > /sys/kernel/debug/dynamic_debug/control
+echo "format \"fail\" +p" > /sys/kernel/debug/dynamic_debug/control
+
+# Pattern 3: Debug initialization sequence
+echo "file drivers/mydriver/core.c +p" > /sys/kernel/debug/dynamic_debug/control
+
+# Pattern 4: Debug network path
+echo "func tcp_rcv_established +p" > /sys/kernel/debug/dynamic_debug/control
+echo "func tcp_sendmsg +p" > /sys/kernel/debug/dynamic_debug/control
+
+# Pattern 5: Debug with timestamps for latency analysis
+dmesg -T | grep my_func | awk '{print $1, $2, $NF}' | sort
+```
+
 ## Further Reading
 
 - [Linux kernel source: `lib/dynamic_debug.c`](https://elixir.bootlin.com/linux/latest/source/lib/dynamic_debug.c)
