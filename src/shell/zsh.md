@@ -438,6 +438,395 @@ ls ~downloads
 PROMPT='%~$ '  # Shows named dirs as ~name
 ```
 
+## Startup Files
+
+Zsh reads startup files in a specific order, which differs from Bash:
+
+### Startup File Order
+
+```
+┌──────────────────────────────────────────────────┐
+│  Zsh Startup File Order                           │
+├──────────────────────────────────────────────────┤
+│                                                  │
+│  1. /etc/zsh/zshenv      (system-wide, always)   │
+│  2. ~/.zshenv             (user, always)          │
+│  3. /etc/zsh/zprofile     (system, login)         │
+│  4. ~/.zprofile           (user, login)           │
+│  5. /etc/zsh/zshrc        (system, interactive)   │
+│  6. ~/.zshrc              (user, interactive)     │
+│  7. /etc/zsh/zlogin       (system, login)         │
+│  8. ~/.zlogin             (user, login)           │
+│  9. ~/.zlogout            (user, login exit)      │
+│ 10. /etc/zsh/zlogout      (system, login exit)    │
+└──────────────────────────────────────────────────┘
+```
+
+### What Goes Where
+
+```bash
+# ~/.zshenv — Always loaded (keep minimal)
+# Environment variables
+export EDITOR=vim
+export PAGER=less
+
+# ~/.zshrc — Interactive shell config
+# Aliases, functions, prompt, plugins, completion
+autoload -Uz compinit && compinit
+
+# ~/.zprofile — Login-only (like .bash_profile)
+# PATH setup, login-specific config
+export PATH="$HOME/bin:$PATH"
+
+# ~/.zlogin — After zshrc on login
+# Commands to run at login
+fortune
+
+# ~/.zlogout — On login shell exit
+clear
+```
+
+### Checking What's Loaded
+
+```bash
+# Show all startup files zsh would read
+zsh -o SOURCE_TRACE -i -c exit 2>&1 | grep sourced
+
+# Or use zprof
+zmodload zsh/zprof
+zprof
+```
+
+## Zsh Line Editor (ZLE)
+
+ZLE provides powerful line-editing capabilities:
+
+### Keymap Modes
+
+```bash
+# Default: emacs mode
+bindkey -e
+
+# Vi mode
+bindkey -v
+
+# Show current keybindings
+bindkey -L        # List all bindings
+bindkey -M emacs   # List emacs mode bindings
+bindkey -M viins   # List vi insert mode bindings
+
+# Bind a key
+bindkey '^U' kill-whole-line          # Ctrl+U kills whole line
+bindkey '^R' history-incremental-search-backward
+bindkey '^P' up-history
+bindkey '^N' down-history
+bindkey '^A' beginning-of-line
+bindkey '^E' end-of-line
+```
+
+### Custom Widgets
+
+```bash
+# Create a custom widget
+my-widget() {
+    LBUFFER+="Hello World"
+}
+zle -N my-widget
+bindkey '^H' my-widget
+
+# Edit command in editor
+autoload -z edit-command-line
+zle -N edit-command-line
+bindkey '^X^E' edit-command-line
+
+# Push line (save current input, execute something else)
+bindkey '^Q' push-line-or-edit
+
+# URL quoting
+autoload -Uz url-quote-magic
+zle -N self-insert url-quote-magic
+```
+
+### Bracketed Paste
+
+```bash
+# Zsh supports bracketed paste (prevents command execution on paste)
+# Enabled by default in recent versions
+
+# Disable if needed
+# unset zle_bracketed_paste
+
+# Paste safely — content is not interpreted until Enter
+# This prevents malicious pasted commands from executing
+```
+
+## Arithmetic
+
+Zsh supports both integer and floating-point arithmetic:
+
+```bash
+# Integer arithmetic (like Bash)
+echo $((2 + 3))           # 5
+echo $((10 / 3))          # 3
+
+# Floating-point arithmetic (Zsh-specific!)
+echo $((3.14 * 2))        # 6.28
+echo $((10.0 / 3))        # 3.3333333333333335
+
+# Variables in arithmetic
+x=10; y=3
+echo $((x ** y))          # 1000
+
+# Math functions (requires zsh/mathfunc)
+zmodload zsh/mathfunc
+echo $(( sqrt(2.0) ))     # 1.4142135623730951
+echo $(( sin(3.14159/2) )) # 1.0
+
+# Arithmetic assignment
+(( x = 5 + 3 ))
+(( x += 10 ))
+(( x++ ))
+
+# Floating-point with typeset
+typeset -F result=3.14
+echo $result              # 3.1400000000
+
+# Math with let
+let "result = 5 * 3 + 2"
+echo $result              # 17
+```
+
+## Spell Correction
+
+Zsh can correct typos in commands and arguments:
+
+```bash
+# Enable command correction
+setopt CORRECT
+
+# Enable argument correction
+setopt CORRECT_ALL
+
+# Example interaction:
+$ gti status
+# zsh: correct 'gti' to 'git' [nyae]? y
+
+# Correction behavior:
+# y — accept correction
+n — reject correction (execute as-is)
+a — abort
+# e — edit the command line
+
+# Customize correction prompt
+SPROMPT="zsh: correct '%R' to '%r'? [nyae] "
+
+# Hash for directory spelling
+cd /usrl/local     # Corrects to /usr/local
+setopt CDABLE_VARS
+correct_cd=true
+
+# Ignore specific commands from correction
+alias sudo='nocorrect sudo'
+alias man='nocorrect man'
+```
+
+## Directory Stack
+
+Zsh has an enhanced directory stack:
+
+```bash
+# Push directory
+pushd /tmp
+pushd /var/log
+pushd /etc
+
+# Show stack
+dirs -v
+# 0 /etc
+# 1 /var/log
+# 2 /tmp
+
+# Pop directory
+popd
+
+# Navigate stack
+cd ~1    # Go to stack entry 1
+
+# AUTO_PUSHD: cd pushes automatically
+setopt AUTO_PUSHD
+setopt PUSHD_IGNORE_DUPS
+cd /tmp
+cd /var/log
+cd /etc
+dirs -v
+
+# Push without changing
+dirs -c    # Clear stack
+
+# Named directories
+hash -d proj=~/Documents/projects
+cd ~proj
+```
+
+## Prompt Expansion
+
+Zsh has extensive prompt escape sequences:
+
+```bash
+# Basic prompt escapes
+PROMPT='%n@%m:%~$ '      # user@host:dir$
+PROMPT='%F{green}%n%f@%F{blue}%m%f:%F{yellow}%~%f$ '
+
+# Time and date
+PROMPT='%D{%H:%M} %~$ '   # HH:MM dir$
+PROMPT='%D{%Y-%m-%d} %~$ ' # YYYY-MM-DD dir$
+
+# Exit status
+PROMPT='%(?.%F{green}✓.%F{red}✗%?)%f %~$ '
+
+# Git branch (with vcs_info)
+autoload -Uz vcs_info
+precmd() { vcs_info }
+zstyle ':vcs_info:git:*' formats '(%b)'
+PROMPT='%F{blue}%~%f%F{yellow}${vcs_info_msg_0_}%f$ '
+
+# Conditional expressions
+PROMPT='%(1j.%F{cyan}%j jobs%f .)%(?.%F{green}$.%F{red}$)%f '
+
+# Right prompt
+RPROMPT='%F{gray}%D{%H:%M}%f'
+
+# Multiline prompt
+PROMPT=$'\n%F{blue}%~%f\n%F{green}%(!.#.$)%f '
+
+# Prompt escapes reference:
+# %n  — username
+# %m  — hostname (short)
+# %M  — hostname (full)
+# %~  — current dir (with ~ for home)
+# %d  — current dir (full)
+# %/  — current dir (full)
+# %!  — history number
+# %#  — # for root, % for normal
+# %?  — exit status of last command
+# %j  — number of jobs
+# %D{fmt} — date/time
+# %F{color} — start color
+# %f  — reset color
+# %B  — bold on
+# %b  — bold off
+# %U  — underline on
+# %u  — underline off
+```
+
+## Zsh Scripting
+
+Zsh has scripting features that differ from Bash:
+
+### Arrays
+
+```bash
+# Zsh arrays are 1-indexed (not 0-indexed like Bash)
+arr=(one two three)
+echo $arr[1]         # one (first element)
+echo $arr[2]         # two
+echo $arr[-1]        # three (last element)
+echo $arr[@]         # all elements
+echo $#arr           # 3 (number of elements)
+
+# Slice
+echo $arr[2,3]       # two three
+
+# Array operations
+arr+=(four)          # Append
+arr[2]=TWO           # Replace index 2
+
+# Iterate
+for item in $arr; do
+    echo $item
+done
+
+# Associative arrays
+typeset -A map
+map[name]=Alice
+map[age]=30
+echo ${map[name]}
+for key in ${(k)map}; do
+    echo "$key: ${map[$key]}"
+done
+```
+
+### String Operations
+
+```bash
+str="Hello World"
+
+# Length
+${#str}              # 11
+
+# Substring (1-indexed)
+${str[1,5]}          # Hello
+${str[6,11]}         # World
+${str[-5,-1]}        # World
+
+# Case modification
+${str:u}             # HELLO WORLD
+${str:l}             # hello world
+${str:u:0:1}         # H (first char uppercase)
+${str:l:u}           # HELLO WORLD (lowercase then uppercase)
+
+# Pattern removal
+${str#* }            # World (remove shortest prefix up to space)
+${str##* }           # World (remove longest prefix)
+${str% *}            # Hello (remove shortest suffix from space)
+${str%% *}           # Hello (remove longest suffix)
+
+# Search and replace
+${str/World/Zsh}     # Hello Zsh
+${str//l/L}          # HeLLo WorLd (global)
+```
+
+### Zsh-Specific Conditionals
+
+```bash
+# Extended test (like [[ ]] in Bash)
+[[ -f file && -r file ]]
+[[ "$str" == pattern* ]]    # Pattern matching
+[[ "$str" =~ regex ]]       # Regex matching
+
+# Zsh-specific: glob qualifiers in conditionals
+[[ -n *(N) ]]                # Any files exist?
+[[ -f *.txt(N) ]]            # Any .txt files exist?
+
+# Regular expression with capture groups
+if [[ "$version" =~ '^([0-9]+)\.([0-9]+)\.([0-9]+)$' ]]; then
+    echo "Major: $match[1]"    # Zsh uses $match array
+    echo "Minor: $match[2]"
+    echo "Patch: $match[3]"
+fi
+```
+
+### Zsh Built-in Modules
+
+```bash
+# Load modules
+zmodload zsh/mathfunc       # Math functions
+zmodload zsh/complist        # Menu completion
+zmodload zsh/parameter       # Parameter access
+zmodload zsh/zprof           # Profiling
+zmodload zsh/regex           # Regex support
+
+# zsh/mathfunc
+zmodload zsh/mathfunc
+echo $(( sqrt(144) ))        # 12
+echo $(( log(2.71828) ))     # ~1
+
+# zsh/zprof — profile startup
+zmodload zsh/zprof
+# ... at end of .zshrc ...
+zprof
+```
+
 ## Zsh vs Bash
 
 | Feature | Zsh | Bash |

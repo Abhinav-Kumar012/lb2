@@ -78,6 +78,99 @@ F2FS classifies data by update frequency ("temperature"):
 
 This separation reduces write amplification during garbage collection: cold data rarely needs to be moved.
 
+## On-Disk Format
+
+### Superblock Structure
+
+The F2FS superblock is located at the beginning of the device and contains critical filesystem metadata:
+
+```c
+/* Simplified from fs/f2fs/f2fs.h */
+struct f2fs_super_block {
+    __le32 magic;               /* F2FS_SUPER_MAGIC: 0xF2F52010 */
+    __le16 major_ver;           /* Major version */
+    __le16 minor_ver;           /* Minor version */
+    __le32 log_sectorsize;      /* Log2 of sector size */
+    __le32 log_sectors_per_block; /* Log2 of sectors per block */
+    __le32 log_blocksize;       /* Log2 of block size */
+    __le32 log_blocks_per_seg;  /* Log2 of blocks per segment */
+    __le32 segs_per_sec;        /* Segments per section */
+    __le32 secs_per_zone;       /* Sections per zone */
+    __le32 checksum_offset;     /* Checksum offset */
+    __le64 block_count;         /* Total block count */
+    __le32 section_count;       /* Total section count */
+    __le32 segment_count;       /* Total segment count */
+    __le32 segment_count_ckpt;  /* Checkpoint area segments */
+    __le32 segment_count_sit;   /* SIT area segments */
+    __le32 segment_count_nat;   /* NAT area segments */
+    __le32 segment_count_ssa;   /* SSA area segments */
+    __le32 segment_count_main;  /* Main area segments */
+    __le32 segment0_blkaddr;    /* Start block of segment 0 */
+    /* ... more fields ... */
+    __u8 uuid[16];              /* Filesystem UUID */
+    __le16 volume_name[11];     /* Volume label */
+    /* ... */
+};
+```
+
+### Checkpoint Structure
+
+The checkpoint is written as a pair of checkpoint packs (CP1 and CP2) for atomicity:
+
+```c
+/* Simplified from fs/f2fs/f2fs.h */
+struct cp_footer {
+    __le64 checkpoint_ver;      /* Checkpoint version */
+    __le64 user_block_count;    /* Blocks used by user */
+    __le64 valid_block_count;   /* Valid (non-garbage) blocks */
+    __le32 rsvd_segment_count;  /* Reserved segments */
+    __le32 free_segment_count;  /* Free segments */
+    __le32 cur_node_segno[6];   /* Current node log segments */
+    __le16 cur_node_blkoff[6];  /* Block offsets in node logs */
+    __le32 cur_data_segno[6];   /* Current data log segments */
+    __le16 cur_data_blkoff[6];  /* Block offsets in data logs */
+    __le32 ckpt_flags;          /* Checkpoint flags */
+    __le32 cp_pack_total_block_count;
+    __le32 cp_pack_start_block;
+    __le32 valid_node_count;    /* Number of valid nodes */
+    __le32 valid_inode_count;   /* Number of valid inodes */
+    __le32 next_free_nid;       /* Next free node ID */
+    __le32 sit_ver_bitmap_bytesize;
+    __le32 nat_ver_bitmap_bytesize;
+    __le32 checksum_offset;     /* CRC32 checksum */
+    __le64 elapsed_time;        /* Seconds since mount */
+    /* ... */
+};
+```
+
+### On-Disk Layout Diagram
+
+```
+F2FS On-Disk Layout:
+┌─────────────────────────────────────────────────────────────┐
+│ Superblock (1 block)                                        │
+├─────────────────────────────────────────────────────────────┤
+│ Checkpoint (CP1 + CP2, redundant copies)                    │
+├─────────────────────────────────────────────────────────────┤
+│ SIT (Segment Information Table)                             │
+│  - Bitmap: valid blocks per segment                         │
+│  - Version bitmap for GC                                    │
+├─────────────────────────────────────────────────────────────┤
+│ NAT (Node Address Table)                                    │
+│  - Maps node IDs to physical locations                      │
+├─────────────────────────────────────────────────────────────┤
+│ SSA (Segment Summary Area)                                  │
+│  - Summary entries for each block in main area              │
+├─────────────────────────────────────────────────────────────┤
+│ Main Area (six active logs)                                 │
+│  ┌──────────┬──────────┬──────────┐                         │
+│  │Hot Node  │Warm Node │Cold Node │                         │
+│  ├──────────┼──────────┼──────────┤                         │
+│  │Hot Data  │Warm Data │Cold Data │                         │
+│  └──────────┴──────────┴──────────┘                         │
+└─────────────────────────────────────────────────────────────┘
+```
+
 ## Checkpointing
 
 F2FS uses a **checkpoint** mechanism for crash consistency. From the kernel documentation:
@@ -107,38 +200,6 @@ sequenceDiagram
         Note over FS: Recovery starts from new checkpoint
     end
 ```
-
-### Checkpoint Structure
-
-The checkpoint is written as a pair of checkpoint packs (CP1 and CP2) for atomicity. Each pack includes:
-
-```c
-/* Simplified from fs/f2fs/f2fs.h */
-struct cp_footer {
-    __le64 checkpoint_ver;      /* Checkpoint version */
-    __le64 user_block_count;    /* Blocks used by user */
-    __le64 valid_block_count;   /* Valid (non-garbage) blocks */
-    __le32 rsvd_segment_count;  /* Reserved segments */
-    __le32 free_segment_count;  /* Free segments */
-    __le32 cur_node_segno[6];   /* Current node log segments */
-    __le16 cur_node_blkoff[6];  /* Block offsets in node logs */
-    __le32 cur_data_segno[6];   /* Current data log segments */
-    __le16 cur_data_blkoff[6];  /* Block offsets in data logs */
-    __le32 ckpt_flags;          /* Checkpoint flags */
-    __le32 cp_pack_total_block_count;
-    __le32 cp_pack_start_block;
-    __le32 valid_node_count;    /* Number of valid nodes */
-    __le32 valid_inode_count;   /* Number of valid inodes */
-    __le32 next_free_nid;       /* Next free node ID */
-    __le32 sit_ver_bitmap_bytesize;
-    __le32 nat_ver_bitmap_bytesize;
-    __le32 checksum_offset;     /* CRC32 checksum */
-    __le64 elapsed_time;        /* Seconds since mount */
-    /* ... */
-};
-```
-
-The checkpoint writes the **Node Address Table (NAT)** and **Segment Information Table (SIT)** roots, cutting off the wandering tree update propagation — this is a key F2FS design innovation.
 
 ### Checkpoint Commands
 
@@ -244,6 +305,8 @@ The idea is that different types of data (hot/cold) go to different SSD streams,
 | `inline_data` | Inline small file data | off |
 | `inline_dentry` | Inline small directory entries | off |
 | `active_logs={2,4,6}` | Number of active logs | 6 |
+| `extent_cache` | Enable extent cache for faster lookups | on |
+| `memory={normal,low}` | Memory usage mode | normal |
 
 ```bash
 # Typical mount with performance options
@@ -273,6 +336,31 @@ $ lsattr /mnt/f2fs/file.txt
 # Compression statistics
 $ cat /sys/fs/f2fs/<dev>/compr_written_blocks
 $ cat /sys/fs/f2fs/<dev>/compr_saved_blocks
+```
+
+### Compression Algorithms
+
+| Algorithm | Speed | Ratio | CPU Usage | Best For |
+|-----------|-------|-------|-----------|----------|
+| **lzo** | Fastest | Low | Low | General purpose, CPU-constrained |
+| **lz4** | Very fast | Medium | Low | Default choice, balanced |
+| **zstd** | Medium | High | Medium | Space-constrained, cold data |
+
+### Per-File Compression
+
+```bash
+# Enable compression on specific files
+$ chattr +c /mnt/f2fs/data/file.bin
+
+# Disable compression
+$ chattr -c /mnt/f2fs/data/file.bin
+
+# Check compression ratio
+$ cat /sys/fs/f2fs/<dev>/compr_written_blocks
+1000000
+$ cat /sys/fs/f2fs/<dev>/compr_saved_blocks
+300000
+# Compression ratio: 30% space saved
 ```
 
 ## F2FS vs ext4 on SSDs
@@ -319,6 +407,50 @@ struct f2fs_sm_info {
     unsigned int next_blkoff[6];    /* Next block offsets */
     /* ... */
 };
+```
+
+### Node Address Table (NAT)
+
+The NAT maps node IDs (NIDs) to physical block addresses:
+
+```c
+/* NAT entry */
+struct f2fs_nat_entry {
+    __u8 version;           /* NAT version */
+    __le32 ino;             /* Inode number */
+    __le32 block_addr;      /* Physical block address */
+};
+```
+
+This indirection allows F2FS to move node blocks without updating parent pointers — only the NAT entry needs updating.
+
+## Performance Characteristics
+
+### Strengths
+
+- **Sequential writes**: Log-structured design maximizes write throughput
+- **Small file handling**: Inline data and dentries reduce overhead
+- **Compression**: Saves space and reduces I/O
+- **Multi-head logging**: Distributes writes across segments
+
+### Weaknesses
+
+- **Garbage collection overhead**: Can cause latency spikes
+- **Fragmentation**: Over time, sequential files become fragmented
+- **Space overhead**: SIT, NAT, SSA consume flash space
+- **Recovery time**: Roll-forward recovery can be slow on large filesystems
+
+### Tuning Tips
+
+```bash
+# For databases (random I/O)
+mount -t f2fs -o no_heap,extent_cache,inline_xattr /dev/sdb1 /mnt
+
+# For media storage (sequential I/O)
+mount -t f2fs -o compress_algorithm=lz4,background_gc=on /dev/sdb1 /mnt
+
+# For embedded (low memory)
+mount -t f2fs -o memory=low,active_logs=2 /dev/sdb1 /mnt
 ```
 
 ## References
