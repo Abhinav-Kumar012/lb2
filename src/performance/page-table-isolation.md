@@ -487,6 +487,138 @@ perf stat -e dTLB-load-misses,dTLB-store-misses -a sleep 10
 cat /proc/vmstat | grep tlb
 ```
 
+## Additional CPU Vulnerabilities and Mitigations
+
+### L1TF (L1 Terminal Fault)
+
+L1TF (CVE-2018-3620 for OS, CVE-2018-3646 for VMs) is closely related to Meltdown:
+
+```bash
+# Check L1TF status
+cat /sys/devices/system/cpu/vulnerabilities/l1tf
+# Mitigation: PTE Inversion; VMX: conditional cache flushes, SMT vulnerable
+
+# L1TF mitigations include:
+# - PTE inversion (kernel page table entries use inverted physical address bits)
+# - L1D cache flush on VM entry (for KVM)
+# - Disabling SMT (hyperthreading) if needed
+
+# Disable SMT (hyperthreading) for full L1TF mitigation
+echo off > /sys/devices/system/cpu/smt/control
+
+# Force L1D cache flush (KVM)
+# /sys/module/kvm_intel/parameters/vmentry_l1d_flush
+# "always" = flush on every VM entry
+# "cond" = flush only when needed
+# "never" = no flush (insecure)
+```
+
+### MDS (Microarchitectural Data Sampling)
+
+MDS vulnerabilities (CVE-2018-12126, -12127, -12130, -12130) affect Intel CPUs:
+
+```bash
+# Check MDS status
+cat /sys/devices/system/cpu/vulnerabilities/mds
+# Mitigation: Clear CPU buffers; SMT vulnerable
+
+# MDS is mitigated by:
+# - VERW instruction clears CPU microarchitectural buffers
+# - KPTI helps (kernel buffers not accessible from user mode)
+# - Disabling SMT provides full mitigation
+
+# Check all MDS variants
+cat /sys/devices/system/cpu/vulnerabilities/mds
+cat /sys/devices/system/cpu/vulnerabilities/tsx_async_abort
+cat /sys/devices/system/cpu/vulnerabilities/mmio_stale_data
+```
+
+### MMIO Stale Data
+
+```bash
+# CVE-2022-21123, -21125, -21166
+cat /sys/devices/system/cpu/vulnerabilities/mmio_stale_data
+# Mitigation: Clear CPU buffers
+
+# Full mitigation list
+grep . /sys/devices/system/cpu/vulnerabilities/*
+```
+
+## Comprehensive Mitigation Status
+
+```bash
+# View ALL CPU vulnerability mitigations at once
+grep . /sys/devices/system/cpu/vulnerabilities/*
+# /sys/devices/system/cpu/vulnerabilities/l1tf: Mitigation: PTE Inversion
+# /sys/devices/system/cpu/vulnerabilities/mds: Mitigation: Clear CPU buffers
+# /sys/devices/system/cpu/vulnerabilities/meltdown: Mitigation: PTI
+# /sys/devices/system/cpu/vulnerabilities/mmio_stale_data: Mitigation: Clear CPU buffers
+# /sys/devices/system/cpu/vulnerabilities/retbleed: Mitigation: Enhanced IBRS
+# /sys/devices/system/cpu/vulnerabilities/spec_store_bypass: Mitigation: Speculative Store Bypass disabled
+# /sys/devices/system/cpu/vulnerabilities/spectre_v1: Mitigation: usercopy/swapgs barriers
+# /sys/devices/system/cpu/vulnerabilities/spectre_v2: Mitigation: Enhanced / Automatic IBRS
+# /sys/devices/system/cpu/vulnerabilities/srbds: Mitigation: Microcode
+# /sys/devices/system/cpu/vulnerabilities/tsx_async_abort: Mitigation: TSX disabled
+```
+
+### Mitigation Performance Summary
+
+| Mitigation | Vulnerability | Performance Impact | Can Disable? |
+|-----------|---------------|-------------------|-------------|
+| KPTI | Meltdown | 1-8% (with PCID) | `pti=off` (dangerous) |
+| Retpoline | Spectre v2 | 1-5% | `spectre_v2=off` |
+| IBRS/STIBP | Spectre v2 | 0-3% | `spec_store_bypass_disable=off` |
+| SSBD | Spectre v4 | 5-15% on I/O | `spec_store_bypass_disable=off` |
+| L1D flush | L1TF (VMs) | 1-7% per VM entry | `kvm-intel.vmentry_l1d_flush=never` |
+| MDS buffer clear | MDS | 1-3% | `mds=off` (dangerous) |
+| SMT off | Multiple | 20-50% throughput | `nosmt` |
+
+## Runtime Mitigation Control
+
+```bash
+# Disable ALL mitigations (maximum performance, MINIMUM security)
+# Kernel command line:
+pti=off spectre_v2=off spec_store_bypass_disable=off mds=off l1tf=off
+
+# Selective disabling
+# Only disable KPTI (if CPU not affected by Meltdown, e.g., AMD)
+pti=off
+
+# Check which mitigations can be toggled at runtime
+cat /sys/devices/system/cpu/vulnerabilities/*
+# "Not affected" means CPU doesn't need this mitigation
+# "Vulnerable" means mitigation is disabled
+# Other text describes the active mitigation
+```
+
+### Measuring Mitigation Overhead
+
+```bash
+# Measure KPTI overhead specifically
+# Run benchmark with pti=on, then pti=off
+
+# Syscall latency benchmark
+# Install: apt install lmbench
+lat_syscall -P 1 null      # Fastest syscall
+lat_syscall -P 1 read      # File read syscall
+lat_syscall -P 1 write     # File write syscall
+
+# Compare results:
+# pti=on:  read ~245ns, write ~250ns
+# pti=off: read ~180ns, write ~185ns
+# Difference: ~35% slower with KPTI on syscall-heavy workloads
+
+# Network packets/sec benchmark
+netperf -t UDP_STREAM -H localhost
+# pti=on:  ~1.2M pps
+# pti=off: ~1.5M pps
+
+# Context switch benchmark
+lat_ctx -P 1 -s 0 2
+# pti=on:  ~4.5µs
+# pti=off: ~3.2µs
+```
+
 ## See Also
 
 - [Kernel Lockdown](../security/lockdown.md) — another kernel security
@@ -497,11 +629,14 @@ cat /proc/vmstat | grep tlb
   affected by performance mitigations
 - [local_lock](../kernel/sync/local-lock.md) — per-CPU synchronization
   affected by context switch overhead
+- [Security Overview](../security/overview.md) — overall security architecture
 
 ## Further Reading
 
 - **Kernel source**: `arch/x86/mm/pti.c`, `arch/x86/include/asm/pti.h`
 - **Documentation**: `Documentation/admin-guide/hw-vuln/meltdown.rst`
+- **Documentation**: `Documentation/admin-guide/hw-vuln/l1tf.rst`
+- **Documentation**: `Documentation/admin-guide/hw-vuln/mds.rst`
 - **KAISER paper**: ["KASLR is Dead: Long Live KASLR"](https://gruss.cc/files/kaiser.pdf) —
   original academic paper by Daniel Gruss et al.
 - **Google Project Zero**: ["Reading privileged memory with a side-channel"](https://googleprojectzero.blogspot.com/2018/01/reading-privileged-memory-with-side.html) —
@@ -512,3 +647,4 @@ cat /proc/vmstat | grep tlb
   related mitigation
 - **Intel whitepaper**: ["Retpoline: A Branch Target Injection Mitigation"](https://www.intel.com/content/www/us/en/developer/articles/technical/software-security-guidance/technical-documentation/retpoline-branch-target-injection-mitigation.html)
 - **commit 6214c64**: "x86/pti: Kernel Page Table Isolation" — main KPTI merge
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)

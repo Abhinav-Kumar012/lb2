@@ -694,3 +694,5 @@ ceph health detail | grep -i "osd"
 - [Kernel documentation: Ceph Distributed File System](https://docs.kernel.org/filesystems/ceph.html) — Official kernel docs with mount options and architecture
 - [CephFS Troubleshooting](https://docs.ceph.com/en/latest/cephfs/troubleshooting/) — Official troubleshooting guide
 - [CephX Authentication](https://docs.ceph.com/en/latest/rados/operations/auth-intro/) — Authentication docs
+- [CephFS Best Practices](https://docs.ceph.com/en/latest/cephfs/best-practices/) — Production deployment guide
+- [CephFS Multimds](https://docs.ceph.com/en/latest/cephfs/multimds/) — Multi-MDS configuration
