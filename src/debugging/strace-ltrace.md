@@ -539,4 +539,224 @@ sudo nsenter -t $PID -m -u -i -n -p -- strace -p 1
 - [GDB](./gdb.md) — Source-level debugging with breakpoints and watchpoints
 - [Perf](./perf.md) — Low-overhead performance profiling
 - [eBPF](./ebpf.md) — Efficient kernel-level tracing without ptrace overhead
+
+## Practical Debugging Scenarios
+
+### Scenario 1: Application Won't Start
+
+```bash
+# "Command not found" or "No such file" errors
+strace -e trace=open,openat,access,stat ./myapp 2>&1 | grep -E 'ENOENT|EACCES'
+
+# Missing shared libraries
+strace -e trace=open,openat ./myapp 2>&1 | grep '\.so'
+# Look for ENOENT on .so files — indicates missing library
+
+# Environment issues
+strace -e trace=execve ./myapp 2>&1
+# Shows exactly what's being executed and with what environment
+```
+
+### Scenario 2: Application Hangs
+
+```bash
+# Find where the hang is (what syscall is blocking)
+strace -p <PID> -T
+# Shows the current syscall and how long it's been running
+
+# Common blocking calls:
+# - futex(..., FUTEX_WAIT, ...) — waiting on a lock
+# - read(0, ...) — waiting for stdin input
+# - poll/select/epoll — waiting for I/O
+# - recvfrom — waiting for network data
+
+# Trace with timestamps to find the hang point
+strace -p <PID> -tt -T 2>&1 | tail -50
+# Look for the last syscall before the hang
+```
+
+### Scenario 3: Permission Denied
+
+```bash
+# Find what permission is being checked
+strace -e trace=open,openat,access,stat,faccessat ./myapp 2>&1 | grep EACCES
+
+# Check what UID/GID the process runs as
+strace -e trace=setuid,setgid,setreuid,setregid ./myapp 2>&1
+
+# SELinux/AppArmor denials show as EACCES too
+# Check audit logs: ausearch -m AVC
+```
+
+### Scenario 4: Slow File I/O
+
+```bash
+# Profile I/O time
+strace -T -e trace=read,write,open,openat,close ./myapp 2>&1 | \
+    awk -F'[<>]' '{print $2, $0}' | sort -rn | head -20
+
+# Count I/O operations
+strace -c -e trace=read,write ./myapp 2>&1
+# High call count with small read/write sizes = inefficient I/O pattern
+
+# Show read/write sizes
+strace -e trace=read,write ./myapp 2>&1 | head -50
+# Look for many small reads (should use buffered I/O or larger buffers)
+```
+
+### Scenario 5: Network Connection Issues
+
+```bash
+# Trace network syscalls
+strace -e trace=network -f ./myapp 2>&1
+
+# Common patterns:
+# connect() returns ECONNREFUSED — server not listening
+# connect() returns ETIMEDOUT — firewall or routing issue
+# connect() returns ENETUNREACH — network misconfiguration
+# sendto() returns EPIPE — connection closed by peer
+
+# DNS resolution issues
+strace -e trace=open,openat,connect,sendto,recvfrom ./myapp 2>&1 | \
+    grep -E '(resolv|nameserver|dns)'
+```
+
+### Scenario 6: Memory Issues
+
+```bash
+# Trace memory allocation
+strace -e trace=mmap,brk,mprotect,munmap ./myapp 2>&1 | tail -50
+
+# Count allocations
+strace -c -e trace=mmap,brk ./myapp 2>&1
+# Excessive mmap/munmap calls = memory fragmentation
+
+# Show allocation sizes
+strace -e trace=mmap ./myapp 2>&1 | head -20
+# mmap(NULL, 8192, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x7f...
+```
+
+## strace Alternatives and Complements
+
+### perf trace (kernel-native tracing)
+
+`perf trace` uses the kernel's perf infrastructure instead of ptrace, resulting
+in significantly lower overhead:
+
+```bash
+# Basic usage (similar to strace)
+sudo perf trace ./myprogram
+sudo perf trace -p <PID>
+
+# Much lower overhead than strace
+sudo perf trace -e read,write ./myprogram
+
+# System-wide tracing
+sudo perf trace -a -- sleep 5
+
+# With call stacks
+sudo perf trace -e read --call-graph dwarf -p <PID>
+```
+
+**Comparison: strace vs perf trace**
+
+| Feature | strace | perf trace |
+|---------|--------|-----------|
+| Overhead | High (ptrace) | Low (kernel perf) |
+| System-wide | No (per-process) | Yes (`-a`) |
+| Call stacks | Limited | Full (with `-g`) |
+| Container support | Needs SYS_PTRACE | Works with perf events |
+| Output | Text | Text (customizable) |
+
+### bpftrace for syscall tracing
+
+```bash
+# Trace open() syscalls with bpftrace
+sudo bpftrace -e 'tracepoint:syscalls:sys_enter_openat { printf("%s %s\n", comm, str(args->filename)); }'
+
+# Histogram of read() sizes
+sudo bpftrace -e 'tracepoint:syscalls:sys_exit_read /args->ret > 0/ { @bytes = hist(args->ret); }'
+
+# Count syscalls per process
+sudo bpftrace -e 'tracepoint:raw_syscalls:sys_enter { @[comm] = count(); }'
+```
+
+### ltrace Alternatives
+
+```bash
+# For modern systems, consider:
+
+# 1. LD_DEBUG — dynamic linker debugging
+LD_DEBUG=all ./myprogram 2>&1 | head -50
+LD_DEBUG=bindings ./myprogram 2>&1  # Show library bindings
+
+# 2. ltrace with filtering
+ltrace -e 'malloc+free' -e 'strlen+strcmp' ./myprogram
+
+# 3. eBPF uprobes for specific library functions
+sudo bpftrace -e 'uprobe:/lib/x86_64-linux-gnu/libc.so.6:malloc { printf("malloc(%d)\n", arg0); }'
+```
+
+## strace Output Analysis Patterns
+
+### Recognizing Common Patterns
+
+```bash
+# Pattern: Repeated open/close of same file
+# Indicates: missing file caching or resource leak
+strace -e trace=open,openat,close ./myapp 2>&1 | sort | uniq -c | sort -rn | head
+
+# Pattern: Many small read() calls
+# Indicates: unbuffered I/O
+strace -e trace=read ./myapp 2>&1 | awk -F'[()]' '{print $2}' | sort | uniq -c | sort -rn
+
+# Pattern: Excessive futex() calls
+# Indicates: lock contention
+strace -c ./myapp 2>&1 | grep futex
+
+# Pattern: Many gettimeofday() calls
+# Indicates: excessive time checking (common in logging)
+strace -c ./myapp 2>&1 | grep -E 'clock_gettime|gettimeofday'
+```
+
+### Automated strace Analysis
+
+```bash
+#!/bin/bash
+# strace-analyze.sh — Quick analysis of strace output
+
+TRACE_FILE=$1
+
+echo "=== Syscall frequency ==="
+awk '{print $1}' "$TRACE_FILE" | sort | uniq -c | sort -rn | head -20
+
+echo ""
+echo "=== Error frequency ==="
+grep -oE '= -[A-Z]+' "$TRACE_FILE" | sort | uniq -c | sort -rn | head -10
+
+echo ""
+echo "=== Slowest syscalls ==="
+grep -oE '<[0-9.]+>' "$TRACE_FILE" | tr -d '<>' | sort -rn | head -10
+
+echo ""
+echo "=== File operations ==="
+grep -E 'open|openat' "$TRACE_FILE" | grep -v ENOENT | head -20
+```
+
+## Performance Impact of strace
+
+strace adds significant overhead because ptrace requires two context switches
+per syscall (entry and exit):
+
+| Workload Type | Overhead Factor | Notes |
+|---------------|----------------|-------|
+| I/O-heavy (many syscalls) | 10-100x slower | Each syscall pays ptrace cost |
+| CPU-heavy (few syscalls) | 1-2x slower | Minimal impact |
+| Mixed | 2-10x slower | Depends on syscall frequency |
+
+**Recommendations:**
+- Use `perf trace` or `bpftrace` for production tracing (much lower overhead)
+- Use `strace -c` (summary mode) when possible — lower overhead than full output
+- Use `-e filter` to trace only relevant syscalls
+- For long-running traces, write to file (`-o trace.log`) instead of stderr
 - [ftrace](./ftrace.md) — Kernel function tracing
