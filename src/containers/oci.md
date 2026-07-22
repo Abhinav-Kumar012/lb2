@@ -385,6 +385,315 @@ curl -sI -H "Authorization: Bearer $TOKEN" \
   https://registry-1.docker.io/v2/library/alpine/blobs/$DIGEST
 ```
 
+## Security in the OCI Ecosystem
+
+### Seccomp Profiles
+
+Seccomp (Secure Computing Mode) filters restrict which system calls a
+container can make. The OCI runtime spec defines seccomp profiles in
+`config.json`:
+
+```json
+{
+  "linux": {
+    "seccomp": {
+      "defaultAction": "SCMP_ACT_ERRNO",
+      "architectures": ["SCMP_ARCH_X86_64"],
+      "syscalls": [
+        {
+          "names": ["read", "write", "exit", "exit_group", "mmap"],
+          "action": "SCMP_ACT_ALLOW"
+        },
+        {
+          "names": ["socket"],
+          "action": "SCMP_ACT_ALLOW",
+          "args": [
+            {
+              "index": 0,
+              "value": 1,
+              "valueTwo": 0,
+              "op": "SCMP_CMP_EQ"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
+```
+
+```bash
+# Default seccomp profile in containerd
+# /etc/containerd/seccomp-default.json
+
+# Use custom seccomp profile with runc
+runc run --seccomp-profile /path/to/profile.json mycontainer
+
+# Check which syscalls a container uses
+strace -f -c -p <container-pid>
+
+# Generate seccomp profile from strace
+oci-seccomp-bpf-hook --input trace.log --output profile.json
+```
+
+### AppArmor Integration
+
+AppArmor profiles confine containers to a set of resources:
+
+```bash
+# AppArmor profile for containers
+# /etc/apparmor.d/containers/oci-default
+#include <tunables/global>
+
+profile oci-default flags=(attach_disconnected,mediate_deleted) {
+  #include <abstractions/base>
+
+  # Network
+  network inet stream,
+  network inet dgram,
+
+  # Filesystem
+  deny /proc/sys/** wklx,
+  deny /sys/** wklx,
+
+  # Capabilities
+  capability net_bind_service,
+  capability setuid,
+  capability setgid,
+}
+```
+
+```bash
+# Load AppArmor profile
+apparmor_parser -r /etc/apparmor.d/containers/oci-default
+
+# Use in config.json
+# "process": { "apparmor": "oci-default" }
+
+# Check current AppArmor status
+aa-status
+```
+
+### SELinux Labels
+
+SELinux provides mandatory access control for containers:
+
+```bash
+# SELinux labels in config.json
+# "process": {
+#   "selinuxLabel": "system_u:system_r:container_t:s0:c1,c2"
+# }
+
+# Check container SELinux context
+docker inspect --format '{{.ProcessLabel}}' <container>
+# system_u:system_r:container_t:s0:c123,c456
+
+# Enable SELinux for containers (RHEL/Fedora)
+setsebool -P container_manage_cgroup true
+```
+
+### Linux Capabilities
+
+The OCI spec defines fine-grained capability sets:
+
+```json
+{
+  "process": {
+    "capabilities": {
+      "bounding": ["CAP_NET_BIND_SERVICE", "CAP_SYS_CHROOT"],
+      "effective": ["CAP_NET_BIND_SERVICE"],
+      "inheritable": ["CAP_NET_BIND_SERVICE"],
+      "permitted": ["CAP_NET_BIND_SERVICE"],
+      "ambient": []
+    }
+  }
+}
+```
+
+```bash
+# Drop all capabilities except needed ones
+runc spec
+# Edit config.json to remove unneeded capabilities
+
+# Common minimal capability set:
+# CAP_NET_BIND_SERVICE - bind to ports < 1024
+# CAP_SETUID/CAP_SETGID - switch users
+# CAP_CHROOT - change root
+# CAP_SYS_PTRACE - debug processes
+```
+
+### Read-Only Root Filesystem
+
+```json
+{
+  "root": {
+    "path": "rootfs",
+    "readonly": true
+  },
+  "mounts": [
+    {
+      "destination": "/tmp",
+      "type": "tmpfs",
+      "source": "tmpfs",
+      "options": ["nosuid", "noexec", "nodev"]
+    }
+  ]
+}
+```
+
+### No New Privileges
+
+```json
+{
+  "process": {
+    "noNewPrivileges": true
+  }
+}
+```
+
+This prevents privilege escalation via `setuid` binaries, `execve()`
+capability inheritance, and similar mechanisms.
+
+## OCI Runtime Hooks
+
+The OCI spec defines lifecycle hooks that run at specific points:
+
+```json
+{
+  "hooks": {
+    "prestart": [
+      {
+        "path": "/usr/bin/setup-network",
+        "args": ["setup-network", "--container", "mycontainer"]
+      }
+    ],
+    "createRuntime": [
+      {
+        "path": "/usr/bin/setup-cgroup",
+        "args": ["setup-cgroup", "mycontainer"]
+      }
+    ],
+    "poststart": [
+      {
+        "path": "/usr/bin/notify-monitoring",
+        "args": ["notify-monitoring", "started"]
+      }
+    ],
+    "poststop": [
+      {
+        "path": "/usr/bin/cleanup",
+        "args": ["cleanup", "mycontainer"]
+      }
+    ]
+  }
+}
+```
+
+### Hook Lifecycle
+
+```mermaid
+stateDiagram-v2
+    [*] --> Created: create
+    state "prestart hooks" as PreStart
+    state "createRuntime hooks" as CreateRT
+    state "poststart hooks" as PostStart
+    state "poststop hooks" as PostStop
+    Created --> CreateRT: runtime creates container
+    CreateRT --> PreStart: before process starts
+    PreStart --> Running: start
+    Running --> PostStart: after process starts
+    Running --> Stopped: kill / exit
+    Stopped --> PostStop: before container deleted
+    PostStop --> [*]: delete
+```
+
+## Content Trust and Image Signing
+
+### Notary / Docker Content Trust
+
+```bash
+# Enable Docker Content Trust
+docker trust inspect --pretty myregistry/myimage:latest
+
+# Sign an image
+docker trust sign myregistry/myimage:latest
+
+# Verify signature
+docker trust inspect --pretty myregistry/myimage:latest
+# Signatures for myregistry/myimage:latest
+# SIGNED TAG   DIGEST                                                             SIGNERS
+# latest       sha256:abc123...                                                   alice, bob
+```
+
+### Sigstore / Cosign
+
+Modern image signing using keyless signatures:
+
+```bash
+# Install cosign
+go install github.com/sigstore/cosign/v2/cmd/cosign@latest
+
+# Sign an image (keyless, uses OIDC identity)
+cosign sign myregistry/myimage:latest
+
+# Verify signature
+cosign verify myregistry/myimage:latest
+
+# Sign with a key pair
+cosign generate-key-pair
+cosign sign --key cosign.key myregistry/myimage:latest
+
+# Verify with public key
+cosign verify --key cosign.pub myregistry/myimage:latest
+```
+
+### SBOM (Software Bill of Materials)
+
+```bash
+# Generate SBOM with syft
+syft myregistry/myimage:latest -o spdx-json > sbom.spdx.json
+
+# Attach SBOM to image
+cosign attach sbom --sbom sbom.spdx.json myregistry/myimage:latest
+
+# Verify SBOM
+cosign verify-attestation --type spdxjson myregistry/myimage:latest
+```
+
+## Image Layer Optimization
+
+### Layer Sharing
+
+OCI images share layers via content-addressable storage:
+
+```mermaid
+flowchart TB
+    subgraph "Image A: myapp:v1"
+        LA1["Layer 1: base OS"]
+        LA2["Layer 2: dependencies"]
+        LA3["Layer 3: app code v1"]
+    end
+    subgraph "Image B: myapp:v2"
+        LB1["Layer 1: base OS"]
+        LB2["Layer 2: dependencies"]
+        LB3["Layer 3: app code v2"]
+    end
+    LA1 -.->|"Same digest, shared"| LB1
+    LA2 -.->|"Same digest, shared"| LB2
+```
+
+### Build Cache Optimization
+
+```dockerfile
+# Good: dependencies layer cached separately
+FROM node:20-alpine
+WORKDIR /app
+COPY package*.json ./    # Layer 1: dependencies (cached)
+RUN npm ci               # Layer 2: install (cached if no change)
+COPY . .                 # Layer 3: source code (changes often)
+CMD ["node", "server.js"]
+```
+
 ## OCI Artifacts (OCI 1.1+)
 
 OCI 1.1 introduced the ability to store arbitrary artifacts in container registries, not
@@ -509,6 +818,16 @@ docker buildx build --output type=oci,dest=myimage.tar -t myapp:latest .
 # Build and push as OCI
 docker buildx build --output type=registry -t myregistry.local/myapp:latest .
 ```
+
+## OCI Version History
+
+| Version | Release | Key Features |
+|---------|---------|--------------|
+| 1.0.0 | 2017-07 | Initial image, runtime, distribution specs |
+| 1.0.1 | 2019-02 | Clarifications, errata fixes |
+| 1.0.2 | 2019-07 | Runtime spec clarifications |
+| 1.1.0 | 2023-11 | Referrers API, artifact manifest |
+| 1.1.1 | 2024-06 | Bug fixes, clarifications |
 
 ## References
 

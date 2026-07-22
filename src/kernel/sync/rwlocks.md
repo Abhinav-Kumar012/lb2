@@ -12,7 +12,44 @@ Additionally, the kernel offers **RCU (Read-Copy-Update)** as a lock-free altern
 
 ## rwlock_t — Spin-Based Read-Write Locks
 
-`rwlock_t` is the spin-based variant. It disables preemption on the local CPU while held (like a regular `spinlock_t`), so critical sections must not sleep.
+`rwlock_t` is the spin-based variant. It disables preemption on the local CPU while held (like a regular `spinlock_t`), so critical sections must not sleep. It is implemented using an `arch_rwlock_t` containing a single `unsigned int` counter.
+
+### Internal Representation
+
+```c
+/* include/linux/rwlock_types.h */
+typedef struct {
+    arch_rwlock_t raw_lock;
+#ifdef CONFIG_DEBUG_LOCK_ALLOC
+    struct lockdep_map dep_map;
+#endif
+} rwlock_t;
+
+/* The raw lock is a simple 32-bit counter */
+/* Unlocked state: 0x01000000 (RW_LOCK_BIAS) */
+/* Each reader adds 1, writer subtracts RW_LOCK_BIAS */
+/* This means up to 2^24 (~16M) concurrent readers */
+```
+
+### Count Encoding Detail
+
+```c
+/* How the 32-bit counter encodes lock state: */
+/*
+ * Bit layout (unlocked = 0x01000000):
+ *   Bits [31:24] = 0x01 (bias marker)
+ *   Bits [23:0]  = 0 (no readers)
+ *
+ * After read_lock() by 3 readers:
+ *   0x01000003 = bias + 3 readers
+ *
+ * After write_lock():
+ *   0x00000000 = bias - bias = 0
+ *
+ * write_trylock() uses atomic_sub_and_test(RW_LOCK_BIAS, &lock)
+ * read_lock() uses atomic_dec_return() and checks sign
+ */
+```
 
 ### Declaration and Initialization
 
@@ -436,18 +473,68 @@ down_write(&sem);   /* DEADLOCK — writer already held by us! */
 
 ## Performance Tuning
 
+### Lock Statistics with /proc/lock_stat
+
+When `CONFIG_LOCK_STAT=y`, the kernel tracks detailed contention statistics for every lock:
+
 ```bash
-# Check rwsem contention
+# Enable lock statistics collection
+# (requires CONFIG_LOCK_STAT=y in kernel config)
 cat /proc/lock_stat
-# output includes rwsem contention statistics
 
-# Enable lock statistics (CONFIG_LOCK_STAT=y)
-# Shows contention count, wait time, etc.
+# Output format:
+#                               con-bounces       contentions   waittime-min   waittime-max   waittime-total   waittime-avg
+#                               acq-bounces       acquisitions   holdtime-min   holdtime-max   holdtime-total   holdtime-avg
+#
+# lock_stat version: 0.5
+# -------------------------------------------------------------------------------------------------------------------------------------
+# &sb->s_type->i_mutex_key: &sb->s_type->i_mutex_key  {INIT}
+#   -fs/inode.c:
+#                              0          0           0          0           0           0           0          0
+#                              1234       5678       12345      98765    1234567       2345        1234
+```
 
-# Lock contention profiling with perf
-perf lock record -- sleep 5
+**Key columns:**
+- **con-bounces**: Number of times a lock was contended (someone had to wait)
+- **contentions**: Total contention events
+- **waittime-avg**: Average wait time in nanoseconds
+- **holdtime-avg**: Average hold time in nanoseconds
+
+### Lock Contention Profiling with perf
+
+```bash
+# Record lock contention events
+perf lock record -- sleep 10
+
+# Show lock contention report
 perf lock report
-# Shows which locks have the most contention
+# Output:
+#  Name        con  acquisitions  wait total  wait max  wait min
+#  &rwsem->count  45      12345    1234567 ns  56789 ns  1234 ns
+
+# Trace specific lock types
+perf lock contention --type rwlock_irq -- sleep 5
+perf lock contention --type rwsem -- sleep 5
+
+# Call-graph based contention analysis
+perf lock record -g -- sleep 10
+perf lock report --sort acquired,contended
+```
+
+### Reducing rwlock Contention
+
+```bash
+# Strategy 1: Use RCU instead (if reads >> writes)
+# RCU has zero read-side contention
+
+# Strategy 2: Per-CPU read-side data with rwlock only for writes
+# Each CPU has its own read data, writer updates all per-CPU copies
+
+# Strategy 3: Split rwlock into finer-grained locks
+# Instead of one global rwlock, use per-bucket rwlocks
+
+# Strategy 4: Use percpu_rw_semaphore for read-heavy paths
+# Eliminates cache-line bouncing on reads
 ```
 
 ## Percpu Read-Write Semaphores
@@ -505,6 +592,119 @@ percpu_free_rwsem(&my_sem);   /* Must free to avoid memory leak */
 | RCU | No locking at all | Grace period wait | **No bouncing** on reads |
 
 The idea of using RCU for optimized rw-locks was introduced by Eric Dumazet, and the implementation was written by Mikulas Patocka.
+
+## Lockdep Annotations for Read-Write Locks
+
+The kernel's lock validator (lockdep) tracks read-write lock ordering to detect potential deadlocks:
+
+```c
+/* lockdep automatically classifies rwlocks into:
+ * - read-lock class (multiple readers OK)
+ * - write-lock class (exclusive)
+ *
+ * If a reader holds lock A and tries to acquire lock B,
+ * but a writer holds lock B and tries to acquire lock A,
+ * lockdep reports a potential deadlock.
+ */
+
+/* Explicit lockdep annotation for subclasses */
+lock_acquire_shared(&rwsem->dep_map, 0, 1, NULL, _RET_IP_);
+lock_release(&rwsem->dep_map, _RET_IP_);
+
+/* Lockdep splat example:
+ * =============================================
+ * WARNING: possible recursive locking detected
+ * 5.15.0 #1 Not tainted
+ * ---------------------------------------------
+ * writer/1234 is trying to acquire lock:
+ *  ffff888100123456 (&rwsem){++++}-{3:3}, at: my_func+0x42/0x100
+ * but task is already holding lock:
+ *  ffff888100654321 (&rwsem){++++}-{3:3}, at: other_func+0x30/0x80
+ */
+```
+
+## Debugging Read-Write Locks
+
+### Common Issues
+
+```bash
+# 1. Writer starvation (old kernels, pre-3.16)
+# Symptoms: writer blocked for seconds while readers keep coming
+# Fix: upgrade kernel, or switch to writer-biased design
+
+# 2. Recursive write deadlock
+# down_write() twice from same task = deadlock
+# Debug: lockdep will detect this
+
+# 3. Read-write lock ordering violations
+# If read-lock A then write-lock B is done by one path,
+# but write-lock B then read-lock A by another, deadlock
+# Debug: lockdep reports this
+
+# 4. Interrupt context misuse
+# Using rw_semaphore in interrupt context = BUG
+# Using rwlock_t in interrupt context = OK (but use _irq variants)
+```
+
+### Runtime Lock Debugging
+
+```bash
+# Enable lock debugging at boot
+# CONFIG_PROVE_LOCKING=y
+# CONFIG_DEBUG_LOCK_ALLOC=y
+# CONFIG_LOCK_STAT=y
+
+# View current lock dependencies
+ls /proc/lockdep
+ls /proc/lockdep_stats
+
+# Check for lock ordering issues
+dmesg | grep -i "lock.*dep\|deadlock\|possible"
+
+# Lock dependency graph (if CONFIG_LOCKDEP=y)
+cat /proc/lockdep_stats
+# lock-classes:              1234
+# direct dependencies:       5678
+# indirect dependencies:     9012
+# all direct dependencies:   3456
+# chain lookups:             7890
+```
+
+## Kernel Use Cases for rw_semaphores
+
+### VFS inode rw_semaphore
+
+The VFS `i_rwsem` (inode read-write semaphore) protects file data during read/write operations:
+
+```c
+/* fs/inode.c — simplified */
+/* Reading a file: */
+down_read(&inode->i_rwsem);
+ret = file->f_op->read(file, buf, count, pos);
+up_read(&inode->i_rwsem);
+
+/* Writing a file: */
+down_write(&inode->i_rwsem);
+ret = file->f_op->write(file, buf, count, pos);
+up_write(&inode->i_rwsem);
+```
+
+### Memory Map rw_semaphore
+
+The `mm->mmap_sem` (now `mmap_lock` since 5.8) protects a process's virtual memory areas:
+
+```c
+/* mm/mmap.c — simplified */
+/* Page fault path: */
+down_read(&mm->mmap_lock);
+/* ... find VMA, handle fault ... */
+up_read(&mm->mmap_lock);
+
+/* mmap() path: */
+down_write(&mm->mmap_lock);
+/* ... create/modify VMAs ... */
+up_write(&mm->mmap_lock);
+```
 
 ## References
 
