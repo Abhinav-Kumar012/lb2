@@ -577,6 +577,198 @@ graph TD
 
 ---
 
+## Patent Law and Open Source
+
+Software patents are a separate legal protection from copyright, and they interact with open-source licensing in important ways.
+
+### What Is a Software Patent?
+
+A software patent protects an **algorithm or method**, not the specific code implementation. Unlike copyright (which protects expression), patents protect the underlying idea. A single software patent can cover implementations in any programming language.
+
+### Patent Grants in Licenses
+
+| License | Patent Grant | Patent Retaliation |
+|---------|-------------|--------------------|
+| **MIT** | None | None |
+| **BSD** | None | None |
+| **Apache 2.0** | Yes (explicit) | Yes (Section 3) |
+| **GPL v2** | Implied (controversial) | No |
+| **GPL v3** | Yes (explicit, Section 11) | Yes (Section 10) |
+| **MPL 2.0** | Yes | Yes |
+
+The lack of an explicit patent grant in MIT and BSD licenses is a potential risk. If a contributor holds a patent that covers their contribution, they could theoretically sue users of the code for patent infringement — even though they released the code under a permissive license.
+
+Apache 2.0 and GPL v3 address this by requiring contributors to grant patent licenses for any patents that are necessarily infringed by their contributions.
+
+### Patent Trolls
+
+Patent assertion entities ("patent trolls") acquire broad software patents and sue companies that use open-source software. The **Open Invention Network (OIN)** is a patent non-aggression pact among major Linux companies:
+
+- **Members**: Google, IBM, Red Hat, SUSE, Toyota, and 3,700+ others
+- **Protection**: Members agree not to assert patents against each other's use of Linux and open-source software
+- **Scope**: Covers the "Linux System" — a defined list of packages and components
+
+### Defensive Patent Pledges
+
+Some companies make defensive patent pledges:
+
+- **Google's Open Patent Non-Assertion Pledge (OPN)**: Promises not to assert certain patents against open-source software
+- **Red Hat's Patent Promise**: Commits to not enforcing patents against open-source projects
+- **Twitter's Innovator's Patent Agreement (IPA)**: Gives inventors control over how their patents are used
+
+---
+
+## International Licensing Considerations
+
+Copyright law varies significantly between jurisdictions, creating challenges for global open-source projects.
+
+### Moral Rights
+
+In many European countries, authors have "moral rights" that cannot be waived:
+
+- **Right of attribution**: The right to be identified as the author
+- **Right of integrity**: The right to object to derogatory treatment of the work
+
+These rights persist even if the author assigns copyright. In practice, this means:
+- Open-source licenses that require attribution (MIT, BSD, Apache) are compatible with moral rights
+- Licenses that attempt to waive all rights may conflict with moral rights in some jurisdictions
+
+### Berne Convention
+
+The **Berne Convention for the Protection of Literary and Artistic Works** provides automatic copyright protection across 181 member countries. Key provisions:
+
+- Copyright arises automatically upon creation (no registration required)
+- Protection lasts for life of the author + 50 years (70 years in many countries)
+- Each country must recognize the copyright of works from other member countries
+
+This means that a GPL-licensed work created in Finland (Torvalds' kernel) is protected by copyright in every Berne Convention country.
+
+### Export Controls
+
+Some open-source software is subject to export controls:
+
+- **Cryptography**: Export of cryptographic software from the US is regulated by EAR (Export Administration Regulations)
+- **Kernel crypto**: The Linux kernel's crypto subsystem includes an `EXPORT_SYMBOL_GPL` note that crypto functions may be subject to export controls
+- **Wassenaar Arrangement**: International agreement controlling export of dual-use technologies
+
+```c
+/* From include/crypto/ */
+/*
+ * Exported crypto functions may be subject to export controls.
+ * See the file Documentation/export-control.rst for details.
+ */
+```
+
+---
+
+## Common Licensing Mistakes
+
+### 1. Mixing Incompatible Licenses
+
+**Mistake**: Combining GPL v2-only code with Apache 2.0 code.
+
+**Example**: Copying a function from an Apache 2.0 project into the Linux kernel.
+
+**Fix**: Check compatibility before using code. Use the FSF's compatibility chart or SPDX tools.
+
+### 2. Forgetting the "Or Later" Clause
+
+**Mistake**: Assuming GPL v2 code can be relicensed under GPL v3.
+
+**Example**: A kernel module developer includes GPL v3-only code in a GPL v2 kernel module.
+
+**Fix**: Always check whether the source uses `-only` or `-or-later`. The kernel is GPL v2-only.
+
+### 3. Ignoring Header File Licenses
+
+**Mistake**: Including kernel headers in userspace programs without considering GPL implications.
+
+**Example**: A proprietary application includes `<linux/ioctl.h>` directly.
+
+**Fix**: Use the `Linux-syscall-note` exception or glibc's sanitized headers.
+
+### 4. Not Including License Text
+
+**Mistake**: Releasing code under a license without including the full license text.
+
+**Fix**: Always include the full license text in a `LICENSE` file. The SPDX identifier in source files should reference a complete license text.
+
+### 5. Assuming "Public Domain" Works Everywhere
+
+**Mistake**: Releasing code as "public domain" — not all jurisdictions recognize public domain dedication.
+
+**Fix**: Use the **Unlicense** or **CC0** (Creative Commons Zero), which include fallback licenses for jurisdictions that don't recognize public domain.
+
+### 6. Using GPL for APIs
+
+**Mistake**: Applying GPL to an API specification, which can prevent interoperability.
+
+**Fix**: Use a permissive license for API specifications and headers; use GPL for implementations.
+
+### 7. License Incompatibility in Dependency Trees
+
+**Mistake**: Including a dependency that uses an incompatible license deep in the dependency tree.
+
+**Example**: A GPL v2 application depends on a library that includes an Apache 2.0 dependency.
+
+**Fix**: Audit dependency licenses. Use tools like `licensecheck`, `scancode-toolkit`, or `fossology`.
+
+---
+
+## License Auditing Tools
+
+Several tools can help identify and verify licenses in codebases:
+
+| Tool | Purpose | Website |
+|------|---------|--------|
+| **scancode-toolkit** | Scan files for licenses and copyrights | github.com/nexB/scancode-toolkit |
+| **fossology** | License compliance toolkit | fossology.org |
+| **licensecheck** | Identify licenses in source files | Debian package |
+| **SPDX Tools** | Validate SPDX documents | spdx.dev/tools |
+| **REUSE** | Check REUSE compliance | reuse.software |
+| **FOSSA** | Commercial license compliance | fossa.com |
+| **Snyk** | Security and license scanning | snyk.io |
+| **Black Duck** | Open-source compliance | blackduck.com |
+
+```bash
+# Scan a directory for licenses
+$ scancode --license --copyright --json-pp output.json /path/to/source
+
+# Check Debian packages for license issues
+$ licensecheck --recursive --debmake /path/to/source/
+
+# REUSE compliance check
+$ reuse lint
+```
+
+---
+
+## The SCO Litigation (2003–2016)
+
+The **SCO v. IBM** lawsuit was one of the most significant legal battles in open-source history. SCO Group claimed that IBM had contributed Unix-copyrighted code to Linux, and that Linux itself contained Unix intellectual property.
+
+### Timeline
+
+| Year | Event |
+|------|-------|
+| **2003** | SCO sues IBM for $5 billion, claiming Linux contains Unix code |
+| **2003** | SCO sends letters to 1,500 companies警告 about Linux licensing |
+| **2004** | DCO introduced for kernel contributions |
+| **2007** | Novell (original Unix owner) wins ruling that it, not SCO, owns Unix copyrights |
+| **2010** | SCO's bankruptcy trustee continues the case |
+| **2016** | Final ruling: SCO has no valid claims |
+
+### Impact
+
+The SCO litigation had lasting effects on the open-source ecosystem:
+
+1. **DCO adoption**: The kernel community introduced the Developer Certificate of Origin to document code provenance
+2. **Corporate confidence**: Major companies (IBM, Red Hat, Novell) invested heavily in defending Linux, demonstrating corporate commitment to open source
+3. **License awareness**: The case raised awareness about the importance of clear licensing and code provenance
+4. **GPL v2 resilience**: The GPL v2 license proved legally robust — no court found it invalid
+
+---
+
 ## Further Reading
 
 - [Kernel COPYING file](https://docs.kernel.org/process/license-rules.html) — Official kernel licensing rules
