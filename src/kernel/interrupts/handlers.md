@@ -166,6 +166,76 @@ request_irq(16, sound_handler, IRQF_SHARED, "sound", sound_dev);
 3. Must not touch hardware that doesn't belong to this device
 4. The `dev_id` must be non-NULL and unique per handler on the same IRQ
 
+## irq_chip: Hardware Abstraction
+
+The `irq_chip` structure abstracts the hardware-specific operations of an interrupt controller. Each interrupt controller driver implements this interface:
+
+```c
+struct irq_chip {
+    const char      *name;
+    void            (*irq_enable)(struct irq_data *data);
+    void            (*irq_disable)(struct irq_data *data);
+    void            (*irq_ack)(struct irq_data *data);
+    void            (*irq_mask)(struct irq_data *data);
+    void            (*irq_unmask)(struct irq_data *data);
+    void            (*irq_eoi)(struct irq_data *data);
+    int             (*irq_set_affinity)(struct irq_data *data,
+                                         const struct cpumask *dest, bool force);
+    int             (*irq_set_type)(struct irq_data *data,
+                                     unsigned int flow_type);
+    int             (*irq_set_wake)(struct irq_data *data,
+                                     unsigned int on);
+    /* ... */
+};
+```
+
+### Common irq_chip Implementations
+
+| Chip | Hardware | Key Features |
+|------|----------|-------------|
+| `ioapic_chip` | x86 IO-APIC | Level/edge, EOI, CPU affinity |
+| `lapic_chip` | x86 Local APIC | Per-CPU timer, IPI |
+| `pci_msi_chip` | PCI MSI/MSI-X | Per-vector, no sharing |
+| `arm_gic_chip` | ARM GICv2/v3 | SGIs, PPIs, SPIs, LPIs |
+| `gpio_irq_chip` | GPIO controllers | Debounce, wake |
+
+### IRQ Domain Mapping
+
+Hardware interrupt numbers (HW IRQs) are mapped to Linux IRQ numbers through **IRQ domains**:
+
+```c
+/* Map a hardware IRQ to a Linux IRQ number */
+unsigned int irq_create_mapping(struct irq_domain *domain,
+                                irq_hw_number_t hwirq);
+
+/* Find Linux IRQ for a device tree specifier */
+int of_irq_get(struct device_node *dev, int index);
+
+/* Reverse mapping: Linux IRQ to HW IRQ */
+irq_hw_number_t irqd_to_hwirq(struct irq_data *d);
+```
+
+```mermaid
+graph LR
+    subgraph Hardware
+        HW1[HW IRQ 0: Timer]
+        HW2[HW IRQ 16: NIC]
+        HW3[HW IRQ 32: USB]
+    end
+    subgraph IRQDomain[IRQ Domain]
+        D1[Domain 0: IOAPIC]
+        D2[Domain 1: MSI]
+    end
+    subgraph Linux
+        L1[Linux IRQ 0]
+        L2[Linux IRQ 16]
+        L3[Linux IRQ 120]
+    end
+    HW1 --> D1 --> L1
+    HW2 --> D1 --> L2
+    HW3 --> D2 --> L3
+```
+
 ## Freeing an Interrupt Handler
 
 ```c
@@ -349,11 +419,54 @@ actions          chip_name    effective_affinity_list  node  spurious
 affinity_hint    data         hwirq_name              per_cpu_count  smp_affinity
 affinity_list    effective_affinity  irq              power          smp_affinity_list
 
-$ cat /proc/irq/120/actions
+cat /proc/irq/120/actions
 my_device
 
-$ cat /proc/irq/120/chip_name
+cat /proc/irq/120/chip_name
 pci-msi
+```
+
+### IRQ Affinity Tuning
+
+```bash
+# Set IRQ affinity to specific CPUs
+# Bind IRQ 120 to CPU 2
+echo 4 > /proc/irq/120/smp_affinity  # bitmask: 0x4 = CPU 2
+
+# Use affinity_list for human-readable format
+echo 2 > /proc/irq/120/smp_affinity_list
+
+# Spread IRQs across NUMA nodes
+# For multi-queue NICs, assign each queue to a CPU on the same NUMA node
+for i in $(seq 0 7); do
+    echo $i > /proc/irq/$((120 + i))/smp_affinity_list
+done
+
+# Check effective affinity (what the hardware actually uses)
+cat /proc/irq/120/effective_affinity
+# 00000004
+
+# Check affinity hint (suggested by driver)
+cat /proc/irq/120/affinity_hint
+```
+
+### IRQ Balancing
+
+The `irqbalance` daemon automatically distributes interrupts across CPUs:
+
+```bash
+# Check irqbalance status
+systemctl status irqbalance
+
+# irqbalance considers:
+# - NUMA topology
+# - CPU load
+# - Interrupt rate
+# - Cache locality
+
+# For performance-critical systems, disable irqbalance
+# and set affinity manually:
+systemctl stop irqbalance
 ```
 
 ## IRQ Threads

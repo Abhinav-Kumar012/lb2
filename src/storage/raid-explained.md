@@ -470,6 +470,228 @@ smartctl -a /dev/sda
 smartctl -a /dev/sda -d sat
 ```
 
+## The RAID Write Hole
+
+The **write hole** is a critical data integrity issue affecting RAID 5 and
+RAID 6. It occurs when a power failure or crash happens during a write
+that requires updating both data and parity blocks.
+
+### The Problem
+
+A RAID 5 write requires two atomic operations:
+1. Write new data block
+2. Write new parity block
+
+If the system crashes between these writes, the data and parity are
+inconsistent. On next assembly, the array has a "write hole" — the
+parity doesn't match the data, and a subsequent disk failure could
+cause silent data corruption.
+
+```mermaid
+sequenceDiagram
+    participant App as Application
+    participant RAID as RAID 5 Array
+    participant Disk0 as Disk 0 (Data)
+    participant Disk1 as Disk 1 (Parity)
+
+    App->>RAID: Write block A
+    RAID->>Disk0: Write new data A'
+    Note over Disk0,Disk1: Power failure here!
+    Disk0-->>Disk0: A' written
+    Disk1-->>Disk1: Old parity P (stale)
+    Note over RAID: Write hole: data A' but parity still P
+```
+
+### Solutions
+
+#### 1. RAID Journal (mdadm)
+
+mdadm supports a **write-intent bitmap** and **journal device**:
+
+```bash
+# Add a write-intent bitmap (fast recovery, not write hole fix)
+mdadm --create /dev/md0 --level=5 --raid-devices=3 \
+    --bitmap=internal /dev/sdb1 /dev/sdc1 /dev/sdd1
+
+# Add a journal device (fixes write hole)
+# Requires fast, reliable storage (SSD/NVMe)
+mdadm --create /dev/md0 --level=5 --raid-devices=3 \
+    --journal=/dev/nvme0n1p1 /dev/sdb1 /dev/sdc1 /dev/sdd1
+```
+
+The journal logs pending writes before they happen. On recovery, the
+journal replays incomplete writes, closing the write hole.
+
+#### 2. Battery-Backed Write Cache (BBWC)
+
+Hardware RAID controllers use battery-backed cache to hold writes during
+power loss. The cache is flushed on power restoration.
+
+#### 3. Consistency Check
+
+Regular scrubbing detects and repairs write hole corruption:
+
+```bash
+# Scrub array to detect inconsistencies
+echo check > /sys/block/md0/md/sync_action
+
+# Repair found inconsistencies
+echo repair > /sys/block/md0/md/sync_action
+```
+
+## Write-Intent Bitmap
+
+A write-intent bitmap tracks which blocks need resynchronization after
+an unclean shutdown. Without a bitmap, the entire array must be
+resynchronized (which can take hours for large arrays).
+
+```bash
+# Add internal bitmap
+mdadm --grow /dev/md0 --bitmap=internal
+
+# Add external bitmap file
+mdadm --grow /dev/md0 --bitmap=/var/lib/mdadm/bitmap.md0
+
+# Remove bitmap
+mdadm --grow /dev/md0 --bitmap=none
+
+# Check bitmap status
+cat /sys/block/md0/md/bitmap
+# Bitmap: /var/lib/mdadm/bitmap.md0
+#   Chunksize: 64K
+#   Total bits: 2097152
+#   Dirty bits: 0
+```
+
+### Bitmap vs Journal
+
+| Feature | Bitmap | Journal |
+|---------|--------|---------|
+| Purpose | Fast resync after crash | Prevent write hole |
+| Storage | Internal or external file | Separate device |
+| Performance | Minimal overhead | Slight write latency |
+| Crash recovery | Marks dirty blocks | Replays incomplete writes |
+| mdadm version | 2.0+ | 4.2+ |
+
+## Nested RAID Levels
+
+### RAID 50 (RAID 5+0)
+
+RAID 50 stripes across multiple RAID 5 arrays, providing better
+performance than RAID 5 while maintaining parity protection:
+
+```mermaid
+graph TD
+    subgraph "RAID 50"
+        subgraph "RAID 5 Set A"
+            A1["Disk 0: D0"]
+            A2["Disk 1: D1"]
+            A3["Disk 2: P0"]
+        end
+        subgraph "RAID 5 Set B"
+            B1["Disk 3: D2"]
+            B2["Disk 4: D3"]
+            B3["Disk 5: P1"]
+        end
+        STRIPE["Stripe across sets"]
+        STRIPE --> A1 & A2 & A3
+        STRIPE --> B1 & B2 & B3
+    end
+```
+
+```bash
+# Create RAID 50 with mdadm (two RAID 5 arrays striped)
+# Step 1: Create two RAID 5 arrays
+mdadm --create /dev/md0 --level=5 --raid-devices=3 /dev/sd[abc]1
+mdadm --create /dev/md1 --level=5 --raid-devices=3 /dev/sd[def]1
+
+# Step 2: Stripe them together (RAID 0 over RAID 5)
+mdadm --create /dev/md10 --level=0 --raid-devices=2 /dev/md0 /dev/md1
+```
+
+| Property | Value |
+|----------|-------|
+| Min disks | 6 (2× RAID 5 of 3) |
+| Usable capacity | (N-2)/N × total |
+| Fault tolerance | 1 disk per RAID 5 set |
+| Read performance | Excellent |
+| Write performance | Good |
+| Use case | Large databases, high-throughput storage |
+
+### RAID 60 (RAID 6+0)
+
+```bash
+# Create RAID 60 (two RAID 6 arrays striped)
+mdadm --create /dev/md0 --level=6 --raid-devices=4 /dev/sd[abcd]1
+mdadm --create /dev/md1 --level=6 --raid-devices=4 /dev/sd[efgh]1
+mdadm --create /dev/md10 --level=0 --raid-devices=2 /dev/md0 /dev/md1
+```
+
+## Hardware vs Software RAID
+
+| Feature | Hardware RAID | Software RAID (mdadm) |
+|---------|--------------|----------------------|
+| CPU usage | Offloaded to controller | Uses host CPU |
+| Battery backup | BBWC available | Journal device needed |
+| Cost | $200-$1000+ for controller | Free |
+| Flexibility | Controller-dependent | Full Linux integration |
+| Migration | Same controller family | Any Linux system |
+| Performance | Consistent | CPU-dependent |
+| Cache | On-controller cache | OS page cache |
+| Hot spare | Controller-managed | mdadm-managed |
+
+```bash
+# Check if system has hardware RAID
+lspci | grep -i raid
+# Example: MegaRAID SAS controller
+
+# Check hardware RAID status (MegaRAID)
+storcli /c0 show
+storcli /c0/eall/sall show
+
+# Check hardware RAID status (HP Smart Array)
+ssacli ctrl all show status
+ssacli ctrl slot=0 physicaldrive all show status
+```
+
+## RAID Reliability
+
+### Mean Time to Data Loss (MTTDL)
+
+For RAID 5 with N disks:
+
+```
+MTTDL = MTTF² / (N × (N-1) × rebuild_time)
+```
+
+Where MTTF is the Mean Time To Failure of a single disk.
+
+```bash
+# Example calculation:
+# 4 disks, MTTF = 1,000,000 hours, rebuild time = 10 hours
+# MTTDL = 1,000,000² / (4 × 3 × 10) = 8.33 × 10⁹ hours
+# That's ~951,000 years
+
+# But with large modern disks (20TB), rebuild can take 24+ hours
+# MTTDL = 1,000,000² / (4 × 3 × 24) = 3.47 × 10⁹ hours
+```
+
+### URE (Unrecoverable Read Error) Risk
+
+During rebuild, if a URE occurs on any remaining disk, the rebuild fails:
+
+```
+# URE rate for consumer SATA: 1 in 10^14 bits = 1 in 12.5 TB
+# URE rate for enterprise SAS: 1 in 10^15 bits = 1 in 125 TB
+
+# RAID 5 with 4× 20TB disks: rebuild reads 60TB
+# Probability of URE during rebuild:
+# Consumer: 1 - (1 - 1/12.5)^60 ≈ 99.2% chance of failure!
+# Enterprise: 1 - (1 - 1/125)^60 ≈ 38.4%
+```
+
+**This is why RAID 6 (double parity) is recommended for large arrays.**
+
 ## Common RAID Recipes
 
 ### RAID 1 for Boot Partition
