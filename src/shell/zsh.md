@@ -832,15 +832,24 @@ zprof
 | Feature | Zsh | Bash |
 |---|---|---|
 | Tab completion | Superior, built-in | Good, with bash-completion |
-| Autosuggestions | Plugin | Plugin |
-| Spell correction | Built-in | ❌ |
-| Glob qualifiers | `*(.)`, `*(m-1)` | ❌ |
-| Recursive glob | `**/*.txt` | `shopt -s globstar` |
+| Autosuggestions | Plugin (zsh-autosuggestions) | Plugin (ble.sh) |
+| Spell correction | Built-in (CORRECT) | ❌ |
+| Glob qualifiers | `*(.)`, `*(m-1)`, `(Lk+1000)` | ❌ |
+| Recursive glob | `**/*.txt` native | `shopt -s globstar` |
 | Arrays | 1-indexed | 0-indexed |
 | Associative arrays | ✅ | ✅ (Bash 4+) |
-| Prompt themes | Oh My Zsh, p10k | Limited |
+| Floating-point math | ✅ native `$((3.14*2))` | ❌ (need `bc`/`awk`) |
+| Prompt themes | Oh My Zsh, p10k | Limited (PS1) |
+| Plugin ecosystem | Oh My Zsh, zinit, antigen | bash-completion |
 | Startup speed | ~80ms | ~40ms |
-| Default on | macOS | Most Linux |
+| Syntax highlighting | Plugin (zsh-syntax-highlighting) | ❌ |
+| Regex captures | `$match` array | `$BASH_REMATCH` |
+| String indexing | 1-based `${str[1]}` | 0-based `${str:0:1}` |
+| Default on | macOS (since Catalina) | Most Linux distros |
+| POSIX compliance | Mostly | Mostly (strict in `--posix` mode) |
+| Line editor | ZLE (built-in) | Readline (library) |
+| Hash/directory shortcuts | `hash -d name=path` | ❌ |
+| Right prompt | `RPROMPT` | ❌ (limited via PS1 tricks) |
 
 ## Performance Optimization
 
@@ -867,9 +876,21 @@ time zsh -i -c exit
 - [Zsh Users Guide](https://zsh.sourceforge.io/Guide/)
 - [Powerlevel10k](https://github.com/romkatv/powerlevel10k)
 - [Zsh Plugin Standard](https://zdharma-continuum.github.io/Zsh-Plugin-Standard/)
+- [Zsh FAQ](https://zsh.sourceforge.io/FAQ/)
+- [Zsh Mailing List Archive](https://www.zsh.org/mla/)
+- [Awesome Zsh Plugins](https://github.com/unixorn/awesome-zsh-plugins)
+- [zinit Wiki](https://zdharma-continuum.github.io/zinit/wiki/)
+
+## Further Reading
+
+- [From Bash to Zsh](https://scriptingosx.com/2019/06/moving-to-zsh/) — Migration guide
+- [Zsh for Humans](https://github.com/romkatv/zsh4humans) — Opinionated Zsh framework
+- [Prezto](https://github.com/sorin-ionescu/prezto) — Zsh configuration framework
+- [antigen](https://github.com/zsh-users/antigen) — Plugin manager for Zsh
 
 ## Related Topics
 
 - [Shell Overview](./overview.md) — shell types and fundamentals
+- [Bash](./bash.md) — the most common Linux shell
 - [Fish](./fish.md) — alternative modern shell
 - [POSIX Shell](./posix-shell.md) — portable scripting

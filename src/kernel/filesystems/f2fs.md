@@ -171,6 +171,28 @@ F2FS On-Disk Layout:
 └─────────────────────────────────────────────────────────────┘
 ```
 
+### Segment and Section Structure
+
+```
+Segment Structure (typical):
+┌─────────────────────────────────────────┐
+│ Segment (2MB = 512 blocks × 4KB)        │
+│  ┌─────────────────────────────────┐    │
+│  │ Block 0: Data or Node           │    │
+│  │ Block 1: Data or Node           │    │
+│  │ ...                             │    │
+│  │ Block 511: Data or Node         │    │
+│  └─────────────────────────────────┘    │
+│                                         │
+│ SSA: Summary entry per block            │
+│  - Owner info (inode number, offset)    │
+│  - Block type (data/node)               │
+└─────────────────────────────────────────┘
+
+Section = 1 or more segments (GC unit)
+Zone = 1 or more sections (allocation unit)
+```
+
 ## Checkpointing
 
 F2FS uses a **checkpoint** mechanism for crash consistency. From the kernel documentation:
@@ -307,6 +329,9 @@ The idea is that different types of data (hot/cold) go to different SSD streams,
 | `active_logs={2,4,6}` | Number of active logs | 6 |
 | `extent_cache` | Enable extent cache for faster lookups | on |
 | `memory={normal,low}` | Memory usage mode | normal |
+| `fault_injection={0-100}` | Fault injection probability (testing) | 0 |
+| `fault_type={0-7}` | Fault injection type (testing) | 0 |
+| `mode={adaptive,adaptive-lfs,lfs}` | Allocation mode | adaptive |
 
 ```bash
 # Typical mount with performance options
@@ -361,6 +386,39 @@ $ cat /sys/fs/f2fs/<dev>/compr_written_blocks
 $ cat /sys/fs/f2fs/<dev>/compr_saved_blocks
 300000
 # Compression ratio: 30% space saved
+```
+
+## Inline Data and Dentries
+
+F2FS can store small files and directory entries inline to reduce overhead:
+
+### Inline Data
+
+For files smaller than ~3.6KB, F2FS stores the data directly in the inode:
+
+```mermaid
+graph LR
+    subgraph "Normal File"
+        A[Inode] --> B[Data Block 0]
+        A --> C[Data Block 1]
+    end
+    subgraph "Inline File (< 3.6KB)"
+        D[Inode with inline data]
+    end
+```
+
+### Inline Dentries
+
+Small directories store entries inline in the inode:
+
+```c
+/* Inline dentry structure */
+struct f2fs_inline_dentry {
+    __u8 dentry_bitmap[1];      /* Bitmap of valid entries */
+    __u8 reserved[3];
+    struct f2fs_dir_entry dentry[1]; /* Variable-length entries */
+    /* Followed by filename strings */
+};
 ```
 
 ## F2FS vs ext4 on SSDs
@@ -452,6 +510,45 @@ mount -t f2fs -o compress_algorithm=lz4,background_gc=on /dev/sdb1 /mnt
 # For embedded (low memory)
 mount -t f2fs -o memory=low,active_logs=2 /dev/sdb1 /mnt
 ```
+
+## Troubleshooting
+
+### Filesystem Check
+
+```bash
+# Check F2FS filesystem
+$ fsck.f2fs /dev/sdb1
+
+# Repair F2FS filesystem
+$ fsck.f2fs -a /dev/sdb1
+
+# Verbose check
+$ fsck.f2fs -f /dev/sdb1
+```
+
+### Debug Information
+
+```bash
+# F2FS statistics
+$ cat /sys/fs/f2fs/<dev>/status
+# Shows: GC count, dirty segments, free segments, etc.
+
+# Detailed stats
+$ cat /sys/fs/f2fs/<dev>/gc_urgent
+$ cat /sys/fs/f2fs/<dev>/cp_interval
+
+# Kernel messages
+$ dmesg | grep f2fs
+```
+
+### Common Issues
+
+| Problem | Cause | Solution |
+|---------|-------|----------|
+| Slow writes | GC running | Check gc_urgent, wait or tune GC |
+| ENOSPC on mount | Nocheckpoint mode | Enable checkpoint or fsck |
+| Recovery slow | Large log replay | Reduce checkpoint interval |
+| Corruption | Power cut during GC | Run fsck.f2fs |
 
 ## References
 
