@@ -4,7 +4,85 @@
 
 Metrics collection is the foundation of monitoring and observability. Unlike logs (which record discrete events) and traces (which follow individual requests), metrics provide **aggregated numerical measurements** over time. They're efficient to store, fast to query, and ideal for dashboards and alerting.
 
-This chapter covers `node_exporter` for system metrics, the textfile collector for custom metrics, and Prometheus exposition format.
+This chapter covers `node_exporter` for system metrics, the textfile collector for custom metrics, Prometheus exposition format, and advanced metrics patterns.
+
+## The Three Pillars of Observability
+
+```mermaid
+graph TB
+    subgraph "Observability Pillars"
+        METRICS["Metrics<br/>Numerical measurements over time<br/>Dashboards, alerting, trends"]
+        LOGS["Logs<br/>Discrete event records<br/>Debugging, auditing, forensics"]
+        TRACES["Traces<br/>Request flow across services<br/>Latency analysis, dependency mapping"]
+    end
+
+    METRICS -->|"What's happening?"| SRE["SRE/Operations"]
+    LOGS -->|"Why did it happen?"| SRE
+    TRACES -->|"Where did it happen?"| SRE
+```
+
+| Aspect | Metrics | Logs | Traces |
+|--------|---------|------|--------|
+| Data type | Numerical (counters, gauges) | Text (structured/unstructured) | Spans with timing |
+| Volume | Low (pre-aggregated) | High (per-event) | Medium (per-request) |
+| Query | PromQL, SQL | grep, Elasticsearch | Jaeger, Zipkin |
+| Storage | TSDB (Prometheus, InfluxDB) | Elasticsearch, Loki | Jaeger, Tempo |
+| Best for | Dashboards, alerting | Debugging, auditing | Latency analysis |
+
+## Metrics Data Model
+
+### Metric Types
+
+```mermaid
+graph LR
+    subgraph "Prometheus Metric Types"
+        COUNTER["Counter<br/>Monotonically increasing<br/>e.g., requests_total"]
+        GAUGE["Gauge<br/>Goes up and down<br/>e.g., memory_bytes"]
+        HISTOGRAM["Histogram<br/>Distribution of values<br/>e.g., request_duration"]
+        SUMMARY["Summary<br/>Pre-calculated quantiles<br/>e.g., rpc_duration"]
+    end
+```
+
+| Type | Description | Example | Reset Behavior |
+|------|-------------|---------|----------------|
+| counter | Monotonically increasing value | `http_requests_total` | Resets to 0 on restart |
+| gauge | Value that can go up or down | `memory_usage_bytes` | No reset |
+| histogram | Distribution of values in buckets | `http_request_duration_seconds` | Resets on restart |
+| summary | Similar to histogram, calculated quantiles | `rpc_duration_seconds` | Resets on restart |
+
+### Labels and Dimensions
+
+```bash
+# Labels add dimensions to metrics
+# Without labels:
+http_requests_total 12345
+
+# With labels:
+http_requests_total{method="GET", endpoint="/api/users", status="200"} 12345
+http_requests_total{method="POST", endpoint="/api/users", status="201"} 678
+http_requests_total{method="GET", endpoint="/api/users", status="500"} 3
+
+# Label cardinality matters:
+# Good: endpoint="/api/users" (hundreds of endpoints)
+# Bad: user_id="12345" (millions of users → high cardinality)
+```
+
+### Naming Conventions
+
+```bash
+# Prometheus naming: snake_case with unit suffix
+# Good:
+node_cpu_seconds_total
+http_request_duration_seconds
+disk_reads_completed_total
+memory_usage_bytes
+
+# Bad:
+nodeCpuSecondsTotal    # camelCase
+http_request_duration  # missing unit
+diskReadsCompleted     # camelCase
+mem_usage              # abbreviated
+```
 
 ## node_exporter
 
@@ -226,15 +304,6 @@ ssl_certificate_expiry_days{domain="api.example.com"} 12
 md_array_degraded 0
 ```
 
-### Metric Types
-
-| Type | Description | Example |
-|------|-------------|---------|
-| counter | Monotonically increasing value | `http_requests_total` |
-| gauge | Value that can go up or down | `memory_usage_bytes` |
-| histogram | Distribution of values | `http_request_duration_seconds` |
-| summary | Similar to histogram, calculated quantiles | `rpc_duration_seconds` |
-
 ## Advanced Textfile Metrics
 
 ### Histogram from Script
@@ -341,6 +410,233 @@ if __name__ == '__main__':
         time.sleep(30)
 ```
 
+## PromQL Query Examples
+
+### Basic Queries
+
+```promql
+# CPU usage percentage (rate over 5 minutes)
+100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)
+
+# Memory usage percentage
+(1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100
+
+# Disk usage percentage
+(1 - node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100
+
+# Network receive rate (bytes/sec)
+rate(node_network_receive_bytes_total{device="eth0"}[5m])
+
+# Disk I/O utilization (percentage of time doing I/O)
+rate(node_disk_io_time_seconds_total{device="sda"}[5m]) * 100
+
+# Load average (1 minute)
+node_load1
+```
+
+### Advanced Queries
+
+```promql
+# Top 5 processes by CPU usage (requires process_exporter)
+topk(5, rate(process_cpu_seconds_total[5m]))
+
+# Memory pressure (available < 10%)
+node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes < 0.1
+
+# Disk will be full in 24 hours (predictive)
+predict_linear(node_filesystem_avail_bytes{mountpoint="/"}[1h], 24*3600) < 0
+
+# Network error rate
+rate(node_network_receive_errs_total{device="eth0"}[5m]) > 0
+
+# Container restart count (Kubernetes)
+increase(kube_pod_container_status_restarts_total[1h]) > 3
+
+# P99 latency from histogram
+histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m]))
+
+# Error rate percentage
+sum(rate(http_requests_total{status=~"5.."}[5m])) / sum(rate(http_requests_total[5m])) * 100
+```
+
+## Alerting Rules
+
+```yaml
+# /etc/prometheus/rules/node_alerts.yml
+groups:
+  - name: node_alerts
+    rules:
+      # High CPU usage
+      - alert: HighCPUUsage
+        expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage on {{ $labels.instance }}"
+          description: "CPU usage is above 80% for 5 minutes"
+
+      # Low disk space
+      - alert: LowDiskSpace
+        expr: (1 - node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 > 90
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Low disk space on {{ $labels.instance }}"
+          description: "Disk usage is above 90%"
+
+      # High memory usage
+      - alert: HighMemoryUsage
+        expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 > 90
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage on {{ $labels.instance }}"
+
+      # Network errors
+      - alert: NetworkErrors
+        expr: rate(node_network_receive_errs_total[5m]) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Network errors on {{ $labels.device }}"
+
+      # Certificate expiring
+      - alert: CertificateExpiring
+        expr: ssl_certificate_expiry_days < 30
+        for: 1d
+        labels:
+          severity: warning
+        annotations:
+          summary: "SSL certificate for {{ $labels.domain }} expires in {{ $value }} days"
+```
+
+## Prometheus Architecture
+
+```mermaid
+graph TB
+    subgraph "Data Sources"
+        NE["node_exporter<br/>:9100"]
+        APP["Application<br/>:8080/metrics"]
+        CAD["cAdvisor<br/>:8080"]
+        TEXTFILE["Textfile collector<br/>custom_metrics.prom"]
+    end
+
+    subgraph "Prometheus"
+        PROM["Prometheus Server<br/>:9090"]
+        TSDB["TSDB<br/>Time Series Database"]
+        RULES["Alert Rules"]
+    end
+
+    subgraph "Visualization & Alerting"
+        GRAFANA["Grafana<br/>:3000"]
+        ALERTMGR["Alertmanager<br/>:9093"]
+        PAGER["PagerDuty / Slack"]
+    end
+
+    NE --> PROM
+    APP --> PROM
+    CAD --> PROM
+    TEXTFILE --> NE
+    PROM --> TSDB
+    PROM --> RULES
+    PROM --> GRAFANA
+    PROM --> ALERTMGR
+    ALERTMGR --> PAGER
+```
+
+## Prometheus Configuration
+
+```yaml
+# /etc/prometheus/prometheus.yml
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - "rules/*.yml"
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['localhost:9093']
+
+scrape_configs:
+  # Node exporter
+  - job_name: 'node'
+    static_configs:
+      - targets: ['localhost:9100']
+        labels:
+          env: 'production'
+          dc: 'us-east-1'
+
+  # Application metrics
+  - job_name: 'myapp'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['localhost:8080']
+
+  # cAdvisor (container metrics)
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['localhost:8080']
+
+  # Kubernetes pods (auto-discovery)
+  - job_name: 'kubernetes-pods'
+    kubernetes_sd_configs:
+      - role: pod
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+        action: keep
+        regex: true
+```
+
+## Grafana Dashboard Queries
+
+```json
+{
+  "panels": [
+    {
+      "title": "CPU Usage",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "100 - (avg by(instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
+          "legendFormat": "{{ instance }}"
+        }
+      ]
+    },
+    {
+      "title": "Memory Usage",
+      "type": "gauge",
+      "targets": [
+        {
+          "expr": "(1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100",
+          "legendFormat": "Used"
+        }
+      ]
+    },
+    {
+      "title": "Disk I/O",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rate(node_disk_read_bytes_total{device=\"sda\"}[5m])",
+          "legendFormat": "Read {{ device }}"
+        },
+        {
+          "expr": "rate(node_disk_write_bytes_total{device=\"sda\"}[5m])",
+          "legendFormat": "Write {{ device }}"
+        }
+      ]
+    }
+  ]
+}
+```
+
 ## Best Practices
 
 ```bash
@@ -362,6 +658,67 @@ if __name__ == '__main__':
 
 # 5. Atomic file writes for textfile collector
 # Write to temp file, then mv (atomic on same filesystem)
+
+# 6. Use appropriate metric types
+# Counter: for things that only increase (requests, errors)
+# Gauge: for things that fluctuate (temperature, queue size)
+# Histogram: for distributions (latency, request size)
+```
+
+## Additional Exporters
+
+| Exporter | Metrics | Port |
+|----------|---------|------|
+| node_exporter | System metrics (CPU, memory, disk, network) | 9100 |
+| process_exporter | Per-process metrics | 9256 |
+| blackbox_exporter | Probe endpoints (HTTP, TCP, ICMP, DNS) | 9115 |
+| mysqld_exporter | MySQL metrics | 9104 |
+| postgres_exporter | PostgreSQL metrics | 9187 |
+| redis_exporter | Redis metrics | 9121 |
+| nginx_exporter | Nginx metrics | 9113 |
+| kafka_exporter | Kafka metrics | 9308 |
+| cadvisor | Container metrics | 8080 |
+| kube-state-metrics | Kubernetes object metrics | 8080 |
+
+### Blackbox Exporter Example
+
+```yaml
+# /etc/prometheus/blackbox.yml
+modules:
+  http_2xx:
+    prober: http
+    timeout: 5s
+    http:
+      valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+      valid_status_codes: [200]
+      method: GET
+      follow_redirects: true
+
+  tcp_connect:
+    prober: tcp
+    timeout: 5s
+
+  icmp:
+    prober: icmp
+    timeout: 5s
+
+# Prometheus scrape config for blackbox
+scrape_configs:
+  - job_name: 'blackbox'
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - https://example.com
+          - https://api.example.com/health
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: localhost:9115
 ```
 
 ## References
