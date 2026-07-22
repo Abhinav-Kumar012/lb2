@@ -769,6 +769,81 @@ The SCO litigation had lasting effects on the open-source ecosystem:
 
 ---
 
+## eBPF Licensing
+
+The extended Berkeley Packet Filter (eBPF) subsystem has its own licensing considerations. eBPF programs run in the kernel but are loaded from userspace.
+
+### eBPF Program Licensing
+
+eBPF programs must declare their license:
+
+```c
+// eBPF programs loaded into the kernel must be GPL-compatible
+char _license[] SEC("license") = "GPL";
+```
+
+The kernel checks the declared license and restricts access to GPL-only helper functions:
+
+```c
+// Available to all eBPF programs
+bpf_map_lookup_elem()
+
+// Available only to GPL-licensed eBPF programs
+bpf_probe_read()
+bpf_get_current_task()
+```
+
+This means that eBPF programs that want access to the full set of kernel helpers must be licensed under a GPL-compatible license.
+
+### eBPF CO-RE (Compile Once, Run Everywhere)
+
+eBPF CO-RE programs use BTF (BPF Type Format) to access kernel data structures without compiling against kernel headers. This has licensing implications:
+
+- CO-RE programs don't include kernel headers, reducing GPL exposure
+- But they still must be GPL-compatible to access kernel helpers
+- The `vmlinux.h` header (generated from BTF) contains kernel type information
+
+→ See: [eBPF](../debugging/ebpf.md) | [BPF CO-RE](../performance/bpf-co-re.md)
+
+---
+
+## Frequently Asked Questions
+
+### Can I use GPL code in my proprietary software?
+
+No — if you distribute the result, you must also release your modifications under the GPL. However, you can **use** GPL software internally (on your servers) without distributing source code. The GPL only triggers when you **distribute** the software.
+
+### Can I link my proprietary program against glibc?
+
+Yes — glibc is LGPL, which allows proprietary programs to link against it without triggering copyleft. Dynamic linking (shared libraries) satisfies the LGPL obligation.
+
+### Is the Linux kernel GPL v2 or GPL v3?
+
+The kernel is GPL v2 **only** — it does not include the "or later" clause. This means the kernel cannot be relicensed under GPL v3.
+
+### Can I write a proprietary kernel module?
+
+Legally, this is unsettled. Technically, you can load proprietary modules using `MODULE_LICENSE("Proprietary")`, but you won't have access to `EXPORT_SYMBOL_GPL` functions. The kernel community's position is that modules using internal headers are likely derivative works.
+
+### What happens if I violate the GPL?
+
+GPL violation is a copyright infringement. The copyright holder (or their agent, like the FSF or SFC) can:
+1. Send a cease-and-desist letter
+2. Require you to comply (release source code)
+3. Sue for damages
+4. Seek an injunction to stop distribution
+
+Most GPL violations are resolved through negotiation — the violator comes into compliance by releasing source code.
+
+### Can I dual-license my code?
+
+Yes — you can release your code under multiple licenses. Recipients can choose which license to use. Common patterns:
+- `(GPL-2.0 OR MIT)` — choose either
+- `(GPL-2.0-only OR Apache-2.0)` — choose either
+- `GPL-2.0` for community, commercial license for businesses (dual licensing business model)
+
+---
+
 ## Further Reading
 
 - [Kernel COPYING file](https://docs.kernel.org/process/license-rules.html) — Official kernel licensing rules
