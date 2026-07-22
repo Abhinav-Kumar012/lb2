@@ -477,6 +477,185 @@ $ ip link set mtu 1420 dev wg0
 $ ethtool -K eth0 tx-udp-segmentation on   # GSO for WireGuard
 ```
 
+## WireGuard Internals
+
+### Noise Protocol Framework
+
+WireGuard is built on the Noise Protocol Framework, specifically the `Noise_IKpsk2_25519_ChaChaPoly_BLAKE2s` handshake pattern:
+
+```
+Noise_IKpsk2:
+  → Initiator: Handshake Initiation (ephemeral key + encrypted static key)
+  ← Responder: Handshake Response (ephemeral key + encrypted static key)
+  → Both: Transport Data (encrypted with derived session keys)
+```
+
+The handshake involves:
+1. **Key Exchange**: Curve25519 ECDH between ephemeral and static keys
+2. **Authentication**: BLAKE2s-based MAC verifies peer identity
+3. **Key Derivation**: HKDF derives session keys from shared secrets
+4. **Forward Secrecy**: New ephemeral keys per handshake; old keys discarded
+
+### Cookie Mechanism (DoS Protection)
+
+WireGuard includes a built-in cookie mechanism to mitigate DoS attacks:
+
+```
+Client → Server: Initiation (valid static key)
+Server → Client: Response + Cookie (MAC of client IP + timestamp)
+Client → Server: Initiation + Cookie (proves it received the response)
+```
+
+If the server is under load, it may require the cookie before accepting new handshakes. This prevents IP spoofing attacks.
+
+### Cryptographic Routing
+
+WireGuard uses a routing table based on public keys, not IP addresses:
+
+```c
+/* Simplified WireGuard peer lookup */
+struct wg_peer {
+    struct wg_device *device;
+    struct list_head peer_list;
+    struct noise_keypairs keypairs;
+    struct endpoint endpoint;      /* Current IP:port */
+    struct allowedips allowed_ips; /* Cryptokey routing table */
+    /* ... */
+};
+
+/* Allowed IPs → peer lookup is a trie */
+struct allowedips {
+    struct allowedips_node __rcu *root4;
+    struct allowedips_node __rcu *root6;
+};
+```
+
+This means WireGuard can survive IP changes (roaming) — the peer is identified by its public key, and the endpoint is updated dynamically.
+
+### Performance Characteristics
+
+| Metric | WireGuard | OpenVPN | IPsec |
+|--------|-----------|---------|-------|
+| Throughput (Gbps) | 1.0 – 3.0 | 0.2 – 0.5 | 0.8 – 2.0 |
+| Latency (ms) | 5 – 20 | 15 – 50 | 10 – 30 |
+| CPU usage | Low | High | Medium |
+| Memory usage | Minimal | Moderate | Moderate |
+| Handshake time | ~1 ms | ~50 ms | ~100 ms |
+
+## OpenVPN Data Channel Offload (DCO)
+
+OpenVPN DCO moves the data channel processing from userspace to kernel space, dramatically improving performance:
+
+```bash
+# Load the OVPN DCO kernel module
+$ modprobe ovpn-dco
+
+# OpenVPN with DCO
+$ openvpn --config server.conf --data-ciphers AES-256-GCM --ovpn-dco
+```
+
+DCO is available since Linux 6.x and brings OpenVPN performance closer to WireGuard:
+
+| Mode | Throughput |
+|------|-----------|
+| OpenVPN (userspace) | ~300 Mbps |
+| OpenVPN DCO (kernel) | ~2 Gbps |
+| WireGuard (kernel) | ~3 Gbps |
+
+## IPsec NAT Traversal (NAT-T)
+
+IPsec ESP packets are encrypted IP payloads, which breaks through NAT devices that modify packet headers. NAT-T solves this:
+
+1. **Detection**: During IKE negotiation, peers detect NAT in the path
+2. **Encapsulation**: ESP packets are wrapped in UDP port 4500
+3. **Keepalive**: NAT-T keepalives prevent NAT table expiry
+
+```
+Original: [IP Header][ESP Header][Encrypted Payload]
+NAT-T:    [IP Header][UDP 4500][ESP Header][Encrypted Payload]
+```
+
+```bash
+# Enable NAT-T in strongSwan
+conn nat-t-example
+    left=203.0.113.1
+    right=198.51.100.1
+    forceencaps=yes  # Force UDP encapsulation
+```
+
+## VPN and IPv6
+
+Modern VPNs should support IPv6 to avoid leaks:
+
+```bash
+# WireGuard: dual-stack tunnel
+[Interface]
+Address = 10.10.0.1/24, fd00::1/64
+
+[Peer]
+AllowedIPs = 10.0.0.0/8, fd00::/48
+
+# OpenVPN: push IPv6
+server-ipv6 fd00:dead:beef::/48
+push "route-ipv6 fd00::/48"
+
+# IPsec: dual-stack SA
+conn dual-stack
+    leftsubnet=10.0.1.0/24,fd00:1::/48
+    rightsubnet=10.0.2.0/24,fd00:2::/48
+```
+
+### IPv6 Leak Prevention
+
+When using a full-tunnel VPN, ensure IPv6 traffic is also routed through the tunnel:
+
+```bash
+# Disable IPv6 on physical interface when VPN is active
+sysctl -w net.ipv6.conf.eth0.disable_ipv6=1
+
+# Or use policy routing
+ip -6 rule add from fd00::/48 table vpn
+ip -6 route add ::/0 dev wg0 table vpn
+```
+
+## Kill Switch Implementation
+
+A kill switch prevents traffic from leaking outside the VPN tunnel:
+
+```bash
+#!/bin/bash
+# WireGuard kill switch using nftables
+
+# Flush existing rules
+nft flush ruleset
+
+# Allow loopback
+nft add rule inet filter input iif lo accept
+nft add rule inet filter output oif lo accept
+
+# Allow VPN server endpoint
+nft add rule inet filter output oifname "eth0" ip daddr 203.0.113.1 udp dport 51820 accept
+
+# Allow DNS (through VPN only)
+nft add rule inet filter output oifname "wg0" udp dport 53 accept
+
+# Allow traffic through VPN tunnel
+nft add rule inet filter output oifname "wg0" accept
+nft add rule inet filter input iifname "wg0" accept
+
+# Drop everything else
+default drop
+```
+
+Alternatively, use WireGuard's `AllowedIPs` with policy routing:
+
+```bash
+# Route only VPN server IP outside the tunnel
+ip rule add from all table main suppress_prefixlength 0
+ip rule add from all to 203.0.113.1 table main
+ip route add default dev wg0 table vpn
+```
+
 ## Troubleshooting VPN Connections
 
 ```bash
@@ -499,7 +678,22 @@ $ journalctl -u strongswan -f
 $ traceroute 10.10.0.2
 $ ss -ulnp | grep -E "51820|1194|500"
 $ iptables -L -n -v | grep -i vpn
+
+# Check for MTU issues (fragmentation)
+ping -M do -s 1400 10.10.0.2
+# If this fails, reduce MTU on the VPN interface
 ```
+
+## Cross-References
+
+- [tcpip-suite](./tcpip-suite.md) — TCP/IP protocol suite overview
+- [sockmap](../kernel/networking/sockmap.md) — BPF socket redirection (alternative to VPN for local proxying)
+- [TLS](./tls.md) — TLS encryption used by OpenVPN and IKEv2
+- [IP Addressing](./ip-addressing.md) — VPN address planning
+- [IPv6](./ipv6.md) — IPv6 in VPN tunnels
+- [Routing Protocols](./routing-protocols.md) — Dynamic routing over VPN
+- [Firewalls](../security/) — VPN firewall rules
+- [Network Troubleshooting](./troubleshooting.md) — Debugging VPN connectivity
 
 ## Further Reading
 
