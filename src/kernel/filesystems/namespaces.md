@@ -400,6 +400,62 @@ nsenter --mount --pid --net --target <pid> bash
 - Unbindable mounts prevent namespace escape via bind mount attacks
 - The `nosuid`, `nodev`, and `noexec` mount options should be used in container mount namespaces
 
+## Implementation Details
+
+### Key Source Files
+
+- **`fs/namespace.c`** — Mount namespace implementation (~4500 lines)
+- **`include/linux/mnt_namespace.h`** — Namespace structure definitions
+- **`include/linux/mount.h`** — Mount structure definitions
+- **`fs/mount.h`** — Internal mount structures
+
+### Mount Hash Table
+
+Mounts are stored in a hash table keyed by the parent mount and the mountpoint dentry, enabling fast lookup:
+
+```c
+/* fs/mount.h */
+#define MNT_HASH_MASK   0xFF
+struct hlist_head mount_hashtable[MNT_HASH_MASK + 1];
+```
+
+### Mount Reference Counting
+
+Mounts use reference counting to track usage across namespaces. When the last reference to a mount is dropped, it is freed. Mount propagation increases reference counts as mounts are shared across namespaces.
+
+### __lookup_mnt()
+
+```c
+/* fs/namespace.c */
+struct mount *__lookup_mnt(struct vfsmount *mnt, struct dentry *dentry)
+{
+    struct hlist_head *head = m_hash(mnt, dentry);
+    struct mount *p;
+
+    hlist_for_each_entry_rcu(p, head, mnt_hash) {
+        if (&p->mnt_parent->mnt == mnt && p->mnt_mountpoint == dentry)
+            return p;
+    }
+    return NULL;
+}
+```
+
+## Systemd and Mount Namespaces
+
+Systemd uses mount namespaces extensively:
+
+- **PrivateTmp**: Each service gets a private `/tmp` via mount namespace
+- **ProtectSystem**: Mounts `/usr` read-only in the service's namespace
+- **ReadWritePaths/ReadOnlyPaths**: Controls mount visibility per service
+
+```ini
+# /etc/systemd/system/myservice.service
+[Service]
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/myapp
+```
+
 ## References
 
 - [Mount namespaces man page](https://man7.org/linux/man-pages/man7/mount_namespaces.7.html)
