@@ -495,6 +495,177 @@ cat /sys/class/net/br0/bridge/hash_max
 - [IEEE 802.1Q — VLANs](https://standards.ieee.org/standard/802_1Q-2018.html)
 - [Red Hat: Configuring Network Bridging](https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html/configuring_and_managing_networking/configuring-a-network-bridge_configuring-and-managing-networking)
 
+## Bridge Internals (Kernel Implementation)
+
+### Data Structures
+
+The Linux bridge is implemented in `net/bridge/` with these key structures:
+
+```c
+/* Bridge instance */
+struct net_bridge {
+    struct net_device   *dev;           /* Bridge netdev */
+    struct list_head    port_list;      /* List of ports */
+    spinlock_t          lock;
+    struct net_bridge_fdb_hash *fdb_hash;  /* MAC learning table */
+    unsigned long       ageing_time;    /* FDB entry timeout */
+    stp_state;                          /* STP state */
+    vlan_enabled;                       /* VLAN filtering */
+    struct net_bridge_vlan_group *vlans; /* VLAN database */
+};
+
+/* Bridge port (attached interface) */
+struct net_bridge_port {
+    struct net_bridge   *br;            /* Parent bridge */
+    struct net_device   *dev;           /* Port netdev */
+    struct list_head    list;           /* Link in port_list */
+    u8                  priority;       /* STP port priority */
+    u16                 path_cost;      /* STP path cost */
+    u8                  state;          /* STP port state */
+    struct net_bridge_vlan_group *vlans; /* Per-port VLANs */
+};
+```
+
+### FDB (Forwarding Database)
+
+The FDB is a hash table mapping MAC addresses to ports:
+
+```c
+/* FDB entry */
+struct net_bridge_fdb_entry {
+    struct hlist_node   hlist;          /* Hash chain */
+    struct net_bridge_port *dst;        /* Destination port */
+    mac_addr;                           /* MAC address */
+    unsigned long       updated;        /* Last seen timestamp */
+    unsigned long       used;           /* Last used timestamp */
+    u16                 vlan_id;        /* VLAN tag */
+    u8                  is_local;       /* Local (bridge) entry */
+    u8                  is_static;      /* Static entry */
+};
+
+/* Hash function */
+static inline int br_mac_hash(const unsigned char *mac) {
+    return jhash(mac, ETH_ALEN, 0) % FDB_HASH_SIZE;
+}
+```
+
+### Frame Forwarding Path
+
+```mermaid
+flowchart TD
+    RX[Frame received on port] --> LEARN[Source MAC learning]
+    LEARN --> FDB_LOOKUP[FDB lookup: destination MAC]
+    FDB_LOOKUP --> FOUND{Entry found?}
+    FOUND -->|Yes| PORT{Same port?}
+    PORT -->|Yes| DROP[Drop (hairpin)]
+    PORT -->|No| FWD[Forward to destination port]
+    FOUND -->|No| FLOOD[Flood to all ports
+(except source)]
+    FWD --> VLAN_CHECK{VLAN filtering
+enabled?}
+    FLOOD --> VLAN_CHECK
+    VLAN_CHECK -->|Yes| VLAN_FWD[Check VLAN tags
+and port membership]
+    VLAN_CHECK -->|No| SEND[Send frame]
+    VLAN_FWD --> SEND
+```
+
+## Bridge with iptables/nftables
+
+The bridge integrates with Netfilter for packet filtering:
+
+```bash
+# Enable bridge Netfilter
+modprobe br_netfilter
+
+# Filter bridged traffic with iptables
+iptables -I FORWARD -m physdev --physdev-in eth0 -j DROP
+
+# Or with nftables
+nft add chain bridge filter forward '{ type filter hook forward priority 0; }'
+nft add rule bridge filter forward iifname "eth0" drop
+
+# Enable bridge_nf_call_iptables (bridge → iptables)
+echo 1 > /proc/sys/net/bridge/bridge-nf-call-iptables
+
+# Arptables for ARP filtering on bridge
+arptables -A INPUT -i eth0 -j DROP
+```
+
+## Bridge Port Isolation
+
+Port isolation prevents communication between ports on the same bridge:
+
+```bash
+# Enable port isolation (Linux 3.18+)
+ip link set eth0 type bridge_slave isolated on
+ip link set eth1 type bridge_slave isolated on
+
+# Isolated ports can still communicate with non-isolated ports
+# Useful for hosting providers: VMs can't see each other
+```
+
+## Multicast Snooping
+
+The bridge supports IGMP/MLD snooping for efficient multicast:
+
+```bash
+# Enable multicast snooping
+echo 1 > /sys/class/net/br0/bridge/multicast_snooping
+
+# Set multicast querier
+echo 1 > /sys/class/net/br0/bridge/multicast_querier
+
+# Set multicast router
+echo 1 > /sys/class/net/br0/bridge/multicast_router
+
+# View multicast group membership
+bridge mdb show
+# dev br0 port eth0 grp 239.1.1.1 permanent
+# dev br0 port eth1 grp 239.1.1.1 temp
+```
+
+## Common Bridge Scenarios
+
+### Transparent Bridge (Bridging Firewall)
+
+```bash
+# Bridge two interfaces transparently
+ip link add name br0 type bridge
+ip link set eth0 master br0
+ip link set eth1 master br0
+ip link set br0 up
+ip link set eth0 up
+ip link set eth1 up
+
+# No IP on bridge — purely Layer 2
+# Filter with ebtables or bridge nftables
+```
+
+### Bridge with Multiple VLANs
+
+```bash
+# Trunk port (eth0) carries VLANs 100, 200
+# Access ports: tap0 → VLAN 100, tap1 → VLAN 200
+
+ip link add name br0 type bridge vlan_filtering 1
+ip link set eth0 master br0
+ip link set tap0 master br0
+ip link set tap1 master br0
+
+bridge vlan add dev eth0 vid 100
+bridge vlan add dev eth0 vid 200
+bridge vlan del dev eth0 vid 1
+
+bridge vlan add dev tap0 vid 100 pvid untagged
+bridge vlan del dev tap0 vid 1
+
+bridge vlan add dev tap1 vid 200 pvid untagged
+bridge vlan del dev tap1 vid 1
+
+ip link set br0 up
+```
+
 ## Related Topics
 
 - [Network Bonding](./bonding.md) — Link aggregation
@@ -502,3 +673,5 @@ cat /sys/class/net/br0/bridge/hash_max
 - [Network Namespaces](./namespaces.md) — Isolated network stacks
 - [Traffic Control](./tc.md) — QoS on bridge ports
 - [Netlink](./netlink.md) — Programmatic bridge management
+- [Netfilter](../netfilter/index.md) — Packet filtering framework
+- [Virtualization](../../virtualization/overview.md) — VM networking with bridges
