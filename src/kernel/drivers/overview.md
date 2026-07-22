@@ -523,3 +523,366 @@ void module_put(struct module *module);
 - [USB Subsystem](usb.md) — USB bus type
 - [Device Tree](device-tree.md) — platform device matching
 - [Kernel APIs](../apis.md) — memory allocation and concurrency
+
+## Device Tree Integration
+
+The Device Tree (DT) is a data structure for describing hardware, used extensively on ARM, RISC-V, and other architectures where hardware isn't self-enumerating (unlike PCI).
+
+### Device Tree Source Example
+
+```dts
+/* Simplified SoC device tree */
+/ {
+    compatible = "myvendor,myboard";
+    model = "My Development Board";
+
+    cpus {
+        #address-cells = <1>;
+        #size-cells = <0>;
+        cpu@0 {
+            device_type = "cpu";
+            compatible = "arm,cortex-a53";
+            reg = <0>;
+        };
+    };
+
+    soc {
+        compatible = "simple-bus";
+        #address-cells = <1>;
+        #size-cells = <1>;
+        ranges;
+
+        uart0: serial@10010000 {
+            compatible = "myvendor,myuart";
+            reg = <0x10010000 0x1000>;
+            interrupts = <10 4>;
+            clocks = <&clk_uart>;
+            status = "okay";
+        };
+
+        i2c0: i2c@10020000 {
+            compatible = "myvendor,myi2c";
+            reg = <0x10020000 0x1000>;
+            #address-cells = <1>;
+            #size-cells = <0>;
+
+            sensor@48 {
+                compatible = "myvendor,tempsensor";
+                reg = <0x48>;
+            };
+        };
+    };
+};
+```
+
+### Device Tree Matching in Drivers
+
+```c
+static const struct of_device_id my_driver_of_match[] = {
+    { .compatible = "myvendor,myuart" },
+    { /* sentinel */ }
+};
+MODULE_DEVICE_TABLE(of, my_driver_of_match);
+
+static struct platform_driver my_driver = {
+    .probe = my_probe,
+    .remove = my_remove,
+    .driver = {
+        .name = "my-driver",
+        .of_match_table = my_driver_of_match,
+    },
+};
+module_platform_driver(my_driver);
+```
+
+### Accessing DT Properties in Drivers
+
+```c
+#include <linux/of.h>
+#include <linux/of_device.h>
+
+static int my_probe(struct platform_device *pdev)
+{
+    struct device_node *np = pdev->dev.of_node;
+    u32 reg_base, irq;
+    const char *label;
+
+    /* Read properties */
+    if (of_property_read_u32(np, "reg", &reg_base)) {
+        dev_err(&pdev->dev, "missing reg property\n");
+        return -EINVAL;
+    }
+
+    of_property_read_string(np, "label", &label);
+
+    irq = platform_get_irq(pdev, 0);
+    if (irq < 0) return irq;
+
+    dev_info(&pdev->dev, "base=%x irq=%u label=%s\n",
+             reg_base, irq, label ?: "(none)");
+    return 0;
+}
+```
+
+## PCI Subsystem
+
+PCI (Peripheral Component Interconnect) is a bus standard for connecting peripherals. PCI Express (PCIe) is the modern serial version.
+
+### PCI Device Identification
+
+```bash
+# List all PCI devices
+lspci
+# 00:00.0 Host bridge: Intel Corporation 440FX - 82441FX PMC [Natoma]
+# 00:01.0 ISA bridge: Intel Corporation 82371SB PIIX3 ISA [Natoma/Triton II]
+# 00:01.1 IDE interface: Intel Corporation 82371SB PIIX3 IDE [Natoma/Triton II]
+# 00:02.0 VGA compatible controller: Device 1234:1111 (rev 02)
+# 00:03.0 Ethernet controller: Intel Corporation 82540EM Gigabit Ethernet
+
+# Detailed info
+lspci -v -s 00:03.0
+
+# Kernel view
+ls /sys/bus/pci/devices/0000\:00\:03.0/
+# config  device  driver  enable  irq  resource  vendor  class  ...
+
+# PCI device configuration space (first 64 bytes)
+xxd /sys/bus/pci/devices/0000\:00\:03.0/config | head -4
+```
+
+### PCI Driver Structure
+
+```c
+static const struct pci_device_id my_pci_ids[] = {
+    { PCI_DEVICE(VENDOR_ID, DEVICE_ID) },
+    { PCI_DEVICE_CLASS(NETWORK_CLASS, NETWORK_MASK) },
+    { 0, }
+};
+MODULE_DEVICE_TABLE(pci, my_pci_ids);
+
+static int my_pci_probe(struct pci_dev *pdev,
+                        const struct pci_device_id *id)
+{
+    int err;
+
+    /* Enable the device */
+    err = pci_enable_device(pdev);
+    if (err) return err;
+
+    /* Request memory regions */
+    err = pci_request_regions(pdev, "my-driver");
+    if (err) goto disable;
+
+    /* Map BAR0 */
+    void __iomem *base = pci_iomap(pdev, 0, 0);
+    if (!base) goto release;
+
+    /* Read/write hardware registers */
+    u32 val = ioread32(base + REG_OFFSET);
+    iowrite32(val | FLAG, base + REG_OFFSET);
+
+    pci_set_drvdata(pdev, base);
+    return 0;
+
+release:
+    pci_release_regions(pdev);
+disable:
+    pci_disable_device(pdev);
+    return -ENODEV;
+}
+
+static struct pci_driver my_pci_driver = {
+    .name = "my-pci",
+    .id_table = my_pci_ids,
+    .probe = my_pci_probe,
+    .remove = my_pci_remove,
+};
+module_pci_driver(my_pci_driver);
+```
+
+## DMA (Direct Memory Access)
+
+DMA allows devices to transfer data directly to/from memory without CPU involvement.
+
+### DMA Mapping API
+
+```c
+#include <linux/dma-mapping.h>
+
+static int my_probe(struct device *dev)
+{
+    /* Set DMA mask (addressable bits) */
+    if (dma_set_mask_and_coherent(dev, DMA_BIT_MASK(64))) {
+        dma_set_mask_and_coherent(dev, DMA_BIT_MASK(32));
+    }
+
+    /* Allocate DMA-coherent buffer */
+    void *buf = dma_alloc_coherent(dev, PAGE_SIZE,
+                                    &dma_handle, GFP_KERNEL);
+    if (!buf) return -ENOMEM;
+
+    /* buf = CPU virtual address, dma_handle = device address */
+    /* Pass dma_handle to hardware for DMA transfers */
+    /* Read from buf after device completes DMA */
+
+    /* Free */
+    dma_free_coherent(dev, PAGE_SIZE, buf, dma_handle);
+    return 0;
+}
+```
+
+### Streaming DMA (for existing buffers)
+
+```c
+/* Map an existing buffer for DMA */
+dma_addr_t dma = dma_map_single(dev, skb->data, skb->len, DMA_TO_DEVICE);
+if (dma_mapping_error(dev, dma)) goto error;
+
+/* Device can now read from 'dma' address */
+/* After DMA completes: */
+dma_unmap_single(dev, dma, skb->len, DMA_TO_DEVICE);
+```
+
+## Interrupt Handling
+
+### Requesting IRQs
+
+```c
+#include <linux/interrupt.h>
+
+static irqreturn_t my_irq_handler(int irq, void *dev_id)
+{
+    struct my_data *data = dev_id;
+
+    /* Check if this device generated the interrupt */
+    u32 status = ioread32(data->base + IRQ_STATUS_REG);
+    if (!(status & IRQ_BIT))
+        return IRQ_NONE;  /* Not ours */
+
+    /* Acknowledge interrupt */
+    iowrite32(status, data->base + IRQ_STATUS_REG);
+
+    /* Schedule bottom half (tasklet, workqueue, or threaded IRQ) */
+    tasklet_schedule(&data->tasklet);
+
+    return IRQ_HANDLED;
+}
+
+/* In probe(): */
+int irq = platform_get_irq(pdev, 0);
+err = devm_request_irq(dev, irq, my_irq_handler,
+                       IRQF_SHARED, "my-device", data);
+```
+
+### Threaded IRQs
+
+```c
+/* Threaded IRQ handler runs in process context (can sleep) */
+static irqreturn_t my_threaded_irq(int irq, void *dev_id)
+{
+    /* Can use mutexes, allocate memory, etc. */
+    struct my_data *data = dev_id;
+    process_pending_work(data);
+    return IRQ_HANDLED;
+}
+
+err = devm_request_threaded_irq(dev, irq,
+                                my_hard_irq,      /* top half (atomic) */
+                                my_threaded_irq,   /* bottom half (threaded) */
+                                IRQF_SHARED, "my-device", data);
+```
+
+## Character Device Registration
+
+```c
+#include <linux/cdev.h>
+#include <linux/fs.h>
+
+static const struct file_operations my_fops = {
+    .owner = THIS_MODULE,
+    .read = my_read,
+    .write = my_write,
+    .open = my_open,
+    .release = my_release,
+    .unlocked_ioctl = my_ioctl,
+};
+
+static int my_probe(struct platform_device *pdev)
+{
+    dev_t devno;
+    struct cdev *cdev;
+
+    /* Allocate device number */
+    alloc_chrdev_region(&devno, 0, 1, "my-device");
+
+    /* Initialize and add cdev */
+    cdev = cdev_alloc();
+    cdev->ops = &my_fops;
+    cdev_add(cdev, devno, 1);
+
+    /* Create device node */
+    device_create(my_class, &pdev->dev, devno, NULL, "mydev");
+
+    return 0;
+}
+```
+
+See [Character Devices](char-devices.md) for complete details.
+
+## I2C and SPI Drivers
+
+### I2C Driver
+
+```c
+static const struct of_device_id my_i2c_of_match[] = {
+    { .compatible = "myvendor,tempsensor" },
+    { }
+};
+
+static int my_i2c_probe(struct i2c_client *client)
+{
+    /* Read from device */
+    s32 temp = i2c_smbus_read_word_data(client, TEMP_REG);
+    dev_info(&client->dev, "Temperature: %d\n", temp);
+    return 0;
+}
+
+static struct i2c_driver my_i2c_driver = {
+    .driver = {
+        .name = "my-sensor",
+        .of_match_table = my_i2c_of_match,
+    },
+    .probe = my_i2c_probe,
+};
+module_i2c_driver(my_i2c_driver);
+```
+
+### SPI Driver
+
+```c
+static int my_spi_probe(struct spi_device *spi)
+{
+    u8 tx_buf[] = { 0x9F };  /* Read JEDEC ID */
+    u8 rx_buf[3];
+
+    struct spi_transfer xfer = {
+        .tx_buf = tx_buf,
+        .rx_buf = rx_buf,
+        .len = sizeof(tx_buf),
+    };
+
+    spi_sync_transfer(spi, &xfer, 1);
+    dev_info(&spi->dev, "JEDEC ID: %02x%02x%02x\n",
+             rx_buf[0], rx_buf[1], rx_buf[2]);
+    return 0;
+}
+
+static struct spi_driver my_spi_driver = {
+    .driver = {
+        .name = "my-spi-device",
+        .of_match_table = my_spi_of_match,
+    },
+    .probe = my_spi_probe,
+};
+module_spi_driver(my_spi_driver);
+```
