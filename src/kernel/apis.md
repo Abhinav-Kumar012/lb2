@@ -606,6 +606,118 @@ For the complete kernel API reference including all library functions, data stru
 - [Kernel API: String parsing](https://docs.kernel.org/core-api/kernel-api.html)
 - [Kernel API: Sorting](https://docs.kernel.org/core-api/kernel-api.html)
 
+## 12. RCU (Read-Copy-Update)
+
+RCU is a synchronization mechanism optimized for read-mostly data structures. It allows readers to access data without any locks or atomic operations:
+
+```c
+#include <linux/rcupdate.h>
+
+/* Writer: update a pointer */
+struct data *old, *new;
+new = kmalloc(sizeof(*new), GFP_KERNEL);
+/* ... initialize new ... */
+
+rcu_read_lock();
+old = rcu_dereference(global_ptr);
+rcu_assign_pointer(global_ptr, new);
+rcu_read_unlock();
+
+/* Wait for all readers to finish before freeing old */
+synchronize_rcu();
+kfree(old);
+```
+
+### RCU Read-Side Primitives
+
+| Function | Purpose |
+|----------|--------|
+| `rcu_read_lock()` | Enter RCU read-side critical section |
+| `rcu_read_unlock()` | Leave RCU read-side critical section |
+| `rcu_dereference(p)` | Safely read an RCU-protected pointer |
+| `rcu_assign_pointer(p, v)` | Safely publish a new pointer to readers |
+| `synchronize_rcu()` | Wait for all current readers to complete |
+| `call_rcu(cb)` | Asynchronous callback after grace period |
+
+### RCU Use Cases
+
+- **Routing tables**: frequent reads, rare updates
+- **Module lists**: readers iterate without blocking writers
+- **Filesystem dentry cache**: high read-to-write ratio
+- **Network connection tracking**: concurrent packet processing
+
+## 13. Workqueues
+
+Workqueues defer work to a process context (where sleeping is allowed):
+
+```c
+#include <linux/workqueue.h>
+
+static struct work_struct my_work;
+
+static void my_work_fn(struct work_struct *work)
+{
+    /* This runs in process context, can sleep */
+    pr_info("work executed\n");
+}
+
+/* In init */
+INIT_WORK(&my_work, my_work_fn);
+schedule_work(&my_work);   /* Queue on system_wq */
+
+/* Or use a custom workqueue */
+struct workqueue_struct *wq = alloc_workqueue("my_wq", WQ_MEM_RECLAIM, 0);
+queue_work(wq, &my_work);
+
+/* Cleanup */
+destroy_workqueue(wq);
+```
+
+### Delayed Work
+
+```c
+static struct delayed_work my_delayed;
+
+INIT_DELAYED_WORK(&my_delayed, my_work_fn);
+schedule_delayed_work(&my_delayed, msecs_to_jiffies(1000));
+
+/* Cancel if pending */
+cancel_delayed_work_sync(&my_delayed);
+```
+
+## 14. Kernel Timers
+
+For short-duration timeouts in interrupt context:
+
+```c
+#include <linux/timer.h>
+
+static struct timer_list my_timer;
+
+static void my_timer_fn(struct timer_list *t)
+{
+    pr_info("timer fired\n");
+    /* Re-arm if needed */
+    mod_timer(&my_timer, jiffies + msecs_to_jiffies(500));
+}
+
+/* Init */
+timer_setup(&my_timer, my_timer_fn, 0);
+mod_timer(&my_timer, jiffies + msecs_to_jiffies(1000));
+
+/* Cleanup */
+del_timer_sync(&my_timer);
+```
+
+## Cross-References
+
+- [Character Devices](drivers/char-devices.md) — registering file_operations that call these APIs
+- [Device Model Overview](drivers/overview.md) — kobject and sysfs
+- [Block Layer Overview](block/overview.md) — bio and request APIs
+- [PCI Subsystem](drivers/pci.md) — PCI driver APIs
+- [Interrupts](interrupts/top-bottom-halves.md) — Interrupt handling and bottom halves
+- [Memory Management](mm/) — Page allocator and slab caches
+
 ## Further Reading
 
 - [GNU Project Documentation](https://www.gnu.org/doc/doc.html)

@@ -537,8 +537,119 @@ esac
 - [GNU Project Philosophy](https://www.gnu.org/philosophy/) — Stallman's essays on free software
 - [The Linux Kernel documentation](https://www.kernel.org/doc/html/latest/) — Official documentation covering POSIX compliance details
 
+## Plan 9 and Its Influence
+
+Plan 9 from Bell Labs was developed by the same team (Ken Thompson, Rob Pike, Dave Presotto, Phil Winterbottom) as a successor to Unix, addressing Unix's shortcomings:
+
+### Key Plan 9 Innovations That Influenced Linux
+
+| Plan 9 Concept | Linux Equivalent | Description |
+|---|---|---|
+| `/proc` filesystem | `/proc` | Process information as files (Linux adopted this directly) |
+| Per-process namespaces | mount namespaces | Each process can have its own view of the filesystem |
+| 9P protocol | v9fs | Network filesystem protocol for resource sharing |
+| Union mounts | OverlayFS, unionfs | Combining multiple directory trees |
+| Everything is a file (extended) | sysfs, configfs, debugfs | More kernel objects as files |
+
+```bash
+# Linux's /proc filesystem was directly inspired by Plan 9
+# Plan 9's /proc exposed process control as file operations:
+#   /proc/<pid>/ctl  — control file (write commands to it)
+#   /proc/<pid>/mem  — process memory
+#   /proc/<pid>/note — send signals
+
+# Linux adopted and extended this:
+ls /proc/self/
+# cmdline  environ  fd/  maps  mem  stat  status  ...
+```
+
+### Unix's "Worse is Better" vs. Plan 9's "The Right Thing"
+
+Richard Gabriel contrasted two design philosophies:
+
+- **"Worse is Better"** (Unix/Linux): Simple implementation, few dependencies, works now. Portability over correctness. This is why Linux won.
+- **"The Right Thing"** (Plan 9): Correct design, complete implementation, elegant interfaces. Plan 9 was technically superior but never achieved wide adoption.
+
+Linux's success demonstrates that a working, portable system with a good-enough design beats a theoretically superior system that arrives too late.
+
+## The Open Source Movement
+
+The Unix heritage directly spawned the open-source movement:
+
+### Timeline
+
+```
+1969: Unix born at Bell Labs
+1975: Unix source code distributed to universities
+1983: Richard Stallman starts GNU Project
+1984: AT&T begins commercializing Unix
+1985: Free Software Foundation (FSF) founded
+1989: GNU GPL version 1
+1991: Linux kernel released (GPL v2)
+1992: 386BSD released (freeBSD ancestor)
+1993: Debian, Red Hat, Slackware, SUSE distributions
+1997: Eric Raymond publishes "The Cathedral and the Bazaar"
+1998: Netscape open-sources Mozilla (Firefox ancestor)
+1999: Apache dominates web servers
+2004: Ubuntu launches (Debian derivative)
+2008: Android (Linux kernel) released
+2020: Linux runs on 90%+ of public cloud workloads
+```
+
+### The GNU GPL and Copyleft
+
+The GNU General Public License (GPL) was designed to ensure that Unix-derived software remained free:
+
+```bash
+# Key GPL principles:
+# 1. Freedom to run the program for any purpose
+# 2. Freedom to study and modify the source code
+# 3. Freedom to redistribute copies
+# 4. Freedom to distribute modified versions (under the same license)
+
+# Linux is licensed under GPL v2
+head -5 /usr/src/linux/COPYING
+#                    GNU GENERAL PUBLIC LICENSE
+#                       Version 2, June 1991
+
+# GCC, glibc, coreutils, bash — all GPL
+# This means anyone can use, modify, and distribute them
+# but must also release source code for modifications
+```
+
+## Linux-Specific Innovations Beyond Unix
+
+While Linux inherits from Unix, it has added significant innovations:
+
+| Innovation | Description | Unix Has It? |
+|---|---|---|
+| epoll/io_uring | High-performance I/O multiplexing | No (uses select/poll) |
+| cgroups | Process resource control | No |
+| namespaces | Comprehensive isolation | Partial (Plan 9) |
+| eBPF | In-kernel programmable filtering/tracing | No |
+| KVM | Kernel-based virtual machine | No |
+| livepatch | Runtime kernel patching | No |
+| containers | Full OS-level virtualization | No |
+| io_uring | Async I/O with shared ring buffers | No |
+| fanotify | Filesystem event notification | No |
+| pidfd | Process file descriptors | No |
+| Landlock | Unprivileged sandboxing | No |
+| Wireguard | Modern VPN implementation | No |
+
+```bash
+# eBPF: Linux's in-kernel programmable engine
+# No Unix equivalent — this is entirely Linux innovation
+bpftrace -e 'tracepoint:syscalls:sys_enter_open { printf(\"%s %s\\n\", comm, str(args->filename)); }'
+
+# io_uring: Async I/O
+# No Unix equivalent
+# Applications submit I/O via shared ring buffer
+# Kernel processes asynchronously, completions appear in another ring
+```
+
 ## Related Topics
 
 - [What Is Linux?](./what-is-linux.md) — Technical overview of the Linux kernel and its architecture
 - [Linux History](./history.md) — The complete timeline from 1991 to today
 - [Distributions](./distributions.md) — How different distros package the Unix tradition differently
+
