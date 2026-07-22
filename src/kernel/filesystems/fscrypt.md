@@ -437,6 +437,314 @@ ls /encrypted/private/
 # Should show encrypted names only
 ```
 
+## fscrypt v2 Key Identifier
+
+v2 policies use a 16-byte **key identifier** derived from the master key via HKDF:
+
+```c
+/* fs/crypto/keysetup.c */
+static int fscrypt_init_hkdf(struct fscrypt_hkdf *hkdf,
+                              const u8 *master_key, unsigned int mk_size)
+{
+    u8 info[HKDF_CONTEXT_LEN];
+    int err;
+
+    /* Initialize HKDF with master key as IKM */
+    err = crypto_shash_setkey(hkdf->hmac_tfm, master_key, mk_size);
+    if (err)
+        return err;
+
+    /* Extract PRK from IKM using zero salt */
+    /* PRK = HMAC-Hash(salt, IKM) where salt = 0 */
+
+    return 0;
+}
+```
+
+### HKDF Context Types
+
+| Context | Purpose | Derives |
+|---------|---------|--------|
+| `fscrypt_hkdf_context_direct_key` | Per-mode key | AES-256-XTS or AES-256-CTS-CBC |
+| `fscrypt_hkdf_context_iv_ino_lblk_64_key` | Per-file key (inline) | IV + key for inline crypto |
+| `fscrypt_hkdf_context_dirhash_key` | Directory hash key | SipHash key for dir indexing |
+| `fscrypt_hkdf_context_identifier` | Key identifier | 16-byte identifier for v2 policies |
+
+```bash
+# View key identifiers in kernel keyring
+keyctl show @u
+# Key descriptor: logon:fscrypt:abcdef0123456789abcdef0123456789
+# The 32-hex-char string is the key identifier
+```
+
+## Directory Indexing and Casefolding
+
+fscrypt supports **casefolded** directories (case-insensitive lookups):
+
+```bash
+# Create filesystem with casefolding support
+mkfs.ext4 -O casefold,encrypt /dev/sdb1
+mount /dev/sdb1 /encrypted
+
+# Set casefold policy on directory
+fscryptctl set_policy --casefold=utf8 /encrypted/casefold_dir
+
+# Now lookups are case-insensitive
+echo "Hello" > /encrypted/casefold_dir/FILE.txt
+cat /encrypted/casefold_dir/file.txt
+# Works! Case-insensitive matching
+```
+
+```c
+/* fs/crypto/keysetup_v2.c - dirhash key derivation */
+int fscrypt_derive_dirhash_key(struct fscrypt_info *ci,
+                                const struct fscrypt_policy_v2 *policy)
+{
+    /* Derive SipHash key for casefolded directory indexing */
+    return fscrypt_hkdf_expand(&fscrypt_master_key->hkdf,
+                                FSCRYPT_HKDF_CONTEXT_DIRHASH_KEY,
+                                ci->ci_nonce, FSCRYPT_FILE_NONCE_SIZE,
+                                ci->ci_dirhash_key,
+                                FSCRYPT_DIRHASH_KEY_SIZE);
+}
+```
+
+## Policy Inheritance
+
+fscrypt policies are **inherited** by child files and directories:
+
+```mermaid
+flowchart TD
+    A["/encrypted (policy set)"] --> B["/encrypted/file1.txt (inherits policy)"]
+    A --> C["/encrypted/subdir (inherits policy)"]
+    C --> D["/encrypted/subdir/file2.txt (inherits)"]
+    C --> E["/encrypted/subdir/nested (inherits)"]
+
+    F["Cannot set new policy on child"] --> G["EINVAL: parent already has policy"]
+```
+
+```bash
+# Set policy on parent directory
+fscryptctl set_policy --key=mykey /encrypted/private
+
+# All new files in this directory are automatically encrypted
+# Cannot change policy on children
+# Cannot remove policy once set
+
+# Lock parent: all children become inaccessible
+fscryptctl key_remove /encrypted/private
+ls /encrypted/private/
+# Shows encrypted names only
+```
+
+### Multi-User Policy Sharing
+
+v2 policies allow multiple users to share the same policy with different master keys:
+
+```mermaid
+flowchart TD
+    A["Shared directory /shared"] --> B["User A: master_key_a"]
+    A --> C["User B: master_key_b"]
+    B --> D["Same policy ID, different keys"]
+    C --> D
+    D --> E["Both can read/write same files"]
+```
+
+```bash
+# User A adds their key
+fscryptctl key_add /shared --key-descriptor=a_key
+
+# User B adds their key (same policy, different key)
+fscryptctl key_add /shared --key-descriptor=b_key
+
+# Both users can access files in /shared
+```
+
+## Encryption of Symlinks
+
+fscrypt encrypts symlink targets the same way as filenames:
+
+```bash
+# Create symlink in encrypted directory
+ln -s /etc/passwd /encrypted/private/link
+
+# Read symlink (with key available)
+readlink /encrypted/private/link
+# /etc/passwd
+
+# Without key: encrypted target
+readlink /encrypted/private/link
+# Gj3kF9xP2mN8hQ5vR7wY1bC4dT6aS0eU+iJ9kL2mN4oP6q
+```
+
+## Padding and Filename Length
+
+fscrypt pads filenames to fixed sizes to prevent length-based traffic analysis:
+
+```bash
+# Padding options in policy flags
+# FSCRYPT_POLICY_FLAGS_PAD_4  — pad to 4-byte boundary
+# FSCRYPT_POLICY_FLAGS_PAD_8  — pad to 8-byte boundary
+# FSCRYPT_POLICY_FLAGS_PAD_16 — pad to 16-byte boundary (default)
+# FSCRYPT_POLICY_FLAGS_PAD_32 — pad to 32-byte boundary
+
+# All filenames in a directory have the same encrypted length
+# (after padding and base64 encoding)
+```
+
+| Plaintext Length | PAD_4 | PAD_8 | PAD_16 | PAD_32 |
+|-----------------|-------|-------|--------|--------|
+| 1-4 chars | 32 bytes | 32 bytes | 32 bytes | 32 bytes |
+| 5-8 chars | 48 bytes | 32 bytes | 32 bytes | 32 bytes |
+| 9-16 chars | 80 bytes | 64 bytes | 32 bytes | 32 bytes |
+| 17-32 chars | 144 bytes | 128 bytes | 96 bytes | 32 bytes |
+| 33-64 chars | 272 bytes | 256 bytes | 224 bytes | 160 bytes |
+
+## Filesystem Preparation
+
+### Creating an Encrypt-Capable Filesystem
+
+```bash
+# ext4 with encryption feature
+mkfs.ext4 -O encrypt /dev/sdb1
+
+# F2FS with encryption
+mkfs.f2fs -O encrypt /dev/sdb2
+
+# Verify encryption support
+dumpe2fs -h /dev/sdb1 | grep -i feature
+# Filesystem features: ... encrypt ...
+
+# Or with F2FS
+dump.f2fs /dev/sdb2 | grep -i encrypt
+```
+
+### Kernel Requirements
+
+```bash
+# Required kernel config
+CONFIG_FS_ENCRYPTION=y
+CONFIG_FS_ENCRYPTION_ALGS=y
+
+# Cipher support
+CONFIG_CRYPTO_AES=y
+CONFIG_CRYPTO_XTS=y         # AES-256-XTS (content encryption)
+CONFIG_CRYPTO_CTS=y         # AES-256-CTS-CBC (filename encryption)
+CONFIG_CRYPTO_HKDF=y        # HKDF key derivation
+CONFIG_CRYPTO_SHA512=y      # HKDF hash
+
+# Optional: inline encryption
+CONFIG_BLK_INLINE_ENCRYPTION=y
+CONFIG_BLK_INLINE_ENCRYPTION_FALLBACK=y
+
+# Check runtime support
+cat /proc/crypto | grep -E "xts|cts|hkdf"
+```
+
+## Performance Deep-Dive
+
+### AES-NI Acceleration
+
+```bash
+# Check if AES-NI is available
+cpuinfo | grep -i aes
+# aes : AES instructions
+
+# Benchmark encryption performance
+fscryptctl benchmark
+# AES-256-XTS: 2.5 GB/s (with AES-NI)
+# AES-256-CTS-CBC: 2.3 GB/s (with AES-NI)
+# AES-256-XTS: 150 MB/s (without AES-NI)
+```
+
+### Per-File vs Per-Block Overhead
+
+```mermaid
+flowchart TD
+    A["File Write"] --> B["Derive per-file key (one-time)"]
+    B --> C["For each block:"]
+    C --> D["Compute IV = file_nonce XOR block_number"]
+    D --> E["AES-256-XTS encrypt block"]
+    E --> F["Write encrypted block"]
+
+    G["File Read"] --> H["Key already cached? (fast)"]
+    H -->|Yes| I["Derive IV, decrypt block"]
+    H -->|No| J["Look up key (slower)"]
+    J --> I
+```
+
+### Key Caching
+
+```c
+/* fs/crypto/keysetup.c - key caching */
+
+/* Keys are cached in the per-inode fscrypt_info */
+struct fscrypt_info {
+    struct fscrypt_master_key *ci_master_key; /* Cached master key */
+    const struct fscrypt_mode *ci_mode;       /* Encryption mode */
+    u8 ci_nonce[FSCRYPT_FILE_NONCE_SIZE];    /* Per-file nonce */
+    struct fscrypt_encryption_key ci_enc_key; /* Derived key */
+};
+
+/* The master key is cached in a kernel keyring */
+/* fscrypt_info is created on first access and cached */
+/* Key derivation is O(1) after initial cache */
+```
+
+## Android File-Based Encryption (FBE)
+
+Android uses fscrypt for per-user encryption:
+
+```mermaid
+flowchart TD
+    subgraph Android["Android FBE Layout"]
+        CE["Credential Encrypted (CE)"]
+        DE["Device Encrypted (DE)"]
+        CE --> C1["User data (requires unlock)"]
+        DE --> D1["Early-boot data (always available)"]
+    end
+```
+
+```bash
+# Android storage directories
+/data/user/0/          # CE storage (requires unlock)
+/data/user_de/0/       # DE storage (available at boot)
+/data/misc/vold/       # Key storage
+
+# Android key hierarchy
+# Hardware-bound key (TEE/StrongBox)
+#   -> User credential key (PIN/password)
+#     -> Per-directory policy key
+#       -> Per-file encryption key
+```
+
+### Android Key Storage
+
+```c
+/* Android stores keys in /data/misc/vold/user_keys/ */
+/* Keys are wrapped with hardware-bound keys from TEE */
+
+/* Key format: struct fscrypt_key */
+struct fscrypt_key {
+    u32 mode;           /* Encryption mode */
+    u8 raw[FSCRYPT_MAX_KEY_SIZE];
+    u32 size;
+};
+```
+
+## fscrypt vs dm-crypt Comparison
+
+| Aspect | fscrypt | dm-crypt |
+|--------|---------|----------|
+| Granularity | Per-directory | Full block device |
+| Key management | Multiple keys per FS | Single key per device |
+| Metadata | Filenames encrypted | Metadata not encrypted |
+| Performance | Lower overhead | Higher overhead (full I/O path) |
+| Swap | Not affected | Encrypts swap too |
+| Boot | Works without initramfs | Requires initramfs key setup |
+| Hardware crypto | Inline crypto support | Requires dm-crypt HW offload |
+| Use case | Mobile, multi-user | Laptops, servers, compliance |
+
 ## Cross-References
 
 - [ext4](ext4.md) - ext4 filesystem (supports fscrypt)
