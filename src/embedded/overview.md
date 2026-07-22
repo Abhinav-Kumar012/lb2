@@ -422,12 +422,321 @@ graph TB
     end
 ```
 
+## Security Hardening
+
+Embedded devices often run unattended in physically accessible locations, making security critical:
+
+### Verified Boot Chain
+
+```mermaid
+sequenceDiagram
+    participant ROM as Boot ROM
+    participant SPL as SPL
+    participant UBOOT as U-Boot
+    participant KERNEL as Kernel
+    participant ROOTFS as RootFS
+
+    ROM->>SPL: Load SPL
+    ROM->>ROM: Verify SPL signature (RSA/ECDSA)
+    SPL->>UBOOT: Load U-Boot
+    SPL->>SPL: Verify U-Boot signature
+    UBOOT->>KERNEL: Load kernel + DTB
+    UBOOT->>UBOOT: Verify kernel signature
+    KERNEL->>ROOTFS: Mount rootfs
+    KERNEL->>KERNEL: dm-verity verification
+```
+
+### dm-verity: Read-Only Rootfs Integrity
+
+dm-verity provides block-level integrity verification for read-only partitions using a Merkle tree of hashes:
+
+```bash
+# Build verity metadata during image creation
+veritysetup format rootfs.img rootfs.hash
+# Output: Root hash: 4a5b6c7d8e9f...
+
+# U-Boot passes root hash to kernel
+setenv bootargs root=/dev/mmcblk0p2 rootfstype=squashfs \
+    ro dm-mod.create="verity,,,ro,0 $(blockdev --getsz /dev/mmcblk0p2) \
+    verity 1 /dev/mmcblk0p2 /dev/mmcblk0p3 4096 4096 \
+    $(blockdev --getsz /dev/mmcblk0p2) 1 sha256 \
+    4a5b6c7d8e9f... 0"
+```
+
+### SELinux / AppArmor for Embedded
+
+```bash
+# Minimal SELinux policy for embedded device (Yocto)
+# In local.conf:
+# DISTRO_FEATURES_append = " selinux"
+# PREFERRED_PROVIDER_virtual/refpolicy = "refpolicy-minimal"
+
+# AppArmor profile for a single-purpose device
+# /etc/apparmor.d/mydevice
+profile mydevice /usr/bin/myapp {
+    /dev/i2c-0 rw,
+    /dev/spidev0.0 rw,
+    /var/log/myapp/** w,
+    network inet stream,
+    deny /home/** rwx,
+}
+```
+
+### Read-Only Root Filesystem
+
+```bash
+# Mount rootfs read-only with tmpfs for writable areas
+# In /etc/fstab:
+# /dev/mmcblk0p2  /       squashfs  ro,noatime           0  1
+# tmpfs           /var    tmpfs     defaults,size=64M    0  0
+# tmpfs           /tmp    tmpfs     defaults,size=32M    0  0
+# /dev/mmcblk0p3  /data   ext4      defaults,noatime     0  2
+
+# Overlay filesystem for mutable state
+mount -t overlay overlay -o lowerdir=/,upperdir=/data/upper,workdir=/data/work /merged
+```
+
+### Secure Storage
+
+```bash
+# Use hardware crypto engine if available
+# OP-TEE for ARM TrustZone
+# /dev/tee0 — Trusted Execution Environment
+
+# Encrypted data partition with LUKS
+cryptsetup luksFormat /dev/mmcblk0p3
+cryptsetup luksOpen /dev/mmcblk0p3 data
+mkfs.ext4 /dev/mapper/data
+
+# Use TPM or secure element for key storage
+# tpm2_createprimary -C o -c primary.ctx
+tpm2_create -g sha256 -u key.pub -r key.priv -c primary.ctx
+```
+
+## Containerization in Embedded Linux
+
+Containers are increasingly used in embedded for application isolation and OTA updates:
+
+### Lightweight Container Runtimes
+
+```bash
+# Container runtimes for embedded:
+# - containerd (Docker's runtime)
+# - CRI-O
+# - crun (lightweight, C-based, faster than runc)
+# - lxc (OS-level containers)
+
+# Minimal Docker setup on Yocto
+# In local.conf:
+# IMAGE_INSTALL:append = " docker"
+# DISTRO_FEATURES:append = " virtualization"
+
+# Run a container with device access
+docker run --rm -it --device /dev/i2c-0 myapp:latest
+```
+
+### Balena / Torizon
+
+```bash
+# Balena: container-based IoT platform
+# - Delta updates (only changed layers)
+# - Fleet management
+# - Base images optimized for ARM
+
+# Torizon (Toradex): containers for embedded
+# - Debian-based containers
+# - OTA update integration
+# - IDE integration (VS Code)
+```
+
+## Debugging Embedded Systems
+
+### JTAG / SWD Debugging
+
+```bash
+# OpenOCD for JTAG debugging
+openocd -f interface/stlink.cfg -f target/stm32f4x.cfg
+# Connect with GDB
+gdb-multiarch build/firmware.elf
+(gdb) target remote :3333
+(gdb) load
+(gdb) break main
+(gdb) continue
+
+# Segger J-Link (commercial, faster)
+JLinkGDBServer -device STM32F407VG -if SWD -speed 4000
+```
+
+### Serial Console Debugging
+
+```bash
+# minicom
+minicom -D /dev/ttyUSB0 -b 115200
+
+# screen
+screen /dev/ttyUSB0 115200
+
+# picocom (lightweight)
+picocom -b 115200 /dev/ttyUSB0
+
+# Kernel early printk
+# CONFIG_EARLYPRINTK=y
+# CONFIG_EARLYPRINTK_DBGP=y
+# bootargs: earlyprintk=serial,ttyS0,115200
+```
+
+### Kernel Debugging on Embedded
+
+```bash
+# KGDB over serial
+# CONFIG_KGDB=y
+# CONFIG_KGDB_SERIAL_CONSOLE=y
+
+# On target:
+echo ttyS0,115200 > /sys/module/kgdboc/parameters/kgdboc
+echo g > /proc/sysrq-trigger  # Enter KGDB
+
+# On host:
+gdb vmlinux
+(gdb) target remote /dev/ttyUSB0
+(gdb) continue
+
+# ftrace for embedded debugging
+echo function_graph > /sys/kernel/tracing/current_tracer
+echo 1 > /sys/kernel/tracing/tracing_on
+cat /sys/kernel/tracing/trace_pipe
+```
+
+## Power Profiling
+
+```bash
+# Measure power consumption with tools:
+
+# INA219/INA260 power monitors (I2C)
+i2cget -y 1 0x40 0x02 w  # Read current register
+
+# PowerTOP for x86 embedded
+powertop --auto-tune
+
+# CPU frequency + voltage scaling
+cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq
+cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_available_governors
+# conservative ondemand userspace powersave performance schedutil
+
+# Runtime PM statistics
+cat /sys/bus/i2c/devices/0-0068/power/runtime_status
+# active / suspended / suspending
+```
+
+```mermaid
+graph LR
+    subgraph Power_States
+        ACTIVE["Active<br/>Full power"]
+        IDLE["Idle<br/>Clock gated"]
+        SUSP["Suspended<br/>Power gated"]
+        OFF["Off<br/>No power"]
+    end
+    ACTIVE --> IDLE --> SUSP --> OFF
+    IDLE --> ACTIVE
+    SUSP --> ACTIVE
+```
+
+## Networking in Embedded
+
+### Lightweight Network Stacks
+
+```bash
+# For MCU-class devices (< 1MB RAM):
+# - lwIP (lightweight IP)
+# - Zephyr networking
+# - Mbed TLS + network
+
+# For MPU-class Linux devices:
+# - connman (connection manager)
+# - NetworkManager (heavier, more features)
+# - systemd-networkd (minimal)
+
+# connman for embedded
+connmanctl enable wifi
+connmanctl scan wifi
+connmanctl services
+connmanctl connect wifi_..._managed_psk
+```
+
+### MQTT / IoT Protocols
+
+```bash
+# Lightweight protocols for IoT:
+# - MQTT (Mosquitto): publish/subscribe
+# - CoAP: RESTful for constrained devices
+# - LwM2M: device management protocol
+
+# Mosquitto MQTT client
+mosquitto_sub -h broker.example.com -t sensors/temperature
+mosquitto_pub -h broker.example.com -t sensors/temperature -m "23.5"
+```
+
+## Embedded Linux Development Workflow
+
+```mermaid
+graph TD
+    A["Write application code"] --> B["Cross-compile on host"]
+    B --> C["Build rootfs image"]
+    C --> D["Flash/deploy to target"]
+    D --> E["Test on hardware"]
+    E --> F{"Works?"}
+    F -->|No| G["Debug via serial/JTAG"]
+    G --> A
+    F -->|Yes| H["CI/CD pipeline"]
+    H --> I["OTA deployment"]
+    I --> J["Monitor in field"]
+    J --> K{"Update needed?"}
+    K -->|Yes| A
+    K -->|No| J
+```
+
+## Embedded Linux Size Optimization
+
+```bash
+# Kernel size reduction strategies:
+
+# 1. Start with tinyconfig
+make tinyconfig
+
+# 2. Add only needed features
+make menuconfig
+# Disable: sound, wireless, USB (if not needed)
+# Disable: debug info, profiling
+# Enable: CC_OPTIMIZE_FOR_SIZE
+
+# 3. Compress kernel
+# CONFIG_KERNEL_GZIP=y (default)
+# CONFIG_KERNEL_LZ4=y (faster decompression)
+# CONFIG_KERNEL_LZO=y (fastest decompression)
+
+# 4. Strip kernel modules
+make INSTALL_MOD_STRIP=1 modules_install
+
+# Rootfs size reduction:
+# - Use musl instead of glibc (~600KB vs ~2MB)
+# - BusyBox instead of coreutils (~2MB vs ~50MB)
+# - Remove man pages, locales, docs
+# - Use SquashFS compression
+
+# Measure sizes
+ls -lh arch/arm64/boot/Image
+ls -lh rootfs.squashfs
+du -sh rootfs/
+```
+
 ## References
 
 1. Yaghmour, K. (2008). *Building Embedded Linux Systems*. O'Reilly Media.
 2. Simmonds, C., & Bagnall, B. (2021). *Mastering Embedded Linux Programming*. Packt Publishing.
 3. Yocto Project Documentation. [https://docs.yoctoproject.org/](https://docs.yoctoproject.org/)
 4. Buildroot Manual. [https://buildroot.org/downloads/manual/manual.html](https://buildroot.org/downloads/manual/manual.html)
+5. Opdenacker, M. (2023). *Embedded Linux Security*. Bootlin. [https://bootlin.com/docs/](https://bootlin.com/docs/)
+6. dm-verity Documentation. [https://docs.kernel.org/admin-guide/device-mapper/verity.html](https://docs.kernel.org/admin-guide/device-mapper/verity.html)
 
 ## Further Reading
 

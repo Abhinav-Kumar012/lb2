@@ -396,6 +396,246 @@ int BPF_PROG(restrict_open, struct file *file, int ret) {
 
 BPF LSM is programmable and safe, making it ideal for runtime security policies.
 
+### BPF LSM Practical Examples
+
+#### Restricting File Access by Path
+
+```c
+#include <vmlinux.h>
+#include <bpf/bpf_helpers.h>
+#include <bpf/bpf_tracing.h>
+
+char LICENSE[] SEC("license") = "GPL";
+
+SEC("lsm/file_open")
+int BPF_PROG(restrict_etc_shadow, struct file *file, int ret)
+{
+    char path[256];
+    struct path f_path;
+
+    bpf_probe_read_kernel(&f_path, sizeof(f_path), &file->f_path);
+    bpf_d_path(&f_path, path, sizeof(path));
+
+    /* Deny non-root access to /etc/shadow */
+    if (__builtin_memcmp(path, "/etc/shadow", 11) == 0) {
+        u32 uid = bpf_get_current_uid_gid() & 0xFFFFFFFF;
+        if (uid != 0)
+            return -EACCES;
+    }
+    return ret;
+}
+```
+
+#### Restricting Socket Connections
+
+```c
+SEC("lsm/socket_connect")
+int BPF_PROG(restrict_connect, struct socket *sock,
+             struct sockaddr *address, int addrlen, int ret)
+{
+    if (address->sa_family == AF_INET) {
+        struct sockaddr_in *addr = (struct sockaddr_in *)address;
+        u16 port = bpf_ntohs(addr->sin_port);
+        if (port != 443)
+            return -EACCES;
+    }
+    return ret;
+}
+```
+
+#### Denying Mount Operations
+
+```c
+SEC("lsm/sb_mount")
+int BPF_PROG(restrict_mount, const char *dev_name, struct path *path,
+             const char *type, unsigned long flags, void *data, int ret)
+{
+    char fstype[32];
+    bpf_probe_read_kernel_str(fstype, sizeof(fstype), type);
+
+    /* Deny mounting proc in non-init namespaces */
+    if (__builtin_memcmp(fstype, "proc", 4) == 0) {
+        struct task_struct *task = (struct task_struct *)bpf_get_current_task();
+        u32 pid_ns_level;
+        bpf_probe_read_kernel(&pid_ns_level, sizeof(pid_ns_level),
+                              &task->nsproxy->pid_ns_for_children->level);
+        if (pid_ns_level > 0)
+            return -EPERM;
+    }
+    return ret;
+}
+```
+
+### BPF LSM vs Traditional LSM
+
+| Aspect | SELinux/AppArmor | BPF LSM |
+|--------|-----------------|--------|
+| Policy language | Config files / profiles | C (compiled to BPF bytecode) |
+| Deployment | System-wide, requires reboot | Runtime, per-program |
+| Granularity | File/path/label-based | Arbitrary kernel state |
+| Safety | N/A (policy-only) | BPF verifier ensures safety |
+| Performance | Static hooks | JIT-compiled, near-native |
+| Use case | System-wide policy | Runtime security, observability |
+
+## LSM Ordering and Stacking
+
+The kernel calls LSM hooks in the order defined by `CONFIG_LSM` at boot time. The first module to make a decision wins:
+
+```bash
+# View current LSM order
+cat /sys/kernel/security/lsm
+# lockdown,capability,yama,apparmor
+```
+
+### LSM Evaluation Order
+
+```mermaid
+graph TD
+    A[LSM Hook Called] --> B[lockdown]
+    B -->|pass| C[capability]
+    C -->|pass| D[yama]
+    D -->|pass| E[apparmor]
+    E -->|pass| F[Allow]
+    B -->|deny| G[Deny]
+    C -->|deny| G
+    D -->|deny| G
+    E -->|deny| G
+```
+
+The ordering matters:
+- **capability** is always first (hard-coded via `order` field)
+- **lockdown** checks kernel integrity before other modules
+- Other modules are called in `CONFIG_LSM` order
+- If any module returns `-EACCES` or `-EPERM`, access is denied
+
+### Configuring LSM Order
+
+```bash
+# Kernel boot parameter (GRUB)
+GRUB_CMDLINE_LINUX="security=apparmor lockdown=confidentiality"
+
+# Or via CONFIG_LSM in kernel config
+CONFIG_LSM="lockdown,capability,yama,apparmor,bpf"
+```
+
+## SELinux Multi-Category Security (MCS)
+
+SELinux MCS extends Type Enforcement with categories, enabling fine-grained isolation for containers and virtual machines:
+
+```bash
+# MCS labels add categories to the security context
+# system_u:system_r:container_t:s0:c100,c200
+#                                 ^^^^^^^^^^^^
+#                                 Categories
+
+# Each container gets unique categories
+docker run -Z myimage  # Docker assigns unique MCS labels
+```
+
+### MCS Container Isolation
+
+```mermaid
+graph TD
+    subgraph "Container 1 (s0:c100,c200)"
+        C1[Process] --> F1[File: s0:c100,c200]
+    end
+    subgraph "Container 2 (s0:c300,c400)"
+        C2[Process] --> F2[File: s0:c300,c400]
+    end
+    C1 -.->|MCS denies access| F2
+    C2 -.->|MCS denies access| F1
+```
+
+MCS prevents containers from accessing each other's files even when they share the same SELinux type (`container_t`).
+
+## AppArmor Profile Stacking
+
+Linux 5.1+ supports **profile stacking**, allowing multiple AppArmor profiles to apply simultaneously. This is critical for containers:
+
+```bash
+# Container profile with stacking
+# /etc/apparmor.d/containers/docker-default
+profile docker-default flags=(attach_disconnected) {
+  #include <abstractions/base>
+  # ... container rules ...
+}
+
+# Check stacked profiles
+cat /proc/<pid>/attr/current
+# docker-default (enforce)
+```
+
+### AppArmor Namespace Isolation
+
+```bash
+# Create a profile namespace for a container
+aa-exec -p myprofile -- /bin/bash
+
+# View current profile
+cat /proc/self/attr/current
+```
+
+## MAC Troubleshooting
+
+### SELinux Troubleshooting
+
+```bash
+# View all recent denials
+ausearch -m AVC -ts recent
+
+# Get detailed denial info with suggested fixes
+sealert -a /var/log/audit/audit.log
+
+# Temporarily allow a denied action (for testing)
+setenforce 0  # Switch to permissive
+# ... test ...
+setenforce 1  # Back to enforcing
+
+# Create a custom module from denials
+ausearch -m AVC -ts recent | audit2allow -M myfix
+semodule -i myfix.pp
+
+# Check file context mismatches
+restorecon -nv /path/to/check
+```
+
+### AppArmor Troubleshooting
+
+```bash
+# Check AppArmor logs
+dmesg | grep apparmor
+journalctl -t apparmor
+
+# Run in complain mode to see what would be denied
+aa-complain /usr/sbin/myapp
+# ... run the application ...
+aa-logprof  # Review and add rules
+
+# Check profile load status
+aa-status
+
+# Verify profile syntax
+apparmor_parser -Q /etc/apparmor.d/usr.sbin.myapp
+```
+
+## Security Framework Selection for Containers
+
+```mermaid
+flowchart TD
+    START[Container Security] --> Q1{Runtime?}
+    Q1 -->|Docker/Podman on RHEL| SELinux_MCS[SELinux with MCS labels]
+    Q1 -->|Docker/Podman on Ubuntu| APPARMOR[AppArmor with profile stacking]
+    Q1 -->|Kubernetes| K8S{Need fine-grained control?}
+    K8S -->|Yes| SELINUX_K8S[SELinux via seccomp + SecurityContext]
+    K8S -->|No| APPARMOR_K8S[AppArmor annotations]
+    Q1 -->|Embedded/IoT| SMACK_T[Smack with simple labels]
+    Q1 -->|Maximum flexibility| BPF_LSM[BPF LSM with custom programs]
+
+    SELINUX_K8S -->|Also add| SECCOMP[Seccomp BPF filters]
+    APPARMOR_K8S -->|Also add| SECCOMP
+    BPF_LSM -->|Integrates with| SECCOMP
+```
+
 ## Combining MAC with Other Security Layers
 
 ```mermaid
