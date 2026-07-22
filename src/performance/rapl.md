@@ -512,6 +512,276 @@ echo "Energy consumed: $((E2 - E1)) µJ in 1 second"
 | Counter doesn't change | CPU idle | Run a workload |
 | Power cap ignored | BIOS lock | Check BIOS power management settings |
 
+## RAPL in Cloud and Container Environments
+
+### Virtualization Challenges
+
+RAPL access from virtual machines is problematic because MSRs are privileged:
+
+```mermaid
+flowchart TD
+    A[Guest VM] -->|rdmsr 0x611| B{Hypervisor}
+    B -->|VirtIO RAPL?| C[paravirtualized driver]
+    B -->|MSR passthrough?| D[direct access]
+    B -->|No support| E[rapl unavailable]
+    D --> F[Security risk: guest
+         can cap host power]
+    C --> G[Safe: hypervisor
+         controls limits]
+```
+
+- **KVM**: RAPL MSRs are not typically exposed to guests. The `intel_rapl_msr`
+  module is not loaded in guest kernels by default.
+- **Bare-metal containers**: RAPL works normally (shared kernel). Use cgroups
+  to attribute energy to specific containers.
+- **AWS/GCP/Azure**: RAPL is generally not available in cloud VMs. Use cloud-
+  specific power monitoring APIs instead.
+
+### Container Energy Attribution
+
+```bash
+#!/bin/bash
+# Attribute energy consumption to cgroups (cgroup v2)
+# This requires per-cgroup energy accounting (experimental)
+
+# Read package energy
+E1=$(cat /sys/class/powercap/intel-rapl:0/energy_uj)
+sleep 10
+E2=$(cat /sys/class/powercap/intel-rapl:0/energy_uj)
+
+DELTA=$((E2 - E1))
+[ $DELTA -lt 0 ] && DELTA=$((DELTA + 2**32))
+
+# Get CPU usage per cgroup
+for cg in /sys/fs/cgroup/*/; do
+    CGROUP=$(basename $cg)
+    CPU_USEC=$(cat $cg/cpu.stat 2>/dev/null | grep 'usage_usec' | awk '{print $2}')
+    if [ -n "$CPU_USEC" ]; then
+        echo "$CGROUP: cpu_usec=$CPU_USEC"
+    fi
+done
+```
+
+## RAPL and Energy-Aware Scheduling
+
+The Linux kernel's energy-aware scheduling (EAS) framework can use RAPL data
+to make smarter placement decisions:
+
+### Integration with the Scheduler
+
+```mermaid
+graph TD
+    A[Energy Model] --> B[Scheduler: EAS]
+    C[RAPL: actual power] --> A
+    D[CPU capacity] --> A
+    E[Thermal pressure] --> B
+    B --> F{Task placement}
+    F -->|Energy efficient| G[Little cores
+         for background tasks]
+    F -->|Performance| H[Big cores
+         for latency-critical tasks]
+```
+
+### Per-Core Energy Estimation
+
+```bash
+#!/bin/bash
+# Estimate per-core energy from RAPL + CPU utilization
+# This is an approximation — RAPL reports package-level, not per-core
+
+CORES=$(nproc)
+for cpu in /sys/devices/system/cpu/cpu[0-9]*; do
+    CPU_NUM=$(basename $cpu | sed 's/cpu//')
+    FREQ=$(cat $cpu/cpufreq/scaling_cur_freq 2>/dev/null)
+    IDLE=$(cat $cpu/cpuidle/state*/usage 2>/dev/null | \
+           awk '{s+=$1} END {print s}')
+    echo "CPU $CPU_NUM: freq=${FREQ}kHz idle_ops=$IDLE"
+done
+```
+
+## Power Measurement Accuracy
+
+### RAPL vs External Measurement
+
+RAPL provides estimates based on hardware power models, not direct current
+measurement. Accuracy varies:
+
+| Domain | Typical Accuracy | Notes |
+|--------|-----------------|-------|
+| Package (PKG) | ±5% | Best accuracy |
+| Core (PP0) | ±5-10% | Good for comparisons |
+| Uncore (PP1) | ±10-15% | Less accurate |
+| DRAM | ±10-20% | Depends on DIMM type |
+| PSys | ±15% | Platform-level estimate |
+
+**Validation methodology**: Compare RAPL readings against a hardware power meter
+(such as a Yokogawa WT310 or a simple Kill-A-Watt) to determine the correction
+factor for your specific hardware.
+
+```bash
+#!/bin/bash
+# Simple RAPL validation against external meter
+# Start this script, then apply a known load, and compare
+
+METER_READING=$1  # Enter the external meter reading in watts
+
+RAPL=/sys/class/powercap/intel-rapl:0/energy_uj
+E1=$(cat $RAPL)
+T1=$(date +%s%N)
+sleep 10
+E2=$(cat $RAPL)
+T2=$(date +%s%N)
+
+DELTA_E=$((E2 - E1))
+[ $DELTA_E -lt 0 ] && DELTA_E=$((DELTA_E + 2**32))
+DELTA_T=$((T2 - T1))
+RAPL_W=$(echo "scale=2; $DELTA_E / $DELTA_T" | bc)
+
+ERROR=$(echo "scale=1; ($RAPL_W - $METER_READING) / $METER_READING * 100" | bc)
+echo "RAPL reports: ${RAPL_W}W"
+echo "External meter: ${METER_READING}W"
+echo "Error: ${ERROR}%"
+```
+
+## RAPL for Energy Profiling Tools
+
+### PowerTOP
+
+PowerTOP uses RAPL for its power estimates:
+
+```bash
+# Install
+sudo apt install powertop
+
+# Run with RAPL-based power estimation
+sudo powertop --html=power-report.html
+
+# Auto-tune for power savings
+sudo powertop --auto-tune
+```
+
+### Intel Performance Counter Monitor (PCM)
+
+```bash
+# Install PCM
+git clone https://github.com/intel/pcm.git
+cd pcm && mkdir build && cd build && cmake .. && make
+
+# Monitor power with PCM
+sudo ./pcm
+# Shows per-socket: Joules, Watts, memory bandwidth
+
+# CSV output for scripting
+sudo ./pcm.csv 1 > pcm-power.csv
+
+# Per-core power estimation
+sudo ./pcm-core
+```
+
+### perf-based Energy Profiling
+
+```bash
+# Record energy events alongside CPU profiling
+sudo perf stat -e power/energy-pkg/,power/energy-cores/,power/energy-ram/ \
+    -a -- sleep 60
+
+# Combine with CPU profiling for energy per function
+sudo perf record -e power/energy-pkg/ -a -g -- sleep 30
+sudo perf report --stdio
+
+# Energy flame graph (requires FlameGraph tools)
+sudo perf script | stackcollapse-perf.pl | \
+    flamegraph.pl --color=energy --title="Energy Flame Graph" > energy.svg
+```
+
+## RAPL Security Considerations
+
+### Power Limit as a Denial-of-Service Vector
+
+Setting RAPL power limits too low can severely degrade system performance:
+
+```bash
+# DANGEROUS: Setting 1W limit effectively DoSes the system
+# echo 1000000 > /sys/class/powercap/intel-rapl:0/constraint_0_power_limit_uw
+```
+
+### MSR Access Control
+
+```bash
+# Who can access MSRs?
+# /dev/cpu/N/msr requires root or CAP_SYS_RAWIO
+
+# Check permissions
+ls -la /dev/cpu/0/msr
+# crw------- 1 root root 202, 0 ... /dev/cpu/0/msr
+
+# Restrict MSR access further (SELinux example)
+# type=AVC msg=audit(...): avc: denied { read } for pid=1234 comm="turbostat"
+# scontext=system_u:system_r:turbostat_t:s0
+```
+
+### Mitigation
+
+- Use `sysctl` or `cgroup` to limit who can modify RAPL limits
+- Monitor RAPL limit changes via auditd
+- On multi-tenant systems, consider locking RAPL limits via BIOS
+
+## RAPL on Non-x86 Platforms
+
+### Apple Silicon (M1/M2/M3)
+
+Apple's M-series chips have power management but do not expose RAPL interfaces.
+Power monitoring is available through:
+- `powermetrics` (macOS built-in tool)
+- Apple's `IOReport` framework
+
+### ARM
+
+ARM servers (Ampere Altra, AWS Graviton) do not have RAPL. Alternatives:
+- IPMI-based power monitoring
+- BMC (Baseboard Management Controller) power sensors
+- RAPL-like interfaces via ACPI (experimental)
+
+## Common RAPL Use Cases
+
+### Data Center Power Budgeting
+
+```mermaid
+flowchart LR
+    A[Total rack power budget
+         10 kW] --> B[Per-server allocation
+         300W each]
+    B --> C[RAPL: PL1=200W
+         PL2=300W]
+    B --> D[DRAM: 50W]
+    B --> E[Other: 50W]
+    C --> F[Dynamic adjustment
+         based on workload]
+```
+
+### Green Computing: Energy-Per-Request
+
+```bash
+#!/bin/bash
+# Measure energy per HTTP request for a web server
+
+# Start RAPL measurement
+RAPL=/sys/class/powercap/intel-rapl:0/energy_uj
+E_START=$(cat $RAPL)
+
+# Run load test (e.g., wrk, ab, hey)
+hey -n 10000 -c 50 http://localhost:8080/api
+
+E_END=$(cat $RAPL)
+DELTA=$((E_END - E_START))
+[ $DELTA -lt 0 ] && DELTA=$((DELTA + 2**32))
+
+REQUESTS=10000
+ENERGY_PER_REQ=$(echo "scale=2; $DELTA / $REQUESTS" | bc)
+echo "Energy per request: ${ENERGY_PER_REQ} µJ"
+echo "Total energy: $((DELTA / 1000000)) mJ"
+```
+
 ## Further Reading
 
 - **Intel SDM**: Volume 3, Chapter 14 — Platform Power Management
