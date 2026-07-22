@@ -445,6 +445,226 @@ $ tcpdump -i eth0 -n port 67 or port 68 -v
 $ dhcpd -t -cf /etc/dhcp/dhcpd.conf
 ```
 
+## Kea DHCP Server (Modern Alternative)
+
+Kea is the modern replacement for ISC DHCP, developed by ISC (the same organization). It uses JSON configuration and supports REST API management.
+
+```bash
+# Install Kea
+apt install kea-dhcp4-server kea-dhcp6-server  # Debian/Ubuntu
+
+# Basic configuration: /etc/kea/kea-dhcp4.conf
+{
+    "Dhcp4": {
+        "interfaces-config": {
+            "interfaces": ["eth0"]
+        },
+        "lease-database": {
+            "type": "memfile",
+            "persist": true,
+            "name": "/var/lib/kea/kea-leases4.csv"
+        },
+        "subnet4": [{
+            "subnet": "192.168.1.0/24",
+            "pools": [{ "pool": "192.168.1.100 - 192.168.1.200" }],
+            "option-data": [
+                { "name": "routers", "data": "192.168.1.1" },
+                { "name": "domain-name-servers", "data": "8.8.8.8, 8.8.4.4" }
+            ],
+            "reservations": [{
+                "hw-address": "aa:bb:cc:dd:ee:ff",
+                "ip-address": "192.168.1.10",
+                "hostname": "webserver"
+            }]
+        }]
+    }
+}
+
+# Start Kea
+systemctl enable --now kea-dhcp4-server
+
+# Kea supports a REST API for lease management
+# Enable in config:
+# "control-socket": { "socket-type": "unix", "socket-name": "/tmp/kea4-ctrl-socket" }
+
+# Query leases via REST
+socat - UNIX-CONNECT:/tmp/kea4-ctrl-socket <<< '{"command": "lease4-get-all"}'
+```
+
+### Kea vs ISC DHCP
+
+| Feature | ISC DHCP | Kea |
+|---------|----------|-----|
+| Configuration | Custom format | JSON |
+| API | None | REST (control socket) |
+| Lease storage | Flat file | memfile, MySQL, PostgreSQL, Cassandra |
+| HA | Manual failover | Built-in HA (hot standby) |
+| Performance | ~1000 leases/sec | ~10,000+ leases/sec |
+| Status | End of life (EOL 2022) | Actively maintained |
+
+## DHCP High Availability
+
+### Kea HA Configuration
+
+```json
+{
+    "Dhcp4": {
+        "hooks-libraries": [{
+            "library": "/usr/lib/kea/hooks/libdhcp_ha.so",
+            "parameters": {
+                "high-availability": [{
+                    "this-server-name": "server1",
+                    "mode": "hot-standby",
+                    "peers": [{
+                        "name": "server1",
+                        "url": "http://192.168.1.1:8000/",
+                        "role": "primary"
+                    }, {
+                        "name": "server2",
+                        "url": "http://192.168.1.2:8000/",
+                        "role": "standby"
+                    }]
+                }]
+            }
+        }]
+    }
+}
+```
+
+### ISC DHCP Failover (Legacy)
+
+```
+# Primary server: /etc/dhcp/dhcpd.conf
+failover peer "dhcp-failover" {
+    primary;
+    address 192.168.1.1;
+    port 647;
+    peer address 192.168.1.2;
+    peer port 847;
+    max-response-delay 60;
+    max-unacked-updates 10;
+    load balance max seconds 3;
+    mclt 3600;
+    split 128;
+}
+
+subnet 192.168.1.0 netmask 255.255.255.0 {
+    pool {
+        failover peer "dhcp-failover";
+        range 192.168.1.100 192.168.1.200;
+    }
+    option routers 192.168.1.1;
+}
+
+# Secondary server: /etc/dhcp/dhcpd.conf
+failover peer "dhcp-failover" {
+    secondary;
+    address 192.168.1.2;
+    port 847;
+    peer address 192.168.1.1;
+    peer port 647;
+    max-response-delay 60;
+    max-unacked-updates 10;
+    load balance max seconds 3;
+}
+```
+
+## DHCP for PXE Boot
+
+PXE (Preboot Execution Environment) uses DHCP to network-boot machines:
+
+```mermaid
+sequenceDiagram
+    participant Client as PXE Client
+    participant DHCP as DHCP Server
+    participant TFTP as TFTP Server
+
+    Client->>DHCP: DISCOVER (with PXE option 60)
+    DHCP->>Client: OFFER (IP + next-server + filename)
+    Client->>DHCP: REQUEST
+    DHCP->>Client: ACK
+    Client->>TFTP: TFTP GET pxelinux.0
+    TFTP->>Client: pxelinux.0
+    Client->>TFTP: TFTP GET pxelinux.cfg/default
+    TFTP->>Client: boot menu config
+```
+
+```bash
+# DHCP server config for PXE
+# /etc/dhcp/dhcpd.conf
+class "pxeclients" {
+    match if substring(option vendor-class-identifier, 0, 9) = "PXEClient";
+    next-server 192.168.1.5;
+    filename "pxelinux.0";
+}
+
+# For UEFI PXE boot
+class "uefi-clients" {
+    match if option architecture = 00:07;  # EFI x86-64
+    next-server 192.168.1.5;
+    filename "grubx64.efi";
+}
+
+class "bios-clients" {
+    match if option architecture = 00:00;  # BIOS
+    next-server 192.168.1.5;
+    filename "pxelinux.0";
+}
+```
+
+## DHCP Option 82 (Relay Agent Information)
+
+DHCP relay agents can insert Option 82 to identify the client's physical location:
+
+```
+# Option 82 sub-options:
+# Circuit ID (sub-option 1): switch port identifier
+# Remote ID (sub-option 2): switch MAC address
+
+# ISC DHCP server: use Option 82 for policy
+class "vlan10-ports" {
+    match if option agent.circuit-id = 0a:01;  # VLAN 10, port 1
+    option domain-name-servers 10.0.10.53;
+    pool {
+        range 172.16.10.100 172.16.10.200;
+    }
+}
+```
+
+## DHCPv4-over-DHCPv6 (RFC 7341)
+
+For dual-stack networks that want to use DHCPv6 transport for DHCPv4 configuration:
+
+```bash
+# This mechanism allows DHCPv4 messages to be
+# encapsulated inside DHCPv6 messages
+# Useful when only IPv6 transport is available
+
+# Requires dhclient with DHCPv4-over-DHCPv6 support
+dhclient -4 -6 -cf /etc/dhclient-dual.conf eth0
+```
+
+## DHCP Rate Limiting and Protection
+
+```bash
+# Limit DHCP requests per port on managed switches
+# (Cisco example)
+# interface GigabitEthernet0/1
+#   ip dhcp relay information trusted
+#   ip dhcp limit address 5
+
+# Linux: rate limit DHCP with iptables
+iptables -A INPUT -p udp --dport 67 -m limit --limit 100/sec --limit-burst 200 -j ACCEPT
+iptables -A INPUT -p udp --dport 67 -j DROP
+
+# Monitor DHCP traffic
+watch -n 1 'ss -ulnp | grep :67'
+
+# Block rogue DHCP servers
+iptables -A INPUT -i eth0 -p udp --sport 67 \
+  -s ! 192.168.1.1 -j DROP
+```
+
 ## Further Reading
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)

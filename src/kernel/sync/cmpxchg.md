@@ -99,6 +99,37 @@ u64 cmpxchg64(u64 *ptr, u64 old, u64 new);
 unsigned long cmpxchg_local(unsigned long *ptr, unsigned long old, unsigned long new);
 ```
 
+### 128-bit cmpxchg (cmpxchg16b)
+
+On x86_64, the kernel can use `CMPXCHG16B` for atomically updating 128-bit values (e.g., a pointer + version counter pair):
+
+```c
+/* Requires: -mcx16 compiler flag, CPUID.80000001H:CX16 */
+typedef struct {
+    u64 low;
+    u64 high;
+} u128;
+
+u128 cmpxchg128(u128 *ptr, u128 old, u128 new);
+```
+
+**Use case**: The kernel uses `cmpxchg16b` for lock-free updates of pointer+sequence pairs in seqcount structures and RCU-protected data structures.
+
+**Performance**: `CMPXCHG16B` is slower than `CMPXCHG` (~20 cycles vs ~10 cycles on Skylake) and requires the cache line to be exclusively held. On AMD Zen 5, `CMPXCHG16B` latency increased to ~30 cycles.
+
+```c
+/* Architecture check */
+#ifdef CONFIG_X86_64
+extern bool cpu_has_cx16;  /* Set by CPUID */
+
+if (cpu_has_cx16) {
+    /* Use cmpxchg16b for 128-bit CAS */
+} else {
+    /* Fall back to spinlock-based emulation */
+}
+#endif
+```
+
 ---
 
 ## Atomic Operations Built on cmpxchg
@@ -358,6 +389,50 @@ struct node *pop(struct stack *s)
     return old;
 }
 ```
+
+**Performance characteristics**:
+- **Uncontended**: Each push/pop is a single `cmpxchg` — ~10 cycles on x86
+- **Contended**: CAS failures cause retries. With N threads, expect O(N) retries per operation
+- **ABA vulnerability**: The pop operation is vulnerable to the ABA problem (see below)
+
+### Lock-Free Queue (Michael-Scott Queue)
+
+A more complex lock-free data structure: a FIFO queue with separate head and tail pointers:
+
+```c
+struct ms_queue {
+    _Atomic(struct node *) head;
+    _Atomic(struct node *) tail;
+};
+
+void enqueue(struct ms_queue *q, int value)
+{
+    struct node *new_node = alloc_node(value);
+    struct node *old_tail, *next;
+
+    new_node->next = NULL;
+    while (true) {
+        old_tail = atomic_load(&q->tail);
+        next = atomic_load(&old_tail->next);
+        if (old_tail == atomic_load(&q->tail)) {
+            if (next == NULL) {
+                /* Tail points to last node — try to append */
+                if (atomic_compare_exchange_weak(&old_tail->next,
+                                                  next, new_node))
+                    break;  /* Success */
+            } else {
+                /* Tail is lagging — help advance it */
+                atomic_compare_exchange_weak(&q->tail,
+                                              old_tail, next);
+            }
+        }
+    }
+    /* Try to advance tail to new node */
+    atomic_compare_exchange_weak(&q->tail, old_tail, new_node);
+}
+```
+
+The key insight: **helping** — if a thread sees the tail is lagging, it helps advance it before retrying its own operation. This ensures progress even if a thread is preempted mid-operation.
 
 ### Version Counter / Sequence Lock Pattern
 
