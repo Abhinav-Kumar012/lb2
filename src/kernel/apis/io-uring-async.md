@@ -585,7 +585,62 @@ int main(void) {
 | 6.7 | `IORING_SETUP_SINGLE_ISSUER` / `DEFER_TASKRUN` mandatory for unprivileged |
 | 6.8 | `IORING_REGISTER_RESIZE_RINGS`, `io_uring_cmd_sock` for socket ops |
 
+## Module Interaction
+
+`io_uring` integrates with several kernel subsystems:
+
+### Block Layer
+
+When performing file I/O, `io_uring` goes through the VFS → file system →
+block layer path. The `blk_plug` in `io_submit_state` batches block
+requests for efficient I/O scheduling. With `IORING_OP_URING_CMD`,
+applications can issue passthrough commands directly to NVMe or SCSI devices.
+
+### Networking
+
+Network operations (`SEND`, `RECV`, `CONNECT`, `ACCEPT`) integrate with
+the socket layer. Zero-copy send (`IORING_OP_SEND_ZC`) uses msg_zerocopy
+infrastructure to avoid copying data into kernel buffers, returning a
+secondary CQE when the network stack releases the pages.
+
+### Memory Management
+
+`io_uring` uses `io_alloc_cache` for request allocation and
+`io_buffer_list` for provided buffers. Memory accounting is tracked per-user
+through `ctx->user->io_uring_bytes` to prevent unprivileged users from
+consuming excessive kernel memory.
+
+### Scheduler
+
+The SQPOLL thread and io-wq workers participate in normal scheduling.\n`IORING_SETUP_SQ_AFF` allows pinning to specific CPUs. The
+`IORING_REGISTER_IOWQ_AFF` operation lets users set CPU affinity for
+io-wq workers.
+
+## Troubleshooting
+
+### Common Issues
+
+**CQE overflow**: If the CQ ring fills up, the kernel sets
+`IORING_SQ_CQ_OVERFLOW`. Monitor with:
+```bash
+cat /proc/[pid]/fdinfo/[uring_fd] | grep CqOverflow
+```
+
+**SQPOLL thread CPU usage**: Adjust `sq_thread_idle` to balance
+responsiveness vs. CPU waste:
+```bash
+# Check if SQPOLL is running
+ps -eLo pid,tid,comm | grep io_uring-sq
+```
+
+**io_uring_disabled**: If operations fail with `-EPERM`:
+```bash
+cat /proc/sys/kernel/io_uring_disabled
+# 0=all, 1=privileged only, 2=disabled
+```
+
 ## References
+
 
 1. **io_uring source**: https://github.com/torvalds/linux/tree/master/io_uring
 2. **io_uring design document**: https://kernel.dk/io_uring.pdf (Jens Axboe)
