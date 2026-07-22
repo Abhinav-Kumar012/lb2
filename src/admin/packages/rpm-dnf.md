@@ -542,9 +542,289 @@ graph TB
 - [man rpm(8)](https://man7.org/linux/man-pages/man8/rpm.8.html)
 - [man dnf(8)](https://man7.org/linux/man-pages/man8/dnf.8.html)
 
+## DNF5: The Next Generation
+
+DNF5 is a rewrite of DNF in C++ with improved performance and a unified tool for package management:
+
+```bash
+# DNF5 is the default in Fedora 41+ and RHEL 10+
+# Key improvements over DNF4:
+# - 2-5x faster dependency resolution
+# - Lower memory usage
+# - C++ implementation (replaces Python)
+# - Unified dnf5 command for all operations
+# - Built-in daemon (dnf5-daemon) for API access
+
+# DNF5 is backward-compatible with DNF4 commands
+sudo dnf5 install nginx
+
+# New features in DNF5:
+sudo dnf5 download nginx         # Download RPM without installing
+sudo dnf5 repoquery --installed  # Query installed packages
+sudo dnf5 advisory list          # List security advisories
+sudo dnf5 advisory info CVE-2024-1234  # Advisory details
+
+# DNF5 daemon API (for GUI tools, system services)
+sudo systemctl enable dnf5-daemon
+# Provides D-Bus interface for package operations
+```
+
+## RPM Macros
+
+RPM macros are variables and functions used in SPEC files and the build system:
+
+```bash
+# View all defined macros
+rpm --eval '%{?dist}'
+# .el9
+
+# Common built-in macros:
+rpm --eval '%{_prefix}'       # /usr
+rpm --eval '%{_sysconfdir}'   # /etc
+rpm --eval '%{_bindir}'       # /usr/bin
+rpm --eval '%{_libdir}'       # /usr/lib64
+rpm --eval '%{_datadir}'      # /usr/share
+rpm --eval '%{_mandir}'       # /usr/share/man
+rpm --eval '%{_tmppath}'      # /tmp
+rpm --eval '%{_var}'          # /var
+rpm --eval '%{_usrsrc}'       # /usr/src
+
+# Platform macros:
+rpm --eval '%{_arch}'         # x86_64
+rpm --eval '%{_target_arch}'  # x86_64
+rpm --eval '%{_host}'         # x86_64-redhat-linux-gnu
+
+# Define custom macros
+# /etc/rpm/macros.custom
+%_topdir /home/builder/rpmbuild
+%_smp_mflags -j8
+
+# Use macros in SPEC files:
+%install
+install -d %{buildroot}%{_bindir}
+install -m 755 myapp %{buildroot}%{_bindir}/myapp
+```
+
+### Useful RPM Macros in SPEC Files
+
+```spec
+# Conditional macros
+%if 0%{?rhel} >= 9
+BuildRequires: openssl-devel >= 3.0
+%else
+BuildRequires: openssl-devel >= 1.1
+%endif
+
+# Architecture-specific
+%ifarch x86_64
+%define neon_flags --enable-neon
+%endif
+
+# Automatic dependency generation
+# RPM automatically detects:
+# - Shared library dependencies (Requires)
+# - Provides (for shared libraries, pkgconfig)
+# - Script interpreters (from #! lines)
+# 
+# Disable for specific files:
+%global __requires_exclude ^libspecial\\.so
+
+# File triggers (run scripts when specific files change)
+%transfiletriggerin -- /etc/ld.so.conf.d
+/sbin/ldconfig
+
+%transfiletriggerpostun -- /etc/ld.so.conf.d
+/sbin/ldconfig
+```
+
+## Weak Dependencies
+
+RPM supports weak dependencies for suggesting related packages:
+
+```spec
+# In SPEC files:
+Requires:       openssl          # Hard dependency (must install)
+Recommends:     certbot          # Should install by default
+Suggests:       logrotate        # Nice to have
+Supplements:    nginx            # Reverse of Recommends
+Enhances:       vim-plugins      # Reverse of Suggests
+Conflicts:      apache           # Cannot coexist
+Obsoletes:      old-nginx        # Replaces older package
+```
+
+```bash
+# DNF handles weak dependencies:
+# Recommends: installed by default (configurable)
+# Suggests: NOT installed by default
+
+# Install with recommends
+sudo dnf install --setopt=install_weak_deps=True nginx
+
+# Install without recommends
+sudo dnf install --setopt=install_weak_deps=False nginx
+
+# Query weak dependencies
+dnf repoquery --recommends nginx
+dnf repoquery --suggests nginx
+```
+
+## COPR (Community Projects)
+
+COPR is Fedora's community build system for third-party packages:
+
+```bash
+# Enable a COPR repository
+sudo dnf copr enable user/project
+
+# Install from COPR
+sudo dnf install package-name
+
+# List enabled COPRs
+dnf copr list
+
+# Search COPR
+dnf copr search keyword
+
+# Create your own COPR
+# https://copr.fedorainfracloud.org/
+# Upload SRPM or connect to a git repo
+# COPR builds for multiple architectures and distros
+```
+
+## RPM Database and Recovery
+
+```bash
+# The RPM database stores all package metadata
+ls /var/lib/rpm/
+# Packages  __db.001  __db.002  __db.003  ...
+
+# Database format: Berkeley DB (legacy) or SQLite (modern, RPM 4.17+)
+# Check format:
+file /var/lib/rpm/Packages
+# Berkeley DB (Btree, version 9, native byte-order)
+# or
+# SQLite 3.x database
+
+# Rebuild database (after corruption)
+sudo rpm --rebuilddb
+
+# Verify all installed packages
+rpm -Va
+# Output format: SM5DLUGTP c filename
+# S = Size differs
+# M = Mode differs
+# 5 = MD5 differs
+# D = Device major/minor differs
+# L = Symlink path differs
+# U = User differs
+# G = Group differs
+# T = Timestamp differs
+# P = Capabilities differ
+# c = config file
+
+# Reinstall all packages (nuclear option)
+sudo dnf reinstall '*'
+```
+
+## RPM Scriptlets
+
+RPM packages can include scripts that run during installation:
+
+```spec
+# Scriptlet types in SPEC files:
+
+%pre
+# Runs BEFORE installation
+# Common: create users/groups
+getent group nginx > /dev/null || groupadd -r nginx
+getent passwd nginx > /dev/null || useradd -r -g nginx -s /sbin/nologin nginx
+
+%post
+# Runs AFTER installation
+# Common: enable/start services
+systemctl daemon-reload
+systemctl enable nginx
+
+%preun
+# Runs BEFORE removal
+# Common: stop services
+systemctl stop nginx || true
+systemctl disable nginx || true
+
+%postun
+# Runs AFTER removal
+# Common: clean up, reload daemon
+systemctl daemon-reload
+
+%posttrans
+# Runs after all packages in the transaction are installed
+# Common: final configuration steps
+
+%preun -p /bin/sh
+# Specify interpreter (default: /bin/sh)
+```
+
+```bash
+# Query scripts in a package
+rpm -q --scripts nginx
+
+# View scriptlet output during install
+sudo dnf install -v nginx
+
+# Check for scriptlet errors
+rpm -q --triggers nginx
+```
+
+## DNF History and Rollback
+
+```bash
+# View transaction history
+dnf history list
+# ID | Command line              | Date and time    | Action(s) | Altered
+# 45 | install nginx             | 2024-07-22 10:00 | Install   | 3
+# 44 | update                    | 2024-07-21 08:00 | Upgrade   | 15
+# 43 | remove vim                | 2024-07-20 16:00 | Removed   | 1
+
+# Show transaction details
+dnf history info 45
+
+# Undo a transaction
+sudo dnf history undo 45
+
+# Redo a transaction
+sudo dnf history redo 45
+
+# Rollback to a specific point
+sudo dnf history rollback 40
+
+# Store additional metadata
+sudo dnf history store  # Saves current state
+```
+
+## Comparison with apt/dpkg (Expanded)
+
+| Feature | DNF/RPM | APT/dpkg |
+|---------|---------|----------|
+| Distribution | RHEL, Fedora, CentOS | Debian, Ubuntu |
+| Package format | .rpm | .deb |
+| Low-level tool | rpm | dpkg |
+| High-level tool | dnf | apt/apt-get |
+| Config | /etc/yum.repos.d/ | /etc/apt/sources.list.d/ |
+| Local DB | /var/lib/rpm/ | /var/lib/dpkg/ |
+| Build tool | rpmbuild | dpkg-buildpackage |
+| Modules | Yes (DNF modules) | No |
+| Delta packages | deltarpm | apt-dpkg-ref |
+| Weak deps | Recommends/Suggests | Recommends/Suggests |
+| History | dnf history | /var/log/apt/history.log |
+| Rollback | dnf history undo | apt-clone, dpkg --set-selections |
+| COPR (community) | COPR | PPAs |
+| Transaction test | dnf --assumeno | apt --simulate |
+| Changelog | rpm -q --changelog | apt-get changelog |
+
 ## Related Topics
 
 - [dpkg and APT](./dpkg-apt.md) — The Debian/Ubuntu package ecosystem
 - [Pacman](./pacman.md) — Arch Linux package management
 - [Portage](./portage.md) — Gentoo's source-based approach
 - [Backup Strategies](../backup.md) — Backing up package configurations and data
+
