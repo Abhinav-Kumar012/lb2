@@ -665,6 +665,114 @@ void wait_for_workers(int num_workers) {
 }
 ```
 
+## Semaphore Debugging
+
+### CONFIG_DEBUG_SEMAPHORE
+
+Enable semaphore debugging in the kernel configuration:
+
+```bash
+# Enable in kernel config
+CONFIG_DEBUG_SEMAPHORE=y
+
+# This adds runtime checks for:
+# - Using uninitialized semaphores
+# - Double-up() on the same semaphore
+# - up() from wrong context
+
+# View debug output
+dmesg | grep -i semaphore
+# [  123.456789] ------------[ cut here ]------------
+# [  123.456790] WARNING: CPU: 2 PID: 1234 at kernel/locking/semaphore.c:139 up+0x42/0x50
+# [  123.456791] up() called on uninitialized semaphore
+```
+
+### Lock Dependency Checking (lockdep)
+
+lockdep detects potential deadlocks involving semaphores:
+
+```bash
+# Enable lockdep
+CONFIG_LOCKDEP=y
+CONFIG_PROVE_LOCKING=y
+
+# lockdep will warn about:
+# - Circular locking dependencies
+# - Potential deadlocks
+# - Incorrect lock ordering
+
+# View lockdep warnings
+dmesg | grep -A 20 "============================================="
+```
+
+### Semaphore Statistics
+
+```bash
+# View lock contention statistics
+CONFIG_LOCK_STAT=y
+
+cat /proc/lock_stat
+# contentions  conterests   waittime-min   waittime-max   waittime-add
+#       1234        567         0.12µs       123.45µs       678.90µs
+```
+
+## Semaphore Initialization Patterns
+
+### Static Initialization
+
+```c
+/* Binary semaphore (count = 1) */
+static DECLARE_SEM(my_sem);
+
+/* Counting semaphore (count = N) */
+static struct semaphore pool_sem;
+/* Must call sema_init() in module init */
+static int __init my_init(void) {
+    sema_init(&pool_sem, 10);
+    return 0;
+}
+```
+
+### Dynamic Initialization
+
+```c
+struct semaphore *alloc_semaphore(int count) {
+    struct semaphore *sem = kmalloc(sizeof(*sem), GFP_KERNEL);
+    if (sem)
+        sema_init(sem, count);
+    return sem;
+}
+
+void free_semaphore(struct semaphore *sem) {
+    /* Ensure no one is waiting */
+    kfree(sem);
+}
+```
+
+## Semaphore vs rw_semaphore
+
+| Feature | semaphore | rw_semaphore |
+|---------|-----------|-------------|
+| Readers | 1 (binary) | Multiple concurrent |
+| Writers | 1 (binary) | 1 (exclusive) |
+| Priority inheritance | No | Yes (since 4.14) |
+| Use case | Resource counting | Read-heavy workloads |
+
+```c
+/* rw_semaphore allows concurrent readers */
+static DECLARE_RWSEM(my_rwsem);
+
+/* Multiple readers */
+down_read(&my_rwsem);
+/* ... read ... */
+up_read(&my_rwsem);
+
+/* Exclusive writer */
+down_write(&my_rwsem);
+/* ... write ... */
+up_write(&my_rwsem);
+```
+
 ## Related Topics
 
 - [Read-Write Locks](./rwlocks.md) — Reader-writer synchronization
