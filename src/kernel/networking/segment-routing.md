@@ -359,6 +359,74 @@ int xdp_srv6_inspect(struct xdp_md *ctx)
 }
 ```
 
+## SRv6 Packet Walkthrough
+
+To understand SRv6 fully, trace a packet through a multi-hop SRv6 path:
+
+### Topology
+
+```mermaid
+graph LR
+    SRC["Source<br/>2001:db8:src::"] -->|"SRv6 encap<br/>segs: A,B,DST"| A["Node A<br/>2001:db8:a::1"]
+    A --> B["Node B<br/>2001:db8:b::1"]
+    B --> DST["Destination<br/>2001:db8:dst::1"]
+```
+
+### Step-by-Step Packet Processing
+
+```
+=== Source: Encapsulation ===
+IPv6 DA: 2001:db8:a::1      (Segments[2] = first SID)
+SRH:
+  Segments Left: 2
+  Segment List: [2001:db8:dst::1, 2001:db8:b::1, 2001:db8:a::1]
+  Next Header: TCP
+Payload: original TCP packet
+
+=== Node A (End function) ===
+1. Receive packet, DA matches local SID 2001:db8:a::1
+2. Segments Left (2) > 0 → process SRH
+3. Decrement Segments Left: 2 → 1
+4. Update DA = Segment List[1] = 2001:db8:b::1
+5. Forward packet toward Node B
+
+IPv6 DA: 2001:db8:b::1
+SRH: Segments Left: 1
+
+=== Node B (End function) ===
+1. Receive packet, DA matches local SID 2001:db8:b::1
+2. Segments Left (1) > 0 → process SRH
+3. Decrement Segments Left: 1 → 0
+4. Update DA = Segment List[0] = 2001:db8:dst::1
+5. Forward packet toward Destination
+
+IPv6 DA: 2001:db8:dst::1
+SRH: Segments Left: 0
+
+=== Destination ===
+1. Receive packet, DA matches local SID 2001:db8:dst::1
+2. Segments Left (0) → SRH processing complete
+3. Remove SRH (or process based on local action)
+4. Deliver payload to application
+```
+
+### Encapsulation vs Insert Mode
+
+| Mode | Behavior | Header Overhead | Compatibility |
+|------|----------|----------------|---------------|
+| `mode encap` | New IPv6 header + SRH wraps original packet | Full new IPv6 header (40 bytes) + SRH | Works everywhere |
+| `mode inline` | SRH inserted into existing IPv6 header | Only SRH overhead | Requires SRv6-aware transit |
+
+```bash
+# Encapsulation mode: original packet becomes inner payload
+sudo ip -6 route add 2001:db8:dst::/48 encap seg6 mode encap \
+    segs 2001:db8:a::1,2001:db8:b::1 dev eth0
+
+# Inline mode: SRH inserted into original IPv6 header
+sudo ip -6 route add 2001:db8:dst::/48 encap seg6 mode inline \
+    segs 2001:db8:a::1,2001:db8:b::1 dev eth0
+```
+
 ## SRv6 Traffic Engineering
 
 ### SRv6-TE Policy
@@ -376,6 +444,27 @@ sudo ip -6 route add 2001:db8:dst::/48 encap seg6 mode encap \
 # Automatic fast-reroute using SRv6 segments
 sudo ip -6 route add 2001:db8:dst::/48 encap seg6 mode encap \
     segs 2001:db8:backup::1 dev eth0
+```
+
+### SRv6 Performance Considerations
+
+| Factor | Impact | Mitigation |
+|--------|--------|------------|
+| SRH header size | Adds 8 + 16×N bytes per segment | Use uSID compression |
+| Encapsulation overhead | Full extra IPv6 header (40 bytes) | Use inline mode if transit supports it |
+| HMAC computation | CPU cost per packet | Only use HMAC for control plane, not data plane |
+| Segment list depth | Deep lists increase per-hop processing | Limit to 3-5 segments in production |
+| PMTU discovery | SRH reduces effective MTU | Set MTU 64 bytes lower on SRv6 interfaces |
+
+```bash
+# Set lower MTU to account for SRv6 overhead
+ip link set eth0 mtu 1436  # 1500 - 64 bytes for SRv6 overhead
+
+# Monitor SRv6 packet counters
+ip -6 sr stats show
+# SegInSegs 12345    — packets entering SRv6 processing
+# SegOutSegs 12340   — packets leaving SRv6 processing
+# DropSegs 5         — dropped packets
 ```
 
 ### SRv6 in Data Center Fabric
@@ -464,6 +553,43 @@ struct seg6_action_desc {
 };
 ```
 
+## SRv6 vs SR-MPLS Comparison
+
+| Feature | SRv6 | SR-MPLS |
+|---------|------|----------|
+| Transport | Native IPv6 | MPLS label stack |
+| Segment encoding | 128-bit IPv6 address | 20-bit MPLS label |
+| Header overhead | 8 + 16×N bytes per SRH | 4 bytes per label |
+| Hardware support | Requires IPv6+SRv6 ASICs | Widely available |
+| Programming model | Rich (network programming) | Limited (path only) |
+| Deployment | Growing (5G, DC fabric) | Mature (carrier networks) |
+| Kernel support | Full (since 4.10) | Full (since 2.6.x) |
+| Compression | uSID (draft) | N/A (already compact) |
+
+## SRv6 in 5G Networks
+
+SRv6 is a key technology in 5G transport networks (3GPP Release 16+):
+
+```mermaid
+graph TD
+    subgraph "5G User Plane"
+        UE["User Equipment"] --> GNB["gNB (5G Base Station)"]
+        GNB --> UPF["UPF (User Plane Function)"]
+        UPF --> DN["Data Network"]
+    end
+    subgraph "SRv6 Transport"
+        GNB -->|"SRv6 encap<br/>End.DT4@UPF"| TRANSIT["Transit Router"]
+        TRANSIT --> UPF
+    end
+    
+    style GNB fill:#3182ce,color:#fff
+    style UPF fill:#e53e3e,color:#fff
+```
+
+- **Network slicing**: SRv6 SIDs map to network slices
+- **Traffic steering**: UE traffic routed through specific UPFs via SRv6 policies
+- **Service chaining**: Firewall → DPI → NAT via SRv6 segment lists
+
 ## Troubleshooting
 
 ### Common Issues
@@ -475,6 +601,8 @@ struct seg6_action_desc {
 | HMAC verification failed | Key mismatch | Sync HMAC keys across nodes |
 | High CPU on transit | SRH inserted on every packet | Use `mode inline` instead of `mode encap` |
 | PMTU issues | SRH adds overhead | Adjust MTU or enable PMTU discovery |
+| SRv6 routes not installed | Missing IPv6 forwarding | `sysctl -w net.ipv6.conf.all.forwarding=1` |
+| Decapsulation fails | Wrong End.DT* action | Verify VRF table exists and has routes |
 
 ### Debugging Commands
 
@@ -495,6 +623,18 @@ sudo dmesg | grep TRACE
 
 # Monitor SRv6 counters
 ip -6 sr stats show
+
+# Verify SRv6 module is loaded
+lsmod | grep seg6
+
+# Check SRv6 capabilities
+ip -6 sr show
+
+# Debug SRH with tcpdump (show SRH details)
+sudo tcpdump -i eth0 -vv 'ip6 proto 43' -c 10
+
+# Use bpftrace to trace SRv6 processing
+sudo bpftrace -e 'kprobe:seg6_input { printf("seg6_input called\n"); }'
 ```
 
 ## Further Reading

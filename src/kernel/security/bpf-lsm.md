@@ -613,6 +613,120 @@ auditctl -a always,exit -F arch=b64 -S bpf -k bpf_load
 
 ---
 
+## Configuration Examples
+
+### Boot Parameter Setup
+
+```bash
+# Enable BPF LSM via kernel command line
+# Edit /etc/default/grub or bootloader config
+GRUB_CMDLINE_LINUX="lsm=lockdown,capability,yama,apparmor,bpf"
+
+# Update bootloader
+update-grub
+
+# Verify after reboot
+cat /sys/kernel/security/lsm
+# lockdown,capability,yama,apparmor,bpf
+```
+
+### Kconfig Requirements
+
+```
+# Required kernel config
+CONFIG_BPF_LSM=y              # BPF LSM support
+CONFIG_BPF_SYSCALL=y          # BPF syscall
+CONFIG_DEBUG_INFO_BTF=y       # BTF for CO-RE
+CONFIG_BPF_JIT=y              # BPF JIT compiler
+CONFIG_CGROUP_BPF=y           # BPF cgroup support
+CONFIG_NET=y                  # For network hooks
+CONFIG_BPF_EVENTS=y           # For tracing integration
+```
+
+### Delegated BPF Loading (Linux 6.9+)
+
+```bash
+# Create delegated BPF filesystem
+mkdir -p /sys/fs/bpf/delegated
+
+# Mount with delegation
+mount -t bpf bpffs /sys/fs/bpf/delegated \
+    -o delegate_cmds=PROG_LOAD,MAP_CREATE
+
+# Non-root users with CAP_BPF can now load programs
+# to /sys/fs/bpf/delegated/
+```
+
+### Integration with systemd
+
+```ini
+# /etc/systemd/system/bpf-policy.service
+[Unit]
+Description=Load BPF LSM security policy
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/bpf-lsm-loader /etc/bpf-lsm/policy.bpf.o
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+```
+
+---
+
+## BPF Maps for Policy State
+
+BPF maps provide persistent state for BPF LSM programs:
+
+### Map Types Used in BPF LSM
+
+| Map Type | Use Case | Example |
+|----------|----------|----------|
+| `BPF_MAP_TYPE_HASH` | Allow/deny lists | Blocked inodes, UIDs |
+| `BPF_MAP_TYPE_RINGBUF` | Event logging | Audit trail of denials |
+| `BPF_MAP_TYPE_ARRAY` | Counters | Denial counts per UID |
+| `BPF_MAP_TYPE_LRU_HASH` | Bounded state | Rate-limiting timestamps |
+| `BPF_MAP_TYPE_PERCPU_ARRAY` | Per-CPU counters | Lock-free statistics |
+
+### Example: Policy Map with Userspace Update
+
+```c
+/* BPF side */
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 1024);
+    __type(key, u32);      /* UID */
+    __type(value, u64);    /* Bitmask of allowed operations */
+} policy_map SEC(".maps");
+
+SEC("lsm/file_open")
+int BPF_PROG(check_open, struct file *file, int ret)
+{
+    if (ret != 0) return ret;
+
+    u32 uid = bpf_get_current_uid_gid() & 0xFFFFFFFF;
+    u64 *policy = bpf_map_lookup_elem(&policy_map, &uid);
+    if (!policy)
+        return -EACCES;  /* Default deny */
+
+    if (!(*policy & ALLOW_FILE_OPEN))
+        return -EACCES;
+
+    return 0;
+}
+```
+
+```bash
+# Userspace: update policy via bpftool
+bpftool map update pinned /sys/fs/bpf/policy_map \
+    key 1000 0 0 0 \
+    value 0x07 0 0 0 0 0 0 0
+```
+
+---
+
 ## Source Files
 
 | File | Contents |
@@ -634,6 +748,7 @@ auditctl -a always,exit -F arch=b64 -S bpf -k bpf_load
 - **libbpf**: [BPF LSM examples](https://github.com/libbpf/libbpf-bootstrap)
 - **Tetragon**: [Cilium Tetragon](https://tetragon.io/)
 - **Academic**: ["Detection and Mitigation of eBPF Security Risks"](https://webthesis.biblio.polito.it/37924/1/tesi.pdf)
+- **USENIX**: ["TPM-Fail: TPM meets Timing and Lattice Attacks"](https://www.usenix.org/system/files/sec20-moghimi-tpm.pdf)
 
 ---
 
