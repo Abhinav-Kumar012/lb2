@@ -78,6 +78,7 @@ ntfs-3g /dev/sdb1 /mnt/windows
 | `kernel_cache` | Cache file data in the kernel (dangerous if files change) |
 | `auto_unmount` | Automatically unmount when daemon exits |
 | `no_allow_other` | Disallow other users (requires `/etc/fuse.conf` option) |
+| `subtype=<name>` | FUSE subtype (e.g., "sshfs") |
 
 ```bash
 # /etc/fuse.conf — required for allow_other
@@ -293,6 +294,9 @@ unshare --mount -- /path/to/fuse_daemon /mnt/point
 | **gcsfuse** | Mount Google Cloud Storage | `gcsfuse` |
 | **flatpak-portal** | Sandboxed filesystem access for Flatpak | `xdg-desktop-portal` |
 | **archivemount** | Mount archive files as filesystems | `archivemount` |
+| **bindfs** | Bind mount with permission remapping | `bindfs` |
+| **fuse-zip** | Mount ZIP archives | `fuse-zip` |
+| **cvmfs** | CERN VM File System (read-only, HTTP-based) | `cvmfs` |
 
 ## Performance Tuning
 
@@ -312,6 +316,15 @@ fs.fuse.max_background = 12
 fs.fuse.congestion_threshold = 9
 ```
 
+### Performance Comparison
+
+| Configuration | Sequential Read | Sequential Write | Random 4K Read |
+|---------------|-----------------|------------------|----------------|
+| **direct_io** | High (no cache) | High | High |
+| **kernel_cache** | Very High | N/A | Very High |
+| **writeback_cache** | High | Very High | High |
+| **Default** | Medium | Low (per-write requests) | Medium |
+
 ## Implementation Details
 
 ### Key Source Files
@@ -320,6 +333,7 @@ fs.fuse.congestion_threshold = 9
 - **`fs/fuse/dir.c`** — Directory operations
 - **`fs/fuse/file.c`** — File operations (read, write, mmap)
 - **`fs/fuse/inode.c`** — Superblock/inode management
+- **`fs/fuse/readdir.c`** — Readdir plus handling
 - **`include/uapi/linux/fuse.h`** — Kernel-userspace protocol definition
 
 ### FUSE Protocol
@@ -344,6 +358,68 @@ struct fuse_out_header {
     uint32_t len;      /* Total length */
     int32_t  error;    /* 0 = success, negative errno */
     uint64_t unique;   /* Matches request ID */
+};
+```
+
+### Key Opcodes
+
+| Opcode | Value | Description |
+|--------|-------|-------------|
+| `FUSE_LOOKUP` | 1 | Look up a name in a directory |
+| `FUSE_GETATTR` | 3 | Get file attributes |
+| `FUSE_OPEN` | 14 | Open a file |
+| `FUSE_READ` | 15 | Read data from file |
+| `FUSE_WRITE` | 16 | Write data to file |
+| `FUSE_READDIR` | 28 | Read directory entries |
+| `FUSE_CREATE` | 35 | Create and open a file |
+| `FUSE_INIT` | 26 | Initialize connection |
+
+### Connection Initialization
+
+```mermaid
+sequenceDiagram
+    participant Daemon as FUSE Daemon
+    participant Kernel as FUSE Kernel
+
+    Daemon->>Kernel: open(/dev/fuse)
+    Kernel-->>Daemon: fd
+    Daemon->>Kernel: mount (fusermount3)
+    Kernel->>Daemon: FUSE_INIT request
+    Daemon->>Kernel: FUSE_INIT response (capabilities)
+    Note over Daemon,Kernel: Connection established<br/>Daemon enters request loop
+    loop Request Processing
+        Kernel->>Daemon: FUSE request (e.g., READ)
+        Daemon->>Kernel: FUSE response (data)
+    end
+```
+
+### Filesystem-Specific Operations
+
+```c
+/* FUSE operations structure (high-level API) */
+struct fuse_operations {
+    int (*getattr)(const char *, struct stat *, struct fuse_file_info *);
+    int (*readlink)(const char *, char *, size_t);
+    int (*mknod)(const char *, mode_t, dev_t);
+    int (*mkdir)(const char *, mode_t);
+    int (*unlink)(const char *);
+    int (*rmdir)(const char *);
+    int (*symlink)(const char *, const char *);
+    int (*rename)(const char *, const char *, unsigned int);
+    int (*link)(const char *, const char *);
+    int (*chmod)(const char *, mode_t, struct fuse_file_info *);
+    int (*chown)(const char *, uid_t, gid_t, struct fuse_file_info *);
+    int (*truncate)(const char *, off_t, struct fuse_file_info *);
+    int (*open)(const char *, struct fuse_file_info *);
+    int (*read)(const char *, char *, size_t, off_t, struct fuse_file_info *);
+    int (*write)(const char *, const char *, size_t, off_t, struct fuse_file_info *);
+    int (*statfs)(const char *, struct statvfs *);
+    int (*release)(const char *, struct fuse_file_info *);
+    int (*fsync)(const char *, int, struct fuse_file_info *);
+    int (*readdir)(const char *, void *, fuse_fill_dir_t, off_t,
+                   struct fuse_file_info *, enum fuse_readdir_flags);
+    int (*init)(struct fuse_conn_info *, struct fuse_config *);
+    /* ... many more ... */
 };
 ```
 

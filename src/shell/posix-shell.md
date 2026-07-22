@@ -596,6 +596,68 @@ main() {
 main "$@"
 ```
 
+## Portability Testing
+
+### Testing Tools
+
+```bash
+# checkbashisms (from devscripts)
+sudo apt install devscripts
+checkbashisms myscript.sh
+# Warns about Bash/Zsh-specific features
+
+# shellcheck
+shellcheck -s sh myscript.sh
+# Catches many portability issues
+
+# Run with dash (strict POSIX)
+dash myscript.sh
+
+# Run with different shells
+for sh in bash dash ksh ash; do
+    echo "Testing with $sh:"
+    $sh myscript.sh
+done
+```
+
+### Common Portability Issues
+
+| Issue | Bash | POSIX |
+|---|---|---|
+| Arrays | `arr=(a b c)` | Use positional params `set -- a b c` |
+| `[[ ]]` | `[[ -f file ]]` | `[ -f file ]` |
+| `(( ))` arithmetic | `((x++))` | `x=$((x + 1))` |
+| `$RANDOM` | Built-in | `awk 'BEGIN{srand(); print int(rand()*32768)}'` |
+| `read -p` | `read -p "prompt"` | `printf "prompt"; read var` |
+| `${var,,}` | Lowercase | `echo "$var" | tr '[:upper:]' '[:lower:]'` |
+| `${var:0:5}` | Substring | `expr substr "$var" 1 5` |
+| `${var/pat/rep}` | Replace | `echo "$var" | sed 's/pat/rep/'` |
+| `<()` process subst | `diff <(a) <(b)` | Temp files |
+| `&>` redirect | `cmd &> file` | `cmd > file 2>&1` |
+| `$'...'` ANSI-C | `echo $'\n'` | `printf '\n'` |
+| `{a,b,c}` brace | `echo {1..10}` | `seq 1 10` or loop |
+| `select` menu | Built-in | Implement manually |
+| `function` keyword | `function f {` | `f() {` |
+
+### Script Portability Checklist
+
+- [ ] Shebang: `#!/bin/sh`
+- [ ] No `[[ ]]` — use `[ ]`
+- [ ] No `(( ))` — use `$(( ))` or `expr`
+- [ ] No arrays — use positional parameters
+- [ ] No `${var/pat/rep}` — use `sed`
+- [ ] No `${var,,}` — use `tr`
+- [ ] No `$RANDOM` — use `awk` or `/dev/urandom`
+- [ ] No `<()` process substitution — use temp files
+- [ ] No `&>` — use `> file 2>&1`
+- [ ] No `$'...'` ANSI-C quoting — use `printf`
+- [ ] No brace expansion — use `seq` or loops
+- [ ] No `function` keyword — use `name() {`
+- [ ] No `read -p` — use `printf` + `read`
+- [ ] Quote all variables: `"$var"` not `$var`
+- [ ] Use `printf` instead of `echo` for portability
+- [ ] Test with `dash` or `checkbashisms`
+
 ## References
 
 - [POSIX Shell Command Language](https://pubs.opengroup.org/onlinepubs/9699919799/utilities/V3_chap02.html)
@@ -604,10 +666,19 @@ main "$@"
 - [ShellCheck](https://www.shellcheck.net/) — static analysis for shell scripts
 - [checkbashisms](https://manpages.debian.org/bookworm/devscripts/checkbashisms.1.en.html)
 - [Greg's Wiki - Bashism](https://mywiki.wooledge.org/Bashism)
+- [Rich's sh (POSIX shell) tricks](https://www.etalabs.net/sh_tricks.html)
+- [POSIX Shell Grammar](https://pubs.opengroup.org/onlinepubs/9699919799/utilities/V3_chap02.html#tag_18_10)
+
+## Further Reading
+
+- [The Debian Policy on Shell Scripts](https://www.debian.org/doc/debian-policy/ch-scripts.html)
+- [Alpine Linux ash documentation](https://wiki.alpinelinux.org/wiki/Alpine_Linux:FAQ)
+- [Ubuntu dash as /bin/sh](https://wiki.ubuntu.com/DashAsBinSh)
 
 ## Related Topics
 
 - [Shell Overview](./overview.md) — shell types and fundamentals
+- [Bash](./bash.md) — the most common Linux shell
 - [Zsh](./zsh.md) — extended shell with POSIX compatibility mode
 - [Fish](./fish.md) — deliberately non-POSIX shell
 - [grep](./grep.md) — POSIX-compatible text search
