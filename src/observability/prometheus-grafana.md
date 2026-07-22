@@ -164,6 +164,61 @@ scrape_configs:
 ]
 ```
 
+### Kubernetes Service Discovery
+
+```yaml
+# Kubernetes SD (auto-discovers pods, services, endpoints)
+scrape_configs:
+  - job_name: 'kubernetes-pods'
+    kubernetes_sd_configs:
+      - role: pod
+    relabel_configs:
+      # Only scrape pods with prometheus.io/scrape annotation
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+        action: keep
+        regex: true
+      # Use custom port from annotation
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_port]
+        action: replace
+        target_label: __address__
+        regex: (.+)
+        replacement: $1
+      # Add pod name as label
+      - source_labels: [__meta_kubernetes_pod_name]
+        target_label: pod
+```
+
+### Relabeling
+
+Relabeling modifies labels before scraping:
+
+```yaml
+relabel_configs:
+  # Keep only targets with specific label
+  - source_labels: [__meta_kubernetes_pod_label_app]
+    action: keep
+    regex: myapp
+
+  # Drop targets matching a pattern
+  - source_labels: [__address__]
+    action: drop
+    regex: '.*localhost.*'
+
+  # Rewrite instance label
+  - source_labels: [__meta_kubernetes_pod_name]
+    target_label: instance
+
+  # Add static label
+  - target_label: environment
+    replacement: production
+
+  # Extract port from address
+  - source_labels: [__address__]
+    regex: '(.+):(\d+)'
+    target_label: __address__
+    replacement: '$1:9100'
+```
+
 ## PromQL
 
 PromQL (Prometheus Query Language) is the query language for Prometheus:
@@ -491,6 +546,251 @@ prometheus --storage.tsdb.retention.time=30d
 prometheus_tsdb_head_series
 prometheus_tsdb_head_chunks
 prometheus_engine_query_duration_seconds
+```
+
+### Recording Rules
+
+Recording rules precompute expensive queries and store results as new time series:
+
+```yaml
+# /etc/prometheus/rules/recording_rules.yml
+groups:
+  - name: node_recording
+    interval: 30s  # Evaluate every 30s (default: global evaluation_interval)
+    rules:
+      # CPU utilization ratio
+      - record: instance:node_cpu_utilization:ratio
+        expr: |
+          1 - avg by(instance) (
+            rate(node_cpu_seconds_total{mode="idle"}[5m])
+          )
+
+      # Memory utilization ratio
+      - record: instance:node_memory_utilization:ratio
+        expr: |
+          1 - (
+            node_memory_MemAvailable_bytes
+            / node_memory_MemTotal_bytes
+          )
+
+      # Disk I/O utilization
+      - record: instance:node_disk_io_utilization:ratio
+        expr: |
+          rate(node_disk_io_time_seconds_total{device=~"sd.*"}[5m])
+
+      # Network throughput (Mbps)
+      - record: instance:node_network_receive_mbps:rate
+        expr: |
+          rate(node_network_receive_bytes_total{device!~"lo|veth.*"}[5m]) * 8 / 1000000
+
+      # Request rate by status code
+      - record: job:http_requests:rate5m
+        expr: |
+          sum by(job, status) (
+            rate(http_requests_total[5m])
+          )
+
+      # P99 latency
+      - record: job:http_request_duration:p99
+        expr: |
+          histogram_quantile(0.99,
+            sum by(job, le) (
+              rate(http_request_duration_seconds_bucket[5m])
+            )
+          )
+```
+
+```bash
+# Validate recording rules
+promtool check rules /etc/prometheus/rules/recording_rules.yml
+
+# Test recording rule queries
+promtool test rules test_cases.yml
+
+# Use recording rules in queries (much faster than raw queries)
+instance:node_cpu_utilization:ratio{instance="server1:9100"}
+```
+
+### Recording Rules Naming Convention
+
+```
+level:metric_name:operations
+│       │           │
+│       │           └── aggregation/rate (ratio, rate5m, p99, etc.)
+│       └── base metric name
+└── aggregation level (instance, job, cluster)
+
+Examples:
+  instance:node_cpu_utilization:ratio
+  job:http_requests:rate5m
+  cluster:node_memory_available:min
+```
+
+## Grafana Provisioning
+
+### Automated Dashboard Provisioning
+
+```yaml
+# /etc/grafana/provisioning/datasources/prometheus.yml
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://localhost:9090
+    isDefault: true
+    editable: false
+```
+
+```yaml
+# /etc/grafana/provisioning/dashboards/dashboards.yml
+apiVersion: 1
+providers:
+  - name: 'default'
+    orgId: 1
+    folder: ''
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: true
+```
+
+```bash
+# Place dashboard JSON files in /var/lib/grafana/dashboards/
+# They'll be auto-imported on Grafana restart
+
+# Export existing dashboard via API
+curl -s http://admin:admin@localhost:3000/api/dashboards/uid/abc123 \
+    | jq '.dashboard' > /var/lib/grafana/dashboards/my-dashboard.json
+
+# Import dashboard via API
+curl -X POST http://admin:admin@localhost:3000/api/dashboards/db \
+  -H "Content-Type: application/json" \
+  -d @/var/lib/grafana/dashboards/my-dashboard.json
+```
+
+### Grafana Alerting (Unified Alerting)
+
+```yaml
+# Grafana 9+ unified alerting
+# /etc/grafana/provisioning/alerting/rules.yml
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: Linux Server Alerts
+    folder: Alerts
+    interval: 1m
+    rules:
+      - uid: high-cpu-alert
+        title: High CPU Usage
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            model:
+              expr: instance:node_cpu_utilization:ratio > 0.9
+              intervalMs: 60000
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0.9]
+```
+
+## Long-Term Storage
+
+Prometheus stores data locally (default 15-90 days). For longer retention:
+
+### Thanos
+
+```mermaid
+graph TD
+    PROM1["Prometheus 1<br/>+ Thanos Sidecar"] --> OBJ["Object Storage<br/>(S3/GCS/MinIO)"]
+    PROM2["Prometheus 2<br/>+ Thanos Sidecar"] --> OBJ
+    QUERY["Thanos Query"] --> PROM1
+    QUERY --> PROM2
+    QUERY --> STORE["Thanos Store Gateway"]
+    STORE --> OBJ
+    GRAFANA[Grafana] --> QUERY
+```
+
+### VictoriaMetrics
+
+```bash
+# VictoriaMetrics as Prometheus long-term storage
+# Drop-in replacement with better compression and longer retention
+
+# Start VictoriaMetrics
+victoria-metrics-prod \
+    -retentionPeriod=1y \
+    -storageDataPath=/var/lib/victoria-metrics
+
+# Remote write from Prometheus
+# prometheus.yml:
+# remote_write:
+#   - url: http://victoria-metrics:8428/api/v1/write
+```
+
+## Common Exporters
+
+| Exporter | Port | Metrics | Use Case |
+|----------|------|---------|----------|
+| node_exporter | 9100 | CPU, memory, disk, network | Linux hosts |
+| mysqld_exporter | 9104 | Queries, connections, replication | MySQL/MariaDB |
+| postgres_exporter | 9187 | Queries, connections, locks | PostgreSQL |
+| redis_exporter | 9121 | Commands, memory, keys | Redis |
+| blackbox_exporter | 9115 | HTTP, TCP, ICMP probes | Endpoint monitoring |
+| nginx_exporter | 9113 | Requests, connections | Nginx |
+| process_exporter | 9256 | Per-process CPU, memory | Process monitoring |
+| cadvisor | 8080 | Container CPU, memory, network | Docker/K8s |
+
+### Blackbox Exporter Configuration
+
+```yaml
+# /etc/blackbox_exporter/config.yml
+modules:
+  http_2xx:
+    prober: http
+    timeout: 5s
+    http:
+      valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+      valid_status_codes: [200]
+      method: GET
+      follow_redirects: true
+      preferred_ip_protocol: "ip4"
+
+  tcp_connect:
+    prober: tcp
+    timeout: 5s
+
+  icmp:
+    prober: icmp
+    timeout: 5s
+```
+
+```yaml
+# Prometheus scrape config for blackbox
+scrape_configs:
+  - job_name: 'blackbox-http'
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+        - https://example.com
+        - https://api.example.com/health
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: localhost:9115  # Blackbox exporter address
 ```
 
 ## References
