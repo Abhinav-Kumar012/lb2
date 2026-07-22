@@ -275,6 +275,29 @@ mount -t overlay overlay -o noatime,lowerdir=/lower,upperdir=/upper,workdir=/wor
 # Each additional lower layer adds overhead
 ```
 
+## Mount Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `lowerdir=<dir>` | Lower layer directory(s), colon-separated | Required |
+| `upperdir=<dir>` | Upper layer directory | Required (for R/W) |
+| `workdir=<dir>` | Work directory (same FS as upperdir) | Required |
+| `redirect_dir={on,off,follow,nofollow}` | Directory rename policy | off |
+| `redirect_follow` | Follow redirects on lookup | off |
+| `index={on,off}` | Enable inode index for NFS export | off |
+| `nfs_export={on,off}` | Enable NFS export support | off |
+| `xino={on,off,auto}` | Extended inode numbers | auto |
+| `metacopy={on,off}` | Copy only metadata on write | off |
+| `volatile` | Skip fsync (data loss risk) | off |
+
+```bash
+# Example with all options
+mount -t overlay overlay \
+    -o lowerdir=/lower,upperdir=/upper,workdir=/work,\
+redirect_dir=on,index=on,nfs_export=on,xino=auto \
+    /merged
+```
+
 ## Nested Overlays
 
 OverlayFS supports nesting: an overlay mount can be used as a lower layer of another overlay.
@@ -332,6 +355,8 @@ base.txt  layer1.txt
 - **`fs/overlayfs/file.c`** — File operations (read, write, mmap)
 - **`fs/overlayfs/copy_up.c`** — Copy-up implementation
 - **`fs/overlayfs/util.c`** — Utility functions
+- **`fs/overlayfs/inode.c`** — Inode operations
+- **`fs/overlayfs/namei.c`** — Name lookup and resolution
 
 ### OVL Inode Structure
 
