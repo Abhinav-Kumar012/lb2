@@ -437,6 +437,304 @@ int join_netns(pid_t target_pid)
 }
 ```
 
+## Network Namespace Isolation Details
+
+### What Isolated in Each Namespace
+
+```mermaid
+graph TB
+    subgraph "Per-Namespace Isolation"
+        NETDEV["Network devices<br/>(eth0, lo, veth, etc.)]
+        ROUTE["Routing tables<br/>(ip route)"]
+        IPTABLES["Firewall rules<br/>(iptables/nftables)"]
+        PROCNET["/proc/net<br/>netstat, tcp, udp"]
+        SOCK["Socket space<br/>(bind addresses)"]
+        SYSCTL["Per-ns sysctls<br/>(ip_forward, etc.)]
+        ARP["ARP/NDP tables"]
+        XFRM["IPsec/XFRM state"]
+    end
+
+    subgraph "Shared (Host-Wide)"
+        CLOCK["System clock"]
+        HOSTNAME["Hostname (UTS ns)"]
+        MODULES["Kernel modules"]
+        DEV["Device nodes (/dev)"]
+    end
+```
+
+### sysfs and procfs per Namespace
+
+```bash
+# Each namespace has its own /proc/net
+ip netns exec ns1 cat /proc/net/tcp
+# Shows only sockets in ns1
+
+# Each namespace has its own /proc/net/netstat
+ip netns exec ns1 cat /proc/net/dev
+# Shows only devices in ns1
+
+# Per-namespace sysctl values
+ip netns exec ns1 sysctl net.ipv4.ip_forward
+ip netns exec ns1 sysctl -w net.ipv4.ip_forward=1
+```
+
+## Advanced Veth Configuration
+
+### Veth with VLAN Support
+
+```bash
+# Create a VLAN-aware veth setup
+ip netns add ns1
+ip link add veth-h type veth peer name veth-n
+ip link set veth-n netns ns1
+
+# Create VLAN subinterfaces on host side
+ip link add link veth-h name veth-h.10 type vlan id 10
+ip link add link veth-h name veth-h.20 type vlan id 20
+ip addr add 10.0.10.1/24 dev veth-h.10
+ip addr add 10.0.20.1/24 dev veth-h.20
+ip link set veth-h up
+ip link set veth-h.10 up
+ip link set veth-h.20 up
+
+# Configure trunk in namespace
+ip netns exec ns1 ip link add link veth-n name veth-n.10 type vlan id 10
+ip netns exec ns1 ip link add link veth-n name veth-n.20 type vlan id 20
+ip netns exec ns1 ip addr add 10.0.10.2/24 dev veth-n.10
+ip netns exec ns1 ip addr add 10.0.20.2/24 dev veth-n.20
+ip netns exec ns1 ip link set veth-n up
+ip netns exec ns1 ip link set veth-n.10 up
+ip netns exec ns1 ip link set veth-n.20 up
+```
+
+### Veth with Traffic Shaping
+
+```bash
+# Apply bandwidth limit per namespace
+ip link set veth-h up
+
+# Limit to 100Mbit with HTB
+tc qdisc add dev veth-h root handle 1: htb default 10
+tc class add dev veth-h parent 1: classid 1:10 htb rate 100mbit
+tc qdisc add dev veth-h parent 1:10 handle 10: sfq perturb 10
+
+# Apply latency with netem
+tc qdisc add dev veth-h root handle 1: netem delay 10ms 2ms
+# 10ms delay with 2ms jitter
+```
+
+### Veth with XDP (eXpress Data Path)
+
+```bash
+# Attach XDP program to veth for high-performance filtering
+ip link set veth-h xdpgeneric obj xdp_filter.o sec xdp
+
+# Verify
+ip link show dev veth-h
+# ... xdpgeneric id 1
+```
+
+## Container Runtime Integration
+
+### Containerd/CRI-O Namespace Lifecycle
+
+```bash
+# Container runtimes create namespaces via the runtime spec
+# OCI runtime spec (config.json): {
+#   "linux": {
+#     "namespaces": [
+#       {"type": "network"},
+#       {"type": "pid"},
+#       {"type": "mount"},
+#       {"type": "uts"}
+#     ]
+#   }
+# }
+
+# List container namespaces via crictl
+for cid in $(crictl ps -q); do
+    echo "Container: $cid"
+    crictl inspect $cid | grep -A5 'namespaces'
+done
+
+# Enter container namespace
+nsenter -t $(crictl inspect $cid | jq '.info.pid') -n ip addr
+```
+
+### Systemd-nspawn Networking
+
+```bash
+# Create a container with its own network namespace
+systemd-nspawn -D /srv/container --network-veth
+
+# The --network-veth flag creates a veth pair
+# Host end connects to host bridge (vz-*)
+# Container end gets its own eth0
+
+# Manual namespace with systemd-nspawn
+systemd-nspawn -D /srv/container \
+  --network-zone=myservice \
+  --network-bridge=br0
+```
+
+## Network Namespace Persistence
+
+### Saving and Restoring Namespace State
+
+```bash
+# ip netns automatically persists named namespaces
+# They are bind-mounted to /var/run/netns/
+
+# Manual persistence of unnamed namespace
+PID=12345  # PID of process in the namespace
+mkdir -p /var/run/netns
+mount --bind /proc/$PID/ns/net /var/run/netns/migrated-ns
+
+# Now it appears in ip netns list
+ip netns list
+# migrated-ns
+
+# CRIU-based checkpoint/restore of network state
+# Requires CRIU (Checkpoint/Restore In Userspace)
+criu dump -t $PID --tcp-established -D /tmp/checkpoint/
+criu restore -D /tmp/checkpoint/
+```
+
+### Network Namespace Lifecycle with systemd
+
+```ini
+# /etc/systemd/network/20-veth.netdev
+[NetDev]
+Name=veth-host
+Kind=veth
+
+[VethPeer]
+Name=veth-container
+```
+
+## nsenter Deep Dive
+
+`nsenter` enters namespaces of another process without spawning a new container:
+
+```bash
+# Enter all namespaces of PID 1234
+nsenter -t 1234 -n ip addr show
+
+# Enter only network namespace
+nsenter -t 1234 -n
+
+# Enter multiple namespaces
+nsenter -t 1234 --net --pid --mount -- bash
+
+# Enter namespace and run a specific command
+nsenter -t 1234 -n -- tcpdump -i eth0 -c 100
+
+# Enter namespace of a Docker container
+docker inspect -f '{{.State.Pid}}' mycontainer | \
+  xargs -I{} nsenter -t {} -n ip route show
+
+# Persistent namespace entry via script
+#!/bin/bash
+NS_PID=$(docker inspect -f '{{.State.Pid}}' $1)
+exec nsenter -t $NS_PID -n -- ${@:2}
+```
+
+## Network Namespace Debugging Cookbook
+
+### Trace All Network Namespaces
+
+```bash
+# List all network namespaces with their PIDs
+lsns -t net -o NS,PID,COMMAND
+
+# Find which namespace a device belongs to
+ip link show dev eth0
+# Note the netns inode number
+
+# Cross-reference with lsns
+lsns -t net | grep <inode>
+
+# Find all devices across all namespaces
+for ns in $(ip netns list); do
+    echo "=== $ns ==="
+    ip netns exec $ns ip -br link show
+done
+```
+
+### Debug Namespace Connectivity
+
+```bash
+# Test from inside namespace
+ip netns exec ns1 ping -c 3 10.0.0.1
+ip netns exec ns1 traceroute 10.0.0.1
+ip netns exec ns1 ss -tlnp
+
+# Capture traffic in namespace
+ip netns exec ns1 tcpdump -i any -w /tmp/ns1.pcap -c 1000
+
+# Monitor namespace ARP table
+ip netns exec ns1 ip neigh show
+
+# Check namespace routing
+ip netns exec ns1 ip route get 8.8.8.8
+
+# Debug iptables in namespace
+ip netns exec ns1 iptables -L -n -v
+ip netns exec ns1 nft list ruleset
+```
+
+### Common Issues and Solutions
+
+| Issue | Symptom | Solution |
+|-------|---------|----------|
+| Loopback down | No localhost access | `ip netns exec ns1 ip link set lo up` |
+| No default route | Can't reach external | Add `ip route add default via ...` |
+| NAT not working | No internet from ns | Check iptables MASQUERADE rule |
+| veth not up | No connectivity | Set both ends UP |
+| Bridge not forwarding | Intermittent connectivity | Check bridge port membership |
+| DNS not resolving | nslookup fails | Configure /etc/resolv.conf in ns |
+
+## Programmatic Namespace Manipulation (Go)
+
+```go
+package main
+
+import (
+    "fmt"
+    "os/exec"
+    "runtime"
+    "syscall"
+)
+
+func createNetNS(name string) error {
+    return exec.Command("ip", "netns", "add", name).Run()
+}
+
+func enterNetNS(name string) error {
+    // Lock thread to OS thread (required for namespace operations)
+    runtime.LockOSThread()
+    defer runtime.UnlockOSThread()
+
+    // Open namespace file
+    nsPath := fmt.Sprintf("/var/run/netns/%s", name)
+    fd, err := syscall.Open(nsPath, syscall.O_RDONLY, 0)
+    if err != nil {
+        return err
+    }
+    defer syscall.Close(fd)
+
+    // Enter namespace
+    return syscall.Setns(fd, syscall.CLONE_NEWNET)
+}
+
+func main() {
+    if err := createNetNS("test"); err != nil {
+        panic(err)
+    }
+    fmt.Println("Namespace 'test' created")
+}
+```
+
 ## References
 
 - [GNU Project Documentation](https://www.gnu.org/doc/doc.html)

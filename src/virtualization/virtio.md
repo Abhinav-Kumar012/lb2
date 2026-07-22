@@ -455,6 +455,274 @@ The specification defines:
 
 ---
 
+## 11. virtio-fs — Shared Filesystem
+
+virtio-fs provides host-guest file sharing using FUSE on the host side and a
+virtio transport. It replaces the older 9p/virtio transport with significantly
+better performance.
+
+```mermaid
+flowchart LR
+    subgraph Guest
+        APP[Application] --> VFS[Guest VFS]
+        VFS --> VFSMOD[virtiofs driver]
+    end
+    subgraph Host
+        VFSMOD -->|"virtqueue"| FUSE[FUSE daemon]
+        FUSE --> HOSTFS[Host filesystem]
+    end
+```
+
+### Using virtio-fs
+
+```bash
+# Create shared directory on host
+mkdir -p /tmp/shared
+
+# Start QEMU with virtiofs
+echo 2048 > /proc/sys/vm/nr_hugepages
+qemu-system-x86_64 \
+    -object memory-backend-file,id=mem,size=4G,mem-path=/dev/hugepages,share=on \
+    -numa node,memdev=mem \
+    -chardev socket,id=char0,path=/tmp/vhost-fs.sock \
+    -device vhost-user-fs-pci,chardev=char0,tag=myfs \
+    -numa node,memdev=mem \
+    ...
+
+# Mount in guest
+mount -t virtiofs myfs /mnt/shared
+
+# In /etc/fstab:
+# myfs  /mnt/shared  virtiofs  defaults  0  0
+```
+
+### virtio-fs vs 9p vs NFS
+
+| Feature | virtio-fs | 9p/virtio | NFS |
+|---------|-----------|-----------|-----|
+| Performance | Excellent | Poor | Good |
+| POSIX compliance | High | Limited | High |
+| mmap support | Yes | No | Yes |
+| DAX support | Yes (Linux 5.15+) | No | No |
+| Setup complexity | Medium | Low | Medium |
+| Security | Sandboxed | Basic | Network |
+
+DAX (Direct Access) allows guest to mmap host files directly, bypassing
+the guest page cache — critical for large file access.
+
+```bash
+# Mount with DAX
+cd /sys/kernel/tracing
+mount -t virtiofs -o dax=always myfs /mnt/shared
+```
+
+## 12. virtio-vsock — Guest-Host Communication
+
+virtio-vsock provides a socket-based communication channel between guest and
+host without network configuration:
+
+```mermaid
+flowchart LR
+    subgraph Guest
+        APP_G[Application] --> VSOCK_G[vsock socket]
+    end
+    subgraph Host
+        APP_H[Application] --> VSOCK_H[vsock socket]
+    end
+    VSOCK_G -->|"virtqueue"| VSOCK_H
+```
+
+### Using virtio-vsock
+
+```bash
+# QEMU: enable vhost-vsock
+qemu-system-x86_64 \
+    -device vhost-vsock-pci,guest-cid=3 \
+    ...
+
+# Guest: listen on vsock
+socat VSOCK-LISTEN:1234,reuseaddr,fork EXEC:/bin/bash
+
+# Host: connect to guest
+socat VSOCK-CONNECT:3:1234 -
+
+# CID (Context ID) identifies the guest
+# CID 2 = host, CID 3+ = guests
+
+# Guest side (C code)
+# #include <linux/vm_sockets.h>
+# int fd = socket(AF_VSOCK, SOCK_STREAM, 0);
+# struct sockaddr_vm addr = {
+#     .svm_family = AF_VSOCK,
+#     .svm_cid = VMADDR_CID_HOST,
+#     .svm_port = 1234,
+# };
+# connect(fd, (struct sockaddr *)&addr, sizeof(addr));
+```
+
+### Use Cases for virtio-vsock
+
+- **Guest management** — SSH, serial console without network
+- **File transfer** — fast guest-host file copy
+- **Agent communication** — cloud-init, qemu-guest-agent
+- **Development** — debug servers without network forwarding
+
+## 13. virtio-gpu — Virtual GPU
+
+virtio-gpu provides GPU access for guests, supporting both 2D and 3D rendering:
+
+```bash
+# QEMU: enable virtio-gpu
+qemu-system-x86_64 \
+    -device virtio-gpu-pci \
+    -display gtk,gl=on \
+    ...
+
+# For VirGL (3D acceleration via host GPU)
+qemu-system-x86_64 \
+    -device virtio-gpu-pci \
+    -display gtk,gl=on \
+    -spice gl=on,rendernode=/dev/dri/renderD128 \
+    ...
+
+# Guest: verify virtio-gpu
+ls /dev/dri/
+# card0  renderD128
+
+glinfo | head -5
+# Vendor:   Red Hat, Inc.
+# Renderer: virgl
+# Version:  4.5 (Core Profile)
+```
+
+## 14. Virtio Security Considerations
+
+### Attack Surface
+
+```mermaid
+flowchart TB
+    subgraph Guest
+        DRV[Virtio Driver] --> VQ[Virtqueue]
+    end
+    subgraph Host
+        BACKEND[Backend Process] --> HOSTMEM[Host Memory]
+    end
+    VQ -->|"shared memory"| BACKEND
+    
+    subgraph Risks
+        R1["Malicious guest driver"]
+        R2["Shared memory corruption"]
+        R3["Virtqueue descriptor manipulation"]
+        R4["Resource exhaustion"]
+    end
+```
+
+### Security Best Practices
+
+```bash
+# 1. Use vhost (kernel backend) — smaller attack surface than QEMU
+# vhost-net, vhost-scsi process requests in kernel
+
+# 2. Memory isolation — IOMMU for virtio
+qemu-system-x86_64 \
+    -device virtio-net-pci,netdev=net0,disable-legacy=on,iommu_platform=on \
+    ...
+
+# 3. Input validation — backends must validate all guest-provided
+#    descriptor chains, lengths, and flags
+
+# 4. Resource limits — prevent guest from exhausting host resources
+#    Limit virtqueue size, number of requests, memory usage
+
+# 5. Seccomp sandboxing — restrict backend system calls
+# QEMU uses seccomp by default: -sandbox on
+
+# 6. Separate backends — run different device backends in different
+#    processes/user IDs for isolation
+```
+
+### CVE Mitigations
+
+```bash
+# Common virtio vulnerability patterns:
+# - Out-of-bounds access via malicious descriptors
+# - Integer overflow in descriptor chain parsing
+# - Use-after-free in virtqueue management
+# - Information leak via uninitialized memory in used ring
+
+# Mitigations:
+# - Kernel: hardening patches (KASAN, KCSAN, stack protector)
+# - QEMU: sandbox mode, -sandbox on
+# - IOMMU: DMA remapping prevents guest DMA attacks
+# - Disable legacy: disable-legacy=on (forces modern virtio)
+```
+
+## 15. Virtio Transport Bindings
+
+### PCI Transport (Most Common)
+
+```bash
+# virtio PCI devices appear in lspci
+lspci | grep -i virtio
+# 00:03.0 Ethernet controller: Red Hat, Inc. Virtio network device
+# 00:04.0 SCSI storage controller: Red Hat, Inc. Virtio SCSI
+# 00:05.0 Unclassified device: Red Hat, Inc. Virtio filesystem
+
+# PCI configuration
+lspci -v -s 00:03.0
+# Capabilities: [98] MSI-X: Enable+ Count=5
+
+# PCI feature bits
+cat /sys/bus/pci/devices/0000:00:03.0/features
+# Shows negotiated feature bits in hex
+```
+
+### MMIO Transport (Embedded/ARM)
+
+```bash
+# Used for embedded and ARM systems without PCI
+# Device Tree describes virtio-mmio devices
+
+# QEMU with virtio-mmio
+qemu-system-aarch64 \
+    -machine virt \
+    -device virtio-net-device,netdev=net0 \
+    -device virtio-blk-device,drive=drive0 \
+    ...
+
+# Device tree entry:
+# virtio_mmio@a000000 {
+#     compatible = "virtio,mmio";
+#     reg = <0x0a000000 0x200>;
+#     interrupts = <0 16 1>;
+# };
+```
+
+### CCW Transport (s390x)
+
+```bash
+# Channel Command Word (CCW) transport for IBM Z/s390x
+qemu-system-s390x \
+    -device virtio-net-ccw,netdev=net0 \
+    ...
+```
+
+## 16. Virtio in the Cloud
+
+```bash
+# Major cloud providers use virtio:
+# - AWS: Enhanced Networking (ENA) + virtio
+# - GCP: virtio-net, virtio-scsi
+# - Azure: Hyper-V devices (similar concepts)
+# - OpenStack: virtio for KVM guests
+
+# Verify virtio in cloud VM
+lspci | grep -i virtio
+# On AWS: also check for ENA (enhanced network adapter)
+ethtool -i eth0
+# driver: vif_net on xen / virtio_net on KVM
+```
+
 ## Further Reading
 
 - [Virtio Specification 1.2 — OASIS](https://docs.oasis-open.org/virtio/virtio/v1.2/virtio-v1.2.html)

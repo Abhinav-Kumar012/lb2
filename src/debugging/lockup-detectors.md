@@ -453,6 +453,202 @@ echo d > /proc/sysrq-trigger   # Show all held locks
 echo w > /proc/sysrq-trigger   # Show blocked tasks
 ```
 
+## Lockup Triage Decision Tree
+
+```mermaid
+flowchart TD
+    START[System Hang Detected] --> CHECK{Can SSH/login?}
+    CHECK -->|Yes| DMESG[Check dmesg]
+    CHECK -->|No| CONSOLE[Serial console / IPMI]
+    
+    DMESG --> TYPE{Message type?}
+    TYPE -->|soft lockup| SOFT[CPU stuck in kernel]
+    TYPE -->|hard lockup| HARD[Interrupts disabled]
+    TYPE -->|hung task| HUNG[Process in D state]
+    TYPE -->|RCU stall| RCU[RCU grace period stuck]
+    TYPE -->|No message| SCHED[Scheduler issue?]
+    
+    SOFT --> SOFT_CAUSE{Check stack trace}
+    SOFT_CAUSE -->|spinlock| SPIN[Lock contention]
+    SOFT_CAUSE -->|long loop| LOOP[Missing cond_resched]
+    SOFT_CAUSE -->|firmware| FW[BIOS/ACPI bug]
+    
+    HARD --> HARD_CAUSE{Check NMI trace}
+    HARD_CAUSE -->|irq disabled| IRQ[local_irq_disable too long]
+    HARD_CAUSE -->|SMI| SMI[SMI handler stuck]
+    HARD_CAUSE -->|hardware| HW[Hardware failure]
+    
+    HUNG --> HUNG_CAUSE{Check task stack}
+    HUNG_CAUSE -->|I/O wait| IO[Storage issue]
+    HUNG_CAUSE -->|lock| DEADLOCK[Deadlock]
+    HUNG_CAUSE -->|NFS| NFS[Network FS hang]
+    
+    CONSOLE --> SYSRQ{SysRq available?}
+    SYSRQ -->|Yes| SYSRQ_USE[Use SysRq-t, SysRq-l]
+    SYSRQ -->|No| IPMI[Use IPMI SOL]
+```
+
+## Real-World Debugging Scenarios
+
+### Scenario 1: Soft Lockup in Driver
+
+**Symptom**: System becomes unresponsive, dmesg shows:
+```
+watchdog: BUG: soft lockup - CPU#2 stuck for 22s! [mydriver:1234]
+```
+
+**Diagnosis**:
+```bash
+# Check the stack trace in dmesg
+ dmesg | grep -A 20 "soft lockup"
+
+# Look for the function mentioned
+# Common patterns:
+# - while loop without cond_resched()
+# - spinlock held too long
+# - DMA wait without timeout
+
+# If reproducible, trace the function
+ echo "func mydriver_long_function +p" > /sys/kernel/debug/dynamic_debug/control
+# Or use ftrace
+sudo trace-cmd record -p function_graph -g mydriver_long_function sleep 5
+sudo trace-cmd report
+```
+
+**Fix**: Add `cond_resched()` in long loops, reduce spinlock hold time, add timeouts to DMA waits.
+
+### Scenario 2: Hard Lockup with IRQs Disabled
+
+**Symptom**: Complete hang, NMI backtrace in dmesg:
+```
+Watchdog detected hard LOCKUP on cpu 3
+NMI backtrace for cpu 3
+```
+
+**Diagnosis**:
+```bash
+# Check if related to specific hardware
+# Often caused by:
+# - Interrupt handler running too long
+# - Firmware/SMI blocking CPU
+# - Hardware interrupt storm
+
+# Check interrupt stats
+watch -n 1 'cat /proc/interrupts | head -20'
+
+# Check for SMI issues
+dmesg | grep -i smi
+
+# Check CPU frequency (may indicate thermal throttling)
+cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_cur_freq
+```
+
+### Scenario 3: Hung Task with Storage
+
+**Symptom**: Processes stuck in D state:
+```
+INFO: task myapp:5678 blocked for more than 120 seconds.
+```
+
+**Diagnosis**:
+```bash
+# Check what the task is waiting on
+cat /proc/5678/stack
+
+# Check I/O statistics
+iostat -x 1 5
+
+# Check for disk errors
+dmesg | grep -i "error\|reset\|timeout" | grep -i "sd\|nvme\|ata"
+
+# Check block device health
+smartctl -a /dev/sda
+
+# Check if NFS is involved
+mount | grep nfs
+cat /proc/mounts | grep nfs
+```
+
+### Scenario 4: RCU Stall
+
+**Symptom**: RCU stall messages:
+```
+rcu: INFO: rcu_sched self-detected stall on CPU
+```
+
+**Diagnosis**:
+```bash
+# RCU stalls often accompany lockups
+# Check if a CPU is stuck in a critical section
+# Common causes:
+# - Preemption disabled for too long
+# - CPU stuck in interrupt handler
+# - Real-time task starving RCU
+
+# Check RCU configuration
+cat /sys/kernel/debug/rcu/*/gp_preempt_sleep
+
+# Check for RT tasks
+chrt -p $(pgrep myapp)
+```
+
+## Lockup Prevention Best Practices
+
+### Kernel Code
+
+```c
+/* Good: Yield in long loops */
+while (work_remaining) {
+    do_some_work();
+    cond_resched();  /* Allow other tasks to run */
+}
+
+/* Good: Use timeouts for hardware waits */
+unsigned long timeout = jiffies + msecs_to_jiffies(5000);
+while (!hw_ready()) {
+    if (time_after(jiffies, timeout)) {
+        pr_err("hardware timeout\n");
+        return -ETIMEDOUT;
+    }
+    cpu_relax();
+}
+
+/* Good: Minimize spinlock hold time */
+spin_lock(&my_lock);
+/* Do minimal work under lock */
+data = shared_data;
+spin_unlock(&my_lock);
+/* Process data outside lock */
+process(data);
+
+/* Bad: Long operations under spinlock */
+spin_lock(&my_lock);
+for (i = 0; i < 1000000; i++) {  /* Don't do this! */
+    process_item(items[i]);
+}
+spin_unlock(&my_lock);
+```
+
+### System Configuration
+
+```bash
+# Enable lockup detection in production
+softlockup_panic=1
+hung_task_timeout_secs=120
+hung_task_panic=0  # Log but don't panic (set to 1 for critical systems)
+nmi_watchdog=1
+
+# Configure kdump for crash analysis
+# Add to kernel command line:
+crashkernel=256M
+
+# Enable SysRq for remote debugging
+ echo 1 > /proc/sys/kernel/sysrq
+
+# Set panic timeout for automatic reboot
+echo 30 > /proc/sys/kernel/panic
+```
+
 ## Lockup Detector Overhead
 
 The watchdog mechanisms have minimal overhead:
