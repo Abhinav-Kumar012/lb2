@@ -526,6 +526,217 @@ cat /sys/kernel/debug/tracing/trace_pipe | grep ww_mutex
 cat /proc/lock_stat | grep ww
 ```
 
+## Lockdep Annotations for ww_mutex
+
+Lockdep tracks ww_mutex acquisitions with special class keys to detect ordering violations between different ww_classes and between ww_mutexes and regular locks.
+
+### Separate Lock Classes
+
+Each `ww_class` gets its own lockdep class, so lockdep can detect when:
+- Two different ww_classes are nested incorrectly
+- A ww_mutex from class A is held while acquiring a regular lock in the wrong order
+- A ww_mutex is held while acquiring another ww_mutex from the same class (expected, but tracked)
+
+```c
+/* include/linux/ww_mutex.h — lockdep annotation */
+static inline void ww_acquire_init(struct ww_acquire_ctx *ctx,
+                                    struct ww_class *ww_class)
+{
+    ctx->ww_class = ww_class;
+    ctx->stamp = atomic_long_inc_return(&ww_class->stamp);
+    /* ... */
+    lock_acquire(&ww_class->acquire_key, 0, 0, 0, 1, NULL, _THIS_IP_);
+}
+
+static inline void ww_acquire_fini(struct ww_acquire_ctx *ctx)
+{
+    lock_release(&ctx->ww_class->acquire_key, _THIS_IP_);
+    /* ... */
+}
+```
+
+### Debug Configuration
+
+```bash
+# Full lockdep + ww_mutex debugging
+CONFIG_LOCKDEP=y
+CONFIG_DEBUG_LOCK_ALLOC=y
+CONFIG_DEBUG_MUTEXES=y
+CONFIG_DEBUG_WW_MUTEX_SLOWPATH=y
+```
+
+## Internal Wait Queue Mechanism
+
+When a thread must wait (because it's younger than the holder), it sleeps on the mutex's wait queue. The wound mechanism adds extra wake-up logic:
+
+```c
+/* kernel/locking/mutex.c — __ww_mutex_lock_common() (simplified) */
+static int __ww_mutex_lock(struct ww_mutex *lock,
+                           struct ww_acquire_ctx *ctx)
+{
+    struct mutex_waiter waiter;
+
+    /* Check if we should wound the holder */
+    if (ctx) {
+        struct ww_acquire_ctx *hold_ctx = READ_ONCE(lock->ctx);
+        if (hold_ctx && __ww_stamp_after(ctx->stamp, hold_ctx->stamp)) {
+            /* We are older — wound the holder */
+            hold_ctx->contending = 1;
+            wake_up_process(hold_ctx->task);  /* Wake holder to check wound */
+            return -EDEADLK;
+        }
+    }
+
+    /* We are younger — add ourselves to wait queue */
+    waiter.task = current;
+    list_add_tail(&waiter.list, &lock->base.wait_list);
+
+    /* Sleep until woken */
+    for (;;) {
+        set_current_state(TASK_UNINTERRUPTIBLE);
+        if (!mutex_is_locked(&lock->base))
+            break;
+        schedule();
+    }
+
+    /* Acquired */
+    lock->ctx = ctx;
+    return 0;
+}
+```
+
+### Wait Queue Flow
+
+```mermaid
+sequenceDiagram
+    participant T_young as Thread Y (stamp=50)
+    participant WQ as Wait Queue
+    participant T_old as Thread O (stamp=40)
+    participant Lock as ww_mutex
+
+    Note over Lock: Held by Thread O, ctx stamp=40
+    T_young->>Lock: ww_mutex_lock(ctx stamp=50)
+    Lock->>Lock: 50 > 40 → Y is younger
+    Lock->>WQ: Add T_young to wait queue
+    T_young->>T_young: Sleep (TASK_UNINTERRUPTIBLE)
+
+    Note over T_old: T_old finishes work
+    T_old->>Lock: ww_mutex_unlock()
+    Lock->>WQ: Wake T_young
+    WQ->>T_young: Wake up
+    T_young->>Lock: Acquire lock (ctx stamp=50)
+```
+
+## Starvation Analysis
+
+A key property of ww_mutex: **the oldest transaction always wins**. This guarantees that no transaction can be starved indefinitely.
+
+### Proof Sketch
+
+1. Each transaction gets a unique, monotonically increasing stamp
+2. When two transactions contend, the older one (lower stamp) wounds the younger
+3. The younger restarts, but with the same stamp (it doesn't get a new one)
+4. The older transaction proceeds unimpeded
+5. Since stamps are finite and ordered, each transaction will eventually be the oldest among contending transactions
+
+### Practical Starvation Bound
+
+In practice, a transaction may be wounded multiple times if many newer transactions run concurrently. The worst case is bounded by the number of concurrent transactions: a transaction can be wounded at most N-1 times (where N is the number of concurrent transactions), because each wound comes from a different, younger transaction.
+
+```c
+/* Simplified worst-case analysis */
+/* Transaction T with stamp S */
+/* At most (N-1) younger transactions can wound T */
+/* After each wound, the younger transaction completes */
+/* T eventually runs when all younger transactions clear */
+```
+
+## Usage Beyond GPU Drivers
+
+While GPU drivers are the primary users, ww_mutexes are used in other subsystems:
+
+### InfiniBand (RDMA)
+
+```c
+/* drivers/infiniband/core/ */
+/* Multiple memory regions locked for DMA operations */
+```
+
+### Virtual File System (VFS)
+
+```c
+/* When multiple inodes must be locked for rename/rename operations */
+/* VFS uses lock_two_nodes() which can benefit from ww_mutex patterns */
+```
+
+### Potential Future Uses
+
+Any subsystem that needs to lock multiple resources of the same type dynamically can benefit from ww_mutex:
+- Database buffer pool management
+- Network packet buffer pools
+- Storage device multi-queue locking
+
+## Full Worked Example
+
+```c
+/* Complete example: locking multiple resources with ww_mutex */
+#include <linux/module.h>
+#include <linux/ww_mutex.h>
+
+static DEFINE_WW_CLASS(resource_class);
+
+struct resource {
+    struct ww_mutex lock;
+    int data;
+};
+
+int process_resources(struct resource **res, int count)
+{
+    struct ww_acquire_ctx ctx;
+    struct resource *contended = NULL;
+    int ret, i;
+
+retry:
+    ww_acquire_init(&ctx, &resource_class);
+
+    /* Sort by address to minimize contention */
+    sort(res, count, sizeof(*res), cmp_resource_addr, NULL);
+
+    for (i = 0; i < count; i++) {
+        if (res[i] == contended) {
+            contended = NULL;
+            continue;
+        }
+
+        ret = ww_mutex_lock(&res[i]->lock, &ctx);
+        if (ret == -EDEADLK) {
+            contended = res[i];
+
+            /* Release all acquired locks */
+            while (--i >= 0)
+                ww_mutex_unlock(&res[i]->lock);
+
+            /* Wait for contended lock */
+            ww_mutex_lock_slow(&contended->lock, &ctx);
+            ww_mutex_unlock(&contended->lock);
+
+            goto retry;
+        }
+    }
+
+    /* Critical section: all locks held */
+    for (i = 0; i < count; i++)
+        res[i]->data += 1;
+
+    /* Release all and finalize */
+    for (i = count - 1; i >= 0; i--)
+        ww_mutex_unlock(&res[i]->lock);
+
+    ww_acquire_fini(&ctx);
+    return 0;
+}
+```
+
 ## Cross-References
 
 - [Mutexes](mutexes.md) - Standard kernel mutexes
