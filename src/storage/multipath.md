@@ -475,6 +475,253 @@ multipathd reinstate path mpatha sdb
 - [multipath.conf(5) man page](https://man7.org/linux/man-pages/man5/multipath.conf.5.html)
 - [SCSI ALUA specification](https://www.t10.org/drafts.htm)
 
+## Multipath with NVMe (ANA)
+
+NVMe devices use Asymmetric Namespace Access (ANA) instead of SCSI ALUA. The Linux NVMe multipath driver (built into the NVMe driver) handles multipath natively.
+
+### NVMe Native Multipath
+
+```bash
+# NVMe multipath is enabled by default in modern kernels
+# Check if native multipath is active
+cat /sys/module/nvme_core/parameters/multipath
+# Y
+
+# When native multipath is active, only one /dev/nvmeXnY is visible
+# (not multiple /dev/sd* devices like SCSI multipath)
+
+# View NVMe multipath topology
+nvme list-subsys
+# nvme-subsys0 - NQN=nqn.2026-07.example:storage
+# \n +- nvme0 pcie traddr=0000:03:00.0 live optimized
+# \n +- nvme1 pcie traddr=0000:04:00.0 live non-optimized
+
+# ANA states:
+# optimized: preferred path, lowest latency
+# non-optimized: alternate path
+# inaccessible: path temporarily unavailable
+# persistent-loss: path permanently failed
+
+# Switch ANA path policy
+echo "round-robin" > /sys/class/nvme/nvme0/sysfs_path_policy
+# Or via kernel boot parameter: nvme_core.multipath=Y
+```
+
+### NVMe-oF Multipath
+
+```bash
+# NVMe-oF supports multipath via multiple connections
+echo "options nvme_core multipath=Y" >> /etc/modprobe.d/nvme.conf
+
+# Connect to same subsystem via multiple paths
+nvme connect -t tcp -a 192.168.1.100 -s 4420 -n nqn.example:storage
+nvme connect -t tcp -a 192.168.1.101 -s 4420 -n nqn.example:storage
+
+# Both paths appear under one subsystem
+nvme list-subsys
+# nvme-subsys1 - NQN=nqn.example:storage
+# \n +- nvme2 tcp traddr=192.168.1.100 live optimized
+# \n +- nvme3 tcp traddr=192.168.1.101 live non-optimized
+
+# Path failover is automatic
+# If 192.168.1.100 fails, traffic moves to 192.168.1.101
+```
+
+### NVMe Multipath vs SCSI dm-multipath
+
+| Feature | NVMe Native MPIO | SCSI dm-multipath |
+|---------|-----------------|-------------------|
+| Kernel component | NVMe driver (built-in) | device-mapper + multipathd |
+| User-space tool | nvme-cli | multipath/multipathd |
+| Path selection | ANA (kernel) | Path selector policy |
+| Failover latency | ~1-5ms | ~5-30ms |
+| Device visibility | Single /dev/nvmeXnY | /dev/mapper/mpathX |
+| Configuration | Minimal (auto) | /etc/multipath.conf |
+| Multipath type | Native | SCSI layer + DM |
+
+## DM Multipath with iSCSI
+
+```bash
+# iSCSI multipath: multiple sessions to same target
+# Each session provides a separate path
+
+# Create multiple iSCSI sessions
+iscsiadm -m node -T iqn.example:target -p 192.168.1.100:3260 --login
+iscsiadm -m node -T iqn.example:target -p 192.168.1.101:3260 --login
+
+# Each session creates a separate /dev/sd* device
+# multipathd combines them into one multipath device
+
+# Configure in /etc/multipath.conf
+devices {
+    device {
+        vendor                  "LIO-ORG"
+        product                 ".*"
+        path_grouping_policy    group_by_prio
+        path_selector           "round-robin 0"
+        path_checker            tur
+        prio                    alua
+    }
+}
+```
+
+## Advanced Multipath Patterns
+
+### Active-Active with Priority Groups
+
+```mermaid
+graph TD
+    subgraph "Active-Active Configuration"
+        MP["/dev/mapper/mpatha"]
+        PG1["Path Group 1 (prio=50)<br/>Active/Optimized"]
+        PG2["Path Group 2 (prio=10)<br/>Active/Non-optimized"]
+        MP --> PG1
+        MP --> PG2
+        PG1 --> P1["Path 1: /dev/sdb"]
+        PG1 --> P2["Path 2: /dev/sdc"]
+        PG2 --> P3["Path 3: /dev/sdd"]
+        PG2 --> P4["Path 4: /dev/sde"]
+    end
+```
+
+```bash
+# Round-robin across all active paths
+path_grouping_policy multibus
+path_selector "round-robin 0"
+
+# Group by priority (ALUA)
+path_grouping_policy group_by_prio
+
+# Failover only (one path at a time)
+path_grouping_policy failover
+```
+
+### Multipath Configuration for Specific Storage Arrays
+
+```bash
+# NetApp ONTAP
+devices {
+    device {
+        vendor                  "NETAPP"
+        product                 "LUN.*"
+        path_grouping_policy    group_by_prio
+        path_selector           "round-robin 0"
+        path_checker            tur
+        prio                    alua
+        failback                immediate
+        no_path_retry           queue
+        rr_min_io               128
+        fast_io_fail_tmo        10
+        dev_loss_tmo            600
+    }
+}
+
+# Pure Storage
+devices {
+    device {
+        vendor                  "PURE"
+        product                 "FlashArray"
+        path_grouping_policy    group_by_prio
+        path_selector           "service-time 0"
+        path_checker            tur
+        prio                    alua
+        failback                immediate
+        no_path_retry           queue
+    }
+}
+
+# Dell PowerStore
+devices {
+    device {
+        vendor                  "DELL"
+        product                 "PowerStore"
+        path_grouping_policy    group_by_prio
+        path_selector           "round-robin 0"
+        path_checker            tur
+        prio                    alua
+        failback                immediate
+    }
+}
+```
+
+## Multipath Monitoring and Alerting
+
+```bash
+#!/bin/bash
+# multipath-monitor.sh - Check path health and alert
+
+while true; do
+    # Check for failed paths
+    FAILED=$(multipathd show paths | grep -c "faulty\|ghost")
+    
+    if [ "$FAILED" -gt 0 ]; then
+        echo "WARNING: $FAILED failed multipath paths detected"
+        multipathd show paths | grep "faulty\|ghost"
+        # Send alert (example: email or webhook)
+        # curl -X POST https://hooks.slack.com/... \
+        #   -d "{'text': 'Multipath failure: $FAILED paths down'}"
+    fi
+    
+    # Check for path state changes
+    CURRENT=$(multipathd show paths -f | md5sum)
+    if [ "$CURRENT" != "$LAST" ]; then
+        echo "Path state change detected at $(date)"
+        multipathd show paths
+        LAST="$CURRENT"
+    fi
+    
+    sleep 30
+done
+```
+
+### Performance Monitoring
+
+```bash
+# Per-path I/O statistics
+multipathd show paths stats
+# hcil    dev  dev_t  dm_st  checker  rd_cnt  rd_bytes  wr_cnt  wr_bytes
+# 0:0:0:1 sdb  8:16   active ready    12345   50MB      67890   270MB
+# 0:0:1:1 sdc  8:32   active ready    12345   50MB      67890   270MB
+# 1:0:0:1 sdd  8:48   active ready    12345   50MB      67890   270MB
+# 1:0:1:1 sde  8:64   active ready    12345   50MB      67890   270MB
+
+# iostat for multipath device
+iostat -x -d /dev/mapper/mpatha 5
+# Device  r/s   w/s   rMB/s  wMB/s  await  svctm  %util
+# mpatha  5000  2000  19.5   7.8    0.5    0.1    70.0
+
+# Per-path latency comparison
+for path in sdb sdc sdd sde; do
+    echo "$path:"
+    iostat -x -d /dev/$path 1 2 | tail -1
+done
+```
+
+## Multipath Troubleshooting Decision Tree
+
+```mermaid
+graph TD
+    A["Multipath issue"] --> B{"multipath -ll works?"}
+    B -->|No| C{"multipathd running?"}
+    C -->|No| D["systemctl start multipathd"]
+    C -->|Yes| E{"dm-multipath module loaded?"}
+    E -->|No| F["modprobe dm-multipath"]
+    E -->|Yes| G{"Devices in /dev/mapper?"}
+    G -->|No| H{"Devices blacklisted?"}
+    H -->|Yes| I["Update blacklist in multipath.conf"]
+    H -->|No| J["Check SCSI identifiers"]
+    B -->|Yes| K{"Paths healthy?"}
+    K -->|No| L{"Physical connection OK?"}
+    L -->|No| M["Check cables/HBA/switch"]
+    L -->|Yes| N{"SCSI reservations?"}
+    N -->|Yes| O["Clear reservations"]
+    N -->|No| P["Reinstate path: multipathd reinstate"]
+    K -->|Yes| Q{"Performance OK?"}
+    Q -->|No| R{"Path selector policy?"}
+    R --> S["Tune rr_min_io or use service-time"]
+    Q -->|Yes| T["All good!"]
+```
+
 ## Further Reading
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
