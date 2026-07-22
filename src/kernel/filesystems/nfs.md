@@ -425,6 +425,8 @@ struct nfs4_op_arg ops[] = {
 - [RFC 7530 — NFSv4.0](https://tools.ietf.org/html/rfc7530)
 - [RFC 8881 — NFSv4.1](https://tools.ietf.org/html/rfc8881)
 - [RFC 7862 — NFSv4.2](https://tools.ietf.org/html/rfc7862)
+- [NFS man page](https://man7.org/linux/man-pages/man5/nfs.5.html)
+- [exports man page](https://man7.org/linux/man-pages/man5/exports.5.html)
 
 ## Further Reading
 

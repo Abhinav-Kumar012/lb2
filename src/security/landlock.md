@@ -155,6 +155,15 @@ int get_landlock_abi_version(void)
 }
 ```
 
+### ABI Version Details
+
+| ABI Version | Kernel Version | Capabilities |
+|-------------|---------------|--------------|
+| 1 | 5.13+ | Basic FS: read, write, execute, read_dir, make_* |
+| 2 | 6.2+ | + remove_file, remove_dir, refer, truncate |
+| 3 | 6.7+ | + network: bind_tcp, connect_tcp |
+| 4 | 6.10+ | + scoping (scoped signal, abstract unix sockets) |
+
 ## Complete Example: Filesystem Sandbox
 
 ```c
@@ -312,13 +321,20 @@ int setup_network_sandbox(void)
     landlock_add_rule(ruleset_fd, LANDLOCK_RULE_NET_PORT,
                        &port_attr, 0);
 
+    /* Allow connecting to port 443 */
+    struct landlock_net_port_attr connect_attr = {
+        .allowed_access = LANDLOCK_ACCESS_NET_CONNECT_TCP,
+        .port = 443,
+    };
+
+    landlock_add_rule(ruleset_fd, LANDLOCK_RULE_NET_PORT,
+                       &connect_attr, 0);
+
     /* Apply */
     landlock_restrict_self(ruleset_fd, 0);
     close(ruleset_fd);
 
-    /* Now: can bind to port 8080 only */
-    /* Cannot bind to any other port */
-    /* Cannot connect to remote TCP */
+    /* Now: can bind to port 8080, connect to port 443 only */
     return 0;
 }
 ```
@@ -348,6 +364,23 @@ landlock_restrict_self(ruleset_fd_2, 0);
 /* Layer 3: Further restrict to only /tmp write */
 landlock_restrict_self(ruleset_fd_3, 0);
 /* Now only /tmp write is allowed */
+```
+
+### Stacking Rules from Parent to Child
+
+```c
+/* Parent sets up base sandbox */
+void parent_sandbox(void) {
+    int rs = create_basic_sandbox();  /* Allow /usr, /lib, /tmp */
+    landlock_restrict_self(rs, 0);
+}
+
+/* Child applies additional restrictions */
+void child_sandbox(void) {
+    int rs = create_restrictive_sandbox();  /* Only /tmp */
+    landlock_restrict_self(rs, 0);
+    /* Child has intersection of parent and child rules */
+}
 ```
 
 ## LSM Integration
@@ -396,6 +429,7 @@ static int hook_inode_create(struct inode *dir,
 | Stacking | ✓ | ✓ | ✗ | ✗ |
 | Policy complexity | Low | Medium | High | Medium |
 | Per-process | ✓ | ✓ | System-wide | System-wide |
+| Runtime application | ✓ | ✓ | ✗ | ✗ |
 
 ### Combining Landlock with seccomp
 
@@ -425,6 +459,17 @@ apt install landlock-utils
 landlock-sandbox --read /usr --read /lib --write /tmp -- /usr/bin/myapp
 ```
 
+### landlock-cli (Community Tool)
+
+```bash
+# Install from source
+git clone https://github.com/landlock-lsm/landlock-tools
+cd landlock-tools && make
+
+# Usage
+./landlock-cli --read /usr --read /lib --read /etc --write /tmp -- bash
+```
+
 ### Rust Binding
 
 ```rust
@@ -443,6 +488,25 @@ fn sandbox() -> Result<(), Error> {
     ruleset.restrict_self()?;
     Ok(())
 }
+```
+
+### Python Binding (pylandlock)
+
+```python
+import landlock
+
+# Create sandbox
+ruleset = landlock.Ruleset()
+ruleset.add_rule("/usr", landlock.ACCESS_FS_READ_FILE | landlock.ACCESS_FS_READ_DIR)
+ruleset.add_rule("/tmp", landlock.ACCESS_FS_READ_FILE | landlock.ACCESS_FS_WRITE_FILE)
+ruleset.restrict_self()
+
+# Now restricted
+# This works:
+open("/tmp/test.txt", "w")
+
+# This fails:
+open("/etc/passwd", "r")  # EPERM
 ```
 
 ## Kernel Configuration
@@ -469,6 +533,114 @@ int check_landlock_support(void)
     return abi;
 }
 ```
+
+## Common Use Cases
+
+### Web Browser Sandbox
+
+```c
+/* Restrict browser to read-only filesystem except downloads */
+void sandbox_browser(void) {
+    /* Allow reading system files */
+    add_path_rule(ruleset, "/usr", READ | EXECUTE);
+    add_path_rule(ruleset, "/lib", READ | EXECUTE);
+    add_path_rule(ruleset, "/etc", READ);
+
+    /* Allow writing to downloads only */
+    add_path_rule(ruleset, home_downloads, READ | WRITE | MAKE_REG);
+
+    /* Allow network access to HTTPS */
+    add_net_rule(ruleset, 443, CONNECT_TCP);
+
+    /* Apply */
+    landlock_restrict_self(ruleset, 0);
+}
+```
+
+### Build System Sandbox
+
+```c
+/* Restrict build system to source and build directories */
+void sandbox_build(void) {
+    add_path_rule(ruleset, source_dir, READ | EXECUTE);
+    add_path_rule(ruleset, build_dir, READ | WRITE | MAKE_REG | MAKE_DIR);
+    add_path_rule(ruleset, "/usr", READ | EXECUTE);
+    add_path_rule(ruleset, "/tmp", READ | WRITE | MAKE_REG);
+
+    /* No network access during build */
+    /* (network ruleset with empty rules = no network) */
+
+    landlock_restrict_self(ruleset, 0);
+}
+```
+
+### Container Runtime Sandbox
+
+```c
+/* Apply Landlock inside container for defense in depth */
+void sandbox_container(void) {
+    /* Container already has namespace isolation */
+    /* Landlock adds file-level restrictions */
+
+    add_path_rule(ruleset, "/app", READ | EXECUTE);
+    add_path_rule(ruleset, "/app/data", READ | WRITE);
+    add_path_rule(ruleset, "/tmp", READ | WRITE);
+    add_path_rule(ruleset, "/etc/resolv.conf", READ);
+
+    landlock_restrict_self(ruleset, 0);
+}
+```
+
+## Troubleshooting
+
+```bash
+# Check if Landlock is supported
+# Method 1: Kernel version
+uname -r  # >= 5.13
+
+# Method 2: ABI check
+python3 -c "
+import ctypes, ctypes.util
+libc = ctypes.CDLL(ctypes.util.find_library('c'), use_errno=True)
+NR = 444  # __NR_landlock_create_ruleset on x86_64
+abi = libc.syscall(NR, None, 0, 0)
+print(f'ABI version: {abi}' if abi >= 0 else 'Not supported')
+"
+
+# Method 3: Check kernel config
+zcat /proc/config.gz | grep LANDLOCK
+# CONFIG_SECURITY_LANDLOCK=y
+
+# Check if Landlock is enabled
+cat /sys/kernel/security/lsm
+# Should include "landlock"
+
+# Common issues:
+# ENOSYS: Kernel doesn't support Landlock (< 5.13)
+# EOPNOTSUPP: CONFIG_SECURITY_LANDLOCK=n
+# EPERM: Access denied by Landlock rules
+# EINVAL: Invalid ruleset or rule attributes
+```
+
+## Security Considerations
+
+### Limitations
+
+1. **No network granularity**: Cannot restrict to specific IPs (only ports)
+2. **No IPC control**: Cannot restrict IPC mechanisms (except abstract Unix sockets in v4)
+3. **Path-based**: Rules are path-based, not inode-based (hardlinks can bypass)
+4. **No dynamic rules**: Rules cannot be added after `restrict_self()`
+5. **Inheritance**: Child processes inherit all parent restrictions
+
+### Threat Model
+
+| Attack | Landlock Defense | Limitation |
+|--------|-----------------|------------|
+| File exfiltration | Restrict read access | Only FS paths, not network |
+| Malicious writes | Restrict write access | Cannot prevent all writes |
+| Privilege escalation | No new privileges | Cannot expand access |
+| Container escape | File restrictions | Not a complete container solution |
+| Network attacks | Port restrictions (v3) | No IP-level restrictions |
 
 ## Cross-References
 
