@@ -179,6 +179,8 @@
 - [Block Drivers](./kernel/drivers/block-drivers.md)
 - [Char Devices](./kernel/drivers/char-devices.md)
 - [Clk](./kernel/drivers/clk.md)
+- [Cpu Freq](./kernel/drivers/cpu-freq.md)
+- [Cpu Idle](./kernel/drivers/cpu-idle.md)
 - [Device Tree](./kernel/drivers/device-tree.md)
 - [Dma](./kernel/drivers/dma.md)
 - [Gpio](./kernel/drivers/gpio.md)

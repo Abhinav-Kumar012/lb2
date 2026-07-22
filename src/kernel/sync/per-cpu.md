@@ -496,8 +496,149 @@ struct __aligned(64) good_layout {
 - [percpu_counter API](https://www.kernel.org/doc/Documentation/core-api/percpu-refcount.rst)
 - [What every programmer should know about memory](https://people.freebsd.org/~lstewart/articles/cpumemory.pdf) — Ulrich Drepper's classic paper
 
+## Per-CPU Allocator Internals
+
+### First-Chunk Allocation
+
+During boot, the kernel allocates the first per-CPU chunk from a
+contiguous memory region. Subsequent allocations use dynamic chunks:
+
+```mermaid
+flowchart TD
+    BOOT[Boot: Reserve per-CPU area] --> FIRST[First chunk: static __percpu data]
+    FIRST --> DYNAMIC[Dynamic chunks: alloc_percpu()]
+    DYNAMIC --> VMALLOC[vmalloc area for dynamic chunks]
+```
+
+### Per-CPU Memory Layout
+
+```bash
+# View per-CPU memory layout
+cat /sys/kernel/debug/percpu_alloc
+# Shows chunk statistics and allocations
+
+# View per-CPU data section sizes
+cat /proc/vmstat | grep percpu
+# nr_slab_percpu  0
+
+# Check per-CPU memory usage
+cat /proc/meminfo | grep Percpu
+# Percpu:          1234 kB
+```
+
+## Per-CPU Reference Counting
+
+The kernel provides `percpu_ref` for high-performance reference counting
+that avoids cache-line bouncing:
+
+```c
+#include <linux/percpu-refcount.h>
+
+static DEFINE_PERCPU_REFCOUNT(my_ref);
+
+/* Initialize */
+percpu_ref_init(&my_ref, my_release, 0, GFP_KERNEL);
+
+/* Increment (fast, per-CPU) */
+percpu_ref_get(&my_ref);
+
+/* Decrement (fast, per-CPU) */
+percpu_ref_put(&my_ref);
+
+/* Kill: switch to atomic mode, wait for all refs */
+percpu_ref_kill(&my_ref);
+
+/* Check if alive */
+if (percpu_ref_is_dying(&my_ref))
+    return -ENODEV;
+```
+
+`percpu_ref` is used extensively in the block layer (request queues) and
+cgroup subsystem for high-performance reference counting.
+
+### percpu_ref Internals
+
+```mermaid
+stateDiagram-v2
+    [*] --> PerCPU: percpu_ref_init()
+    PerCPU --> Atomic: percpu_ref_kill()
+    Atomic --> [*]: refcount reaches 0
+
+    state PerCPU {
+        [*] --> FastPath: get/put = per-CPU increment/decrement
+        FastPath --> [*]
+    }
+
+    state Atomic {
+        [*] --> SlowPath: get/put = atomic_inc/dec
+        SlowPath --> [*]
+    }
+```
+
+## Per-CPU Work Queues
+
+The kernel's workqueue subsystem uses per-CPU work queues for
+cpu-bound work:
+
+```c
+#include <linux/workqueue.h>
+
+/* System per-CPU workqueue (bound to each CPU) */
+static DECLARE_WORK(my_work, my_work_fn);
+
+/* Schedule on current CPU's workqueue */
+schedule_work(&my_work);
+
+/* Schedule on specific CPU's workqueue */
+queue_work_on(cpu, system_wq, &my_work);
+
+/* Cancel */
+cancel_work_sync(&my_work);
+```
+
+## Debugging Per-CPU Issues
+
+### CONFIG_DEBUG_PER_CPU_MAPS
+
+Enables runtime checks for per-CPU map consistency:
+
+```bash
+# Enable in kernel config
+CONFIG_DEBUG_PER_CPU_MAPS=y
+
+# Will warn on:
+# - Accessing per-CPU data for offline CPUs
+# - Incorrect CPU ID in per_cpu()
+# - Per-CPU allocation failures
+```
+
+### Common Debugging Patterns
+
+```bash
+# Check per-CPU data consistency
+# Sum all CPUs' values, compare with expected total
+
+# Use ftrace to track per-CPU access patterns
+echo 1 > /sys/kernel/debug/tracing/events/preemptirq/preempt_disable/enable
+echo 1 > /sys/kernel/debug/tracing/events/preemptirq/preempt_enable/enable
+
+# Check for long preempt-disabled sections
+cat /sys/kernel/debug/tracing/trace_pipe | grep "preempt_disable"
+```
+
+## Per-CPU vs Other Approaches
+
+| Approach | Increment | Read Total | Memory | Best For |
+|----------|-----------|------------|--------|----------|
+| Atomic counter | ~15-80ns | ~5ns | 4-8 bytes | Rare increments, frequent reads |
+| Per-CPU counter | ~5-10ns | ~1μs × CPUs | 4-8 × CPUs | Frequent increments, rare reads |
+| percpu_counter | ~5-10ns | ~1μs × CPUs | 4-8 × CPUs | Batched updates, approximate reads |
+| percpu_ref | ~5-10ns | ~1μs × CPUs | 4-8 × CPUs | Reference counting |
+
 ## Related Topics
 
 - [Read-Write Locks](./rwlocks.md) — Alternative synchronization
 - [Semaphores](./semaphores.md) — Counting synchronization
 - [Completion Variables](./completions.md) — Signaling primitive
+- [RCU](./rcu.md) — Read-Copy-Update synchronization
+- [Memory Barriers](./memory-barriers.md) — Ordering guarantees for per-CPU data
