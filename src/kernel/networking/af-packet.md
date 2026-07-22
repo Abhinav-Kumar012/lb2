@@ -48,6 +48,22 @@ The third argument filters by EtherType:
 | `ETH_P_IP`    | IPv4 only                         |
 | `ETH_P_ARP`   | ARP only                          |
 | `ETH_P_IPV6`  | IPv6 only                         |
+| `ETH_P_8021Q` | VLAN-tagged frames                |
+| `ETH_P_LLDP`  | LLDP frames                       |
+
+### Binding to Specific Interface
+
+```c
+#include <net/if.h>
+
+struct sockaddr_ll addr = {
+    .sll_family = AF_PACKET,
+    .sll_protocol = htons(ETH_P_ALL),
+    .sll_ifindex = if_nametoindex("eth0"),
+};
+
+bind(fd, (struct sockaddr *)&addr, sizeof(addr));
+```
 
 ### Promiscuous Mode
 
@@ -60,6 +76,18 @@ struct packet_mreq mreq = {
     .mr_type = PACKET_MR_PROMISC,
 };
 setsockopt(fd, SOL_PACKET, PACKET_ADD_MEMBERSHIP, &mreq, sizeof(mreq));
+```
+
+```bash
+# Enable promiscuous mode from command line
+ip link set eth0 promisc on
+
+# Verify
+ip link show eth0 | grep PROMISC
+# eth0: <BROADCAST,MULTICAST,PROMISC,UP,LOWER_UP> ...
+
+# Disable
+ip link set eth0 promisc off
 ```
 
 ## Ring Buffers: TPACKET_V1, V2, V3
@@ -162,6 +190,18 @@ for (uint32_t i = 0; i < block->hdr.bh1.num_pkts; i++) {
 block->hdr.bh1.block_status = TP_STATUS_KERNEL;
 ```
 
+### TPACKET Version Comparison
+
+| Feature | V1 | V2 | V3 |
+|---------|----|----|-----|
+| Frame size | Fixed | Fixed | Variable |
+| Block grouping | No | No | Yes |
+| Timer flush | No | No | Yes |
+| VLAN info | No | Yes (`tp_vlan_tci`) | Yes |
+| Performance | Low | Medium | High |
+| Complexity | Low | Medium | High |
+| Use case | Legacy | tcpdump | IDS, monitoring |
+
 ## Packet Fanout
 
 For multi-threaded capture, AF_PACKET supports **fanout** — distributing packets
@@ -202,6 +242,53 @@ setsockopt(fd, SOL_PACKET, PACKET_FANOUT, &fanout_arg, sizeof(fanout_arg));
 /* Then setsockopt with PACKET_FANOUT_DATA pointing to BPF fd */
 ```
 
+### Multi-threaded Capture Example
+
+```c
+#include <pthread.h>
+#include <sys/socket.h>
+#include <linux/if_packet.h>
+#include <net/ethernet.h>
+
+#define NUM_THREADS 4
+#define FANOUT_GROUP 0xABCD
+
+void *capture_thread(void *arg) {
+    int thread_id = *(int *)arg;
+    int fd = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
+
+    /* Set up TPACKET_V3 ring */
+    /* ... */
+
+    /* Join fanout group */
+    int fanout = FANOUT_GROUP | (FANOUT_HASH << 16);
+    setsockopt(fd, SOL_PACKET, PACKET_FANOUT, &fanout, sizeof(fanout));
+
+    /* Capture loop */
+    while (1) {
+        struct pollfd pfd = { .fd = fd, .events = POLLIN };
+        poll(&pfd, 1, -1);
+        /* Process blocks */
+    }
+    return NULL;
+}
+
+int main(void) {
+    pthread_t threads[NUM_THREADS];
+    int ids[NUM_THREADS];
+
+    for (int i = 0; i < NUM_THREADS; i++) {
+        ids[i] = i;
+        pthread_create(&threads[i], NULL, capture_thread, &ids[i]);
+    }
+
+    for (int i = 0; i < NUM_THREADS; i++)
+        pthread_join(threads[i], NULL);
+
+    return 0;
+}
+```
+
 ## BPF Filtering
 
 AF_PACKET sockets support classic BPF (cBPF) filters to accept only relevant
@@ -218,6 +305,30 @@ setsockopt(fd, SOL_SOCKET, SO_ATTACH_FILTER, &prog, sizeof(prog));
 ```
 
 For more advanced filtering, eBPF programs can be attached via `SO_ATTACH_BPF`.
+
+### Common BPF Filter Examples
+
+```bash
+# tcpdump generates cBPF bytecode
+# View BPF for a filter:
+tcpdump -i eth0 -d "port 80"
+# (000) ldh      [12]
+# (001) jeq      #0x86dd          jt 2	jf 8
+# (002) ldb      [20]
+# (003) jeq      #0x6             jt 4	jf 19
+# ...
+
+# Compile BPF to code for use in C:
+tcpdump -i eth0 -dd "port 80"
+```
+
+### eBPF Attachment
+
+```c
+/* Attach eBPF program (more powerful than cBPF) */
+int prog_fd = bpf_load_program(BPF_PROG_TYPE_SOCKET_FILTER, ...);
+setsockopt(fd, SOL_SOCKET, SO_ATTACH_BPF, &prog_fd, sizeof(prog_fd));
+```
 
 ## AF_PACKET vs. AF_XDP
 
@@ -244,13 +355,26 @@ preferred for high-throughput packet processing where kernel bypass is acceptabl
 - Block size should align with L2 cache line size or page size
 - Monitor `tp_drops` in `tpacket_stats` for ring overflow detection
 
+```c
+/* Get drop statistics */
+struct tpacket_stats stats;
+socklen_t len = sizeof(stats);
+getsockopt(fd, SOL_PACKET, PACKET_STATISTICS, &stats, &len);
+printf("Packets: %u, Drops: %u\n", stats.tp_packets, stats.tp_drops);
+```
+
 ### Busy Polling
 
 Enable busy polling to reduce latency by spinning in the socket poll instead
 of sleeping:
 
 ```bash
+# Global busy poll setting
 echo 50 > /proc/sys/net/core/busy_read  # microseconds
+
+# Per-socket option
+int val = 50;  /* microseconds */
+setsockopt(fd, SOL_SOCKET, SO_BUSY_POLL, &val, sizeof(val));
 ```
 
 ### CPU Affinity
@@ -258,11 +382,98 @@ echo 50 > /proc/sys/net/core/busy_read  # microseconds
 Pin capture threads to specific CPUs and use `FANOUT_CPU` for optimal cache
 behavior and NUMA locality.
 
+```bash
+# Pin process to CPU 2
+taskset -c 2 ./capture_program
+
+# Or in code
+cpu_set_t cpuset;
+CPU_ZERO(&cpuset);
+CPU_SET(2, &cpuset);
+sched_setaffinity(0, sizeof(cpuset), &cpuset);
+```
+
 ### Interrupt Coalescing
 
 Modern NICs support interrupt coalescing, which batches multiple packets before
 generating an interrupt. This reduces CPU overhead but increases latency. Tune
 via `ethtool -C`.
+
+```bash
+# Disable interrupt coalescing for lowest latency
+ethtool -C eth0 rx-usecs 0 rx-frames 0
+
+# Set moderate coalescing
+ethtool -C eth0 rx-usecs 50 rx-frames 16
+
+# View current settings
+ethtool -c eth0
+```
+
+### NUMA Considerations
+
+```bash
+# Check NIC NUMA node
+cat /sys/class/net/eth0/device/numa_node
+# 0
+
+# Allocate ring buffer on same NUMA node
+# Use mmap with MAP_POPULATE to pre-fault pages
+# Or use numa_alloc_onnode() from libnuma
+```
+
+## Sending Packets
+
+AF_PACKET can also send raw frames:
+
+```c
+#include <sys/socket.h>
+#include <linux/if_packet.h>
+#include <net/ethernet.h>
+
+int send_raw_frame(int fd, const unsigned char *frame, size_t len,
+                   int ifindex) {
+    struct sockaddr_ll addr = {
+        .sll_family = AF_PACKET,
+        .sll_ifindex = ifindex,
+        .sll_halen = ETH_ALEN,
+    };
+    /* Set destination MAC */
+    memcpy(addr.sll_addr, frame, 6);
+
+    return sendto(fd, frame, len, 0,
+                  (struct sockaddr *)&addr, sizeof(addr));
+}
+```
+
+### TX Ring Buffer
+
+AF_PACKET also supports TX ring buffers for high-performance sending:
+
+```c
+struct tpacket_req req = {
+    .tp_block_size = 4096,
+    .tp_block_nr = 64,
+    .tp_frame_size = 2048,
+    .tp_frame_nr = (4096 * 64) / 2048,
+};
+setsockopt(fd, SOL_PACKET, PACKET_TX_RING, &req, sizeof(req));
+
+/* Map TX ring */
+void *ring = mmap(NULL, req.tp_block_size * req.tp_block_nr,
+                  PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+
+/* Get next available frame */
+struct tpacket_hdr *hdr = ring;
+while (hdr->tp_status != TP_STATUS_AVAILABLE)
+    ;  /* spin or poll */
+
+/* Fill frame */
+memcpy((uint8_t *)hdr + hdr->tp_net, frame_data, frame_len);
+
+/* Send */
+hdr->tp_status = TP_STATUS_SEND_REQUEST;
+```
 
 ## Security Implications
 
@@ -273,17 +484,54 @@ namespace with network access. In unprivileged containers (see
 [user namespace security](../../containers/user-namespace-security.md)), this
 capability may not be available.
 
+```bash
+# Check if user has CAP_NET_RAW
+getpcaps $$ 2>/dev/null || capsh --print | grep "Current"
+
+# Grant CAP_NET_RAW to a binary
+setcap cap_net_raw+ep /usr/local/bin/capture_tool
+
+# Run with capability
+capsh --caps="cap_net_raw+eip" -- -c "./capture_program"
+```
+
 ### Kernel Lockdown
 
 When the kernel is in **lockdown integrity** mode (see
 [Kernel Lockdown](../../security/lockdown.md)), `AF_PACKET` with `ETH_P_ALL`
 is restricted because raw packet injection could compromise kernel integrity.
 
+```bash
+# Check lockdown status
+cat /sys/kernel/security/lockdown
+# [none] integrity confidentiality
+```
+
 ### Promiscuous Mode Detection
 
 Promiscuous mode can be detected by remote hosts through crafted ARP probes
 or monitoring for unexpected responses to unicast frames addressed to other
 MAC addresses.
+
+```bash
+# Detection method: send ARP for IP not on local host
+# If host responds, it's in promiscuous mode
+# This is how tools like nmap detect promiscuous hosts
+```
+
+### Packet Injection Risks
+
+AF_PACKET allows sending arbitrary Ethernet frames, which can be used for:
+- ARP spoofing
+- VLAN hopping
+- STP manipulation
+- DHCP spoofing
+
+```bash
+# Mitigate: restrict CAP_NET_RAW
+# Use seccomp to block AF_PACKET in containers
+# Use network namespaces for isolation
+```
 
 ## Usage Examples
 
@@ -375,6 +623,52 @@ filters. Its capture pipeline:
 3. Compiles display filter to cBPF via libpcap and attaches via `SO_ATTACH_FILTER`
 4. Maps ring buffer and processes frames in a tight loop
 
+### Simple ARP Responder
+
+```c
+/* Respond to ARP requests using AF_PACKET */
+#include <sys/socket.h>
+#include <linux/if_packet.h>
+#include <net/ethernet.h>
+#include <arpa/inet.h>
+
+int main(void) {
+    int fd = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ARP));
+    
+    unsigned char buf[65535];
+    while (1) {
+        ssize_t n = recvfrom(fd, buf, sizeof(buf), 0, NULL, NULL);
+        if (n < 42) continue;
+        
+        /* Check if ARP request */
+        if (buf[12] == 0x08 && buf[13] == 0x06 &&  /* ARP */
+            buf[20] == 0x00 && buf[21] == 0x01 &&  /* Request */
+            /* Check target IP */
+            buf[38] == 192 && buf[39] == 168 && 
+            buf[40] == 1 && buf[41] == 100) {
+            
+            /* Build ARP reply */
+            unsigned char reply[42];
+            /* Swap MAC addresses */
+            memcpy(reply, buf + 6, 6);      /* Dest = source MAC */
+            memcpy(reply + 6, "\x00\x11\x22\x33\x44\x55", 6);  /* Our MAC */
+            reply[12] = 0x08; reply[13] = 0x06;  /* ARP */
+            /* ... fill ARP reply fields ... */
+            
+            struct sockaddr_ll addr = {
+                .sll_family = AF_PACKET,
+                .sll_ifindex = if_nametoindex("eth0"),
+                .sll_halen = 6,
+            };
+            memcpy(addr.sll_addr, reply, 6);
+            
+            sendto(fd, reply, 42, 0, 
+                   (struct sockaddr *)&addr, sizeof(addr));
+        }
+    }
+}
+```
+
 ## Common Pitfalls
 
 1. **Forgetting promiscuous mode**: without it, you only see broadcast, multicast,
@@ -387,6 +681,30 @@ filters. Its capture pipeline:
    (`htons()`).
 5. **Namespaces**: AF_PACKET sockets in containers are limited by the container's
    network namespace and capabilities.
+6. **VLAN offload**: NIC may strip VLAN tags before delivery. Disable `rxvlan`
+   offload for accurate captures.
+7. **Large rings on 32-bit**: ring buffer size limited by virtual address space.
+8. **CPU affinity**: without pinning, threads may migrate between NUMA nodes.
+
+## Debugging
+
+```bash
+# Check AF_PACKET socket stats
+cat /proc/net/packet
+
+# Monitor packet drops
+watch -n 1 'cat /proc/net/packet | grep -v "^sk"'
+
+# Check interface promiscuous mode
+ip link show eth0 | grep -c PROMISC
+
+# Verify BPF filter is attached
+# (no direct proc interface - use strace)
+strace -e setsockopt ./capture_program 2>&1 | grep SO_ATTACH
+
+# Check CAP_NET_RAW
+grep -i cap /proc/self/status | grep CapEff
+```
 
 ## See Also
 

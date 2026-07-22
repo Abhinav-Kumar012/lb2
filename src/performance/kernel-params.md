@@ -391,6 +391,58 @@ kernel.sched_wakeup_granularity_ns = 500000
 kernel.numa_balancing = 0
 ```
 
+## Common Tuning Mistakes
+
+### Mistake: Setting swappiness to 0
+
+```bash
+# DON'T: swappiness=0 doesn't disable swap, it makes OOM more likely
+sysctl -w vm.swappiness=0
+# Kernel may still swap under memory pressure
+# With swappiness=0, the kernel prefers killing processes over swapping
+
+# DO: Use swappiness=1 for databases (nearly disables swap but avoids OOM)
+sysctl -w vm.swappiness=1
+```
+
+### Mistake: Oversizing TCP buffers
+
+```bash
+# DON'T: Set massive buffers for all connections
+sysctl -w net.ipv4.tcp_rmem="4096 1073741824 1073741824"
+# Each connection gets 1GB buffer → 1000 connections = 1TB RAM!
+
+# DO: Use auto-tuning with reasonable maximum
+sysctl -w net.ipv4.tcp_rmem="4096 262144 16777216"
+# Min 4K, default 256K, max 16MB (enough for 100Gbps × 1ms RTT)
+```
+
+### Mistake: Disabling all security for performance
+
+```bash
+# DON'T: Disable everything for "speed"
+sysctl -w net.ipv4.tcp_syncookies=0
+sysctl -w net.ipv4.conf.all.rp_filter=0
+sysctl -w net.ipv4.ip_forward=1
+# Opens system to SYN floods and routing attacks
+
+# DO: Only tune parameters that address your specific bottleneck
+sysctl -w net.ipv4.tcp_congestion_control=bbr  # This is safe and helps
+sysctl -w net.core.somaxconn=65535              # This is safe and helps
+```
+
+### Mistake: Not persisting changes
+
+```bash
+# DON'T: Set parameters without persisting
+sysctl -w vm.swappiness=1
+# Lost after reboot!
+
+# DO: Persist in sysctl.d
+echo "vm.swappiness = 1" > /etc/sysctl.d/99-tuning.conf
+sysctl -p /etc/sysctl.d/99-tuning.conf
+```
+
 ## Performance Analysis Workflow for Kernel Tuning
 
 ```mermaid
