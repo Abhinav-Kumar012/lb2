@@ -508,6 +508,167 @@ BPF LSM has minimal overhead:
 - Map lookups: O(1) for hash maps
 - Compared to SELinux: similar or lower overhead for simple policies
 
+## Threat Model
+
+### What BPF LSM Protects Against
+
+| Threat | Mitigation |
+|--------|------------|
+| Unauthorized file access | Path-based allow/deny lists |
+| Container escape | Cgroup-scoped policies on task/exec hooks |
+| Privilege escalation | Capability restrictions via `capable` hook |
+| Network exfiltration | `socket_connect` filtering by destination |
+| Malicious binary execution | Exec allowlists via `bprm_check_security` |
+| Signal abuse | Rate-limiting via `task_kill` |
+
+### What BPF LSM Does NOT Protect Against
+
+| Limitation | Explanation |
+|------------|-------------|
+| Kernel exploits | BPF LSM runs inside the kernel; kernel bugs can bypass it |
+| BPF verifier bypass | If the verifier has bugs, malicious programs can be loaded |
+| Denial of service | A buggy BPF LSM program can block legitimate operations |
+| Hardware attacks | No protection against cold-boot, DMA, or physical access |
+| Policy bypass via CAP_BPF | Users with CAP_BPF + CAP_MAC_ADMIN can load/replace policies |
+
+### Attack Surface of BPF LSM
+
+```mermaid
+flowchart TD
+    subgraph AttackSurface["BPF LSM Attack Surface"]
+        VERIFIER["BPF Verifier bugs"]
+        MAP_LEAK["Map data leaks"]
+        HOOK_RACE["TOCTOU in hook checks"]
+        POLICY_BYPASS["Policy logic errors"]
+        PRIV_ESC["CAP_BPF + CAP_MAC_ADMIN abuse"]
+        KERNEL_BUG["Kernel pointer leaks via helpers"]
+    end
+
+    subgraph Mitigations["Mitigations"]
+        UNPRIV["Unprivileged BPF disabled"]
+        BPF_RESTRICT["bpf_restrict_unpriv sysctl"]
+        LOCKDOWN["Kernel lockdown mode"]
+        KASLR["KASLR"]
+        CFI["Control-Flow Integrity"]
+    end
+
+    VERIFIER --> UNPRIV
+    MAP_LEAK --> BPF_RESTRICT
+    HOOK_RACE --> POLICY_BYPASS
+    PRIV_ESC --> LOCKDOWN
+    KERNEL_BUG --> KASLR
+    KERNEL_BUG --> CFI
+```
+
+**Key mitigations in the kernel:**
+- **BPF verifier** (`kernel/bpf/verifier.c`): Ensures programs terminate, don't access arbitrary memory, and don't leak pointers.
+- **Unprivileged BPF restriction**: `kernel.unprivileged_bpf_disabled=1` prevents unprivileged BPF usage.
+- **Kernel lockdown mode**: Prevents BPF programs from accessing kernel memory even with `CAP_BPF`.
+- **KASLR**: Makes kernel address guessing harder for BPF-based exploits.
+
+## Production Use: Tetragon and Falco
+
+### Tetragon (Cilium)
+
+Tetragon uses BPF LSM for real-time enforcement in Kubernetes:
+
+```yaml
+# Tetragon TracingPolicy for file access enforcement
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicy
+metadata:
+  name: restrict-sensitive-files
+spec:
+  kprobes:
+  - call: "fd_install"
+    syscall: false
+    args:
+    - index: 0
+      type: int
+    - index: 1
+      type: "file"
+  lsmhooks:
+  - hook: "file_open"
+    args:
+    - index: 0
+      type: "file"
+    selectors:
+    - matchBinaries:
+      - operator: NotIn
+        values:
+        - "/usr/bin/kubectl"
+        - "/usr/bin/systemctl"
+      matchActions:
+      - action: Sigkill
+```
+
+### Falco with BPF LSM
+
+Falco can use BPF LSM for syscall interception:
+
+```yaml
+# Falco rule using BPF LSM
+- rule: Detect Shell in Container
+  desc: Detect shell spawning in container
+  condition: >
+    spawned_process and container and
+    proc.name in (bash, sh, zsh)
+  output: >
+    Shell spawned in container
+    (user=%user.name container=%container.name
+     shell=%proc.name parent=%proc.pname)
+  priority: WARNING
+  tags: [container, shell]
+```
+
+## Kernel Configuration
+
+```
+# Required for BPF LSM
+CONFIG_BPF_LSM=y              # BPF LSM support
+CONFIG_BPF_SYSCALL=y          # BPF syscall
+CONFIG_DEBUG_INFO_BTF=y       # BTF for CO-RE
+CONFIG_BPF_JIT=y              # BPF JIT compiler
+CONFIG_CGROUP_BPF=y           # BPF cgroup support
+CONFIG_NET=y                  # For network hooks
+CONFIG_BPF_EVENTS=y           # For tracing integration
+
+# For LSM framework
+CONFIG_SECURITY=y             # Security framework
+CONFIG_SECURITYFS=y           # /sys/kernel/security
+```
+
+## BPF Maps for Policy State
+
+BPF maps provide persistent state for BPF LSM programs:
+
+| Map Type | Use Case | Example |
+|----------|----------|---------|
+| `BPF_MAP_TYPE_HASH` | Allow/deny lists | Blocked inodes, UIDs |
+| `BPF_MAP_TYPE_RINGBUF` | Event logging | Audit trail of denials |
+| `BPF_MAP_TYPE_ARRAY` | Counters | Denial counts per UID |
+| `BPF_MAP_TYPE_LRU_HASH` | Bounded state | Rate-limiting timestamps |
+| `BPF_MAP_TYPE_PERCPU_ARRAY` | Per-CPU counters | Lock-free statistics |
+
+## Hardening BPF LSM Deployments
+
+```bash
+# 1. Disable unprivileged BPF
+sysctl -w kernel.unprivileged_bpf_disabled=1
+
+# 2. Enable kernel lockdown
+echo integrity > /sys/kernel/security/lockdown
+
+# 3. Pin BPF programs to prevent removal
+bpftool prog load policy.bpf.o /sys/fs/bpf/policy type lsm
+
+# 4. Use BPF token for delegated loading (Linux 6.9+)
+mount -t bpf bpffs /sys/fs/bpf -o delegate_cmds=PROG_LOAD
+
+# 5. Audit BPF program loads
+auditctl -a always,exit -F arch=b64 -S bpf -k bpf_load
+```
+
 ## Further Reading
 
 - **Kernel documentation**: `Documentation/bpf/prog_lsm.rst`
