@@ -412,9 +412,7 @@ $ cat /proc/loadavg
 
 **Implication**: Tasks stuck in `TASK_UNINTERRUPTIBLE` (D state) increase the load average, even though they're not using the CPU. This is why a system with stuck NFS mounts shows high load.
 
-## Practical Examples
-
-### Process State Inspection
+## Process State Inspection
 
 ```bash
 # Detailed state information
@@ -443,57 +441,262 @@ S
 # P = TASK_PARKED
 ```
 
-### Debugging D-State Processes
+### Process State Monitoring Script
 
 ```bash
-# Find all D-state processes
-$ ps aux | awk '$8 == "D"'
+#!/bin/bash
+# Monitor process states over time
+# Usage: ./monitor-states.sh [interval] [count]
 
-# Get kernel stack of D-state process
-$ cat /proc/$PID/stack
-[<0>] __schedule+0x234/0x567
-[<0>] schedule+0x45/0x89
-[<0>] schedule_timeout+0x123/0x234
-[<0>] wait_for_completion+0x89/0x123
-[<0>] blk_execute_rq+0x45/0x89
+INTERVAL=${1:-1}
+COUNT=${2:-60}
 
-# Trace what the process is waiting for
-$ sudo strace -p $PID
-# (may show the system call that's blocking)
-
-# For NFS issues
-$ cat /proc/mounts | grep nfs
+echo "Timestamp R S D T Z Total LoadAvg"
+for i in $(seq 1 $COUNT); do
+    TS=$(date +%H:%M:%S)
+    R=$(ps -eo stat | grep -c '^R ')
+    S=$(ps -eo stat | grep -c '^S ')
+    D=$(ps -eo stat | grep -c '^D ')
+    T=$(ps -eo stat | grep -c '^T ')
+    Z=$(ps -eo stat | grep -c '^Z ')
+    TOTAL=$((R + S + D + T + Z))
+    LOAD=$(cat /proc/loadavg | awk '{print $1}')
+    echo "$TS $R $S $D $T $Z $TOTAL $LOAD"
+    sleep $INTERVAL
+done
 ```
 
-### Zombie Cleanup
+### Interpreting /proc/PID/stat Fields
 
 ```bash
-# Find zombies and their parents
-$ ps -eo pid,ppid,stat,comm | grep Z
-  PID  PPID STAT COMMAND
- 1234   500 Z    myapp
+# /proc/PID/stat has 52 fields. Key ones:
+# Field 1: PID
+# Field 2: Comm (process name in parentheses)
+# Field 3: State (R/S/D/T/Z/X)
+# Field 4: PPID
+# Field 5: PGRP (process group)
+# Field 6: Session
+# Field 7: TTY (controlling terminal)
+# Field 8: TPGID (foreground process group)
+# Field 9: Flags
+# Field 10: Minflt (minor faults)
+# Field 11: Cminflt
+# Field 12: Majflt (major faults)
+# Field 13: Cmajflt
+# Field 14: Utime (user mode ticks)
+# Field 15: Stime (kernel mode ticks)
+# Field 16: Cutime (children user ticks)
+# Field 17: Cstime (children kernel ticks)
+# Field 18: Priority
+# Field 19: Nice
+# Field 20: Num_threads
+# Field 22: Starttime (ticks since boot)
+# Field 23: Vsize (virtual memory bytes)
+# Field 24: RSS (resident set size pages)
 
-# Check parent process
-$ ps -p 500 -o pid,stat,comm
+cat /proc/$PID/stat | awk '{print "PID:"$1, "State:"$3, "PPID:"$4, "Threads:"$20, "RSS:"$24" pages"}'
+```
+
+## Kernel Thread States
+
+Kernel threads (kthreads) use the same state model but with some differences:
+
+```bash
+# Kernel threads show in brackets
+$ ps -eo pid,stat,comm | grep '\['
+    2 S    [kthreadd]
+    3 I<   [rcu_gp]
+    4 I<   [rcu_par_gp]
+    5 I<   [slub_flushwq]
+    7 I<   [kworker/0:1H]
+    8 I    [kworker/0:0]
+
+# I = TASK_IDLE (kernel-only state, same as D but not counted in load)
+# < = Priority < 0 (high priority kernel thread)
+
+# Count kernel threads by state
+$ ps -eo stat,comm | grep '\[' | awk '{print $1}' | sort | uniq -c
+  12 I
+   5 I<
+   3 S
+   1 S<
+```
+
+### Key Kernel Threads and Their States
+
+| Thread | Typical State | Purpose |
+|--------|---------------|----------|
+| `[kthreadd]` | S | PID 2, parent of all kernel threads |
+| `[rcu_gp]` | I | RCU grace period processing |
+| `[kworker/*]` | I or S | Workqueue workers |
+| `[ksoftirqd/*]` | I | Soft IRQ processing (per-CPU) |
+| `[migration/*]` | S | CPU migration (per-CPU) |
+| `[watchdog/*]` | S | Lockup detection (per-CPU) |
+| `[kswapd0]` | I or S | Memory reclaim |
+| `[jbd2/sda1-*]` | D | Journal commit (filesystem) |
+| `[nfsd]` | S | NFS server daemon |
+| `[md_raid1]` | I | Software RAID management |
+
+## Cgroups and Process States
+
+Control groups (cgroups) affect process scheduling and resource allocation:
+
+```bash
+# View cgroup membership
+$ cat /proc/$PID/cgroup
+0::/system.slice/nginx.service
+
+# cgroup v2 CPU controller affects scheduling
+# Processes in different cgroups get different CPU time
+# But all use the same TASK_RUNNING / TASK_INTERRUPTIBLE states
+
+# When a cgroup hits its CPU limit:
+# - Processes are throttled (removed from run queue)
+# - They appear as TASK_RUNNING but aren't executing
+# - /proc/$PID/schedstat shows throttle time
+
+# View CPU pressure from cgroups
+cat /sys/fs/cgroup/system.slice/cpu.pressure
+# some avg10=0.50 avg60=0.30 avg300=0.25 total=123456
+# full avg10=0.00 avg60=0.00 avg300=0.00 total=0
+
+# cgroup freezer can freeze processes
+# Frozen processes stay in TASK_RUNNING but don't execute
+# (Used by cgroup v1 freezer, cgroup v2 has freeze controller)
+```
+
+## Process States and Performance Analysis
+
+### Identifying Performance Bottlenecks
+
+```bash
+# High D-state count = I/O bottleneck
+$ ps aux | awk '$8 ~ /D/' | wc -l
+15
+# 15 processes waiting for I/O — check disk health
+
+# High R-state count = CPU saturation
+$ ps aux | awk '$8 ~ /R/' | wc -l
+12
+# 12 runnable processes on 4 cores = 3x oversubscription
+
+# Correlate with load average
+$ cat /proc/loadavg
+12.50 8.30 5.20 4/800 12345
+# Load 12.5 on 4 cores = heavy contention
+# 4/800 = 4 runnable out of 800 total threads
+
+# Use vmstat to see state transitions over time
+$ vmstat 1 5
+procs -----------memory---------- ---swap-- -----io---- -system-- ------cpu-----
+ r  b   swpd   free   buff  cache   si   so    bi    bo   in   cs us sy id wa st
+ 4  2      0 512000  64000 2048000    0    0     8  1024  500 1000 30 10 50  8  2
+ ^  ^
+ |  +-- D-state (blocked on I/O)
+ +---- R-state (runnable)
+```
+
+### D-State Deep Dive
+
+```bash
+# Find all D-state processes and their kernel stacks
+for pid in $(ps -eo pid,stat | awk '$2 ~ /D/ {print $1}'); do
+    echo "=== PID $pid ==="
+    cat /proc/$pid/comm
+    cat /proc/$pid/stack 2>/dev/null || echo "(no stack access)"
+    echo
+done
+
+# Common D-state causes:
+# 1. NFS: hung NFS server with 'hard' mount option
+#    Check: mount | grep nfs
+#    Fix: mount -o remount,soft /mnt/nfs
+
+# 2. Storage: failing disk or RAID rebuild
+#    Check: dmesg | grep -i 'error\|fail\|timeout'
+#    Check: smartctl -a /dev/sda
+
+# 3. Filesystem: journal commit blocked
+#    Check: cat /proc/$PID/comm  (look for jbd2/*)
+#    Check: iostat -x 1
+
+# 4. Memory: page fault waiting for swap
+#    Check: vmstat 1 (look at 'si' and 'so' columns)
+#    Check: /proc/zoneinfo for low free pages
+
+# 5. cgroup: frozen cgroup
+#    Check: cat /proc/$PID/cgroup
+#    Check: cat /sys/fs/cgroup/.../cgroup.freeze
+```
+
+## Real-World Scenarios
+
+### Scenario 1: High Load Average Despite Low CPU Usage
+
+```bash
+$ uptime
+ 14:30:00 up 10 days, load average: 45.00, 30.00, 15.00
+$ mpstat 1 3
+%idle = 85%
+
+# Diagnosis: Load is from D-state processes, not CPU
+$ ps aux | awk '$8 ~ /D/' | wc -l
+42
+
+# Root cause: NFS server went down
+$ dmesg | tail -5
+[12345.678] nfs: server nfs.example.com not responding, timed out
+[12345.679] nfs: task nfs_client can't get a RPC slot
+
+# Fix: Restart NFS or switch to soft mount
+$ umount -f /mnt/nfs
+```
+
+### Scenario 2: Zombie Process Accumulation
+
+```bash
+# Hundreds of zombies accumulating
+$ ps aux | awk '$8 ~ /Z/' | wc -l
+500
+
+# Find the parent that's not reaping
+$ ps -eo pid,ppid,stat,comm | awk '$3 ~ /Z/' | awk '{print $2}' | sort | uniq -c | sort -rn
+    500 1234
+
+# PID 1234 is the parent
+$ ps -p 1234 -o pid,stat,comm
   PID STAT COMMAND
-  500 Ss   bash
+ 1234 S    myapp
 
-# If parent is ignoring SIGCHLD, you can't clean up zombies
-# Solution: kill the parent (zombies are reparented to init which reaps them)
-$ kill 500
+# Check if parent has SIGCHLD handler
+$ cat /proc/1234/status | grep SigCgt
+SigCgt: 0000000000000000
+# Empty = not catching SIGCHLD = zombies accumulate
+
+# Fix: Fix the parent program, or:
+# Temporary: reparent zombies to init
+$ kill 1234  # init (PID 1) will reap the zombies
 ```
 
-### State Transition Tracing
+### Scenario 3: Stopped Process Holding Resources
 
 ```bash
-# Trace state changes with ftrace
-$ sudo trace-cmd record -e 'sched:sched_switch' -e 'sched:sched_process_state' -p $PID -- sleep 5
-$ trace-cmd report | head -20
-  task-1234  [000] 12345.678: sched_switch: prev_comm=myapp prev_pid=1234 prev_prio=120 ==> next_comm=bash next_pid=500 next_prio=120
+# A stopped process holds file locks and memory
+$ ps -eo pid,stat,comm | grep T
+ 1234 T    myapp
 
-# Using perf
-$ sudo perf record -e 'sched:sched_process_state' -p $PID -- sleep 5
-$ sudo perf script
+# Check what resources it holds
+$ ls -la /proc/1234/fd/ | wc -l
+150  # 150 open file descriptors
+
+$ cat /proc/1234/status | grep VmRSS
+VmRSS: 2048000 kB  # 2 GB of RAM held
+
+# If it was stopped by SIGSTOP, resume with SIGCONT
+$ kill -CONT 1234
+
+# If it's traced by a debugger, detach the debugger
+$ gdb -p 1234 -batch -ex 'detach'
 ```
 
 ## Further Reading
