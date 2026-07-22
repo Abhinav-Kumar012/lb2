@@ -426,6 +426,97 @@ Official git repositories for the Linux kernel and related projects.
 #### [LKML (Linux Kernel Mailing List)](https://lkml.org/)
 The Linux Kernel Mailing List. Where kernel development is discussed.
 
+#### [lore.kernel.org](https://lore.kernel.org/)
+Archived kernel mailing lists. Searchable. Better than LKML for finding specific patches.
+
+---
+
+## Modern Kernel Development
+
+### Rust in the Linux Kernel
+
+Linux 6.1 (2022) added initial Rust support. By 2025, Rust is increasingly used for new kernel modules:
+
+- **[Rust for Linux Documentation](https://docs.kernel.org/rust/)** — Official kernel Rust docs
+- **[Rust Kernel Modules Book](https://rust-for-linux.com/)** — Guide to writing kernel modules in Rust
+- **[LWN: Rust in the kernel](https://lwn.net/Articles/rust-kernel/)** — Ongoing coverage of Rust adoption
+- **[Asahi Linux](https://asahilinux.org/)** — Apple Silicon support with Rust GPU drivers
+
+### eBPF
+
+eBPF (extended Berkeley Packet Filter) has become a major kernel programmability mechanism:
+
+- **[eBPF.io](https://ebpf.io/)** — Official eBPF documentation and tutorials
+- **[BPF Performance Tools (Brendan Gregg)](https://www.brendangregg.com/bpf-performance-tools-book.html)** — The definitive book on BPF-based performance analysis
+- **[Cilium BPF Documentation](https://docs.cilium.io/en/latest/bpf/)** — Deep BPF documentation
+- **[bpftrace Reference Guide](https://github.com/bpftrace/bpftrace/blob/master/docs/reference_guide.md)** — bpftrace language reference
+- **[libbpf-bootstrap](https://github.com/libbpf/libbpf-bootstrap)** — Template for BPF CO-RE applications
+
+### io_uring
+
+io_uring is Linux's modern async I/O interface (kernel 5.1+):
+
+- **[io_uring and networking in 2024 (Axboe)](https://kernel.dk/io_uring.pdf)** — Jens Axboe's overview
+- **[LWN: io_uring](https://lwn.net/Kernel/Index/#io_uring)** — LWN coverage
+- **[liburing](https://github.com/axboe/liburing)** — Userspace io_uring library
+
+---
+
+## Performance and Observability
+
+### Books
+
+- **[BPF Performance Tools](https://www.brendangregg.com/bpf-performance-tools-book.html)** — Brendan Gregg (2019). Linux performance analysis with BPF.
+- **[Systems Performance](https://www.brendangregg.com/systems-performance-2nd-edition-book.html)** — Brendan Gregg (2020). Enterprise and cloud performance analysis.
+- **[Performance Analysis and Tuning on Modern CPUs](https://book.easyperf.net/perf_book)** — Denis Bakhvalov (2020). CPU-level performance tuning.
+
+### Tools and References
+
+- **[Brendan Gregg's Linux Performance](https://www.brendangregg.com/linuxperf.html)** — One-page Linux performance tools diagram
+- **[USE Method](https://www.brendangregg.com/usemethod.html)** — Utilization, Saturation, Errors methodology
+- **[Flame Graphs](https://www.brendangregg.com/flamegraphs.html)** — CPU/profile visualization technique
+- **[bcc-tools](https://github.com/iovisor/bcc)** — BPF Compiler Collection (Python-based BPF tools)
+
+---
+
+## Security Resources
+
+### Books
+
+- **[Linux Kernel Security (LWN)](https://lwn.net/Kernel/Index/#Security)** — Comprehensive security topic index
+- **[The Art of Software Security Assessment](https://www.amazon.com/Art-Software-Security-Assessment-Vulnerabilities/dp/0321444426)** — Mark Dowd et al. Covers kernel exploitation.
+- **[A Guide to Kernel Exploitation](https://www.amazon.com/Guide-Kernel-Exploitation-Attacking-Core/dp/1597494860)** — Attacking the kernel.
+
+### References
+
+- **[kernel-hardening mailing list](https://lore.kernel.org/kernel-hardening/)** — Kernel security hardening patches
+- **[Kconfig-hardened](https://github.com/a13xp0p0v/kconfig-hardened-check)** — Tool to check kernel security configuration
+- **[KSPP (Kernel Self Protection Project)](https://kspp.github.io/)** — Kernel self-protection initiative
+
+---
+
+## Distribution-Specific Resources
+
+### Arch Linux
+
+- **[Arch Wiki](https://wiki.archlinux.org/)** — Exceptional documentation for all Linux topics
+- **[Arch Linux Forums](https://bbs.archlinux.org/)** — Active community
+
+### Ubuntu
+
+- **[Ubuntu Wiki](https://wiki.ubuntu.com/)** — Ubuntu-specific documentation
+- **[Ask Ubuntu](https://askubuntu.com/)** — Q&A site (Stack Exchange)
+
+### RHEL / Fedora
+
+- **[Red Hat Documentation](https://docs.redhat.com/)** — Enterprise Linux docs
+- **[Fedora Wiki](https://fedoraproject.org/wiki/)** — Fedora project wiki
+
+### Gentoo
+
+- **[Gentoo Wiki](https://wiki.gentoo.org/)** — Excellent kernel and optimization docs
+- **[Gentoo Forums](https://forums.gentoo.org/)** — Technical discussions
+
 ---
 
 ## Related Chapters
