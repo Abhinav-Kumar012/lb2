@@ -448,6 +448,58 @@ ls /encrypted/private/
 - [Cryptography](../../security/cryptography.md) - Kernel crypto subsystem
 - [Secure Boot](../../security/secure-boot.md) - Boot-time integrity
 
+## Troubleshooting
+
+### Common Issues
+
+| Problem | Cause | Solution |
+|---------|-------|----------|
+| "Required key not available" | Key not in keyring | Add key with fscryptctl/fscrypt |
+| "Operation not permitted" | Not root or missing capability | Run as root or check capabilities |
+| "Invalid argument" | Wrong policy version | Check policy version matches tool |
+| "File exists" error | Directory already has policy | Cannot change policy on existing dir |
+| Slow performance | No AES-NI support | Check CPU flags for aes |
+| Encryption not working | Feature not enabled | Check CONFIG_FS_ENCRYPTION=y |
+
+### Debugging Commands
+
+```bash
+# Check if filesystem supports encryption
+dumpe2fs /dev/sda1 | grep -i encrypt
+# Should show: encryption
+
+# Check kernel config
+zcat /proc/config.gz | grep FS_ENCRYPTION
+CONFIG_FS_ENCRYPTION=y
+CONFIG_FS_ENCRYPTION_ALGS=y
+
+# View encryption policy on directory
+fscryptctl get_policy /encrypted_dir
+
+# Check if key is in keyring
+keyctl list @u
+
+# View kernel encryption messages
+dmesg | grep -i fscrypt
+
+# Test encryption performance
+fscryptctl benchmark
+```
+
+### Recovery Procedures
+
+```bash
+# If key is lost, data is unrecoverable by design
+# Prevention: backup key material securely
+
+# Export key for backup
+fscryptctl key_add /encrypted_dir --key-descriptor=mykey
+keyctl pipe $(keyctl search @u logon "fscrypt:mykey") > /backup/key.bin
+
+# Restore key from backup
+keyctl padd logon fscrypt:mykey @u < /backup/key.bin
+```
+
 ## Further Reading
 
 - [fscrypt design document](https://www.kernel.org/doc/html/latest/filesystems/fscrypt.html)
@@ -457,3 +509,12 @@ ls /encrypted/private/
 - [fscrypt v2 design (LWN.net)](https://lwn.net/Articles/791754/)
 - [Inline encryption (LWN.net)](https://lwn.net/Articles/806979/)
 - [Android file-based encryption](https://source.android.com/security/encryption/file-based)
+
+## References
+
+- [fscrypt kernel documentation](https://www.kernel.org/doc/html/latest/filesystems/fscrypt.html)
+- [fscrypt GitHub](https://github.com/google/fscrypt)
+- [fscryptctl repository](https://github.com/google/fscryptctl)
+- [LWN: ext4 encryption](https://lwn.net/Articles/639427/)
+- [LWN: fscrypt v2](https://lwn.net/Articles/791754/)
+- [Android FBE](https://source.android.com/security/encryption/file-based)
