@@ -352,6 +352,7 @@
 - [Benchmarking](./performance/benchmarking.md)
 - [Bpf Co Re](./performance/bpf-co-re.md)
 - [Cpu](./performance/cpu.md)
+- [Flame Graphs](./performance/flame-graphs.md)
 - [Io](./performance/io.md)
 - [Kernel Params](./performance/kernel-params.md)
 - [Kernel Profiling](./performance/kernel-profiling.md)

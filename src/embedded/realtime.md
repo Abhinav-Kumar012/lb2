@@ -483,6 +483,347 @@ out-of-tree patches required.
 | Running at priority 99 | Use 1–98; 99 is reserved for kernel |
 | Forgetting CPU isolation | Use `isolcpus` + `cpuset` cgroup |
 | Using `sleep()` in RT path | Use `clock_nanosleep()` with `TIMER_ABSTIME` |
+| Using condition variables | Signaling may lose wakeups in RT; prefer semaphores or eventfd |
+| Unbounded memory allocation | Use `MAP_POPULATE` + `mlockall()` to prefault pages |
+| File I/O in RT path | File operations can page-fault; use `MAP_POPULATE` or tmpfs |
+| futex contention | `futex(FUTEX_LOCK_PI)` supports priority inheritance |
+| Logging to stdout | `printf()` takes locks; use `write()` to pre-opened fd or ring buffer |
+
+---
+
+## 11. Latency Tracing and Debugging
+
+When cyclictest shows unexpected latency spikes, the kernel's tracing
+infrastructure helps identify the root cause.
+
+### 11.1 Preempt/IRQ Tracing
+
+```bash
+# Enable preemption-off tracing
+echo 1 > /sys/kernel/debug/tracing/tracing_on
+echo preemptirqsoff > /sys/kernel/debug/tracing/current_tracer
+echo 1 > /sys/kernel/debug/tracing/options/latency-format
+
+# Set latency threshold (trigger trace if preempt-off > 100μs)
+echo 100 > /sys/kernel/debug/tracing/tracing_thresh
+
+# View latency trace
+cat /sys/kernel/debug/tracing/trace
+# latency: 245 us, #6/6, CPU#1 | (M:preempt VP:0, KP:0, SP:0 HP:0 #P:4)
+# -----------------
+# | task: swapper/1-0 (uid:0 nice:0 policy:0 rt_prio:0)
+# -----------------
+#  => started at: __do_softirq
+#  => ended at:   run_timer_softirq
+#
+#                  _------=> CPU#
+#                / _-----=> irqs-off
+#               | / _----=> need-resched
+#               || / _---=> hardirq/softirq
+#               ||| / _--=> preempt-depth
+#               |||| /
+#  DELAY   |||||  TASK-PID   CPU#  TIMESTAMP   FUNCTION
+#     |    |||||     |         |       |          |
+#    45us  ....1     0-0       12345.678901: __do_softirq
+#   123us  ....1     0-0       12345.678946: run_timer_softirq
+```
+
+### 11.2 Hardware Latency Tracer (hwlatdetect)
+
+Some latency comes from hardware (SMI, firmware, power management).
+The `hwlatdetect` tool measures these non-software delays:
+
+```bash
+# Detect hardware latency (runs as kernel module)
+modprobe hwlat_detector
+
+# Or use the tracefs interface
+echo hwlat > /sys/kernel/debug/tracing/current_tracer
+echo 1000000 > /sys/kernel/debug/tracing/tracing_thresh  # 1ms threshold
+echo 1 > /sys/kernel/debug/tracing/tracing_on
+
+# View results
+cat /sys/kernel/debug/tracing/trace_pipe
+# hwlat: CPU#0  total: 234567  count: 3  timestamp: 12345.678901
+# hwlat: CPU#1  total: 123456  count: 1  timestamp: 12345.679901
+
+# Typical hardware latency sources:
+# - SMI (System Management Interrupts) from BIOS/firmware
+# - CPU frequency transitions (P-state changes)
+# - Deep C-state wakeups
+# - PCIe link power management
+```
+
+### 11.3 ftrace for RT Analysis
+
+```bash
+# Trace specific functions causing latency
+echo function_graph > /sys/kernel/debug/tracing/current_tracer
+echo do_IRQ > /sys/kernel/debug/tracing/set_graph_function
+echo 1 > /sys/kernel/debug/tracing/tracing_on
+
+# Trace scheduling decisions
+echo 1 > /sys/kernel/debug/tracing/events/sched/sched_switch/enable
+echo 1 > /sys/kernel/debug/tracing/events/sched/sched_wakeup/enable
+
+# Trace IRQ handlers
+echo 1 > /sys/kernel/debug/tracing/events/irq/irq_handler_entry/enable
+echo 1 > /sys/kernel/debug/tracing/events/irq/irq_handler_exit/enable
+
+# Trace preemption events
+echo 1 > /sys/kernel/debug/tracing/events/preemptirq/preempt_disable/enable
+echo 1 > /sys/kernel/debug/tracing/events/preemptirq/preempt_enable/enable
+```
+
+### 11.4 Latency Source Identification Flowchart
+
+```mermaid
+flowchart TD
+    SPIKE[Latency Spike Detected] --> HW{hwlatdetect shows
+hardware latency?}
+    HW -->|Yes| SMI[Check BIOS SMI settings,
+disable C-states]
+    HW -->|No| IRQ{preemptirqsoff tracer
+shows IRQ-off > threshold?}
+    IRQ -->|Yes| IRQSRC[Identify IRQ source:
+/proc/irq/N/handler]
+    IRQ -->|No| PREEMPT{preemptoff tracer
+shows preempt-off?}
+    PREEMPT -->|Yes| SPINLOCK[Find spinlock holder:
+lockdep + ftrace]
+    PREEMPT -->|No| SCHED{sched_switch shows
+scheduling delay?}
+    SCHED -->|Yes| PRIO[Check RT priority,
+CPU isolation, NUMA]
+    SCHED -->|No| UNKNOWN[Enable all tracers,
+run longer test]
+```
+
+---
+
+## 12. RT Application Patterns
+
+### 12.1 Watchdog Pattern
+
+An RT watchdog monitors system health without interfering with the
+control loop:
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <pthread.h>
+#include <sched.h>
+#include <sys/mman.h>
+#include <time.h>
+#include <signal.h>
+#include <stdatomic.h>
+
+#define RT_PERIOD_NS   1000000   /* 1 ms */
+#define WATCHDOG_MS    100       /* 100 ms timeout */
+
+static atomic_int rt_alive = 0;
+static volatile int running = 1;
+
+void *rt_control(void *arg) {
+    struct timespec next;
+    clock_gettime(CLOCK_MONOTONIC, &next);
+
+    while (running) {
+        /* Real-time work: read sensors, compute PID, write actuators */
+        /* ... */
+
+        atomic_store_explicit(&rt_alive, 1, memory_order_release);
+
+        next.tv_nsec += RT_PERIOD_NS;
+        while (next.tv_nsec >= 1000000000) {
+            next.tv_sec++;
+            next.tv_nsec -= 1000000000;
+        }
+        clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &next, NULL);
+    }
+    return NULL;
+}
+
+void *watchdog_thread(void *arg) {
+    while (running) {
+        usleep(WATCHDOG_MS * 1000);
+        if (!atomic_load_explicit(&rt_alive, memory_order_acquire)) {
+            fprintf(stderr, "WATCHDOG: RT thread missed deadline!\n");
+            /* Log, alert, or take corrective action */
+        }
+        atomic_store_explicit(&rt_alive, 0, memory_order_release);
+    }
+    return NULL;
+}
+```
+
+### 12.2 Lock-Free Ring Buffer IPC
+
+RT threads must never block on non-RT operations. Use lock-free ring
+buffers to communicate with non-RT logging/monitoring threads:
+
+```c
+#include <stdatomic.h>
+
+#define RING_SIZE 1024
+
+struct rt_event {
+    uint64_t timestamp_ns;
+    int32_t  sensor_value;
+    uint32_t sequence;
+};
+
+struct ring_buffer {
+    struct rt_event events[RING_SIZE];
+    atomic_uint head;  /* Written by RT thread */
+    atomic_uint tail;  /* Read by non-RT thread */
+};
+
+/* RT thread: non-blocking enqueue */
+static inline int ring_enqueue(struct ring_buffer *rb,
+                                const struct rt_event *evt) {
+    unsigned int head = atomic_load_explicit(&rb->head,
+                                             memory_order_relaxed);
+    unsigned int next = (head + 1) % RING_SIZE;
+    if (next == atomic_load_explicit(&rb->tail, memory_order_acquire))
+        return -1;  /* Full — drop event (acceptable for RT) */
+    rb->events[head] = *evt;
+    atomic_store_explicit(&rb->head, next, memory_order_release);
+    return 0;
+}
+
+/* Non-RT thread: dequeue */
+static inline int ring_dequeue(struct ring_buffer *rb,
+                                struct rt_event *evt) {
+    unsigned int tail = atomic_load_explicit(&rb->tail,
+                                             memory_order_relaxed);
+    if (tail == atomic_load_explicit(&rb->head, memory_order_acquire))
+        return -1;  /* Empty */
+    *evt = rb->events[tail];
+    atomic_store_explicit(&rb->tail, (tail + 1) % RING_SIZE,
+                          memory_order_release);
+    return 0;
+}
+```
+
+### 12.3 Signal-Driven Timer Pattern
+
+Use POSIX signals for event-driven RT triggers:
+
+```c
+#include <signal.h>
+#include <time.h>
+
+static timer_t rt_timer;
+
+void timer_handler(int sig, siginfo_t *si, void *uc) {
+    /* Signal context — keep it short! */
+    /* Read sensor, update state, etc. */
+}
+
+int setup_rt_timer(long period_ns) {
+    struct sigevent sev = {
+        .sigev_notify = SIGEV_THREAD,
+        .sigev_notify_function = (void (*)(sigval_t))timer_handler,
+        .sigev_value.sival_ptr = &rt_timer,
+    };
+    timer_create(CLOCK_MONOTONIC, &sev, &rt_timer);
+
+    struct itimerspec its = {
+        .it_interval = { .tv_sec = 0, .tv_nsec = period_ns },
+        .it_value    = { .tv_sec = 0, .tv_nsec = period_ns },
+    };
+    timer_settime(rt_timer, 0, &its, NULL);
+    return 0;
+}
+```
+
+---
+
+## 13. RT in the Kernel: Key Subsystems
+
+### 13.1 RT-Mutex (Priority Inheritance)
+
+The RT-mutex provides priority inheritance to prevent priority inversion.
+When a high-priority task blocks on a mutex held by a low-priority task,
+the holder's priority is temporarily boosted:
+
+```c
+#include <linux/rtmutex.h>
+
+DEFINE_RT_MUTEX(my_rt_mutex);
+
+/* Task A (priority 90) acquires mutex */
+rt_mutex_lock(&my_rt_mutex);
+/* ... critical section ... */
+rt_mutex_unlock(&my_rt_mutex);
+
+/* If Task B (priority 50) holds the mutex and Task A (priority 90)
+ * waits, Task B's priority is temporarily boosted to 90 to prevent
+ * a medium-priority task (priority 70) from preempting Task B.
+ */
+```
+
+Priority inheritance diagram:
+
+```mermaid
+sequenceDiagram
+    participant A as Task A (prio 90)
+    participant B as Task B (prio 50)
+    participant C as Task C (prio 70)
+
+    B->>B: Acquires rt_mutex
+    Note over B: Running at prio 50
+    A->>A: Tries rt_mutex, blocks
+    Note over B: Priority boosted to 90
+    C->>C: Tries to run (prio 70)
+    Note over C: Blocked! B has prio 90
+    B->>B: Releases rt_mutex
+    Note over B: Priority restored to 50
+    A->>A: Acquires rt_mutex
+    Note over A: Running at prio 90
+    C->>C: Can now run
+```
+
+### 13.2 Threaded IRQ Handlers
+
+On PREEMPT_RT, all IRQ handlers run as kernel threads, making them
+preemptible and schedulable:
+
+```c
+/* Request a threaded IRQ handler */
+static irqreturn_t my_hardirq(int irq, void *dev_id) {
+    /* Hardirq context: minimal work (acknowledge interrupt) */
+    return IRQ_WAKE_THREAD;
+}
+
+static irqreturn_t my_thread_fn(int irq, void *dev_id) {
+    /* Thread context: can sleep, preemptible, schedulable */
+    /* Process interrupt data, wake RT tasks */
+    return IRQ_HANDLED;
+}
+
+request_threaded_irq(irq, my_hardirq, my_thread_fn,
+                     IRQF_ONESHOT, "my-device", dev);
+```
+
+### 13.3 Local Locks
+
+Local locks (`local_lock_t`) replace `get_cpu_var`/`put_cpu_var` on
+PREEMPT_RT. They disable preemption only for the current CPU:
+
+```c
+#include <linux/local_lock.h>
+
+static DEFINE_LOCAL_LOCK(my_lock);
+static DEFINE_PER_CPU(int, my_data);
+
+void update_data(void) {
+    local_lock(&my_lock);
+    this_cpu_inc(my_data);
+    local_unlock(&my_lock);
+}
+```
 
 ---
 
