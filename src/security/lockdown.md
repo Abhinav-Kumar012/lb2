@@ -597,3 +597,4 @@ dmesg | grep -i lockdown
 - **Fedora wiki**: "SecureBoot" — Fedora's Secure Boot implementation details
 - **commit 5d48fe7**: "security: Add a locked-down LSM"
 - **OpenSSF**: "Linux Kernel Lockdown" — security hardening overview
+- **kernel.org**: "Lockdown" — LSM lockdown documentation
