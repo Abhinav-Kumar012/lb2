@@ -447,6 +447,359 @@ fio --name=test --filename=/mnt/file --rw=randread --bs=4k --runtime=30
 
 ---
 
+## Extended Attributes (Xattrs)
+
+SquashFS stores extended attributes in a dedicated table, shared across inodes to save space:
+
+```mermaid
+flowchart LR
+    subgraph XattrTable["Xattr Table"]
+        IDX["Xattr ID table<br/>(index by ID)"]
+        BLK["Xattr entry blocks<br/>(compressed)"]
+    end
+
+    subgraph XattrEntry["Xattr Entry"]
+        PREFIX["Type prefix<br/>(user/system/security)"]
+        NAME["Attribute name"]
+        VALUE["Attribute value"]
+    end
+
+    IDX --> BLK
+    BLK --> XattrEntry
+```
+
+Each inode that has xattrs stores an `xattr` field pointing into the xattr ID table. Multiple inodes sharing identical xattr sets point to the same ID, deduplicating storage.
+
+```bash
+# Create image with xattrs
+mksquashfs /source /image.squashfs -xattrs
+
+# Create image without xattrs (smaller)
+mksquashfs /source /image.squashfs -no-xattrs
+
+# Preserve specific xattr prefixes
+mksquashfs /source /image.squashfs -xattrs -xattrs-exclude '!user.*'
+
+# Check xattrs on mounted image
+getfattr -d /mnt/file
+# user.mime_type="text/plain"
+```
+
+The xattr table header stores the number of xattr IDs and the lookup table offset:
+
+```c
+/* On-disk xattr ID table header */
+struct squashfs_xattr_id_table {
+    __le64 xattr_table_start; /* Start of xattr entries */
+    __le32 xattr_ids;          /* Number of xattr IDs */
+    __le32 unused;             /* Reserved */
+};
+
+/* Per-xattr-ID entry */
+struct squashfs_xattr_id {
+    __le64 xattr;      /* Start of xattr block */
+    __le32 count;      /* Number of xattr entries */
+    __le32 size;       /* Total size of xattr block */
+};
+```
+
+## NFS Export Support
+
+SquashFS supports NFS file handle export, allowing squashfs-mounted directories to be shared over NFS:
+
+```c
+/* fs/squashfs/export.c */
+const struct export_operations squashfs_export_ops = {
+    .fh_to_dentry  = squashfs_fh_to_dentry,
+    .fh_to_parent  = squashfs_fh_to_parent,
+    .get_parent    = squashfs_get_parent,
+};
+```
+
+```bash
+# Create image with NFS export support
+mksquashfs /source /image.squashfs -exports
+
+# Export via NFS (in /etc/exports)
+# /mnt/squashfs 192.168.1.0/24(ro,fsid=0)
+```
+
+The export table is an array of inode-to-disk-location mappings:
+
+```c
+/* Export table entry: maps inode number to block + offset */
+struct squashfs_export_entry {
+    __le64 inode_number;     /* Inode number */
+    __le64 start;            /* Block start of inode */
+    __le32 offset;           /* Offset within block */
+};
+```
+
+## Pseudo File Support
+
+`mksquashfs` supports pseudo file definitions that allow injecting files with specific content, ownership, or permissions without them existing on the host:
+
+```bash
+# Pseudo file definition file (pseudo_defs.txt)
+# Format: path type [mode uid gid] content
+/dev/null  c  666 0 0
+/dev/zero  c  666 0 0
+/dev/random c  666 0 0
+/tmp       d  1777 0 0
+/etc/hostname f 0644 0 0 "myhost\n"
+
+# Use pseudo definitions
+mksquashfs /source /image.squashfs -pf pseudo_defs.txt
+
+# Dynamic pseudo files (generate at creation time)
+mksquashfs /source /image.squashfs -pf - <<'EOF'
+/etc/hostname f 0644 0 0 "$(hostname)\n"
+EOF
+```
+
+Pseudo file types:
+
+| Type | Description | Example |
+|------|-------------|---------|
+| `d` | Directory | `/tmp d 1777 0 0` |
+| `f` | Regular file | `/etc/hostname f 0644 0 0 "text"` |
+| `l` | Symlink | `/var/run l /run` |
+| `c` | Character device | `/dev/null c 666 0 0` |
+| `b` | Block device | `/dev/sda b 666 0 0` |
+| `p` | FIFO | `/dev/fifo p 666 0 0` |
+| `s` | Socket | `/dev/socket s 666 0 0` |
+| `e` | Empty entry (skip path) | `/tmp/e e` |
+
+## mksquashfs Internals
+
+`mksquashfs` builds the image in passes:
+
+```mermaid
+flowchart TD
+    A["Pass 1: Scan source tree"] --> B["Build inode + directory metadata"]
+    B --> C["Pass 2: Compress data blocks"]
+    C --> D["Pack small files into fragment blocks"]
+    D --> E["Compress inode table"]
+    E --> F["Compress directory table"]
+    F --> G["Build fragment index table"]
+    G --> H["Build xattr table"]
+    H --> I["Build ID table"]
+    I --> J["Write superblock + tables"]
+```
+
+Key internal parameters:
+
+```bash
+# Parallel compression threads
+mksquashfs /source /image.squashfs -processors $(nproc)
+
+# Memory limit for compression (prevents OOM on large images)
+mksquashfs /source /image.squashfs -mem 2G
+
+# Sort files by type for better compression
+# (puts similar files together in the image)
+mksquashfs /source /image.squashfs -sort sort_file.txt
+# sort_file.txt format:
+# 10 *.so        # High priority (early in image)
+# 5  *.py        # Medium priority
+# 1  *.txt       # Low priority (late in image)
+
+# Reproducible builds (deterministic output)
+mksquashfs /source /image.squashfs \
+    -all-time 0 \
+    -all-root \
+    -no-xattrs \
+    -noappend
+```
+
+## Read Path Internals
+
+When a process reads a file from SquashFS:
+
+```mermaid
+sequenceDiagram
+    participant App as Application
+    participant VFS as VFS
+    participant SQFS as SquashFS
+    participant Cache as Page Cache
+    participant Disk as Block Device
+
+    App->>VFS: read(fd, buf, count)
+    VFS->>SQFS: squashfs_read_iter()
+    SQFS->>Cache: Check page cache
+    alt Cache hit
+        Cache-->>SQFS: Cached pages
+    else Cache miss
+        SQFS->>Disk: Read compressed block
+        SQFS->>SQFS: Decompress block
+        SQFS->>Cache: Populate page cache
+    end
+    SQFS-->>VFS: Data pages
+    VFS-->>App: Copy to userspace
+```
+
+### Inode Lookup Path
+
+```c
+/* Simplified inode lookup */
+struct inode *squashfs_iget(struct super_block *sb, u64 ino)
+{
+    struct inode *inode;
+    long long start;
+    int offset;
+
+    /* Convert inode number to block + offset */
+    start = squashfs_ino_blk(ino);
+    offset = squashfs_ino_offset(ino);
+
+    /* Read compressed inode from the inode table */
+    inode = squashfs_read_inode(sb, ino, start, offset);
+    return inode;
+}
+```
+
+### Decompression Pipeline
+
+```c
+/* Each decompressor implements this interface */
+struct squashfs_decompressor {
+    void *(*init)(struct squashfs_sb_info *, void *);
+    void (*free)(void *);
+    int (*decompress)(void *, void **, unsigned int,
+                      void *, unsigned int, int);
+    int id;
+    char *name;
+    int supported;
+};
+
+/* Registered decompressors */
+static const struct squashfs_decompressor *decompressor[] = {
+    &squashfs_zstd_comp,
+    &squashfs_xz_comp,
+    &squashfs_lz4_comp,
+    &squashfs_lzo_comp,
+    &squashfs_gzip_comp,
+    NULL
+};
+```
+
+## Compression Algorithm Details
+
+### Per-Block Compression Headers
+
+Each data block in SquashFS has a header indicating whether the data is compressed:
+
+```c
+/* Block header (stored as part of the block size field) */
+/* If bit 24 is set: data is uncompressed */
+/* If bit 24 is clear: data is compressed */
+#define SQUASHFS_COMPRESSED_BIT    (1 << 24)
+#define SQUASHFS_COMPRESSED_SIZE(B) ((B) & ~SQUASHFS_COMPRESSED_BIT)
+```
+
+```bash
+# SquashFS falls back to storing uncompressed if compression
+# doesn't reduce size (e.g., already-compressed media files)
+
+# Force uncompressed blocks (for random-access workloads)
+mksquashfs /source /image.squashfs -noI -noD -noF
+# -noI: don't compress inodes
+# -noD: don't compress data blocks
+# -noF: don't compress fragments
+```
+
+### zstd Compression Tuning
+
+```bash
+# zstd compression levels (1-22, default 15 for mksquashfs)
+mksquashfs /source /image.squashfs -comp zstd -Xcompression-level 1   # Fast
+mksquashfs /source /image.squashfs -comp zstd -Xcompression-level 15  # Default
+mksquashfs /source /image.squashfs -comp zstd -Xcompression-level 22  # Max (slow)
+
+# xz compression levels (1-9, default 8)
+mksquashfs /source /image.squashfs -comp xz -Xcompression-level 9
+```
+
+## Security Considerations
+
+### Image Validation
+
+```bash
+# SquashFS has no built-in integrity verification
+# For untrusted images, use dm-verity:
+
+# 1. Generate verity hash tree
+veritysetup format /image.squashfs /image.hash
+
+# 2. Mount with dm-verity
+mount -o ro /dev/mapper/verity_device /mnt
+```
+
+### Mount Options for Security
+
+```bash
+# Read-only (always, since squashfs is read-only)
+mount -t squashfs /image.squashfs /mnt -o ro
+
+# nosuid - prevent SUID/SGID exploitation
+mount -t squashfs /image.squashfs /mnt -o nosuid
+
+# nodev - prevent device file access
+mount -t squashfs /image.squashfs /mnt -o nodev
+
+# noexec - prevent code execution
+mount -t squashfs /image.squashfs /mnt -o noexec
+
+# Typical secure mount for untrusted images
+mount -t squashfs /image.squashfs /mnt -o ro,nosuid,nodev,noexec
+```
+
+### UID/GID Handling
+
+```bash
+# SquashFS stores numeric UIDs/GIDs, not names
+# The ID table maps small indices to actual UIDs/GIDs
+
+# Create image with specific ownership
+mksquashfs /source /image.squashfs -all-root  # All files owned by root
+mksquashfs /source /image.squashfs -force-uid 1000
+mksquashfs /source /image.squashfs -force-gid 1000
+
+# The ID table deduplicates: if only root(0) and user(1000)
+# exist, the table has 2 entries (indices 0 and 1)
+```
+
+## Kernel Configuration
+
+```bash
+# View SquashFS module parameters
+modinfo squashfs
+
+# Module is built-in on most distros; check:
+grep SQUASHFS /boot/config-$(uname -r)
+# CONFIG_SQUASHFS=m or CONFIG_SQUASHFS=y
+# CONFIG_SQUASHFS_DECOMP_MULTI=y (per-CPU decompressors)
+# CONFIG_SQUASHFS_ZSTD=y
+# CONFIG_SQUASHFS_XZ=y
+# CONFIG_SQUASHFS_LZ4=y
+# CONFIG_SQUASHFS_LZO=y
+# CONFIG_SQUASHFS_GZIP=y
+```
+
+## SquashFS vs Other Read-Only Formats
+
+| Feature | SquashFS | EROFS | CramFS | ISO 9660 |
+|---------|----------|-------|--------|----------|
+| Compression | zstd/xz/lz4/lzo/gzip | lz4/lz4hc | zlib | None (external) |
+| Max file size | 2^64 | 2^36 | 16MB | 4GB |
+| Read-only | Yes | Yes | Yes | Yes |
+| Random access | Yes | Yes | Limited | Sequential |
+| Xattrs | Yes | Yes | No | ISO 9660 ext |
+| NFS export | Yes | Yes | No | No |
+| Primary use | Live CDs, containers, firmware | Android, containers | Embedded (legacy) | Optical media |
+
+---
+
 ## Source Files
 
 | File | Contents |
