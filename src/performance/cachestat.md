@@ -373,15 +373,6 @@ The syscall is available on x86_64, ARM64, and other architectures.
 
 ---
 
-## 10. Further Reading
-
-* **LWN: [The cachestat() syscall](https://lwn.net/Articles/936574/)**
-* **Brendan Gregg: [Cachestat](https://www.brendangregg.com/Perf/bcc_cachestat.html)**
-* **Documentation: `Documentation/filesystems/cachestat.rst`**
-* **man page: `man 2 cachestat`**
-* **Source: `mm/filemap.c` — `cachestat()` implementation**
-* **BPF tools: `tools/cachestat` in the bcc repository**
-
 ---
 
 ## 11. Cache Analysis Workflow

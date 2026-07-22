@@ -535,6 +535,89 @@ find . -name "*.py" -exec grep -l "import os" {} +
 find . -name "*.jpeg" -exec sh -c 'mv "$1" "${1%.jpeg}.jpg"' _ {} \;
 ```
 
+## find Limitations and Edge Cases
+
+### Race Conditions
+
+```bash
+# TOCTOU (Time of Check, Time of Use) race condition
+# find reads directory entries, then processes them
+# Files can appear/disappear between those steps
+
+# Safe pattern: check before action
+find . -name "*.tmp" -print0 | while IFS= read -r -d '' file; do
+    [ -f "$file" ] && rm "$file"  # Re-check existence
+done
+
+# find -delete is atomic enough for most uses
+find . -name "*.tmp" -delete
+```
+
+### Symlink Handling
+
+```bash
+# Default: follow symlinks for tests only (not traversal)
+find . -type l        # Find symlinks themselves
+find . -type f        # Does NOT follow symlinks during traversal
+
+# Follow symlinks during traversal
+find -L . -type f     # Follow symlinks (careful with loops!)
+
+# Find broken symlinks
+find . -type l ! -exec test -e {} \; -print
+
+# Find symlinks pointing to specific target
+find . -type l -lname "*.conf"
+```
+
+### Filesystem Boundaries
+
+```bash
+# Stay on same filesystem (don't cross mount points)
+find . -xdev -name "*.log"
+
+# Practical: search root without /proc, /sys
+find / -xdev -type f -name "*.conf" 2>/dev/null
+
+# Cross filesystem boundaries (default behavior)
+find / -name "*.conf" 2>/dev/null  # Searches all mounted filesystems
+```
+
+### Very Large Directory Trees
+
+```bash
+# Limit depth to avoid long searches
+find / -maxdepth 4 -name "*.conf" 2>/dev/null
+
+# Exclude expensive directories
+find / -path /proc -prune -o -path /sys -prune -o -name "*.conf" -print
+
+# Use -quit to stop after first match
+find . -name "config.txt" -print -quit
+
+# Parallel find for large trees
+find / -maxdepth 3 -type d -print0 | xargs -0 -P8 -I{} find {} -maxdepth 1 -name "*.conf"
+```
+
+### find vs locate vs fd
+
+```bash
+# find: real-time, flexible, slow on large trees
+find / -name "*.conf" 2>/dev/null    # ~30s on full system
+
+# locate: pre-built database, very fast, may be stale
+locate "*.conf"                        # ~10ms
+sudo updatedb                          # Update database
+
+# fd: modern, fast, respects .gitignore
+fd "pattern"                           # ~5ms, parallel by default
+
+# When to use each:
+# find  → scripts, portability, precise current state
+# locate → quick lookups, "where is that file?"
+# fd    → interactive use, codebases, developer workflows
+```
+
 ## References
 
 - [find(1) man page](https://man7.org/linux/man-pages/man1/find.1.html)
@@ -542,9 +625,11 @@ find . -name "*.jpeg" -exec sh -c 'mv "$1" "${1%.jpeg}.jpg"' _ {} \;
 - [fd documentation](https://github.com/sharkdp/fd/blob/master/README.md)
 - [locate(1) man page](https://man7.org/linux/man-pages/man1/locate.1.html)
 - [plocate](https://plocate.sesse.net/)
+- [POSIX find specification](https://pubs.opengroup.org/onlinepubs/9699919799/utilities/find.html)
 
 ## Related Topics
 
 - [grep](./grep.md) — searching file contents
 - [xargs](./xargs.md) — processing find output
+- [POSIX Shell](./posix-shell.md) — portable find usage
 - [Shell Overview](./overview.md) — shell fundamentals
