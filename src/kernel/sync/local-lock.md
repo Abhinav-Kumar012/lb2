@@ -565,6 +565,48 @@ The key advantage of `local_lock` over these alternatives is its **unified
 API** that works correctly across all kernel configurations without requiring
 `#ifdef CONFIG_PREEMPT_RT` conditionals.
 
+## FAQ
+
+### Can I use `local_lock` from NMI context?
+
+No. `local_lock` is not NMI-safe. On non-RT, `preempt_disable()` does not
+prevent NMI execution. On RT, the per-CPU `rt_mutex` can deadlock if the
+same lock is already held by the interrupted context. For NMI-safe per-CPU
+access, use dedicated NMI-safe mechanisms like `rcu_read_lock()` in NMI
+context, or access per-CPU data without locking (accepting potential
+inconsistency).
+
+### What happens if I use `local_lock` from the wrong context?
+
+On non-RT kernels, using `local_lock()` (process context) from interrupt
+context will trigger a lockdep warning about sleeping in atomic context.
+On RT kernels, using `local_lock_irqsave()` from process context will work
+but may cause unnecessary latency (IRQs are disabled briefly). Lockdep
+catches these misuse patterns at runtime.
+
+### Is `local_lock` the same as `get_cpu_var()`?
+
+Similar but not identical. `get_cpu_var()` returns a pointer to the per-CPU
+variable and disables preemption until `put_cpu_var()`. `local_lock` provides
+the same preemption-disable semantics but with a named lock that lockdep can
+track, and it degrades to an `rt_mutex` on RT kernels. `get_cpu_var()` does
+not have RT-compatible semantics.
+
+### How much memory does `local_lock` use?
+
+On non-RT: `local_lock_t` is an empty struct — 0 bytes (compiled out). On RT:
+`local_lock_t` is 8 bytes (a pointer to a per-CPU `rt_mutex`). The per-CPU
+`rt_mutex` itself is 32-64 bytes per CPU. For a system with 128 CPUs and 10
+local_locks, that's ~64 KB of memory for the rt_mutex structures.
+
+### Can I use `local_lock` to protect data accessed from multiple CPUs?
+
+No. `local_lock` only prevents concurrent access from the **same CPU** (via
+preemption disable or per-CPU rt_mutex). If data is shared across CPUs, you
+need a regular spinlock, mutex, or RCU. However, you can combine `local_lock`
+with other mechanisms: use `local_lock` for per-CPU updates and periodically
+aggregate across CPUs.
+
 ## See Also
 
 - [Mutex Design](./mutex-design.md) — sleeping lock design and optimistic spinning
