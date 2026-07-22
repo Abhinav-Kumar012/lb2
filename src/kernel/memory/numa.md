@@ -352,6 +352,189 @@ static int do_numa_page(struct vm_fault *vmf) {
 }
 ```
 
+## Debugging NUMA Issues
+
+### Common NUMA Problems
+
+| Problem | Cause | Solution |
+|---------|-------|----------|
+| Slow application | Remote memory access | Bind to local node |
+| Uneven memory usage | Bad NUMA policy | Use interleave or membind |
+| OOM on one node | Node exhaustion | Distribute across nodes |
+| High latency | Cross-node traffic | Pin processes to nodes |
+
+### Checking NUMA Status
+
+```bash
+# View NUMA topology
+numactl --hardware
+
+# Check per-node memory usage
+numastat
+
+# Example output:
+#                           node0           node1
+# numa_hit              12345678         9876543
+# numa_miss               234567         1234567
+# numa_foreign           1234567          234567
+# interleave_hit           1234           5678
+# local_node            10000000         8000000
+# other_node             2345678         1876543
+
+# Check NUMA balancing activity
+grep -i numa /proc/vmstat
+
+# Example output:
+# numa_hit 12345678
+# numa_miss 2345678
+# numa_foreign 2345678
+# numa_interleave 12345
+# numa_local 10000000
+# numa_other 2345678
+# numa_pte_updates 567890
+# numa_huge_pte_updates 12345
+# numa_hint_faults 89012
+# numa_hint_faults_local 67890
+# numa_pages_migrated 45678
+
+# Check process NUMA maps
+cat /proc/<pid>/numa_maps
+
+# Example output:
+# 00400000 default file=/usr/bin/myapp mapped=10 N0=5 N1=5
+# 7f1234000000 interleave:0-1 anon=1024 dirty=1024 N0=512 N1=512
+```
+
+### NUMA Performance Analysis
+
+```bash
+# Profile NUMA access patterns
+perf stat -e node-loads,node-load-misses,node-stores,node-store-misses \
+    -p $(pidof myapp) sleep 10
+
+# Example output:
+#  Performance counter stats for process 'myapp':
+#
+#         1,234,567      node-loads
+#           234,567      node-load-misses     # 19.00% of all LL-cache accesses
+#           678,901      node-stores
+#            67,890      node-store-misses    # 10.00% of all LL-cache accesses
+
+# Check NUMA balancing migrations
+cat /proc/vmstat | grep numa_pages_migrated
+
+# If high migration count:
+# - Process is bouncing between nodes
+# - Consider pinning to specific node
+# - Or use interleave policy
+```
+
+### NUMA Tracing
+
+```bash
+# Trace NUMA hinting faults
+echo 1 > /sys/kernel/debug/tracing/events/compaction/mm_compaction_begin/enable
+cat /sys/kernel/tracing/trace_pipe
+
+# Trace page migration
+echo 1 > /sys/kernel/debug/tracing/events/migrate/mm_migrate_pages/enable
+cat /sys/kernel/tracing/trace_pipe
+
+# Use bpftrace to trace NUMA balancing
+sudo bpftrace -e '
+    kprobe:do_numa_page { @[comm, kstack] = count(); }
+'
+
+# Trace NUMA migration decisions
+sudo bpftrace -e '
+    kprobe:should_numa_migrate_memory { @[comm] = count(); }
+'
+```
+
+## NUMA Performance Tuning
+
+### Database NUMA Tuning
+
+```bash
+# PostgreSQL: Bind to specific NUMA node
+numactl --cpunodebind=0 --membind=0 pg_ctl start
+
+# Or interleave for large shared buffers
+numactl --interleave=all pg_ctl start
+
+# MySQL: NUMA-aware configuration
+# my.cnf:
+# innodb_numa_interleave=1
+
+# Check database NUMA distribution
+cat /proc/$(pidof postgres)/numa_maps
+```
+
+### JVM NUMA Tuning
+
+```bash
+# Java NUMA-aware garbage collection
+java -XX:+UseNUMA -XX:+UseParallelGC -jar app.jar
+
+# G1GC with NUMA
+java -XX:+UseNUMA -XX:+UseG1GC -jar app.jar
+
+# Check JVM NUMA usage
+cat /proc/$(pidof java)/numa_maps
+```
+
+### HPC NUMA Tuning
+
+```bash
+# MPI with NUMA awareness
+mpirun --bind-to core --map-by ppr:1:node:pe=16 ./myapp
+
+# OpenMP with NUMA
+export OMP_PROC_BIND=spread
+export OMP_PLACES=cores
+./myapp
+
+# Check NUMA distribution of parallel processes
+for pid in $(pgrep myapp); do
+    echo "PID $pid:"
+    cat /proc/$pid/numa_maps | head -5
+done
+```
+
+### Kernel Compilation with NUMA
+
+```bash
+# Compile kernel with NUMA-aware allocation
+numactl --interleave=all make -j$(nproc)
+
+# Or bind to specific node
+numactl --cpunodebind=0 --membind=0 make -j$(nproc)
+```
+
+## NUMA Best Practices
+
+### General Guidelines
+
+1. **Profile first**: Use `numastat` and `perf` to understand NUMA behavior
+2. **Pin critical processes**: Use `numactl` to bind to local nodes
+3. **Interleave for large allocations**: Use `--interleave=all` for startup/init
+4. **Monitor migrations**: High `numa_pages_migrated` indicates poor placement
+5. **Use NUMA-aware allocators**: jemalloc, tcmalloc have NUMA support
+6. **Check BIOS settings**: NUMA may be disabled or misconfigured
+
+### Common Anti-Patterns
+
+```bash
+# Bad: Process accessing remote memory
+numactl --cpunodebind=0 --membind=1 ./myapp  # CPU on node 0, memory on node 1
+
+# Good: Process accessing local memory
+numactl --cpunodebind=0 --membind=0 ./myapp  # Both on node 0
+
+# Bad: Single-threaded app on multi-NUMA system
+# Good: Pin to single node or use interleave for parallel workloads
+```
+
 ## References
 
 - [NUMA documentation](https://www.kernel.org/doc/html/latest/vm/numa.html)
