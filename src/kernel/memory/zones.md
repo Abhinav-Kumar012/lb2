@@ -111,6 +111,16 @@ graph TB
 
 ZONE_MOVABLE was introduced to improve memory hotplug support and reduce fragmentation. Pages in this zone are expected to be movable (user pages, page cache), allowing the kernel to migrate them for compaction or hot-remove.
 
+### Zone Selection Summary
+
+| Zone | Address Range (x86-64) | GFP Flag | Primary Use |
+|------|----------------------|----------|-------------|
+| ZONE_DMA | 0-16 MB | `GFP_DMA` | Legacy ISA devices |
+| ZONE_DMA32 | 16 MB-4 GB | `GFP_DMA32` | 32-bit PCI devices |
+| ZONE_NORMAL | 4 GB+ | `GFP_KERNEL` | General kernel allocations |
+| ZONE_HIGHMEM | N/A (64-bit) | `GFP_HIGHMEM` | 32-bit only |
+| ZONE_MOVABLE | Variable | `__GFP_MOVABLE` | Hotplug, anti-fragmentation |
+
 ## Zone Structure
 
 ```c
@@ -168,6 +178,50 @@ struct per_cpu_pages {
 };
 ```
 
+**PCP allocation fast path:**
+
+```c
+/* mm/page_alloc.c — simplified */
+static struct page *rmqueue_pcplist(struct zone *zone, gfp_t gfp)
+{
+    struct per_cpu_pages *pcp;
+    struct list_head *list;
+    struct page *page;
+
+    /* Get per-CPU list */
+    pcp = this_cpu_ptr(zone->per_cpu_pageset);
+    list = &pcp->lists[MIGRATE_UNMOVABLE];  /* or MOVABLE, RECLAIMABLE */
+
+    /* Try per-CPU list first */
+    if (!list_empty(list)) {
+        page = list_first_entry(list, struct page, lru);
+        list_del(&page->lru);
+        pcp->count--;
+        return page;  /* Fast path — no zone lock needed */
+    }
+
+    /* Per-CPU list empty — refill from buddy */
+    return rmqueue_bulk(zone, order, pcp);
+}
+```
+
+### PCP Draining
+
+```bash
+# PCP lists are drained when:
+# 1. Count exceeds high watermark
+# 2. Memory pressure occurs
+# 3. CPU goes offline
+
+# Manually drain PCP lists (rarely needed)
+$ echo 1 > /proc/sys/vm/compact_memory
+
+# View PCP statistics
+$ cat /proc/vmstat | grep pcp
+nr_mlock 0
+# (PCP stats are per-CPU and not directly exposed)
+```
+
 ## Watermarks
 
 ### Three Watermark Levels
@@ -219,6 +273,46 @@ $ sysctl vm.min_free_kbytes
 vm.min_free_kbytes = 67584
 ```
 
+### Watermark Internals
+
+```c
+/* mm/page_alloc.c */
+static void __setup_per_zone_wmarks(void)
+{
+    unsigned long pages_min = min_free_kbytes >> (PAGE_SHIFT - 10);
+    unsigned long lowmem_pages = 0;
+    struct zone *zone;
+    unsigned long flags;
+
+    for_each_zone(zone) {
+        if (!managed_zone(zone))
+            continue;
+
+        /* Calculate proportional watermark */
+        zone->_watermark[WMARK_MIN] = ...;
+        zone->_watermark[WMARK_LOW] = ... + (zone->_watermark[WMARK_MIN] * watermark_scale_factor / 10000);
+        zone->_watermark[WMARK_HIGH] = ... + (zone->_watermark[WMARK_MIN] * watermark_scale_factor / 10000) * 2;
+    }
+}
+```
+
+### Watermark Boost
+
+The `watermark_boost_factor` temporarily increases watermarks when fragmentation is detected:
+
+```bash
+# Default: 15000 (150% boost)
+$ sysctl vm.watermark_boost_factor
+vm.watermark_boost_factor = 15000
+
+# When boosted, the effective watermarks are:
+# min_boosted = min * boost_factor / 10000
+# This triggers more aggressive reclaim to reduce fragmentation
+
+# Disable watermark boosting
+$ echo 0 > /proc/sys/vm/watermark_boost_factor
+```
+
 ## GFP Flags and Zone Selection
 
 ### GFP (Get Free Pages) Flags
@@ -244,6 +338,20 @@ vm.min_free_kbytes = 67584
 #define GFP_HIGHUSER    (__GFP_RECLAIM | __GFP_IO | __GFP_FS | __GFP_HARDWALL | __GFP_HIGHMEM)
 ```
 
+### GFP Flag Reference
+
+| Flag | Can Sleep | Can Reclaim | Can I/O | Zone | Use Case |
+|------|-----------|-------------|---------|------|----------|
+| `GFP_KERNEL` | ✅ | ✅ | ✅ | Normal | Process context |
+| `GFP_ATOMIC` | ❌ | ❌ | ❌ | Any | Interrupt context |
+| `GFP_DMA` | ❌ | ❌ | ❌ | DMA | ISA DMA devices |
+| `GFP_DMA32` | ❌ | ❌ | ❌ | DMA32 | 32-bit DMA devices |
+| `GFP_HIGHUSER` | ✅ | ✅ | ✅ | Highmem | User pages (32-bit) |
+| `GFP_NOIO` | ✅ | ✅ | ❌ | Normal | I/O paths (avoid recursion) |
+| `GFP_NOFS` | ✅ | ✅ | ❌ | Normal | FS paths (avoid recursion) |
+| `GFP_NOWAIT` | ❌ | ❌ | ❌ | Any | Best-effort, no reclaim |
+| `GFP_ZERO` | — | — | — | Any | Zero the allocated page |
+
 ### Zone Selection Flow
 
 ```mermaid
@@ -267,6 +375,39 @@ flowchart TD
     L --> M{Allocation succeeds?}
     M -->|Yes| I
     M -->|No| N[Allocation fails / OOM]
+```
+
+### Zone Fallback Order
+
+When a zone can't satisfy an allocation, the kernel falls back to other zones:
+
+```mermaid
+graph TD
+    subgraph "Fallback Order (GFP_KERNEL)"
+        A["Preferred: ZONE_NORMAL"] --> B["Fallback: ZONE_DMA32"]
+        B --> C["Fallback: ZONE_DMA"]
+    end
+    subgraph "Fallback Order (GFP_HIGHUSER)"
+        D["Preferred: ZONE_HIGHMEM"] --> E["Fallback: ZONE_NORMAL"]
+        E --> F["Fallback: ZONE_DMA32"]
+        F --> G["Fallback: ZONE_DMA"]
+    end
+```
+
+The fallback order is defined by the `zonelist` structure, which is built at boot time based on the system's NUMA topology and zone layout.
+
+### Lowmem Reserve
+
+To prevent lower zones from being exhausted by higher-zone fallbacks, the kernel maintains **lowmem reserves**:
+
+```c
+/* Each zone reserves pages that cannot be used by higher-zone fallbacks */
+/* This ensures DMA allocations can always succeed */
+
+$ cat /proc/zoneinfo | grep protection
+        protection: (0, 2045, 3852, 3852, 3852)
+# (DMA: 0, DMA32: 2045, Normal: 3852, Movable: 3852, Highmem: 3852)
+# Values in pages — DMA32 reserves 2045 pages from Normal
 ```
 
 ## /proc/zoneinfo
@@ -319,29 +460,129 @@ Node 0, zone   Normal
 |-------|---------|
 | `free` | Current free pages |
 | `min/low/high` | Watermark levels |
+| `boost` | Current watermark boost factor |
 | `spanned` | Total pages (including holes in physical address space) |
 | `present` | Physical pages actually present |
 | `managed` | Pages managed by the buddy allocator |
 | `protection` | Lowmem reserve from other zones |
 
-## Zone Allocation Fallback
+### Analyzing /proc/zoneinfo
 
-When a zone can't satisfy an allocation, the kernel falls back to other zones:
+```bash
+# Check zone health
+$ awk '/^Node/ { zone=$4 } /pages free/ { free=$3 } /high/ { high=$3 } 
+       /min/ { min=$3 } END { 
+           if (free < min) print "CRITICAL: " zone " below minimum watermark"
+           else if (free < high) print "WARNING: " zone " below high watermark"
+           else print "OK: " zone
+       }' /proc/zoneinfo
+
+# Monitor zone free pages over time
+$ watch -n1 'cat /proc/zoneinfo | grep -E "^Node|pages free|min:|low:|high:"'
+
+# Check if ZONE_DMA is being depleted
+$ cat /proc/zoneinfo | awk '/zone.*DMA$/{p=1} p && /pages free/{print $3; exit}'
+```
+
+## NUMA and Zones
+
+On NUMA systems, each NUMA node has its own set of zones:
+
+```bash
+# View NUMA topology
+$ numactl --hardware
+available: 2 nodes (0-1)
+node 0 cpus: 0 1 2 3 4 5 6 7
+node 0 size: 32768 MB
+node 0 free: 16384 MB
+node 1 cpus: 8 9 10 11 12 13 14 15
+node 1 size: 32768 MB
+node 1 free: 16384 MB
+
+# Each node has its own zones
+$ cat /proc/zoneinfo | grep "Node"
+Node 0, zone      DMA
+Node 0, zone    DMA32
+Node 0, zone   Normal
+Node 1, zone   Normal
+```
+
+### NUMA Zone Interaction
+
+```mermaid
+graph TB
+    subgraph "NUMA Node 0"
+        N0_DMA["Zone DMA (0-16MB)"]
+        N0_DMA32["Zone DMA32 (16MB-4GB)"]
+        N0_NORMAL["Zone Normal (4GB+)"]
+    end
+    subgraph "NUMA Node 1"
+        N1_NORMAL["Zone Normal"]
+    end
+    N0_DMA --> N0_DMA32 --> N0_NORMAL --> N1_NORMAL
+```
+
+### NUMA-Aware Allocation
+
+```c
+/* Allocate from specific NUMA node */
+struct page *alloc_pages_node(int nid, gfp_t gfp, unsigned int order);
+
+/* Allocate from current node (preferred) */
+struct page *alloc_pages(gfp_t gfp, unsigned int order);
+
+/* Allocate from preferred node with fallback */
+struct page *alloc_pages_preferred(gfp_t gfp, unsigned int order, int preferred_nid);
+```
+
+```bash
+# View per-node allocation statistics
+$ cat /proc/vmstat | grep numa
+numa_hit 12345678
+numa_miss 0
+numa_foreign 0
+numa_interleave 1234
+numa_local 12345678
+numa_other 0
+
+# High numa_miss indicates cross-node allocations (performance penalty)
+```
+
+## Zone Compaction
+
+Memory compaction operates within zones to reduce fragmentation:
+
+```bash
+# Trigger manual compaction
+$ echo 1 > /proc/sys/vm/compact_memory
+
+# View compaction statistics
+$ cat /proc/vmstat | grep compact
+compact_success 1234
+compact_fail 56
+compact_stall 0
+compact_skip 789
+compact_migrate_scanned 1234567
+compact_free_scanned 2345678
+
+# Compaction works by:
+# 1. Scanning from the bottom of the zone for free pages
+# 2. Scanning from the top of the zone for movable pages
+# 3. Migrating movable pages to consolidate free space
+```
+
+### Compaction Flow
 
 ```mermaid
 graph TD
-    subgraph "Fallback Order (GFP_KERNEL)"
-        A["Preferred: ZONE_NORMAL"] --> B["Fallback: ZONE_DMA32"]
-        B --> C["Fallback: ZONE_DMA"]
-    end
-    subgraph "Fallback Order (GFP_HIGHUSER)"
-        D["Preferred: ZONE_HIGHMEM"] --> E["Fallback: ZONE_NORMAL"]
-        E --> F["Fallback: ZONE_DMA32"]
-        F --> G["Fallback: ZONE_DMA"]
-    end
+    A[Large allocation fails] --> B[Zone compaction]
+    B --> C[Scan from bottom: find free pages]
+    B --> D[Scan from top: find movable pages]
+    C --> E[Create free block]
+    D --> F[Migrate movable pages]
+    F --> G[Consolidate free space]
+    E --> H[Retry allocation]
 ```
-
-The fallback order is defined by the `zonelist` structure, which is built at boot time based on the system's NUMA topology and zone layout.
 
 ## Implementation Details
 
@@ -404,6 +645,65 @@ struct page *__alloc_pages(gfp_t gfp, unsigned int order, int preferred_nid,
     }
     return NULL;  /* All zones exhausted */
 }
+```
+
+### Buddy Allocator Internals
+
+```mermaid
+graph TD
+    A[alloc_pages(order=2)] --> B[Check free_area[2].free_list]
+    B -->|Found| C[Remove from list, return page]
+    B -->|Not found| D[Split order-3 block]
+    D --> E[2 order-2 blocks]
+    E --> F[Return one, put other in free_area[2]]
+    D -->|No order-3| G[Split order-4 block]
+    G --> H[Continue splitting until order-2 available]
+    H -->|No blocks| I[Reclaim / compaction / OOM]
+```
+
+## Zone-Specific Diagnostics
+
+### Zone Pressure Analysis
+
+```bash
+# Calculate zone pressure
+#!/bin/bash
+while read -r line; do
+    if [[ $line =~ "Node" ]]; then
+        zone=$(echo $line | awk '{print $4}')
+    fi
+    if [[ $line =~ "pages free" ]]; then
+        free=$(echo $line | awk '{print $3}')
+    fi
+    if [[ $line =~ "min" ]]; then
+        min=$(echo $line | awk '{print $3}')
+        pct=$((free * 100 / min))
+        if [ $pct -lt 100 ]; then
+            echo "CRITICAL: $zone free=$free min=$min (${pct}%)"
+        elif [ $pct -lt 200 ]; then
+            echo "WARNING:  $zone free=$free min=$min (${pct}%)"
+        else
+            echo "OK:       $zone free=$free min=$min (${pct}%)"
+        fi
+    fi
+done < /proc/zoneinfo
+```
+
+### Zone Fragmentation Index
+
+```bash
+# View fragmentation index per zone
+$ cat /proc/buddyinfo
+Node 0, zone      DMA      1      1      0      1      1      0      1      0      1      1      3
+Node 0, zone    DMA32    234    156     89     45     23     12      6      3      1      0      0
+Node 0, zone   Normal  12345   8901   5678   3456   1234    567    234    123     56     12      3
+
+# Columns: order 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10
+# Values: number of free blocks of each order
+
+# Calculate fragmentation
+# High order-0 with few high-order blocks = fragmented
+# Many high-order blocks = healthy
 ```
 
 ## References
