@@ -688,3 +688,32 @@ brotli_types text/plain text/css application/json application/javascript;
 curl -H "Accept-Encoding: gzip, deflate, br" -v https://example.com/ 2>&1 | grep -i content-encoding
 # < content-encoding: br
 ```
+
+## HTTP/2 Server Configuration
+
+### Nginx HTTP/2
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name example.com;
+
+    ssl_certificate /etc/letsencrypt/live/example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/example.com/privkey.pem;
+
+    # gRPC proxy
+    location /mypackage.MyService/ {
+        grpc_pass grpc://backend:50051;
+    }
+}
+```
+
+### Caddy (Automatic HTTPS)
+
+```
+example.com {
+    reverse_proxy backend:8080
+    # HTTP/3 enabled by default
+    # TLS automatic via Let's Encrypt
+}
+```
