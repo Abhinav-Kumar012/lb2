@@ -285,37 +285,6 @@ cannot match.
 
 ---
 
-## 11. Quick Reference Cheat Sheet
-
-```bash
-# CPU
-vmstat 1                        # system-wide CPU/memory
-mpstat -P ALL 1                 # per-CPU
-pidstat 1                       # per-process CPU
-sar -u 1 5                      # historical-aware CPU
-
-# Memory
-vmstat -s                       # memory summary
-sar -r 1                        # memory utilisation over time
-free -h                         # quick snapshot
-
-# Disk
-iostat -xz 1                    # per-device I/O
-pidstat -d 1                    # per-process disk I/O
-dstat --disk-util 1             # utilisation bar
-
-# Network
-sar -n DEV 1                    # interface throughput
-sar -n SOCK 1                   # socket counts
-dstat -n 1                      # live net throughput
-
-# Historical
-sar -A -f /var/log/sa/sa$(date +%d)   # full report for today
-sadf -g -- -A > today.svg             # SVG graph
-```
-
----
-
 ## 12. The USE Method
 
 Brendan Gregg's **USE Method** (Utilization, Saturation, Errors) is a systematic
