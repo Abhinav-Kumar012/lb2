@@ -42,6 +42,20 @@ In kernels with LSM stacking support (5.x+), Yama can be enabled alongside other
 #   3 - No ptrace at all (fully disabled)
 ```
 
+### Persisting Configuration
+
+```bash
+# Temporary (until reboot)
+echo 1 > /proc/sys/kernel/yama/ptrace_scope
+
+# Permanent
+echo "kernel.yama.ptrace_scope = 1" >> /etc/sysctl.d/10-ptrace.conf
+sysctl -p /etc/sysctl.d/10-ptrace.conf
+
+# Or via systemd
+systemctl restart systemd-sysctl
+```
+
 ## Ptrace Restrictions
 
 ### Scope 0: Classic (Unrestricted)
@@ -82,6 +96,15 @@ echo 3 > /proc/sys/kernel/yama/ptrace_scope
 ```
 
 No process can ptrace any other process, regardless of capabilities. This is the most restrictive setting and may break debugging tools entirely.
+
+### Scope Comparison
+
+| Scope | Parent→Child | Same User | Root (CAP_SYS_PTRACE) | Any Process |
+|-------|-------------|-----------|----------------------|-------------|
+| 0 | ✓ | ✓ | ✓ | ✓ |
+| 1 | ✓ | ✗ | ✓ | ✗ |
+| 2 | ✗ | ✗ | ✓ | ✗ |
+| 3 | ✗ | ✗ | ✗ | ✗ |
 
 ## PR_SET_PTRACER
 
@@ -214,6 +237,15 @@ This extends protection to regular files in sticky directories (like `/tmp`):
 ```
 
 Similar protections for named pipes in shared directories.
+
+### Link Protection Summary
+
+| Parameter | Default | Protects Against |
+|-----------|---------|-----------------|
+| `protected_symlinks` | 1 | Symlink attacks in /tmp |
+| `protected_hardlinks` | 1 | Hardlink to setuid binaries |
+| `protected_regular` | 1 | Regular file attacks in /tmp |
+| `protected_fifos` | 1 | FIFO attacks in /tmp |
 
 ## Implementation
 
@@ -357,6 +389,16 @@ echo 2 > /proc/sys/kernel/yama/ptrace_scope
 
 This requires root privileges for any ptrace operation, which is appropriate for production servers.
 
+### Production Recommendations
+
+| Environment | Recommended Scope | Rationale |
+|-------------|-------------------|-----------|
+| Development | 0 or 1 | Debugging flexibility |
+| Desktop | 1 | Balance security and usability |
+| Server | 2 | Maximum security for production |
+| Container | 3 | Prevent container escape |
+| Embedded | 3 | Minimal attack surface |
+
 ## Limitations
 
 1. **Not a complete MAC system**: Yama only covers ptrace and link protections. It doesn't restrict file access, network access, or other operations.
@@ -374,6 +416,14 @@ Yama and seccomp are complementary:
 - **Yama**: restricts who can ptrace the process
 
 Using both together provides defense in depth.
+
+```bash
+# seccomp: block ptrace syscall entirely
+# (for processes that never need to be debugged)
+# In code:
+prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);
+seccomp(SECCOMP_SET_MODE_FILTER, 0, &prog);
+```
 
 ### Ptrace scopes in systemd
 
@@ -402,6 +452,10 @@ When Yama denies a ptrace operation, it generates an audit log:
 ausearch -m AVC -ts recent | grep yama
 # Or
 dmesg | grep -i yama
+
+# Enable Yama audit logging
+echo 1 > /proc/sys/kernel/yama/ptrace_scope
+# Denials will appear in dmesg
 ```
 
 ### Testing Ptrace Scope
@@ -415,6 +469,9 @@ strace -p <pid>  # Should fail under scope 1+
 
 # Test: strace a child process (should work under scope 1)
 strace ls /tmp
+
+# Test: strace with root (should work under scope 2)
+sudo strace -p <pid>
 ```
 
 ### PR_SET_PTRACER Testing
@@ -436,6 +493,22 @@ int main(void) {
     pause();
     return 0;
 }
+```
+
+### Common Error Messages
+
+```bash
+# "ptrace: Operation not permitted"
+# Cause: Yama scope prevents ptrace
+# Fix: Check scope, adjust or use PR_SET_PTRACER
+
+# "strace: attach: ptrace(PTRACE_SEIZE, pid): Operation not permitted"
+# Cause: Scope 2+, not root
+# Fix: Run as root or use scope 1
+
+# "Cannot attach to process: Operation not permitted"
+# Cause: Yama or seccomp blocking
+# Fix: Check both Yama scope and seccomp filters
 ```
 
 ## Source Files
