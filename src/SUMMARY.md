@@ -156,6 +156,7 @@
 # Kernel
 
 - [Apis](./kernel/apis.md)
+- [Io Uring Async](./kernel/apis/io-uring-async.md)
 - [Io Mmu](./kernel/arch/io-mmu.md)
 - [Riscv](./kernel/arch/riscv.md)
 - [Architecture](./kernel/architecture.md)
@@ -175,6 +176,7 @@
 - [System Calls](./kernel/core/processes/system-calls.md)
 - [Data Structures](./kernel/data-structures.md)
 - [Crash Dump](./kernel/debugging/crash-dump.md)
+- [Kunit](./kernel/debugging/kunit.md)
 - [Acpi](./kernel/drivers/acpi.md)
 - [Block Drivers](./kernel/drivers/block-drivers.md)
 - [Char Devices](./kernel/drivers/char-devices.md)
@@ -297,6 +299,7 @@
 - [Scheduler](./kernel/processes/scheduler.md)
 - [Signals](./kernel/processes/signals.md)
 - [Task Struct](./kernel/processes/task-struct.md)
+- [Psi](./kernel/processes/psi.md)
 - [Atomic Ops](./kernel/sync/atomic-ops.md)
 - [Cmpxchg](./kernel/sync/cmpxchg.md)
 - [Completions](./kernel/sync/completions.md)
@@ -306,6 +309,7 @@
 - [Lock Ordering](./kernel/sync/lock-ordering.md)
 - [Lockdep](./kernel/sync/lockdep.md)
 - [Lockref](./kernel/sync/lockref.md)
+- [Hrtimers](./kernel/sync/hrtimers.md)
 - [Mutexes](./kernel/sync/mutexes.md)
 - [Overview](./kernel/sync/overview.md)
 - [Per Cpu](./kernel/sync/per-cpu.md)
@@ -430,6 +434,7 @@
 
 - [Block Io](./storage/block-io.md)
 - [Ceph](./storage/ceph.md)
+- [Infiniband](./storage/infiniband.md)
 - [Iscsi](./storage/iscsi.md)
 - [Lvm Deep Dive](./storage/lvm-deep-dive.md)
 - [Multipath](./storage/multipath.md)

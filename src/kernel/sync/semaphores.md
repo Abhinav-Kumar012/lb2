@@ -498,8 +498,177 @@ out:
 - [Dijkstra's original paper](https://www.cs.utexas.edu/users/EWD/transcriptions/EWD01xx/EWD123.html) — The original semaphores concept
 - [The Little Book of Semaphores](https://greenteapress.com/wp/semaphores/) — Allen Downey's free book
 
+## Semaphore Implementation Details
+
+### The `__down()` Slow Path
+
+When the semaphore count is 0, the task enters the slow path:
+
+```c
+/* Simplified from kernel/locking/semaphore.c */
+static noinline void __sched __down(struct semaphore *sem)
+{
+    struct semaphore_waiter waiter;
+
+    /* Add ourselves to the wait queue (FIFO) */
+    list_add_tail(&waiter.list, &sem->wait_list);
+    waiter.task = current;
+    waiter.up = false;
+
+    for (;;) {
+        /* Check for signals if interruptible */
+        if (signal_pending(current))
+            goto interrupted;
+
+        /* Set task state and release lock */
+        __set_current_state(TASK_UNINTERRUPTIBLE);
+        raw_spin_unlock_irq(&sem->lock);
+
+        /* Sleep until woken by up() */
+        schedule();
+
+        /* Re-acquire lock and check if we were woken */
+        raw_spin_lock_irq(&sem->lock);
+        if (waiter.up)
+            return;
+    }
+
+interrupted:
+    list_del(&waiter.list);
+    raw_spin_unlock_irq(&sem->lock);
+}
+```
+
+### The `__up()` Slow Path
+
+When there are waiters, `up()` wakes the first one:
+
+```c
+static noinline void __sched __up(struct semaphore *sem)
+{
+    struct semaphore_waiter *waiter;
+
+    /* Get first waiter from FIFO queue */
+    waiter = list_first_entry(&sem->wait_list,
+                              struct semaphore_waiter, list);
+    list_del(&waiter->list);
+    waiter->up = true;
+
+    /* Wake the waiter */
+    wake_up_process(waiter->task);
+}
+```
+
+### Semaphore State Machine
+
+```mermaid
+stateDiagram-v2
+    [*] --> Free: sema_init(N)
+    Free --> Free: down() [count > 0]
+    Free --> Waiting: down() [count = 0]
+    Waiting --> Waiting: more tasks added
+    Waiting --> Free: up() wakes first waiter
+    Free --> Free: up() [no waiters, count++]
+    note right of Waiting: Waiters queued FIFO
+    note right of Free: Count tracks available resources
+```
+
+## Real-World Semaphore Usage in the Kernel
+
+### TTY Layer
+
+The TTY subsystem uses semaphores for line discipline locking:
+
+```c
+/* drivers/tty/tty_io.c */
+struct tty_struct {
+    struct semaphore ldisc_sem;  /* Line discipline semaphore */
+    /* ... */
+};
+
+/* Acquire line discipline */
+void tty_ldisc_lock(struct tty_struct *tty)
+{
+    down(&tty->ldisc_sem);
+}
+```
+
+### framebuffer Console
+
+The framebuffer subsystem uses semaphores for mode setting:
+
+```c
+/* drivers/video/fbdev/core/fbmem.c */
+static struct semaphore registration_lock;
+
+/* Protect framebuffer registration */
+static int do_register_framebuffer(struct fb_info *fb_info)
+{
+    down(&registration_lock);
+    /* ... register framebuffer ... */
+    up(&registration_lock);
+}
+```
+
+### VFS (Virtual File System)
+
+Some VFS operations use semaphores for inode protection:
+
+```c
+/* include/linux/fs.h */
+struct inode {
+    struct semaphore i_sem;  /* inode semaphore */
+    /* ... */
+};
+```
+
+## Semaphore Performance Characteristics
+
+| Operation | Fast Path | Slow Path (contention) |
+|-----------|-----------|------------------------|
+| `down()` | ~20-50ns | ~1-5μs (context switch) |
+| `up()` | ~20-50ns | ~1-3μs (wake up task) |
+| `down_trylock()` | ~15-30ns | N/A (returns immediately) |
+| `down_timeout()` | ~20-50ns | Depends on timeout |
+
+Compare with mutex fast path (~10-20ns) and spinlock (~5-10ns).
+
+## Semaphore vs spinlock_t
+
+| Feature | Semaphore | spinlock_t |
+|---------|-----------|------------|
+| Sleep in CS | Yes | No (BUG) |
+| Preemption | Enabled (sleeping) | Disabled |
+| IRQ context | No | Yes |
+| Performance | Slower (context switch) | Faster (busy-wait) |
+| Use when | Long critical section | Short critical section |
+| Ownership | None | Implicit (same CPU) |
+
+## Advanced Pattern: Counting Semaphore as Barrier
+
+Use a counting semaphore to wait for N events:
+
+```c
+static DECLARE_SEM(barrier_sem);  /* Initialized to 0 */
+
+/* Worker thread signals completion */
+void worker_done(void) {
+    up(&barrier_sem);  /* Signal one completion */
+}
+
+/* Coordinator waits for all workers */
+void wait_for_workers(int num_workers) {
+    for (int i = 0; i < num_workers; i++) {
+        down(&barrier_sem);  /* Wait for each completion */
+    }
+    /* All workers done */
+}
+```
+
 ## Related Topics
 
 - [Read-Write Locks](./rwlocks.md) — Reader-writer synchronization
 - [Completion Variables](./completions.md) — Signaling primitive
 - [Per-CPU Variables](./per-cpu.md) — Lock-free per-CPU data
+- [Mutexes](./mutexes.md) — Preferred for mutual exclusion
+- [Spinlocks](./spinlocks.md) — Non-sleeping locks for IRQ context
