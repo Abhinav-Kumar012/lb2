@@ -495,9 +495,207 @@ int create_secure_socket(const char *path) {
 - [SCM_RIGHTS tutorial](https://blog.cloudflare.com/know-your-scm_rights/)
 - [Beej's Guide to Unix IPC](https://beej.us/guide/bgipc/)
 
+## Advanced Patterns
+
+### Socket Activation (systemd)
+
+systemd can listen on Unix sockets and pass them to services on demand:
+
+```ini
+# /etc/systemd/system/my-service.socket
+[Unit]
+Description=My Service Socket
+
+[Socket]
+ListenStream=/run/my-service.sock
+Accept=no
+
+[Install]
+WantedBy=sockets.target
+```
+
+```ini
+# /etc/systemd/system/my-service.service
+[Unit]
+Description=My Service
+Requires=my-service.socket
+
+[Service]
+ExecStart=/usr/bin/my-service
+```
+
+```bash
+# Enable socket activation
+systemctl enable my-service.socket
+systemctl start my-service.socket
+
+# The service starts automatically when a client connects
+curl --unix-socket /run/my-service.sock http://localhost/
+```
+
+### Multiplexed Server with SCM_RIGHTS
+
+A privileged broker passes file descriptors to unprivileged workers:
+
+```c
+/* Broker: accepts connections, passes to workers */
+void broker_loop(int listen_fd, int worker_fd) {
+    while (1) {
+        int client = accept(listen_fd, NULL, NULL);
+        if (client < 0) continue;
+
+        /* Pass client fd to worker */
+        send_fd(worker_fd, client);
+
+        /* Close our copy */
+        close(client);
+    }
+}
+
+/* Worker: receives fds from broker, processes requests */
+void worker_loop(int broker_fd) {
+    while (1) {
+        int client = recv_fd(broker_fd);
+        if (client < 0) continue;
+
+        /* Process client request */
+        char buf[4096];
+        ssize_t n = read(client, buf, sizeof(buf));
+        if (n > 0) {
+            /* Handle request */
+            write(client, "OK", 2);
+        }
+        close(client);
+    }
+}
+```
+
+### Unix Socket as PID File Lock
+
+Use abstract sockets as a reliable PID-based lock:
+
+```c
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <unistd.h>
+#include <stdio.h>
+#include <errno.h>
+
+#define LOCK_NAME "\0my-daemon-lock"
+
+int acquire_lock(void) {
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0) return -1;
+
+    struct sockaddr_un addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sun_family = AF_UNIX;
+    memcpy(addr.sun_path, LOCK_NAME, sizeof(LOCK_NAME) - 1);
+
+    socklen_t len = offsetof(struct sockaddr_un, sun_path) +
+                    sizeof(LOCK_NAME) - 1;
+
+    if (bind(fd, (struct sockaddr *)&addr, len) < 0) {
+        if (errno == EADDRINUSE) {
+            /* Another instance is running */
+            close(fd);
+            return -1;
+        }
+        close(fd);
+        return -1;
+    }
+
+    return fd;  /* Keep fd open to hold the lock */
+}
+```
+
+### Zero-Copy with splice()
+
+For high-throughput data transfer between Unix sockets and files:
+
+```c
+#include <fcntl.h>
+#include <unistd.h>
+
+/* Transfer data from file to socket without copying to userspace */
+int sendfile_to_socket(int file_fd, int socket_fd, size_t count) {
+    /* Create a pipe for splice */
+    int pipefd[2];
+    if (pipe(pipefd) < 0)
+        return -1;
+
+    /* splice: file → pipe */
+    ssize_t n = splice(file_fd, NULL, pipefd[1], NULL,
+                        count, SPLICE_F_MOVE);
+    if (n < 0) {
+        close(pipefd[0]);
+        close(pipefd[1]);
+        return -1;
+    }
+
+    /* splice: pipe → socket */
+    ssize_t sent = splice(pipefd[0], NULL, socket_fd, NULL,
+                          n, SPLICE_F_MOVE | SPLICE_F_MORE);
+
+    close(pipefd[0]);
+    close(pipefd[1]);
+    return sent;
+}
+```
+
+## Socket Pair Utility
+
+`socketpair()` creates a pair of connected Unix sockets, useful for
+parent-child IPC:
+
+```c
+#include <sys/socket.h>
+#include <unistd.h>
+
+int sv[2];
+if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv) < 0) {
+    perror("socketpair");
+    return 1;
+}
+
+pid_t pid = fork();
+if (pid == 0) {
+    /* Child */
+    close(sv[0]);
+    write(sv[1], "hello parent", 12);
+    close(sv[1]);
+} else {
+    /* Parent */
+    close(sv[1]);
+    char buf[12];
+    read(sv[0], buf, sizeof(buf));
+    printf("Received: %s\n", buf);
+    close(sv[0]);
+}
+```
+
+## Benchmarking Unix Sockets
+
+```bash
+# Using socat for quick benchmarks
+# Server:
+socat UNIX-LISTEN:/tmp/bench.sock,fork,reuseaddr EXEC:/bin/cat
+
+# Client (throughput test):
+for i in $(seq 1 10000); do
+    echo "test" | socat - UNIX-CONNECT:/tmp/bench.sock
+done
+
+# Using iperf3 (supports Unix sockets via --bind)
+# Or custom benchmark:
+# Unix socket: ~100,000 round-trips/sec for small messages
+# TCP loopback: ~50,000 round-trips/sec for small messages
+```
+
 ## Related Topics
 
 - [Message Queues](./message-queues.md) — alternative IPC mechanisms
 - [POSIX Semaphores](./semaphores.md) — synchronization primitives
 - [Event-Driven Programming](../event-driven.md) — integrating sockets into event loops
 - [poll and select](../poll-select.md) — multiplexing socket I/O
+- [io_uring](../aio.md) — completion-based I/O for Unix sockets
