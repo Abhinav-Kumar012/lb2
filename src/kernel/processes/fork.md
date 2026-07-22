@@ -459,6 +459,397 @@ struct clone_args args = {
 pid_t pid = syscall(SYS_clone3, &args, sizeof(args));
 ```
 
+## PID Allocation
+
+The kernel allocates PIDs from a bitmap to ensure uniqueness within
+a PID namespace.
+
+### PID Bitmap
+
+```c
+/* kernel/pid.c */
+struct pid_namespace {
+    struct kref kref;
+    struct pidmap pidmap[PIDMAP_ENTRIES]; /* bitmap of allocated PIDs */
+    int last_pid;                         /* last allocated PID (for search hint) */
+    unsigned int level;                   /* nesting depth */
+    struct pid_namespace *parent;
+    /* ... */
+};
+
+struct pidmap {
+    atomic_t nr_free;
+    void *page;  /* Bitmap page — each bit represents one PID */
+};
+
+/* Allocate a PID */
+static int alloc_pidmap(struct pid_namespace *pid_ns, int pid)
+{
+    /* Search bitmap for a free bit starting from last_pid */
+    /* Uses find_next_zero_bit() for efficiency */
+    /* Returns -EAGAIN if pid_max reached */
+}
+```
+
+### PID Limits and Tuning
+
+```bash
+# View system-wide PID limit
+$ cat /proc/sys/kernel/pid_max
+32768
+
+# Increase PID limit (allows more concurrent processes)
+$ echo 65536 > /proc/sys/kernel/pid_max
+
+# Maximum PID value (32-bit systems: 32768, 64-bit: 4194304)
+$ cat /proc/sys/kernel/pid_max
+32768
+
+# Thread ID limit
+$ cat /proc/sys/kernel/threads-max
+# Maximum threads system-wide
+
+# View PID namespace info
+$ cat /proc/1/status | grep NSpid
+# NSpid:  1
+```
+
+### PID Allocation Race Condition Prevention
+
+```c
+/* kernel/pid.c — PID allocation uses a spinlock */
+static DEFINE_SPINLOCK(pidmap_lock);
+
+struct pid *alloc_pid(struct pid_namespace *pid_ns,
+                      pid_t *set_tid, size_t set_tid_size)
+{
+    struct pid *pid;
+    int i, nr;
+
+    pid = kmem_cache_alloc(ns_cachep, GFP_KERNEL);
+    if (!pid)
+        return ERR_PTR(-ENOMEM);
+
+    /* Allocate one PID per namespace level */
+    for (i = pid_ns->level; i >= 0; i--) {
+        nr = alloc_pidmap(pid_ns);
+        if (nr < 0)
+            goto out_free;
+        pid->numbers[i].nr = nr;
+        pid->numbers[i].ns = pid_ns;
+        pid_ns = pid_ns->parent;
+    }
+
+    /* PID is visible in all ancestor namespaces */
+    /* E.g., PID 42 in container maps to PID 12345 on host */
+    return pid;
+
+out_free:
+    /* Rollback already-allocated PIDs */
+    for (i++; i <= pid_ns->level; i++)
+        free_pidmap(pid->numbers[i].ns, pid->numbers[i].nr);
+    kmem_cache_free(ns_cachep, pid);
+    return ERR_PTR(nr);
+}
+```
+
+---
+
+## Signal Handling During Fork
+
+When `fork()` creates a child, signal handling follows specific rules:
+
+### Signal Inheritance Rules
+
+| Signal Property | Behavior on fork() |
+|---|---|
+| Pending signals | **Cleared** in child (not inherited) |
+| Signal handlers | **Shared** (CLONE_SIGHAND) or **copied** |
+| Signal mask | **Inherited** from parent |
+| Signal queue | **Cleared** (no queued signals) |
+| SIGCHLD | **Not delivered** for the fork itself |
+
+```c
+/* kernel/signal.c — copy_signal() */
+static int copy_signal(unsigned long clone_flags, struct task_struct *tsk)
+{
+    struct signal_struct *sig;
+
+    if (clone_flags & CLONE_THREAD) {
+        /* Threads share signal_struct */
+        tsk->signal = current->signal;
+        atomic_inc(&tsk->signal->live);
+        return 0;
+    }
+
+    /* fork(): allocate new signal_struct */
+    sig = kmem_cache_alloc(signal_cachep, GFP_KERNEL);
+    tsk->signal = sig;
+
+    /* Initialize: no pending signals */
+    init_sigpending(&sig->shared_pending);
+    sig->notify_count = 0;
+
+    return 0;
+}
+```
+
+### copy_sighand() — Signal Handler Table
+
+```c
+/* kernel/fork.c */
+static int copy_sighand(unsigned long clone_flags, struct task_struct *tsk)
+{
+    struct sighand_struct *sig;
+
+    if (clone_flags & CLONE_SIGHAND) {
+        /* Threads share the same signal handlers */
+        atomic_inc(&current->sighand->count);
+        tsk->sighand = current->sighand;
+        return 0;
+    }
+
+    /* fork(): copy all signal handlers */
+    sig = kmem_cache_alloc(sighand_cachep, GFP_KERNEL);
+    if (!sig)
+        return -ENOMEM;
+
+    /* Copy handler table */
+    memcpy(sig->action, current->sighand->action, sizeof(sig->action));
+    tsk->sighand = sig;
+    return 0;
+}
+```
+
+---
+
+## copy_files() — File Descriptor Table
+
+```c
+/* kernel/fork.c */
+static int copy_files(unsigned long clone_flags, struct task_struct *tsk)
+{
+    struct files_struct *oldf, *newf;
+
+    oldf = current->files;
+
+    if (clone_flags & CLONE_FILES) {
+        /* Threads share file descriptor table */
+        atomic_inc(&oldf->count);
+        tsk->files = oldf;
+        return 0;
+    }
+
+    /* fork(): duplicate the file descriptor table */
+    newf = dup_fd(oldf, &error);
+    if (!newf)
+        return -ENOMEM;
+
+    tsk->files = newf;
+    return 0;
+}
+```
+
+```mermaid
+graph TD
+    subgraph "fork() — CLONE_FILES not set"
+        P1[Parent: files_struct refcount=1] --> D1[Child: new files_struct]
+        D1 --> FD1[fd 0 → stdin]
+        D1 --> FD2[fd 1 → stdout]
+        D1 --> FD3[fd 3 → /tmp/file]
+    end
+    subgraph "clone(CLONE_FILES)"
+        P2[Parent: files_struct refcount=2] --> D2[Child: same files_struct]
+        D2 --> FD4[fd 0 → stdin]
+        D2 --> FD5[fd 1 → stdout]
+        D2 --> FD6[fd 3 → /tmp/file]
+        Note2[Close-on-exec flags shared]
+    end
+```
+
+---
+
+## copy_fs() — Filesystem Context
+
+```c
+/* kernel/fork.c */
+static int copy_fs(unsigned long clone_flags, struct task_struct *tsk)
+{
+    struct fs_struct *fs = current->fs;
+
+    if (clone_flags & CLONE_FS) {
+        /* Threads share: cwd, root, umask */
+        spin_lock(&fs->lock);
+        if (fs->in_exec) {
+            spin_unlock(&fs->lock);
+            return -EAGAIN;
+        }
+        fs->users++;
+        spin_unlock(&fs->lock);
+        tsk->fs = fs;
+        return 0;
+    }
+
+    /* fork(): copy filesystem context */
+    tsk->fs = copy_fs_struct(fs);
+    return 0;
+}
+```
+
+---
+
+## Error Handling in copy_process()
+
+If any step in `copy_process()` fails, the kernel must clean up
+previously allocated resources:
+
+```c
+/* kernel/fork.c — simplified error path */
+static struct task_struct *copy_process(...)
+{
+    p = dup_task_struct(current, node);
+    if (!p)
+        goto fork_out;
+
+    retval = copy_creds(p, clone_flags);
+    if (retval < 0)
+        goto bad_fork_cleanup_count;
+
+    retval = copy_namespaces(clone_flags, p);
+    if (retval < 0)
+        goto bad_fork_cleanup_creds;
+
+    retval = copy_files(clone_flags, p);
+    if (retval < 0)
+        goto bad_fork_cleanup_namespaces;
+
+    retval = copy_fs(clone_flags, p);
+    if (retval < 0)
+        goto bad_fork_cleanup_files;
+
+    retval = copy_sighand(clone_flags, p);
+    if (retval < 0)
+        goto bad_fork_cleanup_fs;
+
+    retval = copy_signal(clone_flags, p);
+    if (retval < 0)
+        goto bad_fork_cleanup_sighand;
+
+    retval = copy_mm(clone_flags, p);
+    if (retval < 0)
+        goto bad_fork_cleanup_signal;
+
+    /* ... more allocations ... */
+    return p;
+
+bad_fork_cleanup_signal:
+    cleanup_signal(p);
+bad_fork_cleanup_sighand:
+    cleanup_sighand(p);
+bad_fork_cleanup_fs:
+    cleanup_fs(p);
+bad_fork_cleanup_files:
+    cleanup_files(p);
+bad_fork_cleanup_namespaces:
+    cleanup_namespaces(p);
+bad_fork_cleanup_creds:
+    cleanup_creds(p);
+bad_fork_cleanup_count:
+    atomic_dec(&p->cred->user->processes);
+    put_cred(p->cred);
+fork_out:
+    return ERR_PTR(retval);
+}
+```
+
+```mermaid
+graph TD
+    A[dup_task_struct] -->|OK| B[copy_creds]
+    A -->|fail| EXIT[return -ENOMEM]
+    B -->|OK| C[copy_namespaces]
+    B -->|fail| R1[free task_struct]
+    C -->|OK| D[copy_files]
+    C -->|fail| R2[cleanup creds]
+    D -->|OK| E[copy_fs]
+    D -->|fail| R3[cleanup namespaces]
+    E -->|OK| F[copy_sighand]
+    E -->|fail| R4[cleanup files]
+    F -->|OK| G[copy_signal]
+    F -->|fail| R5[cleanup fs]
+    G -->|OK| H[copy_mm]
+    G -->|fail| R6[cleanup sighand]
+    H -->|OK| I[return task]
+    H -->|fail| R7[cleanup signal]
+```
+
+---
+
+## /proc Interface for Fork Information
+
+The `/proc` filesystem exposes fork-related information:
+
+```bash
+# Process status showing fork details
+$ cat /proc/self/status
+# Name:   bash
+# Pid:    1234
+# PPid:   789         ← parent PID
+# TracerPid: 0       ← ptrace parent
+# NSpid:  1 1234     ← PID in each namespace
+# NStgid: 1 1234     ← Thread group ID
+# NSpgid: 1 1234     ← Process group ID
+# NSsid:  789 789    ← Session ID
+
+# File descriptor count
+$ ls /proc/self/fd | wc -l
+3
+
+# Memory layout (shows COW status)
+$ cat /proc/self/smaps | head -20
+# Shows: Shared_Clean, Shared_Dirty, Private_Clean, Private_Dirty
+# After fork(): most pages become Shared until written
+
+# Clone flags used to create this process
+$ cat /proc/self/status | grep CapEff
+# CapEff: 0000003fffffffff
+```
+
+---
+
+## Performance Monitoring
+
+### Tracing fork() with ftrace
+
+```bash
+# Trace all fork events
+$ echo 1 > /sys/kernel/debug/tracing/events/task/task_newtask/enable
+$ cat /sys/kernel/debug/tracing/trace_pipe
+# bash-1234  [001] ....  1234.567890: task_newtask:
+#   pid=5678 comm=bash clone_flags=0x1200011
+
+# Trace clone flags specifically
+$ echo 1 > /sys/kernel/debug/tracing/events/syscalls/sys_enter_clone/enable
+$ cat /sys/kernel/debug/tracing/trace_pipe
+# bash-1234  [001] ....  1234.567890: sys_enter_clone:
+#   flags: 0x1200011
+#   newsp: 0x7ffd...
+#   parent_tidptr: 0x0
+#   child_tidptr: 0x0
+```
+
+### perf stat for fork()
+
+```bash
+# Measure fork() overhead
+$ perf stat -e 'sched:sched_process_fork' -- bash -c 'for i in $(seq 1 1000); do true; done'
+
+# Count forks system-wide
+$ perf stat -e 'task:task_newtask' -- sleep 10
+# Shows total new tasks created in 10 seconds
+```
+
+---
+
 ## Cross-References
 
 - [Process Creation Overview](process-creation.md) - High-level process creation mechanisms
