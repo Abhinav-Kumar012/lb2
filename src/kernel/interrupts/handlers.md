@@ -576,6 +576,160 @@ unhandled 0
 last_unhandled 0
 ```
 
+## Interrupt Latency Analysis
+
+### Measuring IRQ Latency
+
+```bash
+# Measure interrupt handler execution time with ftrace
+trace-cmd record -e irq_handler_entry -e irq_handler_exit
+trace-cmd report | grep -A1 "irq_handler_entry"
+
+# Use perf to measure IRQ handler duration
+perf record -e irq_vectors:irq_handler_entry -a sleep 5
+perf report
+
+# Trace latency from hardware interrupt to handler entry
+# Using irq_vectors tracepoints (x86)
+trace-cmd record -e irq_vectors:local_timer_entry \
+                 -e irq_vectors:local_timer_exit
+trace-cmd report
+
+# BPF-based IRQ latency measurement
+bpftrace -e '
+tracepoint:irq:irq_handler_entry /args->irq == 120/ {
+    @start = nsecs;
+}
+tracepoint:irq:irq_handler_exit /args->irq == 120 && @start/ {
+    @latency = hist(nsecs - @start);
+    delete(@start);
+}
+'
+```
+
+### IRQ Latency Breakdown
+
+```mermaid
+graph LR
+    A[Hardware IRQ] --> B[CPU acknowledges]
+    B --> C[IDT lookup]
+    C --> D[common_interrupt]
+    D --> E[irq_enter]
+    E --> F[handle_irq]
+    F --> G[flow handler]
+    G --> H[action->handler]
+    H --> I[irq_exit]
+    I --> J[softirq check]
+    
+    style A fill:#e53e3e,color:#fff
+    style H fill:#3182ce,color:#fff
+```
+
+**Key latency components:**
+- **Hardware delivery**: APIC/IO-APIC routing latency (typically < 1 µs)
+- **CPU acknowledgment**: Interrupt acknowledgment cycle (~0.1 µs)
+- **Handler dispatch**: IDT lookup + flow handler logic (~0.5 µs)
+- **Handler execution**: Your code (varies, target < 10 µs for hardirq)
+- **Exit processing**: softirq check, IRQ exit code (~0.5 µs)
+
+### Interrupts-per-Second Monitoring
+
+```bash
+# Watch interrupt rates in real-time
+watch -n 1 cat /proc/interrupts
+
+# Calculate per-second rates
+# Method 1: diff /proc/interrupts
+while true; do
+    cat /proc/interrupts > /tmp/irq1
+    sleep 1
+    cat /proc/interrupts > /tmp/irq2
+    diff /tmp/irq1 /tmp/irq2
+done
+
+# Method 2: use irqstats or sar
+sar -I ALL 1 5
+# Shows interrupts per second per IRQ
+
+# Method 3: perf stat
+perf stat -e 'irq_vectors:irq_handler_entry' -a sleep 10
+```
+
+## MSI/MSI-X Deep Dive
+
+### MSI vs Legacy IRQs
+
+| Feature | Legacy (INTx) | MSI | MSI-X |
+|---------|---------------|-----|-------|
+| Sharing | Common | No sharing | No sharing |
+| Vectors | 1 per device | Up to32 | Up to 2048 |
+| Routing | Via IO-APIC | Direct to CPU | Direct to CPU |
+| Latency | Higher | Lower | Lowest |
+| Affinity | Per-IRQ | Per-vector | Per-vector |
+
+### MSI-X Multi-Queue Example
+
+```c
+/* Modern NIC: one IRQ per TX/RX queue pair */
+#define NUM_QUEUE_PAIRS 8
+
+ret = pci_alloc_irq_vectors(pdev, NUM_QUEUE_PAIRS,
+                            NUM_QUEUE_PAIRS, PCI_IRQ_MSIX);
+for (i = 0; i < NUM_QUEUE_PAIRS; i++) {
+    irq = pci_irq_vector(pdev, i);
+    /* Bind to CPU on same NUMA node */
+    irq_set_affinity_hint(irq, cpumask_of(i));
+    request_irq(irq, nic_queue_irq, 0,
+                "nic-queue", &nic->queues[i]);
+}
+```
+
+```mermaid
+graph TD
+    NIC[NIC Hardware] --> Q0[Queue 0: CPU 0]
+    NIC --> Q1[Queue 1: CPU 1]
+    NIC --> Q2[Queue 2: CPU 2]
+    NIC --> Q3[Queue 3: CPU 3]
+    Q0 --> IRQ0[MSI-X Vector 0]
+    Q1 --> IRQ1[MSI-X Vector 1]
+    Q2 --> IRQ2[MSI-X Vector 2]
+    Q3 --> IRQ3[MSI-X Vector 3]
+    IRQ0 --> CPU0[CPU 0]
+    IRQ1 --> CPU1[CPU 1]
+    IRQ2 --> CPU2[CPU 2]
+    IRQ3 --> CPU3[CPU 3]
+```
+
+## NMI (Non-Maskable Interrupts)
+
+NMIs cannot be disabled and are used for critical events:
+
+```c
+/* Register an NMI handler */
+int register_nmi_handler(unsigned int type,
+                         nmi_handler_t handler,
+                         unsigned long flags,
+                         const char *name);
+
+/* NMI types */
+#define NMI_LOCAL       0  /* Local NMI (per-CPU) */
+#define NMI_UNKNOWN     1  /* Unknown NMI source */
+#define NMI_SERR        2  /* System error */
+#define NMI_IO_CHECK    3  /* I/O check error */
+```
+
+**NMI uses in Linux:**
+- Hardware watchdog timer
+- Perf profiling (`perf record` uses NMI-based sampling)
+- Kernel debugging (SysRq)
+- Machine check exceptions
+
+```bash
+# NMIs are visible in /proc/interrupts
+cat /proc/interrupts | grep NMI
+# NMI:    12345   12345   12345   12345   Non-maskable interrupts
+```
+
 ## Best Practices
 
 1. **Keep the hardirq handler minimal**: Read status, acknowledge, wake thread or schedule work.
@@ -586,6 +740,8 @@ last_unhandled 0
 6. **Don't print in hardirq context** unless debugging (use `printk` with care, prefer `dev_dbg`).
 7. **Consider IRQ affinity** for performance-critical paths.
 8. **Disable the device IRQ** at the hardware level before freeing the IRQ.
+9. **Use `IRQF_ONESHOT`** with threaded IRQs to prevent interrupt storms.
+10. **Profile IRQ latency** with ftrace/perf to catch long-running handlers.
 
 ## Generic IRQ Handling Architecture (from docs.kernel.org)
 
