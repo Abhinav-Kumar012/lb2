@@ -450,3 +450,10 @@ CONFIG_DAX_DRIVER=y        # DAX device drivers
 - [Darrick Wong's iomap talk (LSFMM 2022)](https://lpc.events/event/16/contributions/1253/)
 - [XFS wiki: iomap](https://xfs.wiki.kernel.org/)
 - See also: [Block I/O](/kernel/block), [DAX](/kernel/filesystems/dax), [Folios](/kernel/memory/folios), [io_uring](/kernel/io)
+
+## References
+
+- [iomap kernel documentation](https://www.kernel.org/doc/html/latest/filesystems/iomap.html)
+- [LWN: iomap — a new block-mapping layer](https://lwn.net/Articles/677950/)
+- [LWN: iomap buffered I/O](https://lwn.net/Articles/814956/)
+- [Linux source: fs/iomap/](https://github.com/torvalds/linux/tree/master/fs/iomap)
