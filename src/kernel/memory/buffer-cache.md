@@ -89,6 +89,21 @@ enum bh_state_bits {
 };
 ```
 
+### Buffer State Transitions
+
+```mermaid
+stateDiagram-v2
+    [*] --> New: alloc_buffer_head()
+    New --> Mapped: map buffer to disk block
+    Mapped --> Uptodate: read from disk completes
+    Uptodate --> Dirty: modify buffer contents
+    Dirty --> Lock: submit for writeback
+    Lock --> Uptodate: write completes
+    Lock --> WriteEIO: write fails
+    Dirty --> Mapped: writeback completes
+    Uptodate --> [*]: brelse() / free
+```
+
 ## Buffer Cache and Page Cache Relationship
 
 ### How They Connect
@@ -254,6 +269,35 @@ int sync_dirty_buffer(struct buffer_head *bh) {
 }
 ```
 
+### Asynchronous I/O
+
+```c
+/* Submit async read */
+void submit_bh_async(int op, struct buffer_head *bh)
+{
+    bh->b_end_io = end_buffer_async_read;
+    set_bh_async_read(bh);
+    submit_bh(op, bh);
+}
+
+/* Async completion callback */
+static void end_buffer_async_read(struct buffer_head *bh, int uptodate)
+{
+    if (uptodate) {
+        set_buffer_uptodate(bh);
+    } else {
+        /* Handle read error */
+        clear_buffer_uptodate(bh);
+    }
+    unlock_buffer(bh);
+    
+    /* Check if all buffers in page are uptodate */
+    struct page *page = bh->b_page;
+    if (page_uptodate(page))
+        unlock_page(page);
+}
+```
+
 ## bdflush / pdflush / writeback
 
 ### Historical Writeback Daemons
@@ -311,6 +355,55 @@ struct bdi_writeback {
 };
 ```
 
+### Writeback Triggers
+
+Writeback is triggered by several conditions:
+
+| Trigger | Threshold | Tunable |
+|---------|-----------|---------|
+| **Periodic** | Every `dirty_writeback_centisecs` (5s default) | `vm.dirty_writeback_centisecs` |
+| **Dirty ratio** | `dirty_ratio`% of total RAM (20% default) | `vm.dirty_ratio` |
+| **Background ratio** | `dirty_background_ratio`% of total RAM (10% default) | `vm.dirty_background_ratio` |
+| **Dirty expiry** | Pages dirty for `dirty_expire_centisecs` (30s default) | `vm.dirty_expire_centisecs` |
+| **Explicit sync** | `sync()`, `fsync()`, `msync()` | N/A |
+| **Memory pressure** | When free memory is low | `vm.dirty_background_ratio` |
+
+```mermaid
+graph TD
+    A[Dirty pages accumulate] --> B{dirty_ratio exceeded?}
+    B -->|Yes| C[Direct writeback (blocking)]
+    B -->|No| D{dirty_background_ratio exceeded?}
+    D -->|Yes| E[Background writeback (async)]
+    D -->|No| F{dirty_writeback_centisecs elapsed?}
+    F -->|Yes| G[Periodic writeback]
+    F -->|No| H[Continue]
+```
+
+### Writeback Decision Logic
+
+```c
+/* mm/page-writeback.c — simplified */
+static void balance_dirty_pages(struct bdi_writeback *wb)
+{
+    unsigned long nr_dirty = global_node_page_state(NR_FILE_DIRTY);
+    unsigned long nr_writeback = global_node_page_state(NR_WRITEBACK);
+    unsigned long dirty_thresh;
+    unsigned long bg_thresh;
+
+    /* Calculate thresholds */
+    dirty_thresh = vm_dirty_ratio * totalram_pages / 100;
+    bg_thresh = vm_dirty_background_ratio * totalram_pages / 100;
+
+    if (nr_dirty + nr_writeback > dirty_thresh) {
+        /* Exceeded dirty_ratio: block and write back */
+        wb_do_writeback(wb, WB_REASON_DIRTY_THREASHOLD);
+    } else if (nr_dirty + nr_writeback > bg_thresh) {
+        /* Exceeded background ratio: async writeback */
+        wb_start_background_writeback(wb);
+    }
+}
+```
+
 ## Buffer Cache Statistics
 
 ```bash
@@ -334,6 +427,45 @@ SwapCached:            0 kB
 $ echo 1 > /proc/sys/vm/drop_caches  # Free page cache only
 $ echo 2 > /proc/sys/vm/drop_caches  # Free buffer cache + dentries/inodes
 $ echo 3 > /proc/sys/vm/drop_caches  # Free both
+```
+
+### Cache Hit Rate Monitoring
+
+```bash
+# Monitor cache hit rate using /proc/vmstat
+$ cat /proc/vmstat | grep -E "pgpgin|pgpgout|pswpin|pswpout"
+pgpgin 1234567
+pgpgout 2345678
+pswpin 0
+pswpout 0
+
+# Calculate hit rate (approximate)
+# Use cachestat BPF tool
+$ sudo cachestat 1
+    HITS   MISSES  DIRTIES HITRATIO   BUFFERS_MB  CACHED_MB
+   12345      234     5678    98.1%         234       9567
+
+# Or use perf
+$ sudo perf stat -e 'cache-references,cache-misses' -a sleep 5
+# Performance counter stats for 'system wide':
+#     cache-references    12345678
+#     cache-misses          234567 (1.90%)
+```
+
+### Cache Pressure
+
+```bash
+# vm.vfs_cache_pressure controls inode/dentry cache reclaim
+$ sysctl vm.vfs_cache_pressure
+vm.vfs_cache_pressure = 100
+
+# Lower values: keep cache longer
+# Higher values: reclaim cache more aggressively
+# 0: never reclaim (OOM risk)
+# 200: reclaim twice as aggressively
+
+# For file servers with many files:
+$ echo 50 > /proc/sys/vm/vfs_cache_pressure
 ```
 
 ## Buffer Cache vs Page Cache
@@ -398,6 +530,41 @@ struct buffer_head *sb_bread(struct super_block *sb, sector_t block) {
     submit_bh(REQ_OP_READ, bh);
     wait_on_buffer(bh);
     return buffer_uptodate(bh) ? bh : NULL;
+}
+```
+
+### __getblk Internal Flow
+
+```mermaid
+graph TD
+    A[__getblk] --> B{Buffer in cache?}
+    B -->|Yes| C{Uptodate?}
+    C -->|Yes| D[Return buffer_head]
+    C -->|No| E[Return buffer_head (needs read)]
+    B -->|No| F[Find/create page in page cache]
+    F --> G[Create buffer_head for this block]
+    G --> H[Link buffer_head to page]
+    H --> D
+```
+
+### Folio Transition
+
+Modern kernels are transitioning from `struct page` to `struct folio`:
+
+```c
+/* folio = page that is guaranteed to be the head of a compound page */
+/* Or a single page that is not part of a compound page */
+
+/* Old way: */
+struct page *page = find_get_page(mapping, index);
+
+/* New way: */
+struct folio *folio = filemap_get_folio(mapping, index);
+
+/* buffer_head integration with folio: */
+struct buffer_head *folio_buffers(struct folio *folio)
+{
+    return folio->private;  /* buffer_head list stored in folio's private data */
 }
 ```
 
