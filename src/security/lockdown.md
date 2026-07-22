@@ -495,6 +495,55 @@ qemu-system-x86_64 \
 └─────────────────────────────────────────┘
 ```
 
+## Appendix: System Administration Under Lockdown
+
+### What Admins Can Still Do
+
+```bash
+# File operations - fully allowed
+cp, mv, rm, mkdir, chmod, chown
+
+# Process management - fully allowed
+ps, top, kill, nice, systemctl
+
+# Network configuration - fully allowed
+ip, iptables, nftables, ss
+
+# Package management - allowed (packages are signed)
+apt install, dnf install
+
+# Service management - fully allowed
+systemctl start/stop/enable
+
+# Log viewing - fully allowed
+journalctl, dmesg (may be limited)
+
+# User management - fully allowed
+useradd, passwd, groupadd
+```
+
+### What Admins Cannot Do Under Lockdown
+
+```bash
+# Load unsigned kernel modules
+insmod unsigned_module.ko  # BLOCKED
+
+# Read kernel memory
+cat /proc/kcore  # BLOCKED in confidentiality mode
+
+# Patch kernel code
+echo 1 > /proc/sys/kernel/ftrace_enabled  # May be restricted
+
+# Write to /dev/mem
+dd if=/dev/zero of=/dev/mem bs=1 count=1 seek=0  # BLOCKED
+
+# kexec to new kernel
+kexec -l /boot/vmlinuz --initrd=/boot/initrd.img  # BLOCKED (unsigned)
+
+# Modify EFI variables
+echo 1 > /sys/firmware/efi/efivars/TestVar  # BLOCKED
+```
+
 ## Appendix: Lockdown Configuration Checklist
 
 ```bash
