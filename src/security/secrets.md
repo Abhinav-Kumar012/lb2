@@ -497,6 +497,59 @@ keyctl timeout $(keyctl search @u user runtime-key) 3600
 keyctl clear @s
 ```
 
+## Appendix: Secrets in Containers
+
+Container runtimes need access to secrets (database passwords, API keys, etc.)
+without exposing them in the container image or environment variables.
+
+```bash
+# Method 1: Kubernetes Secrets (mounted as files)
+# Pod spec mounts secret as volume
+# Secret file appears at /var/secrets/db-password
+
+# Method 2: Docker secrets
+# Docker swarm mounts secrets at /run/secrets/<name>
+
+# Method 3: Kernel keyring in containers
+# Containers can use keyring if CAP_SYS_ADMIN is available
+# Or use user keyrings with proper UID mapping
+
+# Method 4: tmpfs mount (RAM-only)
+mkdir /mnt/secrets
+mount -t tmpfs -o size=1M tmpfs /mnt/secrets
+echo "secret" > /mnt/secrets/password
+# Data is never written to disk
+
+# Method 5: dm-crypt for container volumes
+cryptsetup luksFormat /dev/loop0
+cryptsetup luksOpen /dev/loop0 container-secrets
+mkfs.ext4 /dev/mapper/container-secrets
+mount /dev/mapper/container-secrets /mnt/secrets
+```
+
+### Container Security Best Practices
+
+```bash
+# 1. Never put secrets in container images
+# BAD:
+ENV DB_PASSWORD=secret123
+
+# 2. Use mounted secrets
+# GOOD:
+# Mount secret file at runtime
+
+# 3. Use tmpfs for runtime secrets
+mount -t tmpfs tmpfs /run/secrets
+
+# 4. Revoke keys on container stop
+# Add to container stop script:
+keyctl clear @s
+
+# 5. Use kernel keyring with timeouts
+keyctl add user db-pass "secret" @s
+keyctl timeout $(keyctl search @s user db-pass) 3600
+```
+
 ## Appendix: Kernel Configuration
 
 ```
