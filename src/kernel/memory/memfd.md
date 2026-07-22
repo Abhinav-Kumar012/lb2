@@ -655,6 +655,33 @@ graph TD
     Q6 -->|No| UNIX["Unix domain socket"]
 ```
 
+### Detailed Comparison
+
+| Feature | memfd | POSIX shm | SysV shm | tmpfs file | mmap(MAP_ANONYMOUS) |
+|---------|-------|-----------|----------|------------|--------------------|
+| Filesystem visible | No (`/proc/PID/fd/` only) | Yes (`/dev/shm/`) | No | Yes | No |
+| Sealable | Yes | No | No | No | No |
+| Passable via SCM_RIGHTS | Yes | Via fd | No | Yes | No (no fd) |
+| Huge page support | Yes (MFD_HUGETLB) | Yes | Yes | Yes | Yes |
+| Naming | Optional (for debugging) | Required (path) | Key-based | Required (path) | N/A |
+| Cleanup | Auto (fd close) | Manual `shm_unlink` | Manual `shmctl` | Manual `unlink` | Auto (munmap) |
+| Cgroup accounting | Yes (shmem) | Yes (shmem) | Yes | Yes (shmem) | Yes (anon) |
+| Kernel version | >= 3.17 | All | All | All | All |
+
+### Performance Characteristics
+
+```bash
+# memfd vs POSIX shm latency (similar — both use shmem backend)
+# Both are backed by the same tmpfs/shmem subsystem
+# Performance difference is negligible
+
+# memfd with huge pages vs regular pages:
+# 4KB pages: TLB miss ~100ns per miss, 256 entries covers 1MB
+# 2MB pages: TLB miss ~100ns per miss, 256 entries covers 512MB
+# 1GB pages: TLB miss ~100ns per miss, 256 entries covers 256GB
+# For large shared regions, huge pages significantly reduce TLB pressure
+```
+
 ## Further Reading
 
 - [`memfd_create(2)` man page](https://man7.org/linux/man-pages/man2/memfd_create.2.html)
