@@ -46,6 +46,7 @@ The kernel keyring subsystem (`security/keys/`) manages cryptographic keys, auth
 | `trusted`     | TPM-sealed keys                                 |
 | `asymmetric`  | Public/private key pairs (X.509, PKCS#7)        |
 | `keyring`     | Container for other keys                        |
+| `big_key`     | Large data (>32 KiB), stored in tmpfs or encrypted |
 
 ### Keyrings
 
@@ -107,6 +108,16 @@ keyctl(KEYCTL_SET_TIMEOUT, key_id, 300);
 /* Search for a key */
 key_serial_t found = keyctl(KEYCTL_SEARCH, keyring_id,
                              "user", "my-secret", 0);
+
+/* Invalidate a key (immediate removal) */
+keyctl(KEYCTL_INVALIDATE, key_id);
+
+/* Get keyring ID */
+key_serial_t session = keyctl(KEYCTL_GET_KEYRING_ID,
+                               KEY_SPEC_SESSION_KEYRING, 0);
+
+/* Join a session keyring */
+keyctl(KEYCTL_JOIN_KEYRING, "myring", 0, 0);
 ```
 
 ### keyutils Userspace Tool
@@ -126,6 +137,21 @@ keyctl timeout $(keyctl search @u user my-key) 60
 
 # Revoke a key
 keyctl revoke $(keyctl search @u user my-key)
+
+# Pipe key to a command
+keyctl pipe $(keyctl search @u user my-key) | openssl dgst -sha256
+
+# Create a named keyring
+keyctl newring myring @u
+
+# Link key to another keyring
+keyctl link <key_id> <keyring_id>
+
+# Show all keyrings
+keyctl show
+# Session Keyring
+#  87654321 --alswrv  1000  1000  keyring: _ses
+#  12345678 --alswrv  1000  1000   \_ user: my-key
 ```
 
 ---
@@ -177,6 +203,23 @@ keyctl pipe $(keyctl search @u encrypted my-enc-key) > /etc/keys/enc-key.blob
 keyctl add encrypted my-enc-key "$(cat /etc/keys/enc-key.blob)" @s
 ```
 
+### Encrypted Key Use Cases
+
+```bash
+# Use encrypted key for dm-crypt
+# 1. Create encrypted key
+keyctl add encrypted disk-key "new 32" @s
+
+# 2. Get key data for cryptsetup
+keyctl pipe $(keyctl search @u encrypted disk-key) > /tmp/disk-key
+
+# 3. Open LUKS volume with key
+cryptsetup luksOpen /dev/sda1 mydisk --key-file=/tmp/disk-key
+
+# 4. Securely delete temporary key file
+shred -u /tmp/disk-key
+```
+
 ---
 
 ## dm-crypt Key Management
@@ -207,6 +250,12 @@ cryptsetup luksKillSlot /dev/sda1 0
 
 # Dump LUKS header
 cryptsetup luksDump /dev/sda1
+
+# Change passphrase
+cryptsetup luksChangeKey /dev/sda1
+
+# Backup LUKS header (CRITICAL - losing this means losing data)
+cryptsetup luksHeaderBackup /dev/sda1 --header-backup-file /backup/luks-header.img
 ```
 
 ### dm-crypt Key Types
@@ -223,6 +272,12 @@ cryptsetup luksOpen /dev/sda1 encrypted --key-file /root/keyfile
 
 # TPM-bound key (via systemd-cryptenroll)
 systemd-cryptenroll --tpm2-device=auto /dev/sda1
+
+# FIDO2 key
+systemd-cryptenroll --fido2-device=auto /dev/sda1
+
+# Recovery key
+systemd-cryptenroll --recovery-key /dev/sda1
 ```
 
 ### Volatile Keys
@@ -241,6 +296,15 @@ dm-crypt carefully scrubs key material from memory when not in use:
 - Keys are stored in pinned kernel memory (not swappable)
 - Key slots are zeroed on `cryptsetup luksClose`
 - Emergency wipe: `cryptsetup erase /dev/sda1`
+
+```bash
+# Close encrypted volume (scrubs keys from memory)
+cryptsetup luksClose mydisk
+
+# Emergency key destruction
+cryptsetup erase /dev/sda1
+# WARNING: this makes data permanently inaccessible
+```
 
 > **See also:** [dm-crypt and LUKS](./dm-crypt.md)
 
@@ -290,6 +354,8 @@ PCRs store measurements of the boot chain:
 | 5    | GPT partition table               |
 | 7    | Secure Boot state                 |
 | 8    | Boot loader commands              |
+| 10   | IMA measurement list              |
+| 14   | IMA policy                        |
 
 ### systemd-cryptenroll with TPM
 
@@ -301,6 +367,18 @@ systemd-cryptenroll --tpm2-device=auto \
 
 # The volume can now be unlocked without a passphrase
 # when the boot chain matches the enrolled PCR values
+
+# Enroll with PIN (two-factor)
+systemd-cryptenroll --tpm2-device=auto \
+                    --tpm2-pcrs=0+4+7 \
+                    --tpm2-with-pin=true \
+                    /dev/sda1
+
+# List enrolled keys
+systemd-cryptenroll /dev/sda1
+
+# Wipe TPM enrollment
+systemd-cryptenroll --wipe-slot=tpm2 /dev/sda1
 ```
 
 ### Kernel TPM Interface
@@ -314,6 +392,12 @@ tpm2_createprimary -C o -c primary.ctx
 tpm2_create -C primary.ctx -u key.pub -r key.priv
 tpm2_load -C primary.ctx -u key.pub -r key.priv -c key.ctx
 tpm2_encryptdecrypt -c key.ctx -o encrypted.out plaintext.in
+
+# TPM2 clear (factory reset - WARNING)
+tpm2_clear
+
+# TPM2 get random
+tpm2_getrandom 32
 ```
 
 ### TPM in the Kernel
@@ -382,6 +466,36 @@ A complete secrets pipeline combining all mechanisms:
 | Boot-time tampering    | Secure Boot + TPM PCR binding  |
 | Physical disk theft    | LUKS full-disk encryption      |
 | Cold-boot attack       | TRESOR (keys in CPU registers) |
+| Key in swap            | `mlock()`, encrypted swap      |
+| DMA attack             | IOMMU, kernel lockdown         |
+| Side-channel           | Constant-time crypto           |
+
+### Best Practices
+
+```bash
+# 1. Use LUKS2 with Argon2id
+cryptsetup luksFormat --type luks2 --pbkdf argon2id /dev/sda1
+
+# 2. Bind to TPM for unattended boot
+systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=0+4+7 /dev/sda1
+
+# 3. Keep backup key in secure location
+cryptsetup luksAddKey /dev/sda1
+# Store backup passphrase in physical safe
+
+# 4. Backup LUKS header
+cryptsetup luksHeaderBackup /dev/sda1 --header-backup-file /secure/backup.img
+
+# 5. Use kernel keyring for runtime secrets
+keyctl add encrypted runtime-key "new 32" @s
+
+# 6. Set key timeouts
+keyctl timeout $(keyctl search @u user runtime-key) 3600
+
+# 7. Revoke keys on shutdown
+# Add to shutdown script:
+keyctl clear @s
+```
 
 ---
 
@@ -395,5 +509,6 @@ A complete secrets pipeline combining all mechanisms:
 - [tpm2-tools documentation](https://github.com/tpm2-software/tpm2-tools)
 - [LWN: The kernel keyring](https://lwn.net/Articles/636288/)
 - [Arch Linux Wiki: dm-crypt](https://wiki.archlinux.org/title/Dm-crypt)
+- [systemd-cryptenroll(1)](https://man7.org/linux/man-pages/man1/systemd-cryptenroll.1.html)
 
 > **Related topics:** [dm-crypt](./dm-crypt.md), [Secure Boot](./secure-boot.md), [IMA/EVM](./ima-evm.md), [Keyring API](./keyring-api.md)
