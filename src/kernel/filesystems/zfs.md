@@ -695,3 +695,21 @@ $ echo 4294967296 > /sys/module/zfs/parameters/zfs_arc_max
 - [Journaling](./journaling.md) — ZFS uses CoW + ZIL instead of traditional journaling
 - [ext4](./ext4.md) — Traditional Linux filesystem
 - [Inode](./inode.md) — ZFS uses a different object model (not traditional inodes)
+
+## Glossary
+
+| Term | Definition |
+|------|-----------|
+| ARC | Adaptive Replacement Cache — ZFS's in-memory read cache |
+| DMU | Data Management Unit — manages objects and data blocks |
+| DDT | Dedup Table — tracks deduplicated blocks |
+| L2ARC | Level 2 ARC — SSD-based read cache extension |
+| MOS | Meta Object Set — root of ZFS's object hierarchy |
+| SPA | Storage Pool Allocator — manages vdevs and I/O |
+| SLOG | Separate Log — fast device for ZIL writes |
+| TXG | Transaction Group — atomic batch of filesystem changes |
+| VDEV | Virtual Device — physical or logical storage device |
+| ZIL | ZFS Intent Log — log for synchronous writes |
+| ZPL | ZFS POSIX Layer — POSIX filesystem interface |
+| Zpool | ZFS Pool — top-level storage container |
+| Uberblock | ZFS's equivalent of a superblock (root metadata block) |
