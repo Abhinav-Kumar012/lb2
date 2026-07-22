@@ -523,6 +523,8 @@ graph TB
 - [Ubuntu Package Management](https://help.ubuntu.com/community/AptGet/Howto)
 - [Debian Policy Manual — Binary packages](https://www.debian.org/doc/debian-policy/ch-binary.html)
 - [APT Pinning (Debian Wiki)](https://wiki.debian.org/AptPreferences)
+- [Debian Developer's Reference](https://www.debian.org/doc/manuals/developers-reference/)
+- [APT Internals (Debian Wiki)](https://wiki.debian.org/Teams/Apt)
 
 ## Related Topics
 
@@ -530,3 +532,281 @@ graph TB
 - [Pacman](./pacman.md) — Arch Linux package management
 - [Portage](./portage.md) — Gentoo's source-based package manager
 - [Backup Strategies](../backup.md) — Backing up package configurations
+
+## dpkg Advanced Operations
+
+### Forcing Package States
+
+When packages are in a broken state, dpkg provides options to force resolution:
+
+```bash
+# Force-remove a package with broken scripts
+sudo dpkg --force-remove-reinstreq -r broken-package
+
+# Force-overwrite files conflicting with another package
+sudo dpkg --force-overwrite -i new-package.deb
+
+# Force depends (ignore dependency issues)
+sudo dpkg --force-depends -i package.deb
+
+# Force all (use as last resort)
+sudo dpkg --force-all -i package.deb
+
+# Reconfigure a partially installed package
+sudo dpkg --configure -a
+
+# Set package status manually
+sudo dpkg --set-selections <<< "nginx hold"  # Hold version
+sudo dpkg --set-selections <<< "nginx install"  # Allow install
+
+dpkg --get-selections | grep hold  # Show held packages
+```
+
+### Trigger Mechanism
+
+Triggers are a dpkg feature that defers actions until after a batch of package operations:
+
+```bash
+# Common triggers:
+# - update-initramfs: rebuilds initramfs after kernel changes
+# - ldconfig: updates shared library cache
+# - update-desktop-database: updates desktop file cache
+# - texinfo: updates info directory
+
+# View pending triggers
+dpkg -s libc6 | grep Triggers
+# Triggers-Pending: ldconfig
+
+# Process pending triggers
+sudo dpkg --configure --pending
+```
+
+### Diverting Files
+
+Diversions allow a package to "steal" a file from another package:
+
+```bash
+# Divert a file (prevent package from overwriting it)
+sudo dpkg-divert --divert /etc/custom/nginx.conf --rename /etc/nginx/nginx.conf
+
+# List diversions
+dpkg-divert --list
+
+# Remove diversion
+sudo dpkg-divert --rename --remove /etc/nginx/nginx.conf
+```
+
+## APT Hooks and Automation
+
+### Pre-Install and Post-Install Hooks
+
+```bash
+# /etc/apt/apt.conf.d/99-hooks
+
+# Run a script before any package operation
+DPkg::Pre-Install-Pkgs {
+    "/usr/local/bin/pre-apt-hook";
+};
+
+# Run after each package is unpacked
+DPkg::Post-Invoke {
+    "echo 'Package operation completed' | logger -t apt";
+};
+
+# Log all package operations
+DPkg::Pre-Install-Pkgs {
+    "dpkg --set-selections 2>&1 | logger -t apt-selections";
+};
+```
+
+### APT List Changes
+
+```bash
+# Install apt-listchanges to see changelogs before upgrades
+sudo apt install apt-listchanges
+
+# Configure: /etc/apt/listchanges.conf
+# [apt-listchanges]
+# email_address=admin@example.com
+# confirm=1
+# headers=1
+# which=both
+```
+
+## Building Custom Packages
+
+### Creating a .deb Package
+
+```bash
+# Install build tools
+sudo apt install build-essential devscripts debhelper
+
+# Create package directory structure
+mkdir -p mypackage-1.0/DEBIAN
+mkdir -p mypackage-1.0/usr/local/bin
+
+# Create the binary
+cat > mypackage-1.0/usr/local/bin/myapp << 'EOF'
+#!/bin/bash
+echo "Hello from myapp v1.0"
+EOF
+chmod +x mypackage-1.0/usr/local/bin/myapp
+
+# Create control file
+cat > mypackage-1.0/DEBIAN/control << 'EOF'
+Package: mypackage
+Version: 1.0
+Section: utils
+Priority: optional
+Architecture: amd64
+Maintainer: Admin <admin@example.com>
+Description: My custom application
+ A simple custom package example.
+EOF
+
+# Build the package
+dpkg-deb --build mypackage-1.0
+# Produces: mypackage-1.0.deb
+
+# Verify the package
+dpkg-deb --info mypackage-1.0.deb
+dpkg-deb --contents mypackage-1.0.deb
+
+# Install
+sudo dpkg -i mypackage-1.0.deb
+```
+
+### Maintainer Scripts Lifecycle
+
+```bash
+# preinst: Runs before package files are unpacked
+# postinst: Runs after package files are unpacked
+# prerm: Runs before package files are removed
+# postrm: Runs after package files are removed
+
+# Example postinst:
+cat > mypackage-1.0/DEBIAN/postinst << 'EOF'
+#!/bin/bash
+set -e
+if [ "$1" = "configure" ]; then
+    # Create user
+    useradd -r -s /usr/sbin/nologin myapp 2>/dev/null || true
+    # Enable service
+    systemctl enable myapp.service
+fi
+EOF
+chmod 755 mypackage-1.0/DEBIAN/postinst
+```
+
+### Using `debuild` for Proper Packages
+
+```bash
+# Create a proper Debian source package
+mkdir -p myapp-1.0/debian
+
+# Required files:
+# debian/control — package metadata
+# debian/rules — build instructions (Makefile)
+# debian/changelog — version history
+# debian/compat — debhelper compatibility level
+
+# Build
+cd myapp-1.0
+debuild -us -uc  # Build without signing
+
+# Build and sign
+debuild -k<key-id>
+```
+
+## APT Proxy and Caching
+
+### APT Proxy Configuration
+
+```bash
+# /etc/apt/apt.conf.d/01proxy
+Acquire::http::Proxy "http://proxy.example.com:3128";
+Acquire::https::Proxy "http://proxy.example.com:3128";
+
+# Per-host proxy
+Acquire::http::Proxy::apt.example.com "DIRECT";
+Acquire::http::Proxy::ppa.launchpad.net "http://proxy:3128";
+
+# SOCKS proxy
+Acquire::http::Proxy "socks5h://127.0.0.1:1080";
+```
+
+### Apt-Cacher-NG (Local Cache)
+
+```bash
+# Install on cache server
+sudo apt install apt-cacher-ng
+
+# Clients use: /etc/apt/apt.conf.d/01proxy
+Acquire::http::Proxy "http://cache-server:3182";
+
+# Access web interface: http://cache-server:3142/acng-report.html
+```
+
+## Snapshot and Rollback
+
+### APT Snapshots with Snapper
+
+```bash
+# On Btrfs filesystem with snapper
+sudo apt install snapper
+sudo snapper create -d "before-upgrade" -t pre
+sudo apt upgrade
+sudo snapper create -d "after-upgrade" -t post
+
+# Rollback
+sudo snapper undochange 1..2  # Undo changes between snapshot 1 and 2
+```
+
+### Manual Snapshot with dpkg
+
+```bash
+# Record current state
+dpkg --get-selections > /backup/selections-$(date +%Y%m%d).txt
+dpkg -l > /backup/packages-$(date +%Y%m%d).txt
+
+# Restore selections on another system
+sudo dpkg --set-selections < /backup/selections-20240115.txt
+sudo apt-get dselect-upgrade
+```
+
+## Debugging Package Issues
+
+```bash
+# Check what a package depends on
+apt-cache depends nginx
+apt-cache depends --installed nginx  # Installed deps only
+
+# Check reverse dependencies (what breaks if removed)
+apt-cache rdepends nginx
+apt-cache rdepends --installed nginx
+
+# Show package file list
+dpkg -L nginx
+
+# Find which package owns a file
+dpkg -S /usr/bin/curl
+dpkg -S '*/nginx.conf'  # Glob pattern
+
+# Check for conffile changes (local modifications)
+dpkg-query -W -f='${Conffiles}\n' nginx
+# /etc/nginx/nginx.conf abc123def456  # Original hash
+# Compare: md5sum /etc/nginx/nginx.conf
+
+# View package install history
+zcat /var/log/apt/history.log.*.gz | grep -A5 'Install\|Upgrade\|Remove'
+
+# Find broken packages
+dpkg --audit
+apt list --installed 2>/dev/null | grep -i broken
+
+# Fix broken state
+sudo dpkg --configure -a
+sudo apt-get install -f
+sudo apt-get -f install
+sudo apt --fix-broken install
+```
