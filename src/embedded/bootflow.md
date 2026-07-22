@@ -536,6 +536,224 @@ arm-none-eabi-gdb
 
 ---
 
+## A/B Partition Schemes
+
+For reliable field updates, embedded systems use A/B (dual) partition schemes:
+
+### How A/B Works
+
+```
+┌─────────────────────────────────────────────┐
+│  Storage (eMMC/NVMe)                        │
+│                                             │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐ │
+│  │ Boot A   │  │ Boot B   │  │ Shared   │ │
+│  │ (kernel  │  │ (kernel  │  │ (data,   │ │
+│  │  + rootfs│  │  + rootfs│  │  config) │ │
+│  │  active) │  │  standby)│  │          │ │
+│  └──────────┘  └──────────┘  └──────────┘ │
+└─────────────────────────────────────────────┘
+```
+
+```bash
+# U-Boot A/B boot selection
+# Check which slot is active
+fw_printenv boot_active
+# boot_active=A
+
+# Switch to B after OTA update
+fw_setenv boot_active=B
+
+# Mark slot as successful (prevents rollback)
+fw_setenv boot_B_successful=1
+
+# Rollback if new kernel fails to boot
+# (watchdog resets, bootloader detects failure, switches slot)
+```
+
+### RAUC (Robust Auto-Update Controller)
+
+RAUC is a popular open-source update framework for embedded Linux:
+
+```bash
+# Install RAUC
+sudo apt install rauc
+
+# Create a RAUC update bundle (.raucb)
+rauc bundle --cert cert.pem --key key.pem \
+    update-dir/ update-2024.07.raucb
+
+# Install the bundle
+rauc install update-2024.07.raucb
+
+# RAUC manages:
+# - A/B slot switching
+# - Boot count tracking
+# - Rollback on failure
+# - Signed update bundles
+# - Hooks for custom update logic
+
+# RAUC configuration: /etc/rauc/system.conf
+# [system]
+# compatible=MyBoard
+# bootloader=uboot
+# 
+# [slot.rootfs.0]
+# device=/dev/mmcblk0p2
+# type=ext4
+# bootname=A
+# 
+# [slot.rootfs.1]
+# device=/dev/mmcblk0p3
+# type=ext4
+# bootname=B
+```
+
+### SWUpdate
+
+SWUpdate is another embedded update framework with web UI support:
+
+```bash
+# SWUpdate supports:
+# - Single and double copy (A/B)
+# - SURICATTA (hawkBit backend) for OTA
+# - Web-based update server
+# - Pre/post install hooks
+# - Artifact verification (RSA, SHA256)
+
+# Check current version
+swupdate -v
+
+# Apply update from file
+swupdate -i update.swu
+
+# Apply update from network (hawkBit server)
+swupdate -u "-u http://hawkbit:8080"
+```
+
+### ChromeOS Verified Boot (depthcharge)
+
+ChromeOS uses a sophisticated verified boot chain:
+
+```
+ROM → depthcharge (payload in coreboot) → kernel (vboot verified)
+```
+
+```bash
+# ChromeOS uses vboot (verified boot) library
+# Key features:
+# - Two firmware slots (A/B) with separate keys
+# - Kernel partition has its own verification
+# - Developer mode allows custom keys
+# - Recovery mode from USB
+
+# Check ChromeOS boot status
+crossystem
+# dev_boot_usb=0
+# dev_boot_signed_only=0
+# mainfw_type=normal
+# tpm_fwver=0x00010001
+```
+
+### Android Verified Boot (AVB)
+
+Android uses AVB (Android Verified Boot) for boot chain verification:
+
+```bash
+# AVB uses vbmeta (verified boot metadata) structures
+# vbmeta contains:
+# - Hash descriptors for boot, dtbo, system, vendor partitions
+# - Chain descriptors for linking vbmeta partitions
+# - Hash tree descriptors for dm-verity
+
+# Verify Android boot image
+avbtool verify_image --image boot.img
+
+# Extract vbmeta info
+avbtool info_image --image vbmeta.img
+
+# Android boot chain:
+# BootROM → bootloader (ABL) → vbmeta → boot.img → system (dm-verity)
+```
+
+## Filesystem Considerations for Boot
+
+### SquashFS for Read-Only Root
+
+```bash
+# SquashFS is common for embedded read-only rootfs
+# Advantages:
+# - Excellent compression (LZ4, LZMA, ZSTD)
+# - Fast random access
+# - No journaling overhead
+# - Integrity via dm-verity
+
+# Create SquashFS rootfs
+mksquashfs rootfs/ rootfs.squashfs -comp zstd -b 256K
+
+# Mount at boot (via initramfs or fstab)
+mount -t squashfs /dev/mmcblk0p3 /rootfs
+
+# Writable overlay for data persistence
+mount -t tmpfs tmpfs /rootfs/var
+# Or use overlayfs:
+mount -t overlay overlay \
+    -o lowerdir=/rootfs,upperdir=/data/upper,workdir=/data/work \
+    /merged
+```
+
+### NAND Flash File Systems
+
+```bash
+# For raw NAND flash (no FTL):
+# - JFFS2: Journaling Flash File System v2
+#   Good for small partitions (<256MB)
+#   Wear leveling built-in
+#   Slow mount on large partitions
+
+# - UBIFS: Unsorted Block Image File System
+#   Better for larger NAND (>256MB)
+#   Requires UBI (Unsorted Block Images) layer
+#   Faster mount, better wear leveling
+
+# Create UBI volume
+ubinfo -a
+ubiformat /dev/mtd1
+ubiattach -m 1 -d 0
+ubimkvol /dev/ubi0 -N rootfs -m
+
+# Create UBIFS
+mkfs.ubifs -m 2048 -e 129024 -c 2048 -r rootfs/ ubifs.img
+
+# Mount UBIFS
+mount -t ubifs ubi0:rootfs /mnt
+```
+
+## Power Management During Boot
+
+```bash
+# Minimize boot time by:
+# 1. Use initramfs with minimal tools (BusyBox)
+# 2. Disable unused kernel features (CONFIG_EMBEDDED=y)
+# 3. Use kernel modules only for non-essential drivers
+# 4. Parallel init (systemd or custom parallel scripts)
+# 5. Read-only root filesystem (no fsck at boot)
+# 6. Skip unnecessary hardware init
+
+# Measure boot time
+systemd-analyze
+systemd-analyze blame
+systemd-analyze critical-chain
+
+# Or for non-systemd:
+dmesg | head -1
+# [    0.000000] Linux version 6.1.0 (builder@host)
+
+# Boot time breakdown
+dmesg | grep -E '^\[[0-9.]+\]' | tail -1
+# Shows total kernel boot time
+```
+
 ## Cross-References
 
 * [U-Boot](./u-boot.md) — detailed U-Boot reference
@@ -545,3 +763,4 @@ arm-none-eabi-gdb
 * [Kernel Command Line](../kernel/command-line.md) — boot parameters
 * [initramfs](../filesystems/initramfs.md) — early userspace
 * [NAND/NOR Flash](./flash.md) — flash storage subsystems
+
