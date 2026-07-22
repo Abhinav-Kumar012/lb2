@@ -678,6 +678,65 @@ int pidfd = pidfd_open(req->pid, 0);
 // This avoids PID reuse races when the target exits
 ```
 
+## seccomp-notify Limitations
+
+### Cannot Intercept All Syscalls
+
+```c
+// seccomp-notify cannot intercept syscalls that are:
+// 1. Already executed (SECCOMP_RET_USER_NOTIF only works pre-execution)
+// 2. Architecture-specific (must match arch in seccomp_data)
+// 3. vDSO calls (clock_gettime, gettimeofday, etc.)
+//    vDSO calls bypass the syscall interface entirely
+
+// The vDSO limitation means you cannot intercept:
+// - clock_gettime() — often used via vDSO for performance
+// - gettimeofday() — same
+// - time() — sometimes via vDSO
+// - getcpu() — sometimes via vDSO
+
+// Workaround: set SECCOMP_FILTER_FLAG_TSYNC to apply filter to all threads
+```
+
+### Thread Handling
+
+```c
+// seccomp filters are per-thread by default
+// Use SECCOMP_FILTER_FLAG_TSYNC to sync across all threads
+
+prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &prog, 0, 0);
+// Only this thread gets the filter
+
+// For multi-threaded applications:
+// Option 1: Apply filter before creating threads
+// Option 2: Use TSYNC flag
+// Option 3: Use seccomp(SECCOMP_SET_MODE_FILTER, flags, &prog) syscall
+//   with SECCOMP_FILTER_FLAG_TSYNC
+```
+
+### Notification Queue Depth
+
+```c
+// The notification queue has a limited depth
+// If the supervisor doesn't consume notifications fast enough,
+// subsequent syscalls will block or fail
+
+// Check and set queue depth (via seccomp_attr_set):
+// SECCOMP_USER_NOTIF_FLAG_CONTINUE — continue with default action on timeout
+```
+
+## seccomp-notify vs. AppArmor and SELinux
+
+| Feature | seccomp-notify | AppArmor | SELinux |
+|---------|---------------|----------|---------|
+| Scope | Syscall filtering | Path-based MAC | Label-based MAC |
+| Supervisor | User-space process | Kernel | Kernel |
+| Granularity | Per-syscall | Per-file-path | Per-object-label |
+| Policy language | BPF | Profile files | Policy modules |
+| Flexibility | Very high (Turing-complete supervisor) | Moderate | High |
+| Performance | Per-notification overhead | Kernel-only (fast) | Kernel-only (fast) |
+| Container use | OCI runtime integration | AppArmor profiles for containers | SELinux contexts for containers |
+
 ## Further Reading
 
 - [seccomp user notification (LWN.net)](https://lwn.net/Articles/756233/)
@@ -689,4 +748,5 @@ int pidfd = pidfd_open(req->pid, 0);
 - [seccomp notify proxy example](https://github.com/containers/conmon)
 - [Landlock documentation](https://docs.kernel.org/userspace-api/landlock.html)
 - [Podman seccomp](https://github.com/containers/common/tree/main/pkg/seccomp)
+
 

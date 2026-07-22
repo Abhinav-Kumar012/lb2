@@ -647,9 +647,99 @@ bpftrace -e 'tracepoint:syscalls:sys_enter_open { printf(\"%s %s\\n\", comm, str
 # Kernel processes asynchronously, completions appear in another ring
 ```
 
+## Influential Unix Programs Still in Use
+
+Many programs written in the 1970s-1980s are still fundamental to Linux today:
+
+| Program | Origin | Age | Still Used? |
+|---------|--------|-----|-------------|
+| `ed` | Unix V1 (1971) | 53+ | Yes (rarely, but present) |
+| `grep` | Unix V4 (1973) | 51+ | Every day |
+| `awk` | Unix V7 (1979) | 45+ | Every day |
+| `sed` | Unix V7 (1979) | 45+ | Every day |
+| `make` | PWB Unix (1976) | 48+ | Every day (build systems) |
+| `vi` | BSD (1976) | 48+ | Yes (vim is ubiquitous) |
+| `tar` | Unix V7 (1979) | 45+ | Every day |
+| `cron` | Unix V7 (1979) | 45+ | Every day |
+| `ssh` | OpenBSD (1999) | 25+ | Every day |
+| `dd` | Unix (1974) | 50+ | Every day |
+
+```bash
+# The original 'ed' line editor is still available
+echo 'Hello, World!' | ed -s file.txt
+# a
+# Hello, World!
+# .
+# w
+# q
+
+# grep's basic syntax hasn't changed since 1973
+grep 'pattern' file.txt
+
+# awk is still the go-to for columnar text processing
+ps aux | awk '{print $1, $11}' | sort | uniq -c | sort -rn
+```
+
+## Unix Derivatives Timeline
+
+```
+1969 ─── Unix (Bell Labs)
+  │
+  ├── 1977 ── BSD (Berkeley)
+  │    ├── 1993 ── FreeBSD
+  │    ├── 1993 ── NetBSD
+  │    ├── 1995 ── OpenBSD
+  │    └── 2003 ── macOS (Darwin kernel = Mach + FreeBSD)
+  │
+  ├── 1983 ── System V (AT&T)
+  │    ├── 1986 ── Solaris (Sun)
+  │    ├── 1986 ── HP-UX
+  │    └── 1990 ── AIX (IBM)
+  │
+  ├── 1987 ── MINIX (Tanenbaum)
+  │    └── 1991 ── Linux (Torvalds, inspired by MINIX)
+  │
+  ├── 1983 ── GNU Project (Stallman)
+  │    └── 1991 ── GNU/Linux (kernel + GNU userspace)
+  │
+  └── 1985 ── QNX (embedded real-time Unix)
+       └── 2010 ── BlackBerry 10 OS
+```
+
+## The Unix Room and Bell Labs Culture
+
+The Unix Room at Bell Labs was a legendary workspace that shaped computing culture:
+
+- **Shared office**: Thompson, Ritchie, Kernighan, and others worked in close proximity
+- **Whiteboard culture**: Ideas were sketched and debated on whiteboards
+- **Code review by proximity**: Walking over to someone's desk for review
+- **"Worse is Better" philosophy**: Pragmatic over theoretical perfection
+- **Tools for thinkers**: Unix was built by programmers for programmers
+- **Minimal documentation**: "Use the source, Luke" — reading code was expected
+
+This culture directly influenced the open-source movement: transparency, collaboration, and meritocracy.
+
+## Unix and the Internet
+
+Unix was instrumental in the development of the internet:
+
+```bash
+# TCP/IP networking was first implemented in BSD (1982)
+# The BSD socket API became the standard for network programming
+
+# sendmail (1983): Dominated email routing for decades
+# BIND (1984): The DNS server that runs most of the internet
+# Apache (1995): Ran 70%+ of web servers by 2000
+# Nginx (2004): Now the most popular web server
+
+# The internet was built on Unix, and Linux inherited that legacy
+# Today, Linux runs ~90% of cloud infrastructure
+```
+
 ## Related Topics
 
 - [What Is Linux?](./what-is-linux.md) — Technical overview of the Linux kernel and its architecture
 - [Linux History](./history.md) — The complete timeline from 1991 to today
 - [Distributions](./distributions.md) — How different distros package the Unix tradition differently
+
 

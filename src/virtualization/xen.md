@@ -675,10 +675,130 @@ xl info | grep xen_version
 | Device passthrough | PCI passthrough | VFIO |
 | Memory | Balloon, PoD, vNUMA | Balloon, KSM, vNUMA |
 
+## Xen and IOMMU (VT-d/AMD-Vi)
+
+Xen uses IOMMU for safe device passthrough to guest domains:
+
+```bash
+# Enable IOMMU in Xen
+# Add to Xen hypervisor command line:
+iommu=1
+
+# Check IOMMU groups
+xl dmesg | grep -i iommu
+
+# Passthrough a PCI device to a domU
+# 1. Find the device's BDF (Bus:Device.Function)
+lspci | grep -i nvidia
+# 03:00.0 VGA compatible controller: NVIDIA Corporation ...
+
+# 2. Hide the device from dom0
+xl pci-assignable-add 0000:03:00.0
+
+# 3. Add to domU configuration
+# In vm.cfg:
+pci = ['0000:03:00.0']
+
+# 4. Create the domain with device passthrough
+xl create vm.cfg
+
+# Inside the domU, the device appears as if directly attached
+lspci  # Shows the NVIDIA GPU
+
+# IOMMU groups ensure that devices in the same group
+# must be passed through together (they share IOMMU context)
+```
+
+### IOMMU Safety
+
+```bash
+# IOMMU provides:
+# - DMA remapping: prevents guests from accessing arbitrary physical memory
+# - Interrupt remapping: prevents interrupt injection attacks
+# - Device isolation: each device gets its own DMA address space
+
+# Without IOMMU, a malicious guest could DMA into dom0 memory
+# IOMMU is REQUIRED for safe device passthrough
+
+# Check if IOMMU is active
+dmesg | grep -i 'DMAR\|IOMMU'
+# DMAR: IOMMU enabled
+```
+
+## Xenstore Watch Mechanism
+
+Xenstore provides a watch/notify mechanism for monitoring configuration changes:
+
+```c
+/* Watch for device state changes */
+/* Used by frontend drivers to detect backend readiness */
+
+/* Frontend creates a watch on its device state: */
+/* xenstore-watch /local/domain/<domid>/device/vif/0/state */
+
+/* State transitions:
+ * 0: Unknown
+ * 1: Initialising (backend created)
+ * 2: InitWait (backend waiting)
+ * 3: Initialised (frontend created)
+ * 4: Connected (both sides ready)
+ * 5: Closing (frontend closing)
+ * 6: Closed (frontend closed)
+ * 7: Reconfiguring
+ * 8: Reconfigured
+ */
+```
+
+```bash
+# Monitor xenstore changes in real-time
+xenstore-watch /local/domain/1/device/vif/0/state
+
+# Watch all changes under a path
+xenstore-watch -n /local/domain/1/device/
+```
+
+## Xen Memory Management
+
+### Balloon Driver
+
+```bash
+# The balloon driver adjusts domain memory at runtime
+
+# Inflate balloon (give memory back to hypervisor)
+xl mem-set domain-name 512
+
+# Deflate balloon (give more memory to domain)
+xl mem-set domain-name 2048
+
+# Check current memory
+xl list
+# Name                    ID  Mem  VCPUs  State  Time(s)
+# Domain-0                 0  4096  4     r-----  1234.5
+# hvm-guest                1  2048  4     -b----  56.7
+
+# Memory can also be adjusted via xenstore
+xenstore-write /local/domain/1/memory/target 2048
+```
+
+### PoD (Populate on Demand)
+
+```bash
+# PoD allows domains to claim more memory than initially allocated
+# Memory is allocated on first access (similar to overcommit)
+
+# In domain config:
+memory = 2048
+maxmem = 4096  # Can grow up to 4GB
+
+# The hypervisor tracks which pages are actually used
+# Unused pages can be reclaimed by the balloon driver
+```
+
 ## Related Topics
 
 - [Virtualization Overview](./overview.md) — virtualization types and comparison
 - [KVM Internals](./kvm.md) — alternative kernel-based virtualization
 - [QEMU](./qemu.md) — device emulation used with Xen HVM
 - [Container Overview](../containers/overview.md) — alternative isolation mechanism
+
 
