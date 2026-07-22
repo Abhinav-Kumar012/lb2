@@ -241,29 +241,176 @@ Arch Linux official repositories:
 
 ## Pacman Hooks
 
-Hooks allow running actions before/after package operations:
+Hooks allow running actions before/after package operations. They live in `/etc/pacman.d/hooks/` (user hooks) and `/usr/share/libalpm/hooks/` (package-provided hooks). User hooks override package hooks with the same filename.
+
+### Hook Syntax
 
 ```ini
 # /etc/pacman.d/hooks/90-mkinitcpio-install.hook
 [Trigger]
-Type = File
-Operation = Install
+Type = File                    # Match type: File or Package
+Operation = Install            # Install, Upgrade, Remove (can list multiple)
 Operation = Upgrade
-Target = usr/lib/modules/*/vmlinuz
+Target = usr/lib/modules/*/vmlinuz  # Glob pattern for files
+Target = usr/lib/initcpio/*         # Multiple targets = OR logic
 
 [Action]
 Description = Updating linux initcpios...
-When = PostTransaction
-Exec = /usr/bin/mkinitcpio -P
-Depends = mkinitcpio
+When = PostTransaction         # PreTransaction or PostTransaction
+Exec = /usr/bin/mkinitcpio -P  # Command to run
+AbortOnFail                    # Abort transaction if hook fails (PreTransaction only)
+Depends = mkinitcpio           # Skip hook if package not installed
+NeedsTargets                   # Pass matched files as arguments to Exec
 ```
 
-```bash
-# List installed hooks
-pacman -Ql | grep hooks
+### Practical Hook Examples
 
-# Create a custom hook
-sudo mkdir -p /etc/pacman.d/hooks
+```ini
+# /etc/pacman.d/hooks/95-ssl-cert-update.hook
+# Rebuild SSL certificate bundle after ca-certificates updates
+[Trigger]
+Type = Package
+Operation = Install
+Operation = Upgrade
+Target = ca-certificates
+
+[Action]
+Description = Updating CA certificate bundle...
+When = PostTransaction
+Exec = /usr/bin/update-ca-trust
+
+# /etc/pacman.d/hooks/99-cleanup-paccache.hook
+# Auto-clean package cache, keeping last 3 versions
+[Trigger]
+Type = Package
+Operation = Install
+Operation = Upgrade
+Operation = Remove
+Target = *
+
+[Action]
+Description = Cleaning package cache...
+When = PostTransaction
+Exec = /usr/bin/paccache -rk3
+
+# /etc/pacman.d/hooks/60-fonts-rebuild.hook
+# Rebuild font cache when fonts are installed or updated
+[Trigger]
+Type = File
+Operation = Install
+Operation = Upgrade
+Operation = Remove
+Target = usr/share/fonts/**/*.ttf
+Target = usr/share/fonts/**/*.otf
+
+[Action]
+Description = Rebuilding font cache...
+When = PostTransaction
+Exec = /usr/bin/fc-cache -f
+NeedsTargets
+```
+
+### Hook Debugging
+
+```bash
+# List all hooks (including package-provided)
+pacman -Ql | grep '\.hook$'
+
+# Run pacman with verbose hook output
+sudo pacman -Syuv
+
+# Test hook matching without executing
+sudo pacman -Syuv --debug 2>&1 | grep -i hook
+```
+
+## Package Signing and Trust Model
+
+Pacman uses GPG signatures to verify package authenticity. Every package is signed by a Trusted User (TU) or developer, and the keyring is maintained by the `archlinux-keyring` package.
+
+### Trust Chain
+
+```mermaid
+graph TD
+    ROOT["Arch Linux Master Keys<br/>(5 Trusted Key holders)"] --> DEV["Developer / TU Keys"]
+    DEV --> PKG["Package Signatures"]
+    PKG --> VERIFY["pacman verifies on install"]
+    KEYRING["archlinux-keyring package"] --> DEV
+    
+    style ROOT fill:#e53e3e,color:#fff
+    style VERIFY fill:#38a169,color:#fff
+```
+
+### Key Management Commands
+
+```bash
+# Initialize the keyring
+sudo pacman-key --init
+
+# Populate with Arch Linux keys
+sudo pacman-key --populate archlinux
+
+# Refresh keys from keyservers
+sudo pacman-key --refresh-keys
+
+# List trusted keys
+pacman-key --list-keys
+
+# Manually trust a key (rare, for custom repos)
+sudo pacman-key --lsign-key <KEY_ID>
+
+# Add a key from a file
+sudo pacman-key --add /path/to/keyfile.asc
+
+# Verify a package signature manually
+pacman -Qip /var/cache/pacman/pkg/nginx-1.26.1-1-x86_64.pkg.tar.zst
+# Look for: "Signatures" : "Yes"
+```
+
+### SigLevel Configuration
+
+```ini
+# /etc/pacman.conf
+[options]
+# Default: require signatures for remote packages, optional for local
+SigLevel = Required DatabaseOptional
+
+# Per-repository override
+[core]
+SigLevel = Required  # All core packages must be signed
+Include = /etc/pacman.d/mirrorlist
+
+[customrepo]
+SigLevel = Optional TrustAll  # Trust all keys (use with caution)
+Server = https://repo.example.com/$repo/$arch
+```
+
+| SigLevel | Meaning |
+|----------|--------|
+| `Required` | Signature must be present and valid |
+| `Optional` | Signature checked if present, but not required |
+| `Never` | Never check signatures |
+| `TrustAll` | Accept any trusted key (skip marginal trust check) |
+| `DatabaseOptional` | Database signature is optional |
+
+### Fixing Keyring Issues
+
+```bash
+# Common error: "signature from "X" is unknown trust"
+# This means the keyring is outdated
+
+# Step 1: Update keyring first
+sudo pacman -Sy archlinux-keyring
+
+# Step 2: Then full upgrade
+sudo pacman -Syu
+
+# Nuclear option: reset keyring completely
+sudo rm -r /etc/pacman.d/gnupg
+sudo pacman-key --init
+sudo pacman-key --populate archlinux
+
+# If keyservers are blocked (corporate firewalls)
+sudo pacman-key --keyserver hkps://keyserver.ubuntu.com --refresh-keys
 ```
 
 ## AUR (Arch User Repository)
@@ -400,6 +547,89 @@ paccache -ruk0       # Remove all cached versions of uninstalled packages
 paccache -d
 ```
 
+## Pacman Tips and Tricks
+
+### Useful Aliases
+
+```bash
+# Add to ~/.bashrc or ~/.zshrc
+alias pacup='sudo pacman -Syu'           # Full system upgrade
+alias pacin='sudo pacman -S'             # Install package
+alias pacre='sudo pacman -Rns'           # Remove with deps and config
+alias pacss='pacman -Ss'                 # Search repos
+alias pacqs='pacman -Qs'                 # Search installed
+alias pacorph='pacman -Qdt'              # List orphans
+alias paclean='sudo paccache -rk3 && sudo paccache -ruk0'  # Clean cache
+alias paclist='pacman -Qe'               # Explicitly installed
+alias pacinfo='pacman -Qi'               # Package info
+```
+
+### Finding What Provides a Command
+
+```bash
+# "Which package provides /usr/bin/nginx?"
+pacman -F /usr/bin/nginx
+
+# Must sync file database first
+sudo pacman -Fy
+
+# Search for a binary
+pacman -Fx nginx
+# extra/nginx 1.26.1-1
+#     usr/bin/nginx
+
+# Alternative: use pkgfile
+sudo pacman -S pkgfile
+sudo pkgfile --update
+pkgfile nginx
+```
+
+### Managing Orphaned Packages
+
+```bash
+# List orphans (installed as deps, no longer needed)
+pacman -Qdt
+
+# Remove all orphans
+sudo pacman -Rns $(pacman -Qdtq)
+
+# List explicitly installed packages not in any group
+pacman -Qe
+
+# Compare installed vs explicitly installed
+# (shows packages installed as dependencies)
+comm -23 <(pacman -Qq | sort) <(pacman -Qeq | sort)
+```
+
+### Downgrading Packages
+
+```bash
+# Install from cache
+sudo pacman -U /var/cache/pacman/pkg/nginx-1.24.0-1-x86_64.pkg.tar.zst
+
+# Downgrade multiple packages
+sudo pacman -U \
+    /var/cache/pacman/pkg/nginx-1.24.0-1-x86_64.pkg.tar.zst \
+    /var/cache/pacman/pkg/openssl-3.1.0-1-x86_64.pkg.tar.zst
+
+# Use downgrade tool (AUR)
+yay -S downgrade
+downgrade nginx
+# Presents a menu of cached versions to choose from
+
+# Pin a package to prevent upgrades
+# Add to /etc/pacman.conf:
+# IgnorePkg = nginx openssl
+```
+
+### List All Files Not Owned by Any Package
+
+```bash
+# Find files in standard directories not owned by any package
+pacman -Ql | awk '{print $2}' | sort > /tmp/pacman-files.txt
+find /usr/bin /usr/lib /usr/share -type f | sort | comm -23 - /tmp/pacman-files.txt
+```
+
 ## Troubleshooting
 
 ### Common Issues
@@ -427,6 +657,28 @@ sudo rm /var/lib/pacman/db.lck
 
 # Corrupted package
 sudo pacman -Syyu
+
+# Partial upgrade unsupported
+# Arch Linux does NOT support partial upgrades
+# Always run pacman -Syu, never pacman -Sy followed by pacman -S
+# Mixing old and new packages causes breakage
+```
+
+### Resolving Broken Dependencies
+
+```bash
+# Check for broken dependencies
+pacman -Dk
+
+# Force-install a package to fix broken state
+sudo pacman -S --force nginx
+
+# Check file integrity of all packages
+pacman -Qkk 2>&1 | grep -v ' 0 altered'
+
+# Reinstall all packages (nuclear option)
+pacman -Qqn | sudo pacman -S --overwrite '*' -
+# Note: this is extreme and rarely needed
 ```
 
 ### Log File
@@ -440,6 +692,22 @@ grep -i "install\|upgrade\|remove" /var/log/pacman.log | tail -20
 
 # Search for a specific package
 grep "nginx" /var/log/pacman.log
+
+# Show all upgrades with dates
+grep '\[ALPM\] upgraded' /var/log/pacman.log | tail -20
+
+# Show packages installed from AUR (via makepkg)
+grep 'installed.*from' /var/log/pacman.log | grep -v '\[ALPM\]'
+
+# Log rotation: pacman logs are not rotated by default
+# Add to /etc/logrotate.d/pacman:
+# /var/log/pacman.log {
+#     monthly
+#     rotate 12
+#     compress
+#     missingok
+#     notifempty
+# }
 ```
 
 ## Architecture Diagram
