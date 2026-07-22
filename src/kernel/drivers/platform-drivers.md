@@ -668,6 +668,78 @@ When writing a platform driver, follow this checklist:
 - [ ] Clean up in `remove()` (or use devm_* to avoid it)
 - [ ] Test with `CONFIG_DEBUG_DEVRES` enabled
 
+## Platform Driver Testing
+
+### Unit Testing with kunit
+
+```c
+#include <kunit/test.h>
+#include <linux/platform_device.h>
+
+static struct platform_device *test_pdev;
+
+static int my_test_init(struct kunit *test)
+{
+    /* Create a mock platform device */
+    test_pdev = platform_device_alloc("my-device", -1);
+    KUNIT_ASSERT_NOT_ERR_OR_NULL(test, test_pdev);
+
+    /* Add resources */
+    struct resource res[] = {
+        DEFINE_RES_MEM(0x10010000, 0x1000),
+        DEFINE_RES_IRQ(10),
+    };
+    platform_device_add_resources(test_pdev, res, ARRAY_SIZE(res));
+
+    platform_device_add(test_pdev);
+    return 0;
+}
+
+static void my_test_probe(struct kunit *test)
+{
+    /* Test probe function */
+    int ret = my_probe(test_pdev);
+    KUNIT_EXPECT_EQ(test, ret, 0);
+}
+
+static void my_test_remove(struct kunit *test)
+{
+    int ret = my_remove(test_pdev);
+    KUNIT_EXPECT_EQ(test, ret, 0);
+}
+
+static struct kunit_case my_test_cases[] = {
+    KUNIT_CASE(my_test_probe),
+    KUNIT_CASE(my_test_remove),
+    {}
+};
+
+static struct kunit_suite my_test_suite = {
+    .name = "my-driver-test",
+    .init = my_test_init,
+    .test_cases = my_test_cases,
+};
+kunit_test_suite(my_test_suite);
+```
+
+### Integration Testing with QEMU
+
+```bash
+# Test platform driver with QEMU device emulation
+qemu-system-aarch64 \
+    -machine virt \
+    -cpu cortex-a72 \
+    -m 1024 \
+    -kernel Image \
+    -dtb test.dtb \
+    -append "console=ttyAMA0" \
+    -nographic
+
+# Verify driver loaded
+dmesg | grep "my-device"
+# [    1.234567] my-device 10010000.my-block: probed successfully
+```
+
 ## Related Topics
 
 - [I2C and SPI](./i2c-spi.md) — Bus-level drivers using platform as controller base
