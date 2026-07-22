@@ -438,6 +438,237 @@ $ ip rule add from 192.168.2.0/24 table isp2
 $ ip route show table all
 ```
 
+## Routing Protocol Security
+
+### OSPF Authentication
+
+OSPF supports authentication to prevent unauthorized routers from injecting
+routes:
+
+```bash
+# FRR OSPF MD5 authentication
+router ospf
+    area 0 authentication message-digest
+    interface eth1
+        ip ospf message-digest-key 1 md5 MySecretKey
+        ip ospf message-digest-key 2 md5 NewKeyForRotation
+
+# Verify authentication
+$ vtysh -c "show ip ospf interface eth1"
+# Should show: Cryptographic authentication enabled
+```
+
+### BGP Security (RPKI and TCP-AO)
+
+```bash
+# BGP TCP Authentication Option (TCP-AO)
+router bgp 64500
+    neighbor 203.0.113.1 remote-as 64501
+    neighbor 203.0.113.1 password BgpPassword123
+
+# RPKI validation (prefix origin validation)
+router bgp 64500
+    rpki
+        rpki polling_period 300
+        rpki cache 192.0.2.1 323 port 323
+
+# View RPKI validation status
+$ vtysh -c "show rpki prefix-table"
+```
+
+### BGP Flapping and Dampening
+
+Route flapping (routes going up and down rapidly) can destabilize routing.
+BGP dampening penalizes flapping routes:
+
+```bash
+# Enable BGP dampening
+router bgp 64500
+    bgp dampening 15 750 900 60
+
+# Parameters: half-life reuse suppress max-suppress
+# 15 min half-life, reuse at 750, suppress at 900, max suppress 60 min
+
+# View dampened routes
+$ vtysh -c "show ip bgp dampened-paths"
+```
+
+## IS-IS (Intermediate System to Intermediate System)
+
+IS-IS is another link-state routing protocol, widely used in service
+provider networks.  Unlike OSPF, it operates directly at Layer 2 (no IP
+encapsulation) and uses CLNS for transport.
+
+### IS-IS vs OSPF
+
+| Feature | OSPF | IS-IS |
+|---------|------|-------|
+| Layer | Layer 3 (IP protocol 89) | Layer 2 (direct on Ethernet) |
+| Addressing | IP-based | CLNS/NET-based |
+| Area design | Area 0 backbone + others | Flexible L1/L2/L1-2 |
+| TLV extensibility | Limited | Highly extensible |
+| IPv6 support | Separate OSPFv3 | Native dual-stack |
+| Convergence | Fast | Fast |
+| Use case | Enterprise | Service providers |
+
+### IS-IS Configuration with FRR
+
+```bash
+# Enable IS-IS daemon
+$ sed -i 's/isisd=no/isisd=yes/' /etc/frr/daemons
+$ systemctl restart frr
+```
+
+```
+! /etc/frr/frr.conf -- IS-IS configuration
+!
+router isis CORE
+    net 49.0001.0010.0100.1001.00
+    is-type level-2-only
+    metric-style wide
+    !
+    interface eth0
+        ip router isis CORE
+        isis circuit-type level-2-only
+        isis metric 10
+    !
+    interface eth1
+        ip router isis CORE
+        isis circuit-type level-2-only
+        isis metric 20
+```
+
+```bash
+# IS-IS operational commands
+$ vtysh -c "show isis neighbor"
+Area CORE:
+  System Id           Interface   L  State  Holdtime  SNPA
+  0010.0100.1002.00   eth1        2  Up     27        0a:58:ac:11:00:02
+
+$ vtysh -c "show isis route"
+IS-IS L2 routing table:
+  10.0.1.0/24         eth1    20   0010.0100.1002.00
+  10.0.2.0/24         eth0    10   0010.0100.1003.00
+```
+
+## Linux Routing Subsystem
+
+### Kernel Routing Table
+
+The Linux kernel maintains a Forwarding Information Base (FIB) that stores
+the active routes used for packet forwarding:
+
+```bash
+# View kernel routing table
+$ ip route show
+default via 192.168.1.1 dev eth0 proto dhcp metric 100
+10.0.0.0/8 via 10.255.0.1 dev tun0 proto static metric 50
+192.168.1.0/24 dev eth0 proto kernel scope link src 192.168.1.50
+
+# Route sources
+# proto kernel - added by kernel during interface configuration
+# proto static - manually added static routes
+# proto dhcp   - received from DHCP
+# proto zebra  - added by FRR/Zebra daemon
+```
+
+### Policy Routing
+
+Linux supports multiple routing tables with policy-based selection:
+
+```bash
+# Define custom routing tables
+echo "100 isp1" >> /etc/iproute2/rt_tables
+echo "200 isp2" >> /etc/iproute2/rt_tables
+
+# Add routes to specific tables
+ip route add default via 203.0.113.1 table isp1
+ip route add default via 198.51.100.1 table isp2
+
+# Policy rules
+ip rule add from 192.168.1.0/24 table isp1 priority 100
+ip rule add from 192.168.2.0/24 table isp2 priority 200
+ip rule add fwmark 1 table isp1 priority 300
+
+# View all rules
+$ ip rule show
+0:      from all lookup local
+100:    from 192.168.1.0/24 lookup isp1
+200:    from 192.168.2.0/24 lookup isp2
+32766:  from all lookup main
+32767:  from all lookup default
+
+# View all routing tables
+$ ip route show table all
+```
+
+### Equal-Cost Multi-Path (ECMP)
+
+Linux supports ECMP for load balancing across multiple equal-cost routes:
+
+```bash
+# Add ECMP route
+$ ip route add 10.0.0.0/8     nexthop via 10.0.1.1 weight 1     nexthop via 10.0.2.1 weight 1     nexthop via 10.0.3.1 weight 1
+
+# Verify ECMP
+$ ip route show 10.0.0.0/8
+10.0.0.0/8
+    nexthop via 10.0.1.1 dev eth0 weight 1
+    nexthop via 10.0.2.1 dev eth1 weight 1
+    nexthop via 10.0.3.1 dev eth2 weight 1
+
+# Configure ECMP hash algorithm
+$ echo "l3" > /proc/sys/net/ipv4/fib_multipath_hash_policy
+# Options: l3 (src+dst IP), l4 (src+dst IP+port)
+```
+
+## FRRouting Architecture
+
+FRRouting (FRR) is the standard routing suite on Linux.  Its architecture
+follows a daemon-based model:
+
+```mermaid
+flowchart TB
+    subgraph "FRR Daemons"
+        ZEBRA["Zebra
+(RIB manager)"]
+        OSPFD["ospfd
+(OSPF daemon)\]
+        BGPD["bgpd
+(BGP daemon)\]
+        ISISD["isisd
+(IS-IS daemon)\]
+    end
+    subgraph "Kernel"
+        FIB["FIB (routing table)
+via netlink")
+        NTF["Nftables/iptables")
+    end
+    subgraph "CLI"
+        VTSH["vtysh
+(unified CLI)")
+    end
+
+    OSPFD --> ZEBRA
+    BGPD --> ZEBRA
+    ISISD --> ZEBRA
+    ZEBRA -->|"netlink"| FIB
+    VTSH --> OSPFD
+    VTSH --> BGPD
+    VTSH --> ZEBRA
+```
+
+```bash
+# FRR daemon management
+$ sudo systemctl status frr
+$ vtysh                          # Enter unified CLI
+$ vtysh -c "show running-config" # View full config
+
+# Individual daemon configs are in /etc/frr/
+# frr.conf is the unified config (recommended)
+# Individual daemon configs (bgpd.conf, ospfd.conf) also supported
+```
+
 ## Further Reading
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
