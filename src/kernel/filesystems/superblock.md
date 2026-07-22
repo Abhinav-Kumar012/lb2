@@ -531,9 +531,148 @@ $ xfs_repair /dev/sdb1
 - https://man7.org/linux/man-pages/man2/mount.2.html
 - https://man7.org/linux/man-pages/man2/sync.2.html
 
+## Superblock Quotas
+
+Modern filesystems integrate quota tracking directly into the superblock:
+
+### ext4 Quota in Superblock
+
+ext4 supports three quota types embedded in the superblock structure:
+
+```bash
+# Enable quota tracking at mount time
+$ mount -o usrquota,grpquota,prjquota /dev/sda1 /mnt/data
+
+# Check quota status via superblock
+$ tune2fs -l /dev/sda1 | grep -i quota
+
+# Modern ext4 stores quota in hidden inodes (inode 3, 4, 5)
+# rather than separate quota files
+```
+
+```c
+/* ext4 quota inode numbers in superblock */
+#define EXT4_USR_QUOTA_INO  3   /* User quota */
+#define EXT4_GRP_QUOTA_INO  4   /* Group quota */
+#define EXT4_PRJ_QUOTA_INO  5   /* Project quota */
+```
+
+## Superblock Debugging with drgn
+
+[drgn](https://github.com/osandov/drgn) is a programmable debugger that can inspect live kernel state, including superblocks:
+
+```python
+#!/usr/bin/env drgn
+"""Inspect all mounted superblocks.""""
+import drgn
+from drgn.helpers.linux.list import list_for_each_entry
+
+# Walk the global super_blocks list
+sb_list = prog['super_blocks']
+for sb in list_for_each_entry('struct super_block', sb_list.address_of_(), 's_list'):
+    fs_type = sb.s_type.name.string_().decode()
+    dev = sb.s_dev
+    active = sb.s_active.counter
+    print(f"{fs_type:15s} dev={dev:#x} active={active}")
+
+# Find a specific ext4 superblock and inspect its private data
+for sb in list_for_each_entry('struct super_block', sb_list.address_of_(), 's_list'):
+    if sb.s_type.name.string_().decode() == 'ext4':
+        es = cast('struct ext4_sb_info *', sb.s_fs_info)
+        print(f"ext4: {es.s_es.s_volume_name.string_().decode()}")
+        print(f"  blocks: {es.s_es.s_blocks_count_lo}")
+        print(f"  inodes: {es.s_es.s_inodes_count}")
+```
+
+```bash
+# Run the script on a live system
+$ sudo drgn superblock_inspect.py
+```
+
+## Superblock and Filesystem Feature Negotiation
+
+Modern filesystems use feature flags stored in the superblock to negotiate capabilities between kernel and userspace tools:
+
+```bash
+# View ext4 features
+$ tune2fs -l /dev/sda1 | grep "Filesystem features"
+Filesystem features: has_journal ext_attr resize_inode dir_index filetype
+  extent flex_bg sparse_super large_file huge_file uninit_bg dir_nlink
+  extra_isize
+
+# Enable a new feature (requires matching kernel + e2fsprogs support)
+$ tune2fs -O metadata_csum_seed /dev/sda1
+
+# btrfs feature flags
+$ btrfs inspect-internal dump-super /dev/sda1 | grep -i feature
+```
+
+Feature flags are organized into categories:
+- **Compatible** — can mount without the feature
+- **Read-only compatible** — can mount read-only without support
+- **Incompatible** — must have support to mount read/write
+
+```c
+/* btrfs feature flag categories */
+#define BTRFS_FEATURE_INCOMPAT_MIXED_BACKREF    (1ULL << 0)
+#define BTRFS_FEATURE_INCOMPAT_DEFAULT_SUBVOL   (1ULL << 1)
+#define BTRFS_FEATURE_INCOMPAT_MIXED_GROUPS     (1ULL << 2)
+#define BTRFS_FEATURE_INCOMPAT_COMPRESS_LZO     (1ULL << 3)
+#define BTRFS_FEATURE_INCOMPAT_COMPRESS_ZSTD    (1ULL << 4)
+#define BTRFS_FEATURE_INCOMPAT_BIG_METADATA     (1ULL << 5)
+#define BTRFS_FEATURE_INCOMPAT_EXTENDED_IREF    (1ULL << 6)
+#define BTRFS_FEATURE_INCOMPAT_RAID56           (1ULL << 7)
+#define BTRFS_FEATURE_INCOMPAT_SKINNY_METADATA  (1ULL << 8)
+#define BTRFS_FEATURE_INCOMPAT_NO_HOLES         (1ULL << 9)
+```
+
+## Superblock Across Architectures
+
+The in-memory `struct super_block` is architecture-independent, but on-disk formats may differ in endianness:
+
+```bash
+# ext4 superblock magic: 0xEF53 (same on all architectures)
+# XFS superblock magic: 0x58465342 (big-endian on disk)
+# btrfs superblock magic: "_BHRfS_M" (8-byte ASCII string)
+
+# Cross-architecture inspection requires byte-swap awareness
+$ xfs_db -r -c "sb 0" -c "p" /dev/sdb1
+# xfs_db handles endianness automatically
+```
+
+## Performance Considerations
+
+### Superblock Scaling
+
+In kernels with many mounted filesystems, superblock operations can become a bottleneck:
+
+```bash
+# Count active superblocks
+$ grep -c "super_block" /proc/slabinfo
+# Or via debugfs
+$ cat /sys/kernel/debug/slab/super_cache/objects
+```
+
+The kernel uses several strategies to minimize superblock contention:
+- **Per-CPU inode hash tables** reduce lock contention during inode lookup
+- **Deferred superblock destruction** via RCU prevents blocking during unmount
+- **Distributed reference counting** with `percpu_ref` for high-traffic mounts
+
+### Superblock and Memory Pressure
+
+During memory pressure, the kernel can shrink cached superblock data:
+
+```bash
+# Drop caches (triggers superblock-level cache cleanup)
+$ echo 2 > /proc/sys/vm/drop_caches  # reclaim dentries and inodes
+$ echo 3 > /proc/sys/vm/drop_caches  # reclaim all caches
+```
+
 ## Related Topics
 
 - [inode](./inode.md) — Inodes are children of the superblock
 - [file-ops](./file-ops.md) — File operations work with inodes from the superblock
 - [mounting](./mounting.md) — How superblocks are created during mount
 - [overlayfs](./overlayfs.md) — OverlayFS superblock management
+- [bcachefs](./bcachefs.md) — Modern COW filesystem with unique superblock design
+- [zfs](./zfs.md) — ZFS uberblock and pool-level superblock management
