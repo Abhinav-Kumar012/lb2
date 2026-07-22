@@ -423,6 +423,259 @@ struct fuse_operations {
 };
 ```
 
+## FUSE Development Patterns
+
+### Pattern 1: In-Memory Filesystem
+
+```c
+#define FUSE_USE_VERSION 31
+#include <fuse3/fuse.h>
+#include <string.h>
+#include <errno.h>
+#include <stdlib.h>
+
+struct mem_file {
+    char *data;
+    size_t size;
+    time_t mtime;
+};
+
+static struct mem_file files[256];
+static int file_count = 0;
+
+static int memfs_create(const char *path, mode_t mode,
+                        struct fuse_file_info *fi) {
+    if (file_count >= 256)
+        return -ENOSPC;
+
+    struct mem_file *f = &files[file_count++];
+    f->data = NULL;
+    f->size = 0;
+    f->mtime = time(NULL);
+    return 0;
+}
+
+static int memfs_write(const char *path, const char *buf,
+                       size_t size, off_t offset,
+                       struct fuse_file_info *fi) {
+    struct mem_file *f = find_file(path);
+    if (!f) return -ENOENT;
+
+    size_t new_size = offset + size;
+    if (new_size > f->size) {
+        f->data = realloc(f->data, new_size);
+        f->size = new_size;
+    }
+    memcpy(f->data + offset, buf, size);
+    f->mtime = time(NULL);
+    return size;
+}
+
+static int memfs_read(const char *path, char *buf,
+                      size_t size, off_t offset,
+                      struct fuse_file_info *fi) {
+    struct mem_file *f = find_file(path);
+    if (!f) return -ENOENT;
+
+    if (offset >= f->size)
+        return 0;
+    if (offset + size > f->size)
+        size = f->size - offset;
+    memcpy(buf, f->data + offset, size);
+    return size;
+}
+
+static const struct fuse_operations memfs_ops = {
+    .create  = memfs_create,
+    .read    = memfs_read,
+    .write   = memfs_write,
+    .getattr = memfs_getattr,
+    .readdir = memfs_readdir,
+};
+```
+
+### Pattern 2: Passthrough Filesystem
+
+```c
+/* Passthrough FUSE: delegates to underlying filesystem */
+
+static int passthrough_open(const char *path,
+                            struct fuse_file_info *fi) {
+    char real_path[PATH_MAX];
+    fullpath(real_path, path);
+
+    int fd = open(real_path, fi->flags);
+    if (fd < 0)
+        return -errno;
+
+    fi->fh = fd;
+    return 0;
+}
+
+static int passthrough_read(const char *path, char *buf,
+                            size_t size, off_t offset,
+                            struct fuse_file_info *fi) {
+    int res = pread(fi->fh, buf, size, offset);
+    if (res < 0)
+        return -errno;
+    return res;
+}
+
+static int passthrough_write(const char *path,
+                             const char *buf, size_t size,
+                             off_t offset,
+                             struct fuse_file_info *fi) {
+    int res = pwrite(fi->fh, buf, size, offset);
+    if (res < 0)
+        return -errno;
+    return res;
+}
+
+/* Enable passthrough for better performance (Linux 6.2+) */
+static int passthrough_open(const char *path,
+                            struct fuse_file_info *fi) {
+    /* ... */
+    fi->passthrough = 1;  /* Request kernel passthrough */
+    return 0;
+}
+```
+
+### Pattern 3: Network Filesystem
+
+```c
+/* Network FUSE: reads from remote server */
+
+static int netfs_read(const char *path, char *buf,
+                      size_t size, off_t offset,
+                      struct fuse_file_info *fi) {
+    /* Build request */
+    struct netfs_request req = {
+        .path = path,
+        .offset = offset,
+        .size = size,
+    };
+
+    /* Send to server */
+    int sock = connect_to_server();
+    send(sock, &req, sizeof(req), 0);
+
+    /* Receive response */
+    int res = recv(sock, buf, size, 0);
+    close(sock);
+
+    if (res < 0)
+        return -EIO;
+    return res;
+}
+```
+
+## Debugging FUSE
+
+### FUSE Debug Logging
+
+```bash
+# Mount with debug output
+fusermount3 -o debug /mnt/point
+
+# Or with libfuse
+./my_fuse_fs -f -d /mnt/point
+# -f = foreground (don't daemonize)
+# -d = debug output
+
+# Debug output shows all FUSE operations:
+# [7] unique: 4, opcode: LOOKUP (1), nodeid: 1, insize: 56
+# [7] unique: 4, success, outsize: 144
+# [7] unique: 5, opcode: READ (15), nodeid: 2, insize: 64
+# [7] unique: 5, success, outsize: 13
+```
+
+### strace on FUSE Daemon
+
+```bash
+# Trace the FUSE daemon
+strace -f -p $(pgrep my_fuse_daemon)
+
+# Trace specific operations
+strace -e trace=read,write -p $(pgrep my_fuse_daemon)
+
+# Trace with timestamps
+strace -T -p $(pgrep my_fuse_daemon)
+```
+
+### FUSE Protocol Analysis
+
+```bash
+# View FUSE connection info
+cat /sys/fs/fuse/connections/*/waiting
+cat /sys/fs/fuse/connections/*/max_background
+cat /sys/fs/fuse/connections/*/congestion_threshold
+
+# Check FUSE mount details
+mount -t fuse.fusectl
+findmnt -t fuse
+```
+
+### Common FUSE Issues
+
+| Problem | Cause | Solution |
+|---------|-------|----------|
+| Transport endpoint not connected | Daemon crashed | Restart daemon, unmount |
+| Permission denied | Missing allow_other | Add to /etc/fuse.conf |
+| Slow reads | No writeback cache | Enable FUSE_CAP_WRITEBACK_CACHE |
+| Stale file handles | Daemon timeout | Increase max_read |
+| Cannot mount | /dev/fuse not accessible | Check permissions |
+| Memory leak | Daemon bug | Profile daemon, fix leaks |
+
+## Advanced FUSE Features
+
+### FUSE Notifications (Linux 5.15+)
+
+```c
+/* FUSE can notify the kernel about external changes */
+
+/* Invalidate a cached inode */
+struct fuse_notify_inval_inode out = {
+    .ino = inode_number,
+    .off = 0,
+    .len = -1,
+};
+write(fd, &out, sizeof(out));
+
+/* Invalidate a dentry */
+struct fuse_notify_inval_entry out = {
+    .parent = parent_ino,
+    .namelen = strlen(name),
+};
+write(fd, &out, sizeof(out));
+/* followed by the name string */
+```
+
+### FUSE Polling
+
+```c
+/* Support poll() on FUSE files */
+static int myfs_poll(const char *path,
+                     struct fuse_file_info *fi,
+                     struct fuse_pollhandle *ph) {
+    unsigned revents = 0;
+
+    /* Check if data is available */
+    if (has_data(path))
+        revents |= POLLIN;
+
+    /* Register for notification when data becomes available */
+    if (ph)
+        poll_handle = ph;
+
+    return revents;
+}
+
+/* Notify kernel when data becomes available */
+if (poll_handle) {
+    fuse_notify_poll(poll_handle);
+}
+```
+
 ## References
 
 - [FUSE kernel documentation](https://www.kernel.org/doc/html/latest/filesystems/fuse.html)
