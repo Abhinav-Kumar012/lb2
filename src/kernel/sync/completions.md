@@ -485,6 +485,186 @@ void __sched wait_for_completion(struct completion *x) {
 }
 ```
 
+### Key Implementation Details
+
+1. **Spinlock protection**: The `done` counter and wait queue are protected by `x->wait.lock`, a spinlock with IRQs disabled.
+
+2. **`might_sleep()` check**: `wait_for_completion()` calls `might_sleep()` which warns if called in atomic context (holding a spinlock, in interrupt, etc.).
+
+3. **`complete_all()` sets done to UINT_MAX/2**: This is a large sentinel value that ensures `done` will never wrap to 0. Any number of `complete()` calls after `complete_all()` will not change the state — the completion is permanently signaled.
+
+4. **Memory barriers**: The spinlock acquire/release provides implicit memory barriers, ensuring that data written before `complete()` is visible to the waiter after `wait_for_completion()` returns.
+
+5. **`wait_for_completion()` decrement**: After being woken, the waiter decrements `done`. This means each `complete()` call wakes exactly one waiter, and the completion can be reused.
+
+## Performance Characteristics
+
+| Operation | Cost (uncontended) | Cost (contended) |
+|-----------|-------------------|------------------|
+| `init_completion()` | ~5ns | N/A |
+| `complete()` | ~30ns | ~100ns (IRQ save/restore + wake) |
+| `complete_all()` | ~30ns + N×wake | ~100ns + N×wake |
+| `wait_for_completion()` (already done) | ~15ns | N/A |
+| `wait_for_completion()` (must sleep) | ~1-10µs | context switch cost |
+| `wait_for_completion_timeout()` | ~15ns (done) | timer setup + context switch |
+
+**Optimization**: If the completion is already signaled when `wait_for_completion()` is called, it returns immediately without sleeping. This is the fast path and costs only a spinlock acquire/release pair.
+
+### Completion vs Wait Queue vs Semaphore
+
+```mermaid
+graph TD
+    A["Need to wait for an event?"] --> B{"One-shot or repeated?"}
+    B -->|One-shot| C{"Multiple waiters?"}
+    B -->|Repeated| D["Use wait_queue + condition"]
+    C -->|Yes| E["Use completion + complete_all()"]
+    C -->|No| F["Use completion + complete()"]
+    A --> G{"Need to count resources?"}
+    G -->|Yes| H["Use semaphore"]
+    G -->|No| I{"Need mutual exclusion?"}
+    I -->|Yes| J["Use mutex"]
+    I -->|No| K["Use completion"]
+```
+
+## Completion Reuse Anti-Patterns
+
+### Anti-Pattern: Forgetting reinit_completion()
+
+```c
+/* BUG: Reusing completion without reinit */
+static DECLARE_COMPLETION(done);
+
+void process_request(void) {
+    /* BUG: done might still be 1 from previous call! */
+    submit_request();
+    wait_for_completion(&done);  /* Returns immediately if done=1 */
+}
+
+/* CORRECT */
+void process_request(void) {
+    reinit_completion(&done);  /* Reset done to 0 */
+    submit_request();
+    wait_for_completion(&done);  /* Properly waits */
+}
+```
+
+### Anti-Pattern: Using complete_all() When complete() Suffices
+
+```c
+/* BAD: complete_all() permanently signals the completion */
+complete_all(&done);
+
+/* If you later want to reuse it: */
+reinit_completion(&done);  /* Must call this! */
+
+/* BETTER: Use complete() for reusable completions */
+complete(&done);  /* Wakes one waiter, done resets to 0 */
+```
+
+### Anti-Pattern: Completion as a Lock
+
+```c
+/* WRONG: Using completion for mutual exclusion */
+wait_for_completion(&lock);  /* First call sleeps forever! */
+/* ... critical section ... */
+complete(&lock);
+
+/* Use a mutex instead */
+mutex_lock(&lock);
+/* ... critical section ... */
+mutex_unlock(&lock);
+```
+
+## Real-World Kernel Usage
+
+### 1. I2C/SPI Driver Probe
+
+```c
+static DECLARE_COMPLETION(xfer_done);
+
+static irqreturn_t spi_irq_handler(int irq, void *dev_id)
+{
+    complete(&xfer_done);
+    return IRQ_HANDLED;
+}
+
+static int spi_transfer(struct spi_device *spi, u8 *buf, int len)
+{
+    reinit_completion(&xfer_done);
+
+    spi_start_transfer(spi, buf, len);
+
+    if (!wait_for_completion_timeout(&xfer_done,
+                                      msecs_to_jiffies(1000))) {
+        dev_err(&spi->dev, "SPI transfer timed out\n");
+        return -ETIMEDOUT;
+    }
+    return 0;
+}
+```
+
+### 2. USB Gadget Request Completion
+
+```c
+static void usb_request_complete(struct usb_ep *ep,
+                                  struct usb_request *req)
+{
+    struct completion *done = req->context;
+    complete(done);
+}
+
+int usb_transfer(struct usb_ep *ep, void *buf, int len)
+{
+    DECLARE_COMPLETION(done);
+    struct usb_request *req;
+
+    req = usb_ep_alloc_request(ep, GFP_KERNEL);
+    req->buf = buf;
+    req->length = len;
+    req->context = &done;
+    req->complete = usb_request_complete;
+
+    usb_ep_queue(ep, req, GFP_KERNEL);
+    wait_for_completion(&done);
+
+    usb_ep_free_request(ep, req);
+    return req->actual;
+}
+```
+
+### 3. Module Init Synchronization
+
+```c
+static DECLARE_COMPLETION(kthread_ready);
+
+static int worker_thread(void *data)
+{
+    /* Signal that thread is running */
+    complete(&kthread_ready);
+
+    while (!kthread_should_stop()) {
+        do_work();
+        msleep(100);
+    }
+    return 0;
+}
+
+static int __init my_module_init(void)
+{
+    struct task_struct *tsk;
+
+    tsk = kthread_run(worker_thread, NULL, "my_worker");
+    if (IS_ERR(tsk))
+        return PTR_ERR(tsk);
+
+    /* Wait for thread to be fully initialized */
+    wait_for_completion(&kthread_ready);
+
+    pr_info("Worker thread started\n");
+    return 0;
+}
+```
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)

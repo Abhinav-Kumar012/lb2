@@ -476,6 +476,210 @@ static int nvme_probe(struct pci_dev *pdev,
 
 ---
 
+## 12. PCIe Advanced Error Reporting (AER)
+
+PCIe AER provides detailed error reporting for PCIe devices:
+
+```c
+/* Enable AER in driver */
+#include <linux/aer.h>
+
+static int my_pci_probe(struct pci_dev *pdev,
+                        const struct pci_device_id *id)
+{
+    /* Enable AER error reporting */
+    pci_enable_pcie_error_reporting(pdev);
+
+    /* Register AER error callback */
+    struct pcie_device *aer_dev = pci_get_aer_device(pdev);
+    if (aer_dev) {
+        pcie_set_ecrc_checking(aer_dev, 1);
+    }
+
+    return 0;
+}
+
+static void my_pci_remove(struct pci_dev *pdev)
+{
+    pci_disable_pcie_error_reporting(pdev);
+}
+```
+
+### AER Error Types
+
+| Error | Severity | Description |
+|-------|----------|-------------|
+| Correctable | Info | Hardware-corrected (no action needed) |
+| Non-Fatal | Error | Transaction failed, device still functional |
+| Fatal | Critical | Device unrecoverable, link may be down |
+
+### Viewing AER Errors
+
+```bash
+# Check AER error counters
+cat /sys/bus/pci/devices/0000:01:00.0/aer_dev_correctable
+cat /sys/bus/pci/devices/0000:01:00.0/aer_dev_fatal
+cat /sys/bus/pci/devices/0000:01:00.0/aer_dev_nonfatal
+
+# View AER errors in dmesg
+dmesg | grep -i aer
+dmesg | grep -i "pcie.*error"
+
+# Example output:
+# pcieport 0000:00:1c.0: AER: Corrected error received: 0000:01:00.0
+# pcieport 0000:00:1c.0: AER:   device [8086:15b8] error status/mask=00000001/00002000
+```
+
+## 13. PCIe Link Training and Speed
+
+### Checking Link Status
+
+```bash
+# View PCIe link speed and width
+lspci -vvv -s 01:00.0 | grep -i "lnksta\|lnkcap"
+
+# Example output:
+# LnkCap: Port #0, Speed 8GT/s, Width x16, ASPM L0s L1, Latency L0 <1us, L1 <64us
+# LnkSta: Speed 8GT/s (ok), Width x16 (ok)
+
+# View link capabilities via sysfs
+ cat /sys/bus/pci/devices/0000:01:00.0/current_link_speed
+cat /sys/bus/pci/devices/0000:01:00.0/current_link_width
+
+# Check if link is degraded
+# If Width < expected, check for:
+# - Bad cable/connector
+# - BIOS settings
+# - Power limitations
+```
+
+### Link Speed and Width
+
+| PCIe Generation | Speed per Lane | x16 Bandwidth |
+|----------------|---------------|---------------|
+| Gen 1 | 2.5 GT/s | 4 GB/s |
+| Gen 2 | 5.0 GT/s | 8 GB/s |
+| Gen 3 | 8.0 GT/s | 16 GB/s |
+| Gen 4 | 16.0 GT/s | 32 GB/s |
+| Gen 5 | 32.0 GT/s | 64 GB/s |
+| Gen 6 | 64.0 GT/s | 128 GB/s |
+
+## 14. PCI Debugging
+
+### Common Issues
+
+| Problem | Cause | Solution |
+|---------|-------|----------|
+| Device not found | Not in config space | Check BIOS, rescan PCI bus |
+| BAR allocation failure | Insufficient MMIO space | Check BIOS MMIO settings |
+| MSI-X allocation fails | Not enough vectors | Reduce vector count |
+| DMA errors | Wrong DMA mask | Check dma_set_mask() |
+| AER errors | Link or device error | Check hardware, cable |
+| Device reset fails | Firmware hang | Power cycle, check BMC |
+
+### PCI Rescan
+
+```bash
+# Rescan PCI bus (hot-plug or after BIOS change)
+echo 1 > /sys/bus/pci/rescan
+
+# Remove a device
+echo 1 > /sys/bus/pci/devices/0000:01:00.0/remove
+
+# Rescan specific bridge
+echo 1 > /sys/bus/pci/devices/0000:00:1c.0/rescan
+
+# Check PCI bus allocation
+lspci -tv
+```
+
+### DMA Debugging
+
+```bash
+# Enable DMA debug in kernel config
+ CONFIG_DMA_API_DEBUG=y
+CONFIG_DMA_API_DEBUG_SG=y
+
+# View DMA debug log
+dmesg | grep -i dma
+
+# Example output:
+# DMA-API: my_pci 0000:01:00.0: device driver failed to check map error
+# DMA-API: my_pci 0000:01:00.0: DMA-API: leaking mapping
+
+# Check IOMMU groups
+ls /sys/kernel/iommu_groups/
+
+# View IOMMU group for a device
+readlink /sys/bus/pci/devices/0000:01:00.0/iommu_group
+```
+
+### PCI Tracing
+
+```bash
+# Trace PCI config space access
+echo 1 > /sys/kernel/debug/tracing/events/pci/enable
+cat /sys/kernel/tracing/trace_pipe
+
+# Trace specific PCI events
+echo 1 > /sys/kernel/debug/tracing/events/pci/pci_config_read/enable
+echo 1 > /sys/kernel/debug/tracing/events/pci/pci_config_write/enable
+
+# Use ftrace for PCI functions
+sudo trace-cmd record -p function -l pci_* sleep 5
+sudo trace-cmd report
+```
+
+## 15. PCI in Virtual Machines
+
+### VFIO (Virtual Function I/O)
+
+VFIO allows direct device assignment to VMs:
+
+```bash
+# Enable IOMMU
+echo "intel_iommu=on" >> /etc/default/grub  # Intel
+echo "amd_iommu=on" >> /etc/default/grub    # AMD
+
+# Bind device to vfio-pci
+ echo "8086 15b8" > /sys/bus/pci/drivers/vfio-pci/new_id
+echo "0000:01:00.0" > /sys/bus/pci/devices/0000:01:00.0/driver/unbind
+echo "0000:01:00.0" > /sys/bus/pci/drivers/vfio-pci/bind
+
+# Use with QEMU/KVM
+qemu-system-x86_64 \
+  -device vfio-pci,host=01:00.0 \
+  -machine type=q35,kernel-irqchip=split \
+  -m 4G -smp 4 \
+  -cdrom vm.iso
+```
+
+### SR-IOV in Production
+
+```bash
+#!/bin/bash
+# sriov-setup.sh - Configure SR-IOV for a NIC
+
+PF="0000:01:00.0"
+NUM_VFS=8
+
+# Enable VFs
+echo $NUM_VFs > /sys/bus/pci/devices/$PF/sriov_numvfs
+
+# Verify VFs created
+lspci | grep "Virtual Function"
+
+# Bind VFs to vfio-pci for VM assignment
+for vf in /sys/bus/pci/devices/$PF/virtfn*; do
+    vf_addr=$(basename $(readlink $vf))
+    echo $vf_addr > /sys/bus/pci/devices/$vf_addr/driver/unbind
+    echo "8086 15b8" > /sys/bus/pci/drivers/vfio-pci/new_id
+    echo $vf_addr > /sys/bus/pci/drivers/vfio-pci/bind
+done
+
+echo "SR-IOV configured with $NUM_VFs VFs"
+```
+
 ## Further Reading
 
 - [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
