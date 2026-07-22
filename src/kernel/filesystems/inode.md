@@ -446,6 +446,197 @@ $ stat /tmp/original /tmp/link
   Inode: 131074      Links: 2    # Same inode!
 ```
 
+## Debugging Inode Issues
+
+### Common Inode Problems
+
+| Problem | Cause | Solution |
+|---------|-------|----------|
+| "No space left on device" | Out of inodes (not space) | `df -i` to check, `mkfs.ext4 -N` to create more |
+| Stale NFS file handles | Inode reused after delete | Use `noresvport` mount option |
+| Permission denied | Inode ownership mismatch | Check `stat` output |
+| Slow directory listing | Too many inodes | Use `dir_index` feature |
+| Corrupted inodes | Filesystem corruption | Run `fsck` |
+
+### Checking Inode Usage
+
+```bash
+# View inode usage per filesystem
+df -i
+
+# Example output:
+# Filesystem      Inodes   IUsed   IFree IUse% Mounted on
+# /dev/sda1      6553600  245780 6307820    4% /
+# tmpfs          4096000       1 4095999    1% /dev/shm
+
+# Check inode details of a file
+stat /path/to/file
+
+# Example output:
+#   File: /path/to/file
+#   Size: 1024        Blocks: 8          IO Block: 4096   regular file
+# Device: 801h/2049d  Inode: 131074      Links: 1
+# Access: (0644/-rw-r--r--)  Uid: ( 1000/  user)   Gid: ( 1000/  user)
+
+# View filesystem inode parameters
+tune2fs -l /dev/sda1 | grep -i inode
+
+# Example output:
+# Inode count:              6553600
+# Inodes per group:         8192
+# Inode size:               256
+```
+
+### Inode Cache Monitoring
+
+```bash
+# View inode cache statistics
+cat /proc/sys/fs/inode-nr
+# 87532   234    # total_inodes  free_inodes
+
+cat /proc/sys/fs/inode-state
+# 87532   234   0   0   0   0   0
+# nr_inodes nr_free_inodes preshrink 0 0 0 0
+
+# Monitor inode cache in real time
+watch -n 1 'cat /proc/sys/fs/inode-nr'
+
+# Tune inode cache
+sysctl -w fs.inode-max=200000
+sysctl -w fs.inode-nr=100000 500
+
+# Drop inode cache (careful!)
+echo 2 > /proc/sys/vm/drop_caches  # Free dentries and inodes
+```
+
+### Inode Debugging with ftrace
+
+```bash
+# Trace inode operations
+sudo trace-cmd record -e inode sleep 5
+sudo trace-cmd report
+
+# Trace specific inode functions
+sudo trace-cmd record -p function -l iget,iput,iget5_locked sleep 5
+sudo trace-cmd report
+
+# Use bpftrace to trace inode lifecycle
+sudo bpftrace -e '
+    kprobe:iget { @[comm, kstack] = count(); }
+    kprobe:iput { @[comm, kstack] = count(); }
+'
+
+# Trace inode allocation/deallocation
+sudo bpftrace -e '
+    kprobe:alloc_inode { @alloc[comm] = count(); }
+    kprobe:destroy_inode { @free[comm] = count(); }
+'
+```
+
+### Inode Number Overflow
+
+```bash
+# Check if filesystem supports 64-bit inodes
+tune2fs -l /dev/sda1 | grep "Inode size"
+
+# ext4: 32-bit inode numbers by default
+# XFS: 64-bit inode numbers by default
+
+# For NFS re-export, 32-bit inode numbers can overflow
+# Solution: use "inode64" mount option (XFS)
+mount -o inode64 /dev/sda1 /mnt
+
+# Check current inode number range
+ls -li /mnt/*
+stat /mnt/*
+```
+
+## Inode Performance
+
+### Inode Cache Hit Rate
+
+```bash
+# Monitor inode cache effectiveness
+cat /proc/sys/fs/inode-nr
+
+# High free_inodes relative to total = good cache
+# Low free_inodes = cache pressure, frequent reads from disk
+
+# Use perf to measure inode cache performance
+perf stat -e cache-misses,cache-references -p $(pidof myapp) sleep 5
+```
+
+### Optimizing Inode Access
+
+```c
+/* Good: Use iget() for cached access */
+struct inode *inode = iget(sb, ino);
+if (!inode)
+    return -ENOMEM;
+/* Use inode... */
+iput(inode);  /* Release when done */
+
+/* Bad: Repeatedly reading inode from disk */
+struct inode *inode = read_inode_from_disk(sb, ino);
+/* inode is NOT cached! */
+free_inode(inode);
+```
+
+### Inode Locking
+
+```c
+/* inode->i_rwsem protects inode data */
+
+/* Read lock (shared) */
+down_read(&inode->i_rwsem);
+/* Read inode data... */
+up_read(&inode->i_rwsem);
+
+/* Write lock (exclusive) */
+down_write(&inode->i_rwsem);
+/* Modify inode data... */
+up_write(&inode->i_rwsem);
+
+/* Trylock (non-blocking) */
+if (down_write_trylock(&inode->i_rwsem)) {
+    /* Got lock */
+    up_write(&inode->i_rwsem);
+} else {
+    /* Lock held by someone else */
+}
+```
+
+## Inode and Filesystem Consistency
+
+### Journaling and Inodes
+
+```bash
+# ext4 journal ensures inode consistency
+tune2fs -l /dev/sda1 | grep "Journal"
+
+# After crash, journal replays ensure:
+# - Inode metadata is consistent
+# - Directory entries match inodes
+# - Link counts are correct
+
+# Force journal replay (if needed)
+fsck.ext4 -f /dev/sda1
+```
+
+### Inode Badblocks
+
+```bash
+# Check for inode corruption
+e2fsck -f /dev/sda1
+
+# Example output:
+# Pass 1: Checking inodes, blocks, and sizes
+# Inode 131074 has illegal block(s).  Clear? yes
+
+# View inode details
+debugfs -R 'stat <131074>' /dev/sda1
+```
+
 ## References
 
 - [VFS documentation — inode operations](https://www.kernel.org/doc/html/latest/filesystems/vfs.html#inode-operations)

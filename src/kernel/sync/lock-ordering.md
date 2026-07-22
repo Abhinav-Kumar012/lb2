@@ -89,6 +89,22 @@ Every lock in the kernel should have a documented position in the ordering. This
  */
 ```
 
+For large subsystems, the ordering documentation is maintained in a central location:
+
+```c
+/*
+ * Lock Ordering for the VFS:
+ *
+ *   sb_writers (superblock write holders)
+ *     sb->s_umount (superblock unmount)
+ *       inode->i_rwsem (inode read/write semaphore)
+ *         inode->i_mutex (inode mutex)
+ *           mapping->i_mmap_rwsem
+ *             page lock (per-page)
+ *               mapping->tree_lock (xarray lock)
+ */
+```
+
 ### Rule 3: Never Acquire a "Higher" Lock While Holding a "Lower" Lock
 
 ```c
@@ -118,6 +134,21 @@ spin_lock(&mapping->tree_lock);
 spin_unlock(&mapping->tree_lock);
 mutex_unlock(&inode->i_mutex);
 ```
+
+### Rule 5: Use Subclasses for Same-Class Nesting
+
+When you need to acquire multiple instances of the same lock class (e.g., locking two inodes), use lockdep subclasses to distinguish the nesting level:
+
+```c
+/* Lock two inodes in parent-first order */
+mutex_lock_nested(&parent->i_mutex, I_MUTEX_PARENT);
+mutex_lock_nested(&child->i_mutex, I_MUTEX_CHILD);
+/* ... */
+mutex_unlock(&child->i_mutex);
+mutex_unlock(&parent->i_mutex);
+```
+
+Without the `_nested` suffix, lockdep would warn about a recursive lock acquisition. The subclass tells lockdep that this is intentional nesting of the same lock class.
 
 ## Lock Classes
 
@@ -154,6 +185,8 @@ mutex_lock_nested(&child_inode->i_mutex, I_MUTEX_CHILD);
 
 ### VFS (Virtual File System) Ordering
 
+The VFS layer has one of the most complex lock ordering hierarchies in the kernel:
+
 ```
 1. sb_writers (superblock write holders)
 2. sb->s_umount (superblock unmount)
@@ -161,17 +194,24 @@ mutex_lock_nested(&child_inode->i_mutex, I_MUTEX_CHILD);
 4. inode->i_mutex (inode mutex — legacy name)
 5. mapping->i_mmap_rwsem
 6. page lock (per-page)
+7. mapping->tree_lock (xarray lock)
 ```
+
+**Real-world example**: When creating a file, the kernel acquires `sb->s_umount` (to prevent unmount), then `inode->i_rwsem` (to protect the directory), then the page lock (to modify directory entries). If any of these were acquired out of order, deadlock could occur.
 
 ### Memory Management Ordering
 
+The memory management subsystem has its own lock hierarchy:
+
 ```
-1. mm->mmap_lock (mmap semaphore)
+1. mm->mmap_lock (mmap semaphore — protects VMA tree)
 2. mm->page_table_lock (page table spinlock)
 3. lru_lock (per-zone LRU lock)
 4. page lock
 5. mapping->tree_lock (xarray lock)
 ```
+
+**Key constraint**: `mmap_lock` must always be acquired before `page_table_lock`. This is because page fault handling needs both — it reads the VMA tree (under `mmap_lock`) then modifies page tables (under `page_table_lock`).
 
 ### Networking Ordering
 
@@ -183,6 +223,8 @@ mutex_lock_nested(&child_inode->i_mutex, I_MUTEX_CHILD);
 5. netfilter hooks
 ```
 
+The socket lock (`sk_lock`) is the highest-level lock in networking. It protects the socket's send/receive buffers and state. Lower-level locks (device TX locks, qdisc locks) are acquired while holding `sk_lock`.
+
 ### Block I/O Ordering
 
 ```
@@ -190,6 +232,38 @@ mutex_lock_nested(&child_inode->i_mutex, I_MUTEX_CHILD);
 2. q->queue_lock (queue lock)
 3. bio->bi_lock
 4. page lock
+```
+
+### Scheduler Ordering
+
+```
+1. rq->__lock (runqueue lock)
+2. pi_lock (per-task priority inheritance lock)
+3. sched_domains_mutex
+4. cgroup_lock
+```
+
+The runqueue lock is the most contended lock in the scheduler. It must be acquired before `pi_lock` to prevent priority inversion deadlocks.
+
+### Lock Ordering Diagram
+
+```mermaid
+graph TD
+    A[sb_writers] --> B[sb->s_umount]
+    B --> C[inode->i_rwsem]
+    C --> D[mapping->i_mmap_rwsem]
+    D --> E[page lock]
+    E --> F[mapping->tree_lock]
+    
+    G[mm->mmap_lock] --> H[page_table_lock]
+    H --> I[lru_lock]
+    I --> E
+    
+    J[sock->sk_lock] --> K[dev->tx_global_lock]
+    K --> L[qdisc lock]
+    
+    M[rq->__lock] --> N[pi_lock]
+    N --> O[sched_domains_mutex]
 ```
 
 ## Practical Examples
@@ -317,11 +391,74 @@ To mitigate this:
 3. **Use lock-free approaches** (RCU, atomics) where possible
 4. **Use trylock** to avoid blocking when the ordering is ambiguous
 
+### Lock Ordering Overhead Analysis
+
+```mermaid
+graph LR
+    subgraph "Without ordering constraint"
+        A1[process_data] --> A2[spin_lock]
+        A2 --> A3[list_add]
+        A3 --> A4[spin_unlock]
+    end
+    subgraph "With ordering constraint"
+        B1[spin_lock] --> B2[process_data]
+        B2 --> B3[list_add]
+        B3 --> B4[spin_unlock]
+    end
+```
+
+The ordering constraint increases lock hold time by the duration of `process_data()`. If `process_data()` takes 1µs and the lock is contended by 8 CPUs, this adds 8µs of cumulative wait time.
+
+### Mitigation Strategies
+
+| Strategy | Trade-off |
+|----------|----------|
+| Restructure code | Best solution, but may require significant refactoring |
+| Split locks | Reduces contention but adds complexity |
+| Lock-free (RCU) | Eliminates lock hold time entirely, but limited to read-mostly patterns |
+| Trylock + retry | Avoids blocking but may livelock under high contention |
+| Per-CPU locks | Eliminates cross-CPU contention but complicates global reads |
+
 ## Debugging Ordering Violations
 
 ### Lockdep (Runtime)
 
 Lockdep automatically detects ordering violations at runtime. See [Lockdep](lockdep.md).
+
+Lockdep works by:
+1. Tracking the order in which locks are acquired
+2. Building a directed graph of lock dependencies
+3. Detecting cycles in the graph (which indicate potential deadlocks)
+4. Warning immediately when a cycle is created (not when deadlock actually occurs)
+
+```
+=============================================
+WARNING: possible circular locking dependency detected
+6.x.x #1 Not tainted
+---------------------------------------------
+touch/1234 is trying to acquire lock:
+ ffff888012345678 (&mm->mmap_lock){++++}-{3:3}, at: do_page_fault+0x.../0x...
+
+but task is already holding lock:
+ ffff888087654321 (&sb->s_umount){++++}-{3:3}, at: iterate_supers+0x.../0x...
+
+which lock already depends on the new lock.
+
+the existing dependency chain (new -> existing) is:
+ -> &mm->mmap_lock {++++} ...
+ -> &sb->s_umount {++++} ...
+
+Possible unsafe locking scenario:
+
+        CPU0                    CPU1
+        ----                    ----
+   lock(&sb->s_umount);
+                                lock(&mm->mmap_lock);
+                                lock(&sb->s_umount);
+   lock(&mm->mmap_lock);
+
+ *** DEADLOCK ***
+```
 
 ### Manual Documentation
 
@@ -351,6 +488,38 @@ The `sparse` static checker can identify some lock ordering issues, though it's 
 /* __acquires() and __releases() annotations */
 void __acquires(rcu) rcu_read_lock(void);
 void __releases(rcu) rcu_read_unlock(void);
+```
+
+### Lockdep Subclass Annotations
+
+When the same lock class must be acquired multiple times (e.g., locking parent and child inodes), use subclasses:
+
+```c
+/* Define custom lock classes */
+enum my_lock_class {
+    LOCK_CLASS_NORMAL = 0,
+    LOCK_CLASS_PARENT = 1,
+    LOCK_CLASS_CHILD = 2,
+};
+
+/* Acquire with explicit subclass */
+mutex_lock_nested(&parent->lock, LOCK_CLASS_PARENT);
+mutex_lock_nested(&child->lock, LOCK_CLASS_CHILD);
+```
+
+Lockdep uses the subclass to distinguish different nesting patterns. Without it, acquiring two locks of the same class would trigger a false positive warning.
+
+### Lockdep Coverage Report
+
+Lockdep tracks which lock ordering relationships have been exercised:
+
+```bash
+# View lockdep coverage
+$ cat /proc/lock_stat
+# Shows all lock classes and their ordering relationships
+
+# Check for untested orderings
+$ sudo grep -A5 'INIT' /proc/lock_stat
 ```
 
 ## Advanced: Lock Inversion
