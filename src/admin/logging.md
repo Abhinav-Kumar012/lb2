@@ -496,6 +496,198 @@ journalctl -u nginx --since today | grep -i "error\|500\|timeout"
 journalctl -o json -u myapp | jq 'select(.PRIORITY <= 3)' | jq -s 'length'
 ```
 
+## journald Programmatic API
+
+### sd-journal C API
+
+```c
+#include <systemd/sd-journal.h>
+
+/* Write to journal from C */
+sd_journal_print(LOG_INFO, "Application started, version %s", VERSION);
+sd_journal_print(LOG_ERR, "Failed to connect: %s", strerror(errno));
+
+/* Send with custom fields */
+sd_journal_send("MESSAGE=Connection established",
+                "PRIORITY=%i", LOG_INFO,
+                "APP_NAME=myapp",
+                "CONN_ID=%d", connection_id,
+                NULL);
+
+/* Open journal for reading */
+sd_journal *j;
+sd_journal_open(&j, SD_JOURNAL_LOCAL_ONLY);
+
+/* Seek to specific time */
+usec_t usec = (time_t)1690000000 * 1000000;
+sd_journal_seek_realtime_usec(j, usec);
+
+/* Iterate through entries */
+while (sd_journal_next(j) > 0) {
+    const char *msg;
+    size_t len;
+    sd_journal_get_data(j, "MESSAGE", (const void **)&msg, &len);
+    printf("%.*s\n", (int)len, msg);
+}
+
+sd_journal_close(j);
+```
+
+### Python sdjournal
+
+```python
+import systemd.journal
+
+# Write to journal
+systemd.journal.send("Hello from Python",
+                     PRIORITY=systemd.journal.LOG_INFO,
+                     APP_NAME="myapp")
+
+# Read journal
+j = sdjournal.Journal()
+j.seek_tail()
+while True:
+    entry = j.get_next()
+    if not entry:
+        break
+    print(entry.get('MESSAGE', ''))
+```
+
+## Container Logging
+
+### Podman/Docker Logging Drivers
+
+```bash
+# Podman logging drivers
+podman run -d --log-driver journald nginx
+podman run -d --log-driver k8s-file --log-opt path=/var/log/containers/web.log nginx
+
+# Docker logging drivers
+docker run -d --log-driver json-file --log-opt max-size=10m --log-opt max-file=3 nginx
+
+# View container logs from journald
+journalctl CONTAINER_NAME=web
+journalctl CONTAINER_TAG=web
+```
+
+## Security and Audit Logging
+
+### Authentication Logging
+
+```bash
+# SSH login tracking
+grep 'Accepted\|Failed' /var/log/auth.log
+
+# Count failed login attempts by IP
+grep 'Failed password' /var/log/auth.log | \
+    awk '{print $(NF-3)}' | sort | uniq -c | sort -rn | head
+
+# sudo usage tracking
+grep 'sudo:' /var/log/auth.log
+
+# PAM authentication events
+journalctl -u systemd-logind --since today
+```
+
+### Kernel Security Events
+
+```bash
+# SELinux denials
+journalctl -t setroubleshoot
+ausearch -m avc -ts recent
+
+# AppArmor denials
+dmesg | grep 'apparmor="DENIED"'
+
+# seccomp violations
+dmesg | grep seccomp
+```
+
+## Logging Performance Considerations
+
+### Impact of Logging on System Performance
+
+```bash
+# Logging I/O impact:
+# High-volume logging: 10,000 msg/sec x 200 bytes = 2MB/s
+# On a busy system, this can saturate the logging disk
+
+# Mitigations:
+# 1. Rate limiting in journald
+#    RateLimitIntervalSec=30s
+#    RateLimitBurst=10000
+
+# 2. Async logging in rsyslog
+#    $OMFileAsyncWriting on
+
+# 3. Remote logging (offload I/O to central server)
+#    *.* @@logserver:514
+```
+
+### Log Compression
+
+```bash
+# Logrotate with zstd compression
+/var/log/app.log {
+    daily
+    rotate 30
+    compress
+    delaycompress
+    compresscmd /usr/bin/zstd
+    compressext .zst
+}
+```
+
+## Logging Best Practices
+
+### Structured Logging
+
+```bash
+# Use structured formats (JSON) for machine parsing
+template(name="JSONFormat" type="list") {
+    constant(value="{")
+    constant(value="\"timestamp\":\"")  property(name="timereported" dateFormat="rfc3339")
+    constant(value="\",\"host\":\"")  property(name="hostname")
+    constant(value="\",\"severity\":\"")  property(name="syslogseverity-text")
+    constant(value="\",\"message\":\"")  property(name="msg" format="json")
+    constant(value="\"}\n")
+}
+
+local0.* action(type="omfile" file="/var/log/app.json" template="JSONFormat")
+```
+
+### Log Levels Guidelines
+
+| Level | When to Use | Example |
+|-------|-------------|---------|
+| `emerg` | System is unusable | Kernel panic, out of memory |
+| `alert` | Immediate action needed | Database disk full, SSL cert expired |
+| `crit` | Critical conditions | Service crash, hardware failure |
+| `err` | Error conditions | Connection refused, file not found |
+| `warning` | Warning conditions | High memory usage, slow queries |
+| `notice` | Normal but significant | Service started, config reloaded |
+| `info` | Informational | Request processed, user logged in |
+| `debug` | Debug details | Variable values, function traces |
+
+### Log Retention Policy
+
+```bash
+# Define retention based on compliance requirements
+# PCI-DSS: 1 year minimum
+# HIPAA: 6 years
+# SOC 2: 1 year
+
+# logrotate retention example
+/var/log/auth.log {
+    monthly
+    rotate 24    # 2 years of monthly logs
+    compress
+}
+
+# Archive old logs
+find /var/log -name '*.gz' -mtime +365 -exec mv {} /archive/logs/ \;
+```
+
 ## References
 
 - [journald.conf(5) man page](https://www.freedesktop.org/software/systemd/man/latest/journald.conf.html)
@@ -504,9 +696,12 @@ journalctl -o json -u myapp | jq 'select(.PRIORITY <= 3)' | jq -s 'length'
 - [journalctl(1) man page](https://www.freedesktop.org/software/systemd/man/latest/journalctl.html)
 - [rsyslog documentation](https://www.rsyslog.com/doc/v8-stable/)
 - [Loki documentation](https://grafana.com/docs/loki/latest/)
+- [sd-journal API](https://www.freedesktop.org/software/systemd/man/sd_journal_print.html)
+- [LWN: The journal as a logging framework](https://lwn.net/Articles/475226/)
 
 ## Related Topics
 
 - [System Administration Overview](./overview.md) — Monitoring and alerting practices
 - [Process Management](./process-management.md) — Service and process monitoring
 - [Firewall](./firewall.md) — Firewall log analysis
+- [Security Overview](../security/overview.md) — Security auditing and monitoring
