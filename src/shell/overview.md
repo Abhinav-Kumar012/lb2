@@ -425,6 +425,583 @@ export PS4='+ ${BASH_SOURCE}:${LINENO}: '
 set -x
 ```
 
+## I/O Redirection
+
+Shells provide powerful I/O redirection for controlling where input comes from and output goes to.
+
+### File Descriptors
+
+Every process has three standard file descriptors:
+
+| FD | Name | Description |
+|----|------|-------------|
+| 0 | stdin | Standard input |
+| 1 | stdout | Standard output |
+| 2 | stderr | Standard error |
+
+### Output Redirection
+
+```bash
+# Overwrite file with stdout
+echo "hello" > file.txt
+
+# Append to file
+echo "world" >> file.txt
+
+# Redirect stderr to file
+command 2> error.log
+
+# Redirect both stdout and stderr (Bash)
+command &> all.log
+command > all.log 2>&1    # POSIX equivalent
+
+# Redirect stdout and stderr to different files
+command > output.log 2> error.log
+
+# Discard output
+command > /dev/null
+command 2>/dev/null        # Discard stderr
+command &>/dev/null        # Discard both
+
+# Redirect fd to another fd
+command 2>&1               # stderr goes to stdout
+command 1>&2               # stdout goes to stderr
+
+# Prevent file overwriting (noclobber)
+set -C                     # or set -o noclobber
+echo "test" >| file.txt   # Force overwrite even with noclobber
+```
+
+### Input Redirection
+
+```bash
+# Read from file
+cat < file.txt
+
+# Here document (multi-line input)
+cat <<EOF
+Line 1
+Line 2
+$variable_expanded
+EOF
+
+# Here document without variable expansion
+cat <<'EOF'
+$not_expanded
+EOF
+
+# Indented here document (strips leading tabs)
+cat <<-EOF
+\tindented
+EOF
+
+# Here string (Bash)
+grep "pattern" <<< "Search in this string"
+read -r first last <<< "John Doe"
+```
+
+### File Descriptor Manipulation
+
+```bash
+# Open file for reading on fd 3
+exec 3< input.txt
+read -r line <&3
+exec 3<&-                  # Close fd 3
+
+# Open file for writing on fd 4
+exec 4> output.txt
+echo "data" >&4
+exec 4>&-                  # Close fd 4
+
+# Open for read/write
+exec 5<> file.txt
+read -r line <&5
+echo "new line" >&5
+exec 5<&-
+```
+
+### Redirection Order Matters
+
+```bash
+# This redirects stderr (fd 2) to where stdout (fd 1) currently points
+command 2>&1 > file.txt    # stderr goes to terminal, stdout to file
+
+# This redirects stdout to file, then stderr to same place
+command > file.txt 2>&1    # both go to file
+
+# Rule: redirections are processed left to right
+# 2>&1 means "make fd 2 point where fd 1 points NOW"
+```
+
+## Pipes and Pipelines
+
+Pipes connect the stdout of one command to the stdin of the next:
+
+```bash
+# Basic pipe
+cat file.txt | grep "error" | sort
+
+# Multi-stage pipeline
+ps aux | grep "nginx" | grep -v grep | awk '{print $2}'
+
+# Pipeline exit status (POSIX)
+# Returns exit status of LAST command
+cmd1 | cmd2 | cmd3    # $? is cmd3's exit code
+
+# pipefail (Bash, ksh, zsh)
+set -o pipefail
+# Returns exit status of rightmost failed command
+cmd1 | cmd2 | cmd3    # If cmd1 fails, $? is cmd1's exit code
+
+# Tee: write to both stdout and file
+cat file.txt | tee output.txt | grep "error"
+
+# Process substitution (Bash, zsh)
+diff <(ls dir1) <(ls dir2)
+
+# Named pipes (FIFOs)
+mkfifo /tmp/mypipe
+echo "data" > /tmp/mypipe &
+cat /tmp/mypipe
+rm /tmp/mypipe
+```
+
+### Pipeline Component Roles
+
+```
+┌──────────────────────────────────────────────────┐
+│  Pipeline Data Flow                               │
+├──────────────────────────────────────────────────┤
+│                                                  │
+│  Producer  →  Filter  →  Filter  →  Consumer     │
+│  (stdin)     (stdin→stdout)         (stdin)       │
+│                                                  │
+│  cat file | grep err | sort  | less              │
+│                                                  │
+│  All commands run concurrently.                   │
+│  Shell connects stdout of each to stdin of next. │
+└──────────────────────────────────────────────────┘
+```
+
+### Pipeline Performance Considerations
+
+```bash
+# Avoid useless use of cat (UUOC)
+# Slow: spawns extra process
+cat file.txt | grep "pattern"
+# Fast: grep reads file directly
+grep "pattern" file.txt
+
+# But pipes are sometimes necessary
+cat file1 file2 | sort    # Concatenate then sort
+find . -name "*.py" | xargs wc -l
+
+# Pipeline buffering
+# stdout is line-buffered when connected to terminal
+# stdout is block-buffered when connected to pipe
+# Use stdbuf to control buffering:
+stdbuf -oL command    # Line-buffered output
+stdbuf -o0 command    # Unbuffered output
+```
+
+## Job Control
+
+Job control allows managing multiple processes from a single terminal.
+
+### Background and Foreground
+
+```bash
+# Run command in background
+command &
+
+# List current jobs
+jobs -l     # With PIDs
+jobs -p     # PIDs only
+
+# Bring job to foreground
+fg %1       # Job number 1
+fg          # Most recent job
+
+# Send job to background
+bg %1       # Continue job 1 in background
+
+# Suspend current foreground job
+# Ctrl+Z (SIGTSTP)
+
+# Disown job (detach from shell)
+disown %1
+disown -h %1    # Don't send HUP on shell exit
+
+# Wait for background jobs
+wait            # Wait for all
+wait %1         # Wait for specific job
+wait $PID       # Wait for specific PID
+```
+
+### Job Control Signals
+
+```bash
+# Ctrl+C  → SIGINT  → Interrupt foreground job
+# Ctrl+Z  → SIGTSTP → Suspend foreground job
+# Ctrl+\  → SIGQUIT → Quit (generates core dump)
+
+# Send signal to job
+kill -TERM %1
+kill -INT %1
+```
+
+### Job Control Best Practices
+
+```bash
+# Use nohup for long-running tasks
+nohup long_command &
+
+# Or use disown
+long_command &
+disown
+
+# Or use screen/tmux for persistent sessions
+tmux new -s mysession
+# ... work ...
+# Ctrl+B, D to detach
+tmux attach -t mysession
+
+# Monitor background jobs in script
+sleep 10 &
+pid=$!
+echo "Waiting for PID $pid"
+wait $pid
+echo "Exit status: $?"
+```
+
+## Environment and Process Inheritance
+
+### Environment Variables
+
+```bash
+# Set environment variable (inherited by child processes)
+export MY_VAR="value"
+
+# Set for single command
+MY_VAR="value" command
+
+# Unset
+unset MY_VAR
+
+# Show all environment variables
+env
+printenv
+export -p
+
+# Important environment variables
+# PATH     - Command search path
+# HOME     - User home directory
+# USER     - Current username
+# SHELL    - Login shell
+# TERM     - Terminal type
+# LANG     - Locale
+# EDITOR   - Default editor
+# PAGER    - Default pager
+# PS1      - Primary prompt
+# IFS      - Internal field separator
+```
+
+### PATH Manipulation
+
+```bash
+# Add directory to PATH
+export PATH="$HOME/bin:$PATH"
+
+# Add to end
+export PATH="$PATH:/usr/local/bin"
+
+# Remove directory from PATH
+PATH=$(echo "$PATH" | tr ':' '\n' | grep -v '/bad/dir' | tr '\n' ':')
+PATH=${PATH%:}  # Remove trailing colon
+
+# Check if directory is in PATH
+case ":$PATH:" in
+    *:/usr/local/bin:*) echo "In PATH" ;;
+    *) echo "Not in PATH" ;;
+esac
+```
+
+### Process Inheritance Model
+
+```
+┌──────────────────────────────────────────────────┐
+│  Process Environment Inheritance                   │
+├──────────────────────────────────────────────────┤
+│                                                  │
+│  Parent Shell                                     │
+│  ├── export VAR=value    → child sees VAR         │
+│  ├── VAR=value           → child does NOT see VAR │
+│  └── unset VAR           → child does NOT see VAR │
+│                                                  │
+│  Child Process                                    │
+│  ├── Inherits exported variables                  │
+│  ├── Inherits open file descriptors               │
+│  ├── Inherits working directory                   │
+│  ├── Inherits signal handlers (mostly reset)      │
+│  └── Does NOT inherit: aliases, functions,        │
+│      shell options, unexported variables           │
+└──────────────────────────────────────────────────┘
+```
+
+### Subshells
+
+```bash
+# Subshell: copy of current shell
+(
+    cd /tmp
+    echo "Inside: $(pwd)"
+)
+echo "Outside: $(pwd)"    # Original directory
+
+# Variable scope in subshells
+x=1
+(
+    x=2
+    echo "Subshell: $x"    # 2
+)
+echo "Parent: $x"          # 1 (unchanged)
+
+# Pipeline subshells (Bash, ksh)
+# Each component of a pipeline runs in a subshell
+count=0
+seq 5 | while read n; do count=$((count + n)); done
+echo $count                # 0 (subshell didn't affect parent)
+
+# Process substitution creates subshells
+diff <(cmd1) <(cmd2)
+```
+
+## Command Lookup Order
+
+When you type a command, the shell resolves it in a specific order:
+
+### Lookup Order
+
+```
+┌──────────────────────────────────────────────────┐
+│  Command Lookup Order (Bash)                      │
+├──────────────────────────────────────────────────┤
+│                                                  │
+│  1. Aliases                                      │
+│  2. Keywords (if, while, for, case, etc.)        │
+│  3. Functions                                    │
+│  4. Built-in commands (cd, echo, type, etc.)     │
+│  5. Hash table (cached paths)                    │
+│  6. External commands (in $PATH)                 │
+│                                                  │
+│  Override with:                                   │
+│  - command cmd  → bypass aliases/functions        │
+│  - builtin cmd  → force builtin                   │
+│  - \cmd          → bypass alias                   │
+│  - enable -n cmd → disable builtin               │
+└──────────────────────────────────────────────────┘
+```
+
+### Checking Command Resolution
+
+```bash
+# Show what a command resolves to
+type command          # Shows all matches
+type -a command       # Show ALL (alias, function, builtin, file)
+type -t command       # Just type: alias, builtin, file, function
+
+# Which binary would run
+which command
+
+# Hash table (cached command paths)
+hash                  # Show cached commands
+hash -r               # Clear cache
+hash -d command       # Remove specific entry
+
+# Examples
+$ type -a ls
+ls is aliased to 'ls --color=auto'
+ls is /usr/bin/ls
+
+$ type cd
+cd is a shell builtin
+
+$ type grep
+grep is /usr/bin/grep
+```
+
+## Aliases
+
+Aliases provide shorthand for commands:
+
+```bash
+# Define alias
+alias ll='ls -la'
+alias gs='git status'
+alias ..='cd ..'
+alias ...='cd ../..'
+
+# List all aliases
+alias
+
+# Remove alias
+unalias ll
+
+# Bypass alias
+\ls                # Backslash bypass
+command ls         # Bypass alias and function
+/usr/bin/ls        # Full path
+
+# Alias vs function
+# Alias: simple text substitution, no arguments
+alias greet='echo Hello'
+greet              # Hello
+greet World        # Hello (World ignored!)
+
+# Function: full argument handling
+greet() { echo "Hello, $1!"; }
+greet World        # Hello, World!
+```
+
+## Globbing (Filename Expansion)
+
+Globbing expands wildcard patterns into matching filenames:
+
+```bash
+# Basic globs
+*               # Any characters
+?               # Single character
+[abc]           # Any of a, b, c
+[!abc]          # Not a, b, or c
+[a-z]           # Range: a through z
+
+# Examples
+ls *.txt                    # All .txt files
+ls file?.log                # file1.log, fileA.log, etc.
+ls [0-9]*.png               # PNG files starting with digit
+ls *.{jpg,png,gif}          # Multiple extensions
+
+# Dot files are NOT matched by default
+ls *              # Does not match .hidden
+ls .*             # Matches .hidden, ., ..
+
+# Bash-specific globs
+shopt -s globstar
+ls **/*.py        # Recursive: all .py files
+shopt -s dotglob
+ls *              # Now matches dot files too
+shopt -s nullglob
+ls *.nonexistent  # Returns empty (no error)
+shopt -s failglob
+ls *.nonexistent  # Error if no match
+```
+
+## Command History
+
+```bash
+# History navigation
+!!              # Repeat last command
+!n              # Repeat command number n
+!string         # Last command starting with string
+!?string        # Last command containing string
+!$              # Last argument of previous command
+!^              # First argument of previous command
+
+# History substitution
+!!:s/old/new    # Replace in last command
+^old^new^       # Quick substitution
+!!:gs/old/new   # Global substitution
+
+# History configuration
+HISTSIZE=10000              # Commands in memory
+HISTFILESIZE=20000          # Lines in history file
+HISTCONTROL=ignoreboth      # Ignore duplicates and space-prefixed
+HISTTIMEFORMAT="%F %T "     # Show timestamps
+```
+
+## Shell Arithmetic
+
+```bash
+# Arithmetic expansion $(( ))
+echo $((2 + 3))           # 5
+echo $((10 / 3))          # 3 (integer division)
+echo $((2 ** 10))         # 1024 (exponentiation)
+
+# Variables in arithmetic (no $ needed inside $( ))
+x=10; y=3
+echo $((x + y))           # 13
+echo $((x % y))           # 1 (modulo)
+
+# Arithmetic command (Bash)
+((count++))
+((total += 5))
+if ((x > 10)); then echo "big"; fi
+
+# Floating point (use bc or awk)
+result=$(echo "scale=2; 3.14 * 2" | bc)
+result=$(awk 'BEGIN { printf "%.2f", 3.14 * 2 }')
+```
+
+## Common Shell Patterns
+
+### Script Boilerplate
+
+```bash
+#!/bin/bash
+set -euo pipefail
+
+PROGNAME=$(basename "$0")
+
+usage() {
+    cat <<EOF
+Usage: $PROGNAME [OPTIONS] ARGUMENT
+
+Options:
+  -h, --help     Show this help
+  -v, --verbose  Verbose output
+  -n, --dry-run  Dry run
+EOF
+}
+
+log()   { printf '%s: %s\n' "$PROGNAME" "$*" >&2; }
+error() { log "ERROR: $*"; exit 1; }
+
+# Trap for cleanup
+cleanup() { rm -f "${TEMP_FILE:-}"; }
+trap cleanup EXIT
+TEMP_FILE=$(mktemp) || exit 1
+
+# Parse arguments
+verbose=0
+dry_run=0
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -h|--help)    usage; exit 0 ;;
+        -v|--verbose) verbose=1; shift ;;
+        -n|--dry-run) dry_run=1; shift ;;
+        -*)           error "Unknown option: $1" ;;
+        *)            break ;;
+    esac
+done
+
+[[ $# -ge 1 ]] || error "Missing required argument"
+```
+
+### Safe File Processing
+
+```bash
+# Process files safely (handles spaces, special chars)
+find . -name "*.txt" -print0 | while IFS= read -r -d '' file; do
+    echo "Processing: $file"
+done
+
+# Or with mapfile (Bash)
+mapfile -d '' files < <(find . -name "*.txt" -print0)
+for file in "${files[@]}"; do
+    echo "Processing: $file"
+done
+```
+
 ## References
 
 - [Bash Reference Manual](https://www.gnu.org/software/bash/manual/bash.html)
@@ -432,6 +1009,8 @@ set -x
 - [The Art of Command Line](https://jvns.ca/blog/2015/11/20/what-even-is-a-terminal/)
 - [Greg's Wiki - Bash Guide](https://mywiki.wooledge.org/BashGuide)
 - [ShellCheck](https://www.shellcheck.net/) — linting tool for shell scripts
+- [tldp.org - Bash Guide](https://tldp.org/LDP/abs/html/)
+- [GNU Bash Manual](https://www.gnu.org/software/bash/manual/bash.html)
 
 ## Related Topics
 

@@ -316,6 +316,282 @@ sadf -g -- -A > today.svg             # SVG graph
 
 ---
 
+## 12. The USE Method
+
+Brendan Gregg's **USE Method** (Utilization, Saturation, Errors) is a systematic
+approach to checking every resource for bottlenecks. For each resource (CPU,
+memory, disk, network), ask:
+
+| Metric | CPU | Memory | Disk | Network |
+|--------|-----|--------|------|----------|
+| **Utilization** | `mpstat -P ALL 1` → %usr+%sys | `free -m` → used/total | `iostat -xz 1` → %util | `sar -n DEV 1` → %ifutil |
+| **Saturation** | `vmstat 1` → `r` column | `vmstat 1` → `si/so` | `iostat -xz 1` → `aqu-sz` | `ip -s link` → dropped |
+| **Errors** | `dmesg` → MCE | `dmesg` → OOM | `smartctl` → errors | `ip -s link` → errors |
+
+### USE Method Checklist Script
+
+```bash
+#!/bin/bash
+# use-check.sh — Quick USE method scan
+
+echo "=== CPU ==="
+echo "Utilization:"
+mpstat 1 1 | tail -1 | awk '{print "User:", $3, "%  System:", $5, "%  Idle:", $NF, "%"}'
+echo "Saturation (run queue):"
+vmstat 1 1 | tail -1 | awk '{print "Runnable:", $1, "Blocked:", $2}'
+echo "Errors:"
+dmesg | grep -i -E "mce|machine.check" | tail -3
+
+echo ""
+echo "=== MEMORY ==="
+echo "Utilization:"
+free -m | grep Mem | awk '{printf "Used: %dMB / %dMB (%.1f%%)\n", $3, $2, $3/$2*100}'
+echo "Saturation (swap):"
+vmstat 1 1 | tail -1 | awk '{print "Swap In:", $7, "Swap Out:", $8}'
+echo "Errors:"
+dmesg | grep -i oom | tail -3
+
+echo ""
+echo "=== DISK ==="
+echo "Utilization:"
+iostat -xz 1 1 | grep -E "^nvme|^sda" | awk '{print $1, "util:", $NF, "%"}'
+echo "Saturation (queue):"
+iostat -xz 1 1 | grep -E "^nvme|^sda" | awk '{print $1, "avg-qz:", $(NF-3)}'
+echo "Errors:"
+smartctl -H /dev/sda 2>/dev/null | grep -i result || echo "smartctl not available"
+
+echo ""
+echo "=== NETWORK ==="
+echo "Utilization:"
+sar -n DEV 1 1 | grep -E "eth0|ens" | awk '{print $1, "rx:", $5, "KB/s  tx:", $6, "KB/s"}'
+echo "Saturation (drops):"
+ip -s link show | grep -A1 -E "eth0|ens" | grep -E "dropped|overruns"
+echo "Errors:"
+ip -s link show | grep -A1 -E "eth0|ens" | grep errors
+```
+
+## 13. Performance Anti-Patterns
+
+Common mistakes that degrade system performance:
+
+### Anti-Pattern: Premature Optimization
+
+```bash
+# DON'T: Tune without measuring
+sysctl -w vm.swappiness=1
+sysctl -w net.core.somaxconn=65535
+# These may not help if the bottleneck is elsewhere
+
+# DO: Measure first, then tune
+vmstat 1 5                    # Identify the bottleneck
+perf stat -a -- sleep 5       # Quantify the issue
+# Then tune the specific bottleneck
+```
+
+### Anti-Pattern: Ignoring the Warm-Up Phase
+
+```bash
+# DON'T: Measure cold-cache performance
+fio --name=test --rw=randread --bs=4k --filename=/dev/sda
+# First run includes cache warming
+
+# DO: Warm up first, then measure
+fio --name=warmup --rw=randread --bs=4k --filename=/dev/sda \
+    --time_based --runtime=30
+fio --name=test --rw=randread --bs=4k --filename=/dev/sda \
+    --time_based --runtime=60
+```
+
+### Anti-Pattern: Single-Metric Decision Making
+
+```bash
+# DON'T: Look at only one metric
+iostat -xz 1 | grep %util    # 100% util ≠ bottleneck for NVMe
+
+# DO: Correlate multiple metrics
+# High %util + low await = NVMe handling parallel I/O well
+# High %util + high await = actual saturation
+iostat -xz 1 | awk 'NR>3 {print $1, "util:", $NF, "await:", $(NF-5)}'
+```
+
+## 14. Continuous Performance Monitoring
+
+### Prometheus + node_exporter Stack
+
+For long-term monitoring, deploy the Prometheus stack:
+
+```bash
+# Install node_exporter
+wget https://github.com/prometheus/node_exporter/releases/download/v1.7.0/node_exporter-1.7.0.linux-amd64.tar.gz
+tar xzf node_exporter-*.tar.gz
+./node_exporter &
+
+# Scrape with Prometheus
+# prometheus.yml:
+# scrape_configs:
+#   - job_name: 'node'
+#     static_configs:
+#       - targets: ['localhost:9100']
+```
+
+### sar Data Retention
+
+Configure `sar` for longer historical data:
+
+```bash
+# /etc/default/sysstat
+ENABLED="true"
+HISTORY=28          # Keep 28 days of data
+COMPRESSAFTER=10    # Compress after 10 days
+
+# /etc/cron.d/sysstat
+# Collect every 1 minute (default is 10)
+* * * * * root /usr/lib/sysstat/sa1 1 1
+# Generate daily summary at 23:53
+53 23 * * * root /usr/lib/sysstat/sa2 -A
+```
+
+### Performance Regression Detection
+
+```bash
+#!/bin/bash
+# perf-regression-check.sh — Compare current perf to baseline
+
+BASELINE_DIR="/var/lib/perf-baselines"
+CURRENT="$(date +%Y%m%d)"
+
+# Collect current metrics
+CPU_SCORE=$(sysbench cpu --cpu-max-prime=20000 --threads=$(nproc) --time=10 run 2>/dev/null \
+    | grep "events per second" | awk '{print $NF}')
+MEM_SCORE=$(sysbench memory --memory-block-size=1M --memory-total-size=10G --threads=$(nproc) --time=10 run 2>/dev/null \
+    | grep -oP '[\d.]+(?= MiB/sec)')
+
+# Compare to baseline
+if [[ -f "$BASELINE_DIR/cpu.baseline" ]]; then
+    BASELINE_CPU=$(cat "$BASELINE_DIR/cpu.baseline")
+    DELTA=$(echo "scale=2; ($CPU_SCORE - $BASELINE_CPU) / $BASELINE_CPU * 100" | bc)
+    if (( $(echo "$DELTA < -10" | bc -l) )); then
+        echo "WARNING: CPU performance regressed by ${DELTA}%"
+        echo "Baseline: $BASELINE_CPU  Current: $CPU_SCORE"
+    fi
+fi
+
+# Save current as new baseline if first run
+mkdir -p "$BASELINE_DIR"
+echo "$CPU_SCORE" > "$BASELINE_DIR/cpu.baseline"
+echo "$MEM_SCORE" > "$BASELINE_DIR/mem.baseline"
+```
+
+## 15. Performance Analysis Case Studies
+
+### Case Study 1: Database Connection Storm
+
+**Symptom:** Web application becomes unresponsive at 9 AM daily.
+
+```bash
+# Step 1: Check system overview
+vmstat 1 5
+# r=150 (32-core machine!), b=0, wa=0 → CPU-bound
+
+# Step 2: Find CPU hog
+pidstat 1 3 | sort -nr -k3 | head
+# mysqld consuming 800% CPU
+
+# Step 3: Check MySQL connections
+mysql -e "SHOW STATUS LIKE 'Threads_connected';"
+# Threads_connected: 2500  ← Way too many!
+
+# Step 4: Check connection source
+ss -tnp | grep :3306 | awk '{print $5}' | cut -d: -f1 | sort | uniq -c | sort -rn | head
+# 2500 connections from 10.0.0.50
+
+# Root cause: Connection pooling misconfigured at 9 AM cron batch
+# Fix: Increase pool size limit, add connection backoff
+```
+
+### Case Study 2: Intermittent I/O Latency Spikes
+
+**Symptom:** Application P99 latency spikes every 30 seconds.
+
+```bash
+# Step 1: Capture I/O pattern
+iostat -xz 1 | tee /tmp/iostat.log
+# Every 30s: w_await jumps from 0.5ms to 150ms
+
+# Step 2: Identify the writer
+iotop -oP -d 1 | grep -E "WRITE|write"
+# kworker: writeback → dirty page flush
+
+# Step 3: Check dirty page settings
+sysctl vm.dirty_ratio vm.dirty_background_ratio vm.dirty_writeback_centisecs
+# dirty_ratio=20, dirty_background_ratio=10, dirty_writeback_centisecs=500
+
+# Step 4: Fix — reduce dirty page accumulation
+sysctl -w vm.dirty_ratio=5
+sysctl -w vm.dirty_background_ratio=2
+sysctl -w vm.dirty_writeback_centisecs=100
+# Spreads writes more evenly, eliminates 30s spikes
+```
+
+### Case Study 3: Network Throughput Ceiling
+
+**Symptom:** iperf3 shows 3 Gbps on a 25 Gbps NIC.
+
+```bash
+# Step 1: Check link speed
+ethtool eth0 | grep Speed
+# Speed: 25000Mb/s → NIC is capable
+
+# Step 2: Check TCP buffers
+sysctl net.ipv4.tcp_rmem net.ipv4.tcp_wmem net.core.rmem_max
+# rmem_max = 212992 (208 KB) → Way too small!
+
+# Step 3: Calculate BDP
+# 25 Gbps × 0.001s RTT = 3.125 MB
+# Need at least 3.125 MB buffer
+
+# Step 4: Fix
+sysctl -w net.core.rmem_max=16777216
+sysctl -w net.core.wmem_max=16777216
+sysctl -w net.ipv4.tcp_rmem="4096 262144 16777216"
+sysctl -w net.ipv4.tcp_wmem="4096 262144 16777216"
+
+# Step 5: Verify
+iperf3 -c 192.168.1.100 -t 30 -P 4
+# [SUM] 23.5 Gbits/sec → Much better!
+```
+
+## 16. Quick Reference Cheat Sheet
+
+```bash
+# CPU
+vmstat 1                        # system-wide CPU/memory
+mpstat -P ALL 1                 # per-CPU
+pidstat 1                       # per-process CPU
+sar -u 1 5                      # historical-aware CPU
+
+# Memory
+vmstat -s                       # memory summary
+sar -r 1                        # memory utilisation over time
+free -h                         # quick snapshot
+
+# Disk
+iostat -xz 1                    # per-device I/O
+pidstat -d 1                    # per-process disk I/O
+dstat --disk-util 1             # utilisation bar
+
+# Network
+sar -n DEV 1                    # interface throughput
+sar -n SOCK 1                   # socket counts
+dstat -n 1                      # live net throughput
+
+# Historical
+sar -A -f /var/log/sa/sa$(date +%d)   # full report for today
+sadf -g -- -A > today.svg             # SVG graph
+```
+
+---
+
 ## Further Reading
 
 - [Linux Performance Analysis — Brendan Gregg](https://www.brendangregg.com/linuxperf.html)
@@ -328,3 +604,6 @@ sadf -g -- -A > today.svg             # SVG graph
 - [sar(1) man page](https://man7.org/linux/man-pages/man1/sar.1.html)
 - [pidstat(1) man page](https://man7.org/linux/man-pages/man1/pidstat.1.html)
 - [Understanding the Linux Virtual Memory Manager — Mel Gorman](https://www.kernel.org/doc/gorman/)
+- Gregg, B. *Systems Performance: Enterprise and the Cloud*, 2nd Edition (2020).
+- [USE Method — Brendan Gregg](https://www.brendangregg.com/usemethod.html)
+- [Linux Performance Analysis in 60 Seconds — Netflix](http://techblog.netflix.com/2015/11/linux-performance-analysis-in-60s.html)
