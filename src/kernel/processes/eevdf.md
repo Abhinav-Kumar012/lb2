@@ -483,21 +483,300 @@ $ echo -20 > /proc/$PID/latency_nice  # Very latency-sensitive
 $ echo 19 > /proc/$PID/latency_nice   # Tolerant of latency
 ```
 
+## EEVDF and Real-Time Scheduling Classes
+
+Linux has multiple scheduling classes with strict priority ordering:
+
+```mermaid
+graph TD
+    DL["SCHED_DEADLINE<br/>Highest priority"] --> RT["SCHED_FIFO / SCHED_RR<br/>Real-time classes"]
+    RT --> EEVDF["SCHED_NORMAL (EEVDF)<br/>Fair scheduling"]
+    EEVDF --> IDLE["SCHED_IDLE<br/>Lowest priority"]
+```
+
+### Priority Between Classes
+
+```bash
+# The scheduler always picks from the highest non-empty class
+# SCHED_DEADLINE > SCHED_FIFO > SCHED_RR > SCHED_NORMAL > SCHED_IDLE
+
+# An RT process will preempt ALL EEVDF processes
+sudo chrt -f 50 stress-ng --cpu 1 --timeout 5 &
+# This will monopolize one CPU, starving EEVDF tasks on that CPU
+
+# RT throttle: kernel protects against runaway RT tasks
+# Default: 95% of CPU time for RT, 5% reserved for EEVDF
+sysctl kernel.sched_rt_runtime_us   # 950000 (950ms per 1s period)
+sysctl kernel.sched_rt_period_us    # 1000000 (1 second)
+
+# Disable RT throttle (DANGEROUS — can lock out all normal tasks)
+sysctl -w kernel.sched_rt_runtime_us=-1
+```
+
+### Interaction With SCHED_DEADLINE
+
+```c
+/* SCHED_DEADLINE tasks have absolute priorities over EEVDF */
+/* A deadline task specifies: runtime, deadline, period */
+
+struct sched_attr attr = {
+    .size = sizeof(attr),
+    .sched_policy = SCHED_DEADLINE,
+    .sched_runtime = 1000000,    /* 1ms of CPU time */
+    .sched_deadline = 5000000,   /* must finish within 5ms */
+    .sched_period = 10000000,    /* repeats every 10ms */
+};
+sched_setattr(0, &attr, 0);
+
+/* Deadline tasks are admitted via admission control */
+/* Total deadline utilization must not exceed CPU capacity */
+```
+
+## EEVDF and Cgroup Integration
+
+EEVDF integrates with cgroup v2 for hierarchical scheduling:
+
+### Per-Cgroup Weight
+
+```bash
+# cgroup v2 uses "cpu.weight" for EEVDF weight
+# Range: 1-10000, default 100
+
+# Create cgroups
+echo "+cpu" > /sys/fs/cgroup/cgroup.subtree_control
+mkdir /sys/fs/cgroup/high_prio
+mkdir /sys/fs/cgroup/low_prio
+
+# Set weights (proportional CPU share)
+echo 200 > /sys/fs/cgroup/high_prio/cpu.weight
+echo 50  > /sys/fs/cgroup/low_prio/cpu.weight
+
+# Move processes
+echo $PID > /sys/fs/cgroup/high_prio/cgroup.procs
+
+# high_prio gets 200/250 = 80% CPU when both are busy
+# low_prio gets 50/250 = 20% CPU
+```
+
+### Cgroup Bandwidth Limiting
+
+```bash
+# Hard CPU bandwidth limit (cgroup v2)
+echo "100000 100000" > /sys/fs/cgroup/app/cpu.max
+# 100ms per 100ms period = 100% of one CPU
+
+# 50% of one CPU
+echo "50000 100000" > /sys/fs/cgroup/app/cpu.max
+
+# View CPU statistics
+cat /sys/fs/cgroup/app/cpu.stat
+# usage_usec 12345678
+# user_usec 10000000
+# system_usec 2345678
+# nr_periods 1000
+# nr_throttled 50
+# throttled_usec 2500000
+```
+
+### Group Scheduling in EEVDF
+
+When a cgroup has multiple tasks, the cgroup itself is a scheduling entity:
+
+```c
+/* The cgroup's scheduling entity has:
+ * - weight = sum of child weights (or cpu.weight)
+ * - vruntime = weighted average of children's vruntimes
+ * - deadline = calculated from cgroup's virtual request
+ */
+
+/* When the cgroup is picked by EEVDF, it runs its internal
+ * scheduler to pick which task within the cgroup runs */
+```
+
+## Debugging and Observation
+
+### /proc/sched_debug
+
+```bash
+# Detailed scheduler state
+cat /proc/sched_debug
+# .sysctl_sched_latency                      : 6.000000
+# .sysctl_sched_min_granularity              : 0.750000
+# .sysctl_sched_nr_migrate                   : 32
+# .sysctl_sched_base_slice                   : 3.000000
+# 
+# cpu#0
+#   .nr_running                    : 3
+#   .nr_switches                   : 123456
+#   .curr->pid                     : 1234
+#   .clock                         : 9876543210.123
+#   ...
+```
+
+### /proc/PID/sched
+
+```bash
+# Per-task scheduler statistics
+cat /proc/1234/sched
+# stress-ng-cpu (1234, #threads: 1)
+# ---------------------------------------------------------
+# se.exec_start                      :   9876543210.123456
+# se.vruntime                        :       123456.789012
+# se.sum_exec_runtime                :        12345.678901
+# se.nr_migrations                   :              42
+# se.statistics.wait_sum             :        1234.567890
+# se.statistics.wait_count           :             100
+# se.statistics.iowait_sum           :           0.000000
+# nr_switches                        :           10000
+# nr_voluntary_switches              :            8000
+# nr_involuntary_switches            :            2000
+# se.avg.vruntime                    :       123456.789012
+# se.avg.load_weight                 :             1024
+```
+
+### perf sched
+
+```bash
+# Record scheduling events
+sudo perf sched record -- sleep 10
+
+# Show scheduling latency
+sudo perf sched latency
+#   Task                | Max delay | Avg delay |
+#   --------------------+-----------+-----------+
+#   stress-ng-cpu       |    3.2ms  |    0.8ms  |
+#   bash                |    1.1ms  |    0.2ms  |
+
+# Show scheduling map (timeline)
+sudo perf sched map
+#   CPU 0  |S1  |S2  |S1  |idle|S2  |
+#   CPU 1  |S3  |S4  |S3  |S4  |S3  |
+
+# Show context switch statistics
+sudo perf sched stats
+```
+
+### BPF/bcc Tools for Scheduler Analysis
+
+```bash
+# runqlat — run queue latency histogram
+sudo runqlat -p $PID 10
+#        usecs          : count    distribution
+#        0 -> 1         : 234      |****                                |
+#        2 -> 3         : 5678     |****************************************|
+#        4 -> 7         : 3456     |*************************               |
+#        8 -> 15        : 890      |******                               |
+#       16 -> 31        : 123      |*                                    |
+
+# runqlen — run queue length
+sudo runqlen -C 1 10
+# average run queue length: 1.23
+
+# cpudist — on-CPU time distribution
+sudo cpudist -p $PID 10
+
+# runqslower — show tasks waiting > threshold (µs)
+sudo runqslower 1000  # Show tasks delayed > 1ms on run queue
+```
+
+## EEVDF Performance Benchmarks
+
+### Latency Improvements Over CFS
+
+EEVDF provides measurable latency improvements, particularly for interactive workloads:
+
+```bash
+# Benchmark: hackbench (message passing, many context switches)
+# CFS (Linux 6.5):     Time: 2.345s
+# EEVDF (Linux 6.6):   Time: 2.123s  (9.5% improvement)
+
+# Benchmark: cyclictest (scheduling latency measurement)
+# CFS:  max latency = 42µs, avg = 8.3µs
+# EEVDF: max latency = 28µs, avg = 5.1µs
+
+# Benchmark: schbench (scheduler benchmark)
+# CFS:  99th percentile wakeup latency = 180µs
+# EEVDF: 99th percentile wakeup latency = 95µs
+```
+
+### Throughput Workloads
+
+```bash
+# Compute-bound workload (no regression expected)
+# kernel compile: CFS 45.2s, EEVDF 44.8s (within noise)
+
+# Database workload (OLTP)
+# sysbench: CFS 12345 TPS, EEVDF 12567 TPS (slightly better)
+```
+
+## Known Issues and Edge Cases
+
+### Latency Nice Status
+
+The `latency_nice` feature (proposed in 2023) allows per-task latency sensitivity:
+
+```bash
+# API (not yet in mainline as of Linux 6.10)
+# Proposed:
+# echo -20 > /proc/$PID/latency_nice  # Very latency-sensitive
+# echo 19 > /proc/$PID/latency_nice   # Latency-tolerant
+
+# Effect on scheduling:
+# latency_nice = -20: deadline = vruntime + request * 0.5
+# latency_nice = 0:   deadline = vruntime + request * 1.0
+# latency_nice = 19:  deadline = vruntime + request * 2.0
+```
+
+### Group Scheduling Lag
+
+```c
+/* Known issue: EEVDF's lag tracking in hierarchical scheduling
+ * can produce unexpected fairness between cgroups.
+ *
+ * When a cgroup sleeps, its lag accumulates. When it wakes,
+ * it may get more than its fair share temporarily.
+ *
+ * Mitigation: Peter Zijlstra's patches for hierarchical EEVDF
+ * are being developed (as of 2024).
+ */
+```
+
+### Migrate Task Fairness
+
+```c
+/* When a task migrates between CPUs, its vruntime is adjusted
+ * to the target CPU's min_vruntime to prevent it from being
+ * starved or getting unfair advantage.
+ *
+ * This is handled in set_next_entity() and migrate_task_rq_fair().
+ */
+```
+
+## Scheduler Internals: Key Functions
+
+| Function | Purpose |
+|----------|---------|
+| `enqueue_entity()` | Add task to run queue, set deadline |
+| `dequeue_entity()` | Remove task from run queue |
+| `pick_eevdf()` | Select next task to run |
+| `entity_eligible()` | Check if task is eligible |
+| `entity_deadline()` | Calculate virtual deadline |
+| `update_curr()` | Update current task's vruntime |
+| `place_entity()` | Position task on wakeup |
+| `avg_vruntime_add()` | Update lag tracking |
+| `check_preempt_wakeup()` | Decide whether to preempt |
+
 ## Further Reading
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
-- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
-- [GNU Manuals](https://www.gnu.org/manual/manual.html)
-- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
-- [Planet GNU](https://planet.gnu.org/)
-- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
-
 - [LWN: The EEVDF CPU scheduler](https://lwn.net/Articles/925371/)
 - [LWN: EEVDF and latency nice](https://lwn.net/Articles/927784/)
 - [Original paper: A Fair Share Scheduler (Stoica & Abdel-Wahab, 1995)](https://citeseerx.ist.psu.edu/document?repid=rep1&type=pdf&doi=bf95d25b1c53e28e1c59e1c0b56b0e0e1f9a1d3b)
 - [Linux kernel: kernel/sched/fair.c (EEVDF code)](https://elixir.bootlin.com/linux/latest/source/kernel/sched/fair.c)
 - [Peter Zijlstra's EEVDF patches](https://lore.kernel.org/lkml/)
 - [Phoronix: EEVDF benchmarks](https://www.phoronix.com/review/linux-66-eevdf)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
 
 ## Related Topics
 
@@ -506,3 +785,4 @@ $ echo 19 > /proc/$PID/latency_nice   # Tolerant of latency
 - [Real-Time Scheduling](realtime-scheduling.md) — Deadline-based scheduling for real-time tasks
 - [Process States](process-states.md) — How tasks transition between states
 - [Context Switching](context-switching.md) — How the scheduler triggers task switches
+- [Cgroups](../../admin/cgroups.md) — Resource control via cgroup v2

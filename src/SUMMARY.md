@@ -88,6 +88,7 @@
 
 # Debugging
 
+- [Bcc Tools](./debugging/bcc-tools.md)
 - [Bpf Type Format](./debugging/bpf-type-format.md)
 - [Crash Dump](./debugging/crash-dump.md)
 - [Dynamic Debug](./debugging/dynamic-debug.md)
