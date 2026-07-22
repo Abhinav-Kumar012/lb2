@@ -31,12 +31,28 @@ Traditional solutions (lock ordering) don't work when the set of locks needed
 is dynamic and determined at runtime, as in GPU memory management where buffer
 objects (BOs) are locked based on user-space requests.
 
+### Why Static Lock Ordering Fails
+
+```mermaid
+graph TD
+    A["Task 1 needs BOs: A, B, C"] --> B["Sort by address: A < B < C"]
+    C["Task 2 needs BOs: B, C, D"] --> D["Sort by address: B < C < D"]
+    B --> E["Lock A, then B, then C"]
+    D --> F["Lock B, then C, then D"]
+    E --> G["Works if addresses are known"]
+    F --> G
+    G --> H["But: address order ≠ creation order<br/>Tasks discover needed BOs at runtime"]
+    H --> I["ww_mutex solves this!"]
+
+    style I fill:#38a169,color:#fff
+```
+
 ## Wound/Wait Protocol
 
 The protocol assigns a **wound context** (a monotonically increasing ticket number)
 to each transaction. Two variants exist:
 
-### Wound-Wait (Default)
+### Wound-Wait (Default in Linux)
 
 - **Older thread wounds younger**: The older thread signals the younger to back off.
   The younger holder detects the wound and releases its locks, then retries.
@@ -61,6 +77,16 @@ graph TD
     D --> G[Holder finishes, releases lock]
     G --> H[I acquire lock]
 ```
+
+### Protocol Comparison
+
+| Property | Wound-Wait (Linux) | Wait-Wound |
+|----------|-------------------|------------|
+| Older thread behavior | Wounds younger holder | Waits for younger holder |
+| Younger thread behavior | Waits for older holder | Backs off immediately |
+| Who restarts? | Younger (wounded) | Younger (backs off) |
+| Starvation risk | Lower (older always wins) | Higher (older may wait for many young) |
+| Implementation | Linux default | Alternative algorithm |
 
 ## Data Structures
 
@@ -104,6 +130,26 @@ struct ww_class {
     const char *name;
     struct lock_class_key acquire_name;
 };
+```
+
+### Structure Relationships
+
+```mermaid
+graph TD
+    subgraph "ww_class (one per subsystem)"
+        CLS["ww_class<br/>stamp: atomic counter<br/>name: 'reservation'"]
+    end
+    subgraph "ww_acquire_ctx (one per transaction)"
+        CTX["ww_acquire_ctx<br/>stamp: 42 (from class counter)<br/>acquired: 3<br/>contending: 0"]
+    end
+    subgraph "ww_mutex instances"
+        L1["ww_mutex (BO A)<br/>ctx: &ctx"]
+        L2["ww_mutex (BO B)<br/>ctx: &ctx"]
+        L3["ww_mutex (BO C)<br/>ctx: NULL (free)"]
+    end
+    CLS -->|"stamp++"| CTX
+    CTX -->|"owns"| L1
+    CTX -->|"owns"| L2
 ```
 
 ## API Usage
@@ -175,10 +221,23 @@ for the contended lock but also participates in the wound protocol:
 /* Wait for contended lock (slow path) */
 ret = ww_mutex_lock_slow(&contended_lock, &ctx);
 if (ret == -EDEADLK) {
-    /* Still deadlocked - must retry */
+    /* Still deadlocked — must retry */
     goto retry;
 }
 ```
+
+### API Reference
+
+| Function | Description |
+|----------|-------------|
+| `ww_acquire_init(ctx, class)` | Begin a new acquisition context |
+| `ww_mutex_lock(lock, ctx)` | Try to acquire; returns `-EDEADLK` if wounded |
+| `ww_mutex_lock_slow(lock, ctx)` | Block until lock is available (slow path) |
+| `ww_mutex_unlock(lock)` | Release a ww_mutex |
+| `ww_acquire_fini(ctx)` | End the acquisition (all locks must be released) |
+| `ww_mutex_trylock(lock)` | Non-blocking attempt (no wound check) |
+| `ww_mutex_init(lock, class)` | Initialize a ww_mutex |
+| `ww_mutex_destroy(lock)` | Destroy a ww_mutex |
 
 ## GPU Driver Use Case
 
@@ -263,6 +322,20 @@ retry:
 }
 ```
 
+### DMA Resv (Modern Replacement)
+
+In modern kernels (5.4+), the reservation object API was simplified:
+
+```c
+/* include/linux/dma-resv.h */
+int dma_resv_lock(struct dma_resv *obj, struct ww_acquire_ctx *ctx);
+int dma_resv_lock_interruptible(struct dma_resv *obj, struct ww_acquire_ctx *ctx);
+void dma_resv_unlock(struct dma_resv *obj);
+
+/* Slow path for wound recovery */
+int dma_resv_lock_slow(struct dma_resv *obj, struct ww_acquire_ctx *ctx);
+```
+
 ## Implementation Details
 
 ### Wound Detection
@@ -298,7 +371,7 @@ static int __ww_mutex_lock_check_stamp(struct ww_mutex *lock,
 The stamp is a monotonically increasing counter using `atomic_long_inc_return()`:
 
 ```c
-/* Include/linux/ww_mutex.h */
+/* include/linux/ww_mutex.h */
 static inline void ww_acquire_init(struct ww_acquire_ctx *ctx,
                                     struct ww_class *ww_class)
 {
@@ -327,6 +400,29 @@ for (i = 0; i < count; i++) {
 }
 ```
 
+### The Wound Path in Detail
+
+```mermaid
+sequenceDiagram
+    participant T1 as Thread 1 (stamp=42, older)
+    participant T2 as Thread 2 (stamp=43, younger)
+    participant Lock as ww_mutex (held by T2)
+
+    Note over T2: T2 holds Lock, ctx->stamp=43
+    T1->>Lock: ww_mutex_lock(ctx stamp=42)
+    Lock->>Lock: Check: 42 < 43 → T1 is older
+    Lock->>T2: Set contending=1 (wound T2)
+    Lock->>T1: Return -EDEADLK
+    T1->>T1: Drop other locks, wait
+
+    Note over T2: T2 checks contending flag
+    T2->>T2: contending=1 → must back off
+    T2->>Lock: Release lock
+    T2->>T2: Restart acquisition
+
+    T1->>Lock: ww_mutex_lock_slow() — acquires
+```
+
 ## Performance Considerations
 
 | Scenario | Traditional mutexes | ww_mutex |
@@ -343,6 +439,19 @@ for (i = 0; i < count; i++) {
 3. **Wound propagation**: Must check and signal holders
 4. **Retry cost**: Wounded transactions restart their lock acquisition
 
+### Minimizing Overhead
+
+```c
+/* Good: Sort before locking (reduces unnecessary wounds) */
+sort(objs, count, sizeof(*objs), cmp_bo_addr, NULL);
+for (i = 0; i < count; i++)
+    ww_mutex_lock(&objs[i]->lock, &ctx);
+
+/* Bad: Random order (more wounds, more retries) */
+for (i = 0; i < count; i++)
+    ww_mutex_lock(&objs[rand() % count]->lock, &ctx);
+```
+
 ## Comparison with Other Deadlock Avoidance
 
 | Method | Approach | Limitation |
@@ -351,6 +460,26 @@ for (i = 0; i < count; i++) {
 | trylock + backoff | Non-blocking attempt | Starvation risk |
 | Lockdep | Detection only (debug) | No runtime avoidance |
 | ww_mutex | Priority-based preemption | Transaction restart cost |
+| Hand-over-hand | Lock next, release prev | Only works for chains |
+
+### Trylock + Backoff (Alternative)
+
+```c
+/* Simple but starvation-prone approach */
+while (1) {
+    if (mutex_trylock(&lock_a)) {
+        if (mutex_trylock(&lock_b)) {
+            /* Both acquired */
+            break;
+        }
+        mutex_unlock(&lock_a);
+    }
+    /* Random backoff to reduce livelock */
+    udelay(random() % 100);
+}
+```
+
+This approach works but can **starve** — a thread may never succeed if others keep beating it. ww_mutex guarantees that the oldest transaction always wins.
 
 ## Debugging
 
@@ -381,6 +510,20 @@ ww_mutex_lock(&lock, &ctx);
 do_work();
 ww_mutex_unlock(&lock);
 ww_acquire_fini(&ctx);
+```
+
+### Debugging Wound Events
+
+```bash
+# Enable ww_mutex debugging
+CONFIG_DEBUG_WW_MUTEX_SLOWPATH=y
+
+# Trace lock contention
+echo 1 > /sys/kernel/debug/tracing/events/lock/enable
+cat /sys/kernel/debug/tracing/trace_pipe | grep ww_mutex
+
+# Check lock statistics
+cat /proc/lock_stat | grep ww
 ```
 
 ## Cross-References

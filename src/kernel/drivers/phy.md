@@ -383,7 +383,190 @@ drivers/phy/
 
 ---
 
-## 11. Comparison with Other Subsystems
+## 14. USB Type-C and Alt Mode
+
+USB Type-C connectors support **alternate modes** (Alt Modes) that
+repurpose the USB-C pins for DisplayPort, Thunderbolt, or other
+protocols. The PHY framework handles the mode switching.
+
+### Type-C Mode Switching
+
+```mermaid
+graph LR
+    subgraph "USB-C Connector"
+        DP["DP Lane 0-3"]
+        USB["USB 2.0/3.0"]
+    end
+    subgraph "Alt Modes"
+        USB_MODE["USB Mode<br/>SS TX/RX"]
+        DP_MODE["DisplayPort<br/>4 lanes"]
+        TB_MODE["Thunderbolt<br/>4 lanes"]
+    end
+    USB_MODE --> USB
+    DP_MODE --> DP
+    TB_MODE --> DP
+```
+
+### Type-C PHY Operations
+
+```c
+/* Type-C mode switch callback */
+static int my_phy_set_mode(struct phy *phy, enum phy_mode mode, int submode)
+{
+    struct my_phy_priv *priv = phy_get_drvdata(phy);
+
+    switch (mode) {
+    case PHY_MODE_USB_HOST:
+        /* Configure for USB 3.0 host */
+        my_phy_set_usb3(priv);
+        break;
+    case PHY_MODE_USB_DEVICE:
+        /* Configure for USB 3.0 device */
+        my_phy_set_usb3_device(priv);
+        break;
+    case PHY_MODE_DP:
+        /* Configure for DisplayPort Alt Mode */
+        my_phy_set_dp(priv, submode);
+        break;
+    default:
+        return -EINVAL;
+    }
+    return 0;
+}
+```
+
+## 15. PHY Calibration and Tuning
+
+Some PHYs require runtime calibration to compensate for process
+variations, temperature, and voltage:
+
+### Calibration Types
+
+| Type | Description | Typical PHY |
+|---|---|---|
+| Impedance | Adjust output impedance | Ethernet RGMII |
+| Skew | Adjust TX/RX timing | USB 3.0, PCIe |
+| Equalization | Signal conditioning | SerDes, PCIe |
+| Eye diagram | Optimize signal quality | High-speed SerDes |
+
+### Device Tree Calibration Properties
+
+```dts
+phy@10000000 {
+    compatible = "vendor,usb-phy";
+    /* Calibration parameters */
+    vendor,tx-impedance = <45>;     /* ohms */
+    vendor,rx-impedance = <50>;
+    vendor,tx-skew = <2>;           /* delay taps */
+    vendor,rx-skew = <3>;
+    vendor,eq-pre = <5>;            /* pre-emphasis */
+    vendor,eq-post = <3>;           /* post-cursor */
+};
+```
+
+### Runtime Tuning via sysfs
+
+```bash
+# View PHY attributes (if exposed)
+$ ls /sys/class/phy/phy*/
+# power  subsystem  uevent
+
+# Some vendors expose tuning via debugfs
+$ ls /sys/kernel/debug/phy*/
+# tx_swing  rx_equalization  lane_polarity
+```
+
+## 16. PHY Error Handling
+
+### Common PHY Errors
+
+| Error | Cause | Solution |
+|---|---|---|
+| PLL lock timeout | Clock not stable | Check reference clock |
+| Signal detect fail | No link partner | Check cable/connector |
+| Training failure | Speed negotiation fail | Lower speed, check signals |
+| Elastic buffer overflow | Clock domain crossing | Check rate matching config |
+
+### Error Recovery
+
+```c
+static int my_phy_init(struct phy *phy)
+{
+    struct my_phy_priv *priv = phy_get_drvdata(phy);
+    int ret;
+
+    /* Attempt PLL lock */
+    ret = my_phy_wait_pll_lock(priv, 1000);  /* 1ms timeout */
+    if (ret) {
+        dev_err(&phy->dev, "PLL lock timeout\n");
+        /* Try recovery: reset and retry */
+        my_phy_reset(priv);
+        ret = my_phy_wait_pll_lock(priv, 2000);
+        if (ret)
+            return ret;
+    }
+
+    return 0;
+}
+```
+
+## 17. PHY Power Domains
+
+PHYs often share power domains with their associated controllers.
+The PHY framework integrates with the power domain framework:
+
+```c
+/* PHY automatically powers on its power domain when phy_power_on() is called */
+/* If the PHY uses a power domain, the framework handles PM runtime */
+
+/* Device tree */
+phy: phy@10000000 {
+    power-domains = <&power 0>;
+    /* ... */
+};
+```
+
+## 18. PHY Debugging Extended
+
+### Common Diagnostic Commands
+
+```bash
+# List all registered PHYs
+$ ls /sys/class/phy/
+phy-usb-0  phy-pcie-0  phy-sata-0
+
+# Check PHY power state
+$ cat /sys/class/phy/phy-usb-0/power/runtime_status
+active
+
+# Device tree PHY references
+$ ls /sys/firmware/devicetree/base/soc/phy*/
+compatible  reg  clocks  resets  #phy-cells
+
+# Trace PHY calls
+$ echo 'module phy_core =p' > /sys/kernel/debug/dynamic_debug/control
+$ dmesg -w | grep phy
+
+# Check PHY provider
+$ cat /sys/class/phy/phy-usb-0/of_node/compatible
+vendor,usb-phy
+```
+
+### PHY Health Monitoring
+
+```c
+/* Check PHY link status */
+static bool my_phy_link_is_up(struct phy *phy)
+{
+    struct my_phy_priv *priv = phy_get_drvdata(phy);
+    u32 status;
+
+    regmap_read(priv->regs, PHY_STATUS_REG, &status);
+    return !!(status & PHY_LINK_UP_BIT);
+}
+```
+
+## 19. Comparison with Other Subsystems
 
 | Subsystem | Purpose | Scope |
 |---|---|---|
@@ -392,32 +575,13 @@ drivers/phy/
 | **MDIO/PHYLIB** | Ethernet MDIO bus PHYs | Ethernet only |
 | **Clock framework** | Clock trees | Clocks only |
 | **Regulator framework** | Power supplies | Power only |
+| **Reset framework** | Reset lines | Reset control only |
 
 Note: Ethernet PHYs use the **MDIO/PHYLIB** subsystem
 (`drivers/net/phy/`), not the generic PHY framework.  The generic PHY
 framework handles the SerDes between the MAC and the MDIO PHY.
 
----
-
-## 12. Debugging
-
-```bash
-# List all PHYs
-ls /sys/class/phy/
-
-# Check PHY status
-cat /sys/class/phy/phy*/power/runtime_status
-
-# Enable debug logging
-echo 'module phy_core =p' > /sys/kernel/debug/dynamic_debug/control
-
-# Device tree info
-ls /sys/firmware/devicetree/base/*/phy*/
-```
-
----
-
-## 13. Further Reading
+## 20. Further Reading
 
 * **Documentation: `Documentation/driver-api/phy/phy.rst`**
 * **Source: `drivers/phy/phy-core.c`**

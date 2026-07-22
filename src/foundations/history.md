@@ -334,6 +334,105 @@ timeline
 | **Ian Murdock** | Created Debian |
 | **Marc Ewing** | Co-founded Red Hat |
 
+## The BitKeeper Saga and the Birth of Git
+
+For several years, the Linux kernel used **BitKeeper**, a proprietary distributed version control system, for free. In 2005, the license was revoked after Andrew Tridgell (of Samba fame) reverse-engineered the BitKeeper protocol. This forced Torvalds to create a replacement.
+
+In just **two weeks** (April 3–20, 2005), Torvalds wrote the initial version of **Git**. He later handed maintenance to Junio Hamano, who remains the primary maintainer.
+
+Git's design goals were:
+- **Distributed**: Every developer has a full repository copy
+- **Fast**: The kernel tree is enormous (~30 million lines)
+- **Cryptographic integrity**: Every commit is SHA-1 (later SHA-256) hashed
+- **Support for non-linear development**: Thousands of parallel branches
+
+```bash
+# The Linux kernel git repository
+$ git clone https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git
+
+# Count commits (as of 2024)
+$ git rev-list --count HEAD
+1000000+
+
+# First commit
+$ git log --reverse --oneline | head -1
+initial import of Linux-0.01 (Linus Torvalds)
+
+# Linus's commit frequency
+$ git shortlog -sn --all | head -5
+```
+
+Git went on to become the dominant version control system in the world, powering GitHub, GitLab, and virtually all open-source projects.
+
+## The GPLv2 vs GPLv3 Debate
+
+When the Free Software Foundation released GPLv3 in 2007, Torvalds made the deliberate decision to keep the kernel under **GPLv2 only**. His concerns included:
+
+- **Anti-DRM provisions**: GPLv3's anti-tivoization clause would restrict how hardware manufacturers could use Linux in locked-down devices (like Android phones)
+- **Compatibility**: GPLv3 is incompatible with GPLv2-only code
+- **Complexity**: GPLv3 is much longer and more complex than GPLv2
+
+The kernel license was clarified with an explicit statement:
+
+```
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License version 2 as
+published by the Free Software Foundation.
+```
+
+This decision enabled Linux's adoption in embedded devices, Android, and IoT — areas where GPLv3's restrictions would have been problematic.
+
+## The SCO Lawsuit (2003–2016)
+
+In 2003, **SCO Group** (which had acquired Unix System V rights from Novell) sued IBM for $1 billion, claiming Linux contained copyrighted Unix code. The lawsuit was one of the most significant legal challenges in open-source history.
+
+### Timeline
+
+| Year | Event |
+|---|---|
+| 2003 | SCO sues IBM, claims Linux contains Unix code |
+| 2003 | SCO sends letters to Fortune 500 companies demanding Linux licenses |
+| 2004 | Novell countersues SCO, claiming it never sold Unix copyrights |
+| 2007 | Court rules Novell owns Unix copyrights, not SCO |
+| 2010 | SCO files for bankruptcy |
+| 2016 | Final resolution: SCO's claims entirely dismissed |
+
+The lawsuit ultimately **helped** Linux by demonstrating that the codebase was legally clean and that the development process was transparent.
+
+## Corporate Involvement
+
+Linux's growth was fueled by increasing corporate investment:
+
+### Key Corporate Contributions
+
+| Company | Contribution | Year |
+|---|---|---|
+| **IBM** | $1 billion investment, mainframe Linux | 2000 |
+| **Red Hat** | Enterprise Linux, major kernel contributions | 1994–present |
+| **Google** | Android, KVM contributions, BPF | 2005–present |
+| **Intel** | Driver contributions, x86 optimization | 1999–present |
+| **Microsoft** | WSL, Azure Linux, Hyper-V drivers | 2015–present |
+| **Samsung** | ARM/mobile contributions | 2005–present |
+| **SUSE** | Enterprise Linux, Btrfs | 2000–present |
+| **Canonical** | Ubuntu, Snap packages | 2004–present |
+| **Facebook/Meta** | cgroup2, BPF, memory management | 2011–present |
+| **Amazon** | AWS-specific drivers, Graviton support | 2006–present |
+
+### Microsoft's Relationship with Linux
+
+Microsoft's evolution from Linux opponent to contributor is one of the most remarkable shifts in tech history:
+
+```
+2001: Steve Ballmer calls Linux "a cancer"
+2006: Microsoft partners with Novell (Linux interoperability)
+2014: Satya Nadella says "Microsoft loves Linux"
+2015: Microsoft joins the Linux Foundation
+2016: Windows Subsystem for Linux (WSL) announced
+2018: Microsoft acquires GitHub ($7.5B)
+2020: Microsoft ships its own Linux kernel (WSL2)
+2024: Azure runs more Linux than Windows Server instances
+```
+
 ## Linux by the Numbers (2024)
 
 - **Lines of code**: ~30 million (kernel alone)
