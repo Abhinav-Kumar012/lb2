@@ -68,6 +68,35 @@ V6 (1975)
 - **ELF binary format** — still the standard on Linux today (see [`arch/x86.md`](../arch/x86.md))
 - **Dynamic linking** — shared libraries (`.so` files)
 
+### System V init Runlevels
+
+The System V init system used numbered **runlevels** to define system states:
+
+| Runlevel | Purpose |
+|---|---|
+| 0 | Halt (shutdown) |
+| 1 | Single-user mode (maintenance) |
+| 2 | Multi-user, no networking (Debian default) |
+| 3 | Multi-user, with networking (RHEL default) |
+| 4 | User-definable |
+| 5 | Multi-user + graphical display (RHEL desktop) |
+| 6 | Reboot |
+
+```bash
+# Traditional SysV init scripts
+/etc/init.d/apache2 start
+/etc/init.d/apache2 stop
+
+# Check current runlevel
+$ runlevel
+N 5
+
+# Change runlevel
+$ init 3  # Switch to multi-user text mode
+```
+
+This runlevel model persisted until **systemd** replaced it in most distributions (2010–2015). The debate over systemd's replacement of runlevels with targets was one of the most heated in Linux distribution history.
+
 ## The BSD Branch (1977–Present)
 
 ### Origins at Berkeley

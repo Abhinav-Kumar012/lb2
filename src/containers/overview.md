@@ -228,6 +228,33 @@ skopeo inspect docker://docker.io/library/alpine:latest
 # }
 ```
 
+### Runtime Comparison
+
+| Runtime | Language | Use Case | Performance |
+|---------|----------|----------|-------------|
+| runc | Go | Default OCI runtime | Standard |
+| crun | C | Lightweight, rootless | Faster startup |
+| gVisor | Go | Sandboxed (user-space kernel) | Moderate overhead |
+| Kata Containers | Go/Rust | VM-based isolation | VM overhead |
+| Firecracker | Rust | MicroVMs for serverless | Fast VM startup |
+
+```bash
+# Check current runtime
+docker info | grep -i runtime
+# Runtimes: runc
+
+# Use crun (Podman default)
+podman --runtime crun run alpine echo "fast"
+
+# View container runtime details
+podman info | grep -A5 runtime
+# OCIRuntime:
+#   Name: crun
+#   Package: crun-1.12-1.fc39.x86_64
+#   Path: /usr/bin/crun
+#   Version: 1.12
+```
+
 ## Container Security Model
 
 ```mermaid
@@ -263,6 +290,35 @@ flowchart TB
 # Docker default security profile
 docker run --rm alpine cat /proc/1/status | grep -i seccomp
 # Seccomp:    2  (filtered)
+```
+
+### Security Best Practices
+
+```bash
+# 1. Drop all capabilities, add only what's needed
+docker run --cap-drop=ALL --cap-add=NET_BIND_SERVICE nginx
+
+# 2. Read-only rootfs
+docker run --read-only --tmpfs /tmp nginx
+
+# 3. No new privileges
+docker run --security-opt=no-new-privileges nginx
+
+# 4. Non-root user
+docker run --user 1000:1000 nginx
+
+# 5. Custom seccomp profile
+docker run --security-opt seccomp=/etc/seccomp/nginx.json nginx
+
+# 6. AppArmor profile
+docker run --security-opt apparmor=nginx-profile nginx
+
+# 7. Resource limits
+docker run --memory=512m --cpus=1.5 --pids-limit=100 nginx
+
+# 8. Scan images for vulnerabilities
+trivy image nginx:latest
+grype nginx:latest
 ```
 
 ## Container Networking
@@ -304,6 +360,46 @@ docker network create --driver bridge \
 
 # Run container in specific network
 docker run --network my-network --ip 10.0.1.10 nginx
+
+# Container DNS resolution
+docker run --name=myapp nginx
+docker run --link myapp alpine ping myapp  # Legacy linking
+# Modern: use custom networks (DNS-based discovery)
+
+# Network debugging from inside container
+docker run --rm alpine sh -c "ip addr show && ip route && ping -c1 8.8.8.8"
+```
+
+### CNI (Container Network Interface)
+
+```bash
+# CNI is the standard for container networking (Kubernetes)
+# Plugins: bridge, flannel, calico, cilium, weave
+
+# List CNI plugins
+ls /opt/cni/bin/
+# bandwidth  bridge  calico  calico-ipam  dhcp  flannel  host-device
+# host-local  ipvlan  loopback  macvlan  portmap  ptp  tuning  vlan
+
+# CNI configuration
+cat /etc/cni/net.d/10-flannel.conflist
+{
+    "name": "cbr0",
+    "cniVersion": "0.3.1",
+    "plugins": [
+        {
+            "type": "flannel",
+            "delegate": {
+                "hairpinMode": true,
+                "isDefaultGateway": true
+            }
+        },
+        {
+            "type": "portmap",
+            "capabilities": {"portMappings": true}
+        }
+    ]
+}
 ```
 
 See [Docker Internals](./docker-internals.md) for detailed networking implementation.
@@ -331,7 +427,74 @@ docker run --tmpfs /app/cache nginx
 # - cloud: aws-ebs, gce-pd, azure-disk
 ```
 
-## Container Ecosystem
+### Storage Best Practices
+
+```bash
+# 1. Use named volumes for persistent data
+docker volume create pgdata
+docker run -v pgdata:/var/lib/postgresql/data postgres
+
+# 2. Use bind mounts for development
+docker run -v $(pwd)/src:/app/src:ro nginx
+
+# 3. Use tmpfs for sensitive data
+docker run --tmpfs /run/secrets:ro,noexec,size=1m nginx
+
+# 4. Clean up unused volumes
+docker volume prune
+
+# 5. Check volume usage
+docker system df -v
+```
+
+## Container Image Best Practices
+
+### Multi-Stage Builds
+
+```dockerfile
+# Multi-stage Dockerfile
+FROM golang:1.21 AS builder
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -o server .
+
+FROM alpine:3.19
+RUN apk --no-cache add ca-certificates
+COPY --from=builder /app/server /usr/local/bin/
+EXPOSE 8080
+USER nobody:nobody
+ENTRYPOINT ["server"]
+```
+
+```bash
+# Build and run
+docker build -t myserver:latest .
+docker run -d -p 8080:8080 myserver:latest
+```
+
+### Image Security Scanning
+
+```bash
+# Scan with Trivy
+trivy image nginx:latest
+# nginx:latest (debian 12.4)
+# Total: 42 (UNKNOWN: 0, LOW: 20, MEDIUM: 15, HIGH: 7, CRITICAL: 0)
+
+# Scan with Grype
+grype nginx:latest
+
+# Scan with Docker Scout
+docker scout cves nginx:latest
+
+# Use minimal base images
+FROM alpine:3.19    # ~5MB
+FROM scratch        # ~0MB (static binaries only)
+FROM distroless     # ~20MB (no shell, no package manager)
+```
+
+## Container Orchestration
 
 ```mermaid
 flowchart TB
@@ -368,6 +531,68 @@ flowchart TB
     K8S --> CRIO
 ```
 
+### Kubernetes Pod Example
+
+```yaml
+# pod.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: webapp
+  labels:
+    app: webapp
+spec:
+  containers:
+    - name: nginx
+      image: nginx:1.25-alpine
+      ports:
+        - containerPort: 80
+      resources:
+        requests:
+          memory: "64Mi"
+          cpu: "250m"
+        limits:
+          memory: "128Mi"
+          cpu: "500m"
+      livenessProbe:
+        httpGet:
+          path: /healthz
+          port: 80
+        initialDelaySeconds: 5
+        periodSeconds: 10
+      readinessProbe:
+        httpGet:
+          path: /ready
+          port: 80
+        initialDelaySeconds: 3
+        periodSeconds: 5
+```
+
+## Container Monitoring
+
+```bash
+# Container resource usage
+docker stats --no-stream
+# CONTAINER ID  NAME   CPU %  MEM USAGE / LIMIT  MEM %  NET I/O  BLOCK I/O  PIDS
+# abc123        web    0.50%  50MiB / 512MiB     9.77%  1kB / 2kB  0B / 0B  5
+
+# Container logs
+docker logs --tail 100 -f web
+
+# Container inspect
+docker inspect web | jq '.[0].State'
+
+# Container filesystem changes
+docker diff web
+
+# Export container filesystem
+docker export web > web.tar
+
+# Container resource limits (cgroup v2)
+cat /sys/fs/cgroup/system.slice/docker-abc123.scope/memory.max
+cat /sys/fs/cgroup/system.slice/docker-abc123.scope/cpu.max
+```
+
 ## Practical Examples
 
 ### Running a Container
@@ -392,29 +617,49 @@ docker inspect web                # Full metadata
 docker stop web && docker rm web  # Stop and remove
 ```
 
-### Building Images
-
-```dockerfile
-# Multi-stage Dockerfile
-FROM golang:1.21 AS builder
-WORKDIR /app
-COPY go.mod go.sum ./
-RUN go mod download
-COPY . .
-RUN CGO_ENABLED=0 go build -o server .
-
-FROM alpine:3.19
-RUN apk --no-cache add ca-certificates
-COPY --from=builder /app/server /usr/local/bin/
-EXPOSE 8080
-USER nobody:nobody
-ENTRYPOINT ["server"]
-```
+### Podman (Rootless Alternative)
 
 ```bash
-# Build and run
-docker build -t myserver:latest .
-docker run -d -p 8080:8080 myserver:latest
+# Podman is Docker-compatible but rootless by default
+podman run -d --name web -p 8080:80 nginx:alpine
+
+# No daemon required
+podman ps
+podman logs web
+podman exec -it web sh
+
+# Generate systemd service
+podman generate systemd --new --name web > /etc/systemd/system/web.service
+systemctl enable --now web.service
+
+# Quadlet (native systemd integration)
+# See podman-quadlet.md
+```
+
+### Container Debugging
+
+```bash
+# Debug a crashing container
+docker run --rm -it --entrypoint sh nginx
+
+# Check container processes
+docker top web
+
+# Network debugging
+docker exec web cat /etc/resolv.conf
+docker exec web ip addr show
+docker exec web ping -c1 8.8.8.8
+
+# Filesystem debugging
+docker exec web df -h
+docker exec web ls -la /app/
+
+# Strace a container process
+docker run --cap-add=SYS_PTRACE --rm -it alpine strace -p 1
+
+# nsenter (enter container namespaces from host)
+PID=$(docker inspect --format '{{.State.Pid}}' web)
+nsenter -t $PID -m -n -p -- /bin/sh
 ```
 
 ## References
