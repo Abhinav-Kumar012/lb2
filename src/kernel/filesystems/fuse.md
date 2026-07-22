@@ -428,6 +428,8 @@ struct fuse_operations {
 - [FUSE kernel documentation](https://www.kernel.org/doc/html/latest/filesystems/fuse.html)
 - [libfuse source code](https://github.com/libfuse/libfuse)
 - [FUSE protocol header](https://github.com/torvalds/linux/blob/master/include/uapi/linux/fuse.h)
+- [LWN: FUSE passthrough](https://lwn.net/Articles/787223/)
+- [FUSE wiki](https://github.com/libfuse/libfuse/wiki)
 
 ## Further Reading
 
