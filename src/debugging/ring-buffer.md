@@ -542,4 +542,339 @@ perf report --header
   comprehensive ring buffer internals
 - **perf wiki**: https://perf.wiki.kernel.org/ — perf ring buffer architecture
 - **commit 58f3bb0**: "ring_buffer: new lockless ring buffer" — original
+
+## Ring Buffer Design Patterns
+
+### Producer-Consumer Pattern
+
+The ring buffer implements a classic producer-consumer pattern with important
+kernel-specific optimizations:
+
+```mermaid
+sequenceDiagram
+    participant P1 as Producer (CPU 0)
+    participant P2 as Producer (CPU 1)
+    participant R1 as Ring Buffer (CPU 0)
+    participant R2 as Ring Buffer (CPU 1)
+    participant C as Consumer (userspace)
+
+    P1->>R1: Reserve + Write + Commit
+    P2->>R2: Reserve + Write + Commit
+    Note over P1,P2: No contention between producers
+    C->>R1: Read committed events
+    C->>R2: Read committed events
+    Note over C: Iterates all per-CPU buffers
+```
+
+### The Reserve-Commit Pattern in Detail
+
+The three-phase write pattern ensures lockless consistency:
+
+```mermaid
+stateDiagram-v2
+    [*] --> Reserved: ring_buffer_lock_reserve()
+    Reserved --> Filling: Write event data
+    Filling --> Committed: ring_buffer_unlock_commit()
+    Committed --> [*]: Event visible to readers
+    
+    Reserved --> Dropped: Error (no space)
+    Dropped --> [*]: Event lost
+```
+
+**Why three phases?**
+
+1. **Reserve**: Atomically claim space. If the buffer is full, fail immediately.
+2. **Fill**: Write data without holding locks (producer owns the reserved space).
+3. **Commit**: Atomically mark the event as complete. Only committed events are
+   visible to readers.
+
+This prevents readers from seeing partially written events, which is critical
+for lockless operation.
+
+### Memory Ordering
+
+The ring buffer relies on specific memory ordering guarantees:
+
+```c
+/* Producer side */
+write_event_data(event);         /* 1. Write data */
+smp_wmb();                        /* 2. Write barrier: data before commit */
+commit_event(event);              /* 3. Update commit count */
+
+/* Consumer side */
+commit = read_commit_count();     /* 1. Read commit count */
+smp_rmb();                        /* 2. Read barrier: commit before data */
+read_event_data(event);           /* 3. Read event data */
+```
+
+Without these barriers, the CPU or compiler could reorder operations, causing
+the reader to see stale or partial data.
+
+## Ring Buffer Sizing and Tuning
+
+### Choosing Buffer Size
+
+The ring buffer size affects both memory usage and event loss rate:
+
+```bash
+# Default buffer size (per CPU)
+cat /sys/kernel/debug/tracing/buffer_size_kb
+# 1408 (1.4 MB per CPU)
+
+# Calculate total memory usage
+TOTAL = buffer_size_kb × num_cpus × 2  (ftrace + perf buffers)
+
+# Size recommendations by use case:
+# - General tracing: 1408-4096 KB per CPU
+# - High-frequency events: 8192-16384 KB per CPU
+# - Production monitoring: 4096-8192 KB per CPU
+# - Memory-constrained: 256-512 KB per CPU
+```
+
+### Sizing Formula
+
+```
+buffer_size_kb = (event_rate × event_size × retention_time) / num_cpus / 1024
+
+Where:
+  event_rate: events per second (system-wide)
+  event_size: average bytes per event (typically 32-128)
+  retention_time: seconds of data to retain
+  num_cpus: number of CPUs
+```
+
+**Example:**
+- 100,000 events/second system-wide
+- 64 bytes per event average
+- 5 seconds retention
+- 8 CPUs
+
+```
+buffer_size = (100000 × 64 × 5) / 8 / 1024 = 3906 KB ≈ 4096 KB per CPU
+```
+
+### Dynamic Buffer Resize
+
+```bash
+# Resize while tracing is active
+echo 8192 > /sys/kernel/debug/tracing/buffer_size_kb
+
+# Resize per-CPU buffers independently
+echo 4096 > /sys/kernel/debug/tracing/per_cpu/cpu0/buffer_size_kb
+echo 8192 > /sys/kernel/debug/tracing/per_cpu/cpu1/buffer_size_kb
+
+# Check current usage vs capacity
+for cpu in /sys/kernel/debug/tracing/per_cpu/cpu*; do
+    echo "$(basename $cpu): $(cat $cpu/entries) entries, $(cat $cpu/stats | grep bytes) bytes"
+done
+```
+
+## Ring Buffer Event Loss Handling
+
+### Detecting Event Loss
+
+```bash
+# Check for dropped events
+cat /sys/kernel/debug/tracing/per_cpu/cpu0/stats
+# dropped events: 42
+# overrun: 0
+# commit overrun: 0
+
+# Watch for drops in real-time
+watch -n 1 'grep -E "dropped|overrun" /sys/kernel/debug/tracing/per_cpu/*/stats'
+
+# In perf:
+perf record -e cycles --stat  # Shows lost events in header
+```
+
+### Overrun vs. No-Overrun Mode
+
+```bash
+# No-overrun mode (default): stop recording when buffer is full
+echo 0 > /sys/kernel/debug/tracing/tracing_on  # Events dropped silently
+
+# Overrun mode: overwrite oldest events
+echo 1 > /sys/kernel/debug/tracing/options/overwrite
+# Old events are lost, but tracing continues
+
+# Check current mode
+cat /sys/kernel/debug/tracing/options/overwrite
+# 1 = overwrite mode
+# 0 = no-overrun mode
+```
+
+### Strategies for Avoiding Event Loss
+
+1. **Increase buffer size**: Most direct solution
+2. **Reduce event rate**: Use filters to only record relevant events
+3. **Use overwrite mode**: Accept losing old events to keep tracing
+4. **Read faster**: Use `splice()` or `read()` with larger buffers
+5. **Use per-event filtering**: Reduce noise at the source
+
+```bash
+# Filter events at the source (reduce rate)
+echo 'pid == 1234' > /sys/kernel/debug/tracing/events/sched/sched_switch/filter
+
+# Enable only specific events
+echo 1 > /sys/kernel/debug/tracing/events/sched/sched_switch/enable
+echo 1 > /sys/kernel/debug/tracing/events/block/block_rq_issue/enable
+```
+
+## Ring Buffer and splice()
+
+`splice()` enables zero-copy data transfer from the ring buffer to userspace:
+
+```c
+#include <fcntl.h>
+#include <unistd.h>
+#include <stdio.h>
+
+int main(void)
+{
+    int pipefd[2];
+    int trace_fd;
+    
+    pipe(pipefd);
+    trace_fd = open("/sys/kernel/debug/tracing/trace_pipe_raw", O_RDONLY);
+    
+    /* Zero-copy: kernel ring buffer → pipe → userspace */
+    while (1) {
+        ssize_t n = splice(trace_fd, NULL, pipefd[1], NULL,
+                          4096, SPLICE_F_MOVE);
+        if (n <= 0) break;
+        
+        /* Read from pipe */
+        char buf[4096];
+        n = read(pipefd[0], buf, sizeof(buf));
+        /* Process raw events */
+    }
+    
+    close(trace_fd);
+    close(pipefd[0]);
+    close(pipefd[1]);
+    return 0;
+}
+```
+
+### splice() vs. read() Performance
+
+| Method | Overhead | Use Case |
+|--------|----------|----------|
+| `read()` | Medium (copy) | Simple, one-at-a-time reading |
+| `splice()` | Low (zero-copy) | High-throughput, bulk reading |
+| `mmap()` | Very low | Direct buffer access (perf) |
+
+## Ring Buffer Internal Data Structures
+
+### Core Structures
+
+```c
+/* Top-level ring buffer */
+struct ring_buffer {
+    struct ring_buffer_per_cpu **buffers;  /* Per-CPU array */
+    unsigned long flags;                    /* RB_FL_OVERWRITE, etc. */
+    int cpus;                              /* Number of CPUs */
+    atomic_t record_disabled;              /* Disable recording */
+    cpumask_var_t cpumask;                 /* Which CPUs have buffers */
+};
+
+/* Per-CPU buffer */
+struct ring_buffer_per_cpu {
+    struct ring_buffer *buffer;            /* Parent ring buffer */
+    raw_spinlock_t reader_lock;            /* Serializes readers */
+    struct lock_class_key reader_lock_key;
+    struct list_head *pages;               /* List of sub-buffers */
+    struct buffer_page *head_page;         /* Current write page */
+    struct buffer_page *tail_page;         /* Oldest unread page */
+    struct buffer_page *reader_page;       /* Current read position */
+    unsigned long lost_events;             /* Count of lost events */
+    unsigned long last_overrun;            /* Last overrun timestamp */
+    local_t entries_bytes;                 /* Total bytes committed */
+    local_t overrun;                       /* Overrun count */
+};
+
+/* Sub-buffer (one page) */
+struct buffer_page {
+    struct list_head list;                 /* List node */
+    local_t write;                         /* Write offset */
+    unsigned read;                         /* Read offset */
+    local_t entries;                       /* Number of entries */
+    unsigned long real_end;                /* Usable data end */
+    struct buffer_data_page page;          /* Actual data */
+};
+```
+
+### Memory Layout of a Sub-Buffer
+
+```
++-----------------------------------+
+| Sub-buffer header (16 bytes)      |
+|  - commit count                   |
+|  - page flags                     |
++-----------------------------------+
+| Event 1 (header + data + pad)     |
++-----------------------------------+
+| Event 2 (header + data + pad)     |
++-----------------------------------+
+| Event 3 (header + data + pad)     |
++-----------------------------------+
+| ...                               |
++-----------------------------------+
+| Padding (to page boundary)        |
++-----------------------------------+
+```
+
+## Ring Buffer Benchmarks
+
+### Measuring Write Throughput
+
+```bash
+# Use the kernel's built-in ring buffer benchmark
+modprobe ring_buffer_benchmark producer=4 consumer=2 iterations=1000000
+
+# Check results
+dmesg | tail -20
+# ring_buffer-benchmark: Time: 1234567 ns
+# ring_buffer-benchmark: Entries: 1000000
+# ring_buffer-benchmark: Overruns: 0
+
+# Per-CPU vs. global buffer comparison
+modprobe ring_buffer_benchmark producer=8 consumer=1 iterations=1000000
+```
+
+### Write Latency Characteristics
+
+| Event Size | Typical Write Latency | Throughput |
+|------------|---------------------|------------|
+| 8 bytes | ~50 ns | ~20M events/sec/CPU |
+| 64 bytes | ~80 ns | ~12M events/sec/CPU |
+| 256 bytes | ~120 ns | ~8M events/sec/CPU |
+| 4096 bytes | ~300 ns | ~3M events/sec/CPU |
+
+These numbers vary by CPU architecture and memory subsystem.
+
+## Ring Buffer in Modern Kernel Versions
+
+### Linux 5.x+ Changes
+
+- **BPF ring buffer** (5.8): New shared ring buffer optimized for BPF programs
+- **Improved splice** (5.10): Better zero-copy performance
+- **Ring buffer events** (5.14): New event format for better BPF integration
+
+### Linux 6.x+ Changes
+
+- **Per-CPU BPF ring buffer** (6.0): Per-CPU variant of BPF ring buffer
+- **Improved overwrite mode** (6.2): Better handling of overwrites
+- **Ring buffer statistics** (6.5): Enhanced monitoring capabilities
+
+## Comparison with User-Space Ring Buffers
+
+| Implementation | Context | Lockless | Cache-Line Padded | Use Case |
+|----------------|---------|----------|-------------------|----------|
+| Kernel ring buffer | Kernel | Yes | Yes | ftrace, perf |
+| BPF ring buffer | Kernel | Yes | Yes | eBPF programs |
+| io_uring SQ/CQ | Kernel↔User | Yes | Yes | Async I/O |
+| SPDK ring buffer | User-space | Yes | Yes | NVMe I/O |
+| DPDK ring buffer | User-space | Yes | Yes | Packet I/O |
+| lockfree crate | User-space | Yes | Varies | Rust applications |
   lockless implementation
