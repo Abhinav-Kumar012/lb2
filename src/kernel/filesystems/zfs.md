@@ -524,6 +524,153 @@ $ sudo zpool import mypool
 7. **Use `sync=standard` (default)**: Don't use `sync=disabled` unless you accept data loss risk
 8. **Backup with send/receive**: Incremental sends are efficient and reliable
 
+## Transaction Groups (TXG)
+
+ZFS uses transaction groups to batch and order all writes. A TXG is a set of related changes that are committed atomically:
+
+```mermaid
+sequenceDiagram
+    participant App as Application
+    participant TXG as TXG Manager
+    participant DMU as DMU
+    participant SPA as SPA
+    participant Disk as Disk
+
+    App->>TXG: write(data)
+    TXG->>DMU: stage in TXG N
+    Note over TXG: TXG N open (accepting writes)
+    TXG->>TXG: TXG N quiescing
+    TXG->>SPA: issue all writes
+    SPA->>Disk: write blocks
+    Disk-->>SPA: ack
+    SPA-->>TXG: TXG N syncing
+    TXG->>TXG: TXG N synced, open N+1
+```
+
+TXGs cycle through three states:
+- **Open**: accepting new writes (up to ~5 seconds)
+- **Quiescing**: draining pending writes, no new writes accepted
+- **Syncing**: writing all dirty data to disk
+
+```bash
+# View TXG statistics
+$ cat /proc/spl/kstat/zfs/txgs
+# Shows: txg number, birth time, state, number of writes
+```
+
+### TXG and fsync()
+
+When an application calls `fsync()`, ZFS doesn't wait for the current TXG to sync. Instead, it writes to the ZIL (intent log) for immediate durability:
+
+```
+fsync() → write to ZIL → ack to app → TXG syncs later
+```
+
+This decouples application latency from TXG commit intervals.
+
+## ZFS On-Disk Format
+
+ZFS uses a self-describing on-disk format with multiple copies of critical metadata:
+
+### Uberblock
+
+The uberblock is ZFS's equivalent of a superblock. It's stored in the first 256 KiB of each vdev:
+
+```c
+/* Simplified uberblock structure */	ypedef struct uberblock {
+    uint64_t ub_magic;        /* UBERBLOCK_MAGIC (0x00bab10c) */
+    uint64_t ub_version;      /* On-disk version */
+    uint64_t ub_txg;          /* Transaction group number */
+    uint64_t ub_guid_sum;     /* Sum of all vdev GUIDs */
+    uint64_t ub_timestamp;    /* Timestamp */
+    struct blkptr ub_rootbp;  /* Root block pointer (MOS) */
+} uberblock_t;
+```
+
+ZFS stores 128 uberblocks in a circular log on each vdev. On import, ZFS reads all uberblocks and selects the one with the highest TXG number:
+
+```bash
+# View uberblock info (requires zdb)
+$ sudo zdb -u mypool
+Uberblock[0]
+    magic = 0000000000bab10c
+    version = 5000
+    txg = 12345
+    timestamp = 1705123456
+    rootbp = DVA[0]=<0:400:200> ...
+```
+
+### Meta Object Set (MOS)
+
+The MOS is the root of ZFS's object hierarchy. It contains:
+- Object set descriptors for all datasets
+- Zpool properties
+- Device configuration
+- Snapshot list
+
+```
+Uberblock → MOS → Dataset → Object Set → Data Blocks
+```
+
+## ZFS on Linux Specifics
+
+### Module Loading
+
+ZFS on Linux is implemented as out-of-tree kernel modules (due to CDDL/GPL license incompatibility):
+
+```bash
+# Load ZFS modules
+$ sudo modprobe zfs
+
+# Check module version
+$ cat /sys/module/zfs/version
+2.3.0
+
+# Module parameters
+$ cat /sys/module/zfs/parameters/zfs_arc_max
+17179869184
+
+# Common module parameters in /etc/modprobe.d/zfs.conf
+# options zfs zfs_arc_max=8589934592
+# options zfs zfs_vdev_scheduler=mq-deadline
+```
+
+### Kernel Compatibility
+
+OpenZFS tracks kernel versions. Each release supports a range of kernels:
+
+| OpenZFS | Kernel Support | Notable Features |
+|---------|---------------|------------------|
+| 2.1.x   | 3.10 – 5.19   | Basic Linux support |
+| 2.2.x   | 4.18 – 6.7    | Block cloning, Direct IO |
+| 2.3.x   | 4.18 – 6.12   | RAIDZ expansion, Fast Dedup |
+
+```bash
+# Check supported kernels
+$ modinfo zfs | grep -i "supported.*kernel"
+# Or check OpenZFS release notes
+```
+
+### ZFS and cgroups
+
+ZFS has limited cgroup integration. The ARC cache is system-wide and not easily constrained per-container:
+
+```bash
+# ARC size is global — containers share it
+# This can be problematic in multi-tenant environments
+
+# Workaround: limit ARC size for the whole system
+$ echo 4294967296 > /sys/module/zfs/parameters/zfs_arc_max
+```
+
+## Cross-References
+
+- [superblock](./superblock.md) — VFS superblock abstraction; ZFS uses uberblocks instead
+- [bcachefs](./bcachefs.md) — Modern CoW filesystem with similar goals, in-tree Linux
+- [inode](./inode.md) — ZFS uses ZPL objects, not traditional POSIX inodes
+- [file-ops](./file-ops.md) — ZFS file operations via ZPL
+- [mounting](./mounting.md) — ZFS mounting via `zfs mount` vs VFS mount API
+
 ## Further Reading
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
