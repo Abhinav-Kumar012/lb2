@@ -489,6 +489,199 @@ getfattr -n ceph.dir.rbytes /some/dir    # Total nested bytes
 | `no` (default) | Never reconnect after blocklisting; operations fail |
 | `clean` | Auto-reconnect; drops dirty data/metadata, invalidates caches; stale file locks block read/write until released |
 
+## MDS Failover and High Availability
+
+### Standby Replay
+
+For faster failover, configure standby MDS nodes to replay the active MDS's
+journal in real-time:
+
+```bash
+# Enable standby replay
+cfs mds set cephfs standby_count_want 1
+
+# Check standby status
+ceph mds stat
+# cephfs:1 {0=mds0=up:active} 2 standbys
+```
+
+### Automatic Failover Process
+
+When the active MDS fails:
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant A as Active MDS
+    participant S as Standby MDS
+    participant R as RADOS
+
+    Note over A: MDS crashes
+    S->>R: Read journal from last checkpoint
+    S->>R: Replay journal entries
+    S->>S: Rebuild in-memory cache
+    S->>S: Become active
+    C->>S: Resume metadata operations
+    Note over C: Transparent failover
+```
+
+### MDS Rank Management
+
+For large deployments, multiple active MDS ranks serve different subtrees:
+
+```bash
+# Allow up to 4 active MDS ranks
+cfs set max_mds 4
+
+# Pin a subtree to a specific rank
+setfattr -n ceph.dir.pin -v 2 /mnt/cephfs/data
+
+# Check rank assignment
+ceph tell mds.0 dump tree /
+```
+
+## CephFS Performance Benchmarks
+
+### Sequential I/O
+
+```bash
+# fio benchmark on CephFS kernel client
+fio --name=seq-read --rw=read --bs=1M --size=10G \
+    --numjobs=4 --runtime=60 --group_reporting \
+    --filename=/mnt/cephfs/testfile
+# Typical: 2-4 GB/s sequential read (10GbE network)
+
+fio --name=seq-write --rw=write --bs=1M --size=10G \
+    --numjobs=4 --runtime=60 --group_reporting \
+    --filename=/mnt/cephfs/testfile
+# Typical: 1-2 GB/s sequential write (3x replication)
+```
+
+### Metadata Performance
+
+```bash
+# Small file creation rate
+mkdir /mnt/cephfs/bench && cd /mnt/cephfs/bench
+for i in $(seq 1 100000); do touch file_$i; done
+# Typical: 5,000-20,000 files/sec per MDS
+
+# Directory listing
+ls /mnt/cephfs/bench | wc -l
+# First listing may be slow (cache cold), subsequent fast
+```
+
+### Comparing ceph-fuse vs Kernel Client
+
+| Workload | ceph-fuse | Kernel Client | Notes |
+|----------|-----------|---------------|-------|
+| Sequential read (1M) | ~1.5 GB/s | ~3 GB/s | Kernel has direct OSD access |
+| Sequential write (1M) | ~800 MB/s | ~1.5 GB/s | Replication overhead |
+| Small file create | ~8K/s | ~15K/s | MDS latency dominates |
+| Metadata (stat) | ~20K/s | ~50K/s | Kernel caches aggressively |
+| Random read (4K) | ~50K IOPS | ~100K IOPS | Page cache advantage |
+
+## Security and Authentication
+
+### CephX Authentication
+
+```bash
+# Create a CephFS user with specific permissions
+ceph auth get-or-create client.myuser \
+    mon 'allow r' \
+    osd 'allow rw pool=cephfs_data' \
+    mds 'allow rw' \
+    -o /etc/ceph/ceph.client.myuser.keyring
+
+# Mount with specific user
+mount -t ceph 192.168.1.10:6789:/ /mnt/cephfs \
+    -o name=myuser,secretfile=/etc/ceph/ceph.client.myuser.keyring
+
+# View user capabilities
+ceph auth get client.myuser
+```
+
+### Filesystem Capabilities (Caps)
+
+CephFS uses a capability-based system for client-MDS coordination:
+
+| Capability | Meaning |
+|------------|---------|
+| `CephFS_CAP_PIN` | Inode pinned in MDS cache |
+| `CephFS_CAP_AUTH` | Can change owner/permissions |
+| `CephFS_CAP_LINK` | Can create hard links |
+| `CephFS_CAP_XATTR` | Can modify extended attributes |
+| `CephFS_CAP_FILE_READ` | Can read file data |
+| `CephFS_CAP_FILE_WRITE` | Can write file data |
+| `CephFS_CAP_FILE_CACHE` | Can cache file data locally |
+
+## Troubleshooting
+
+### Common Issues
+
+```bash
+# 1. MDS not joining cluster
+ceph mds stat
+# Check MDS logs
+journalctl -u ceph-mds@mds0 -f
+
+# 2. Client mount timeout
+# Increase mount_timeout
+cfs-fuse -o mount_timeout=120 ...
+
+# 3. Slow metadata operations
+ceph tell mds.0 dump cache 100
+# Check cache size vs configured limit
+ceph tell mds.0 perf dump | grep md_cache
+
+# 4. Client eviction (blacklisting)
+# Check for blacklisted clients
+ceph osd blacklist ls
+# Remove blacklist entry
+ceph osd blacklist rm <ip:port>
+
+# 5. Filesystem damage
+ceph mds repaired cephfs:0
+# Or for specific ranks
+ceph tell mds.0 damage ls
+```
+
+### Health Monitoring Script
+
+```bash
+#!/bin/bash
+# cephfs-health.sh — Monitor CephFS health
+
+HEALTH=$(ceph fs status cephfs --format json 2>/dev/null)
+MDS_STATE=$(echo "$HEALTH" | jq -r '.mdsmap.info[0].state')
+CLIENT_COUNT=$(echo "$HEALTH" | jq '.clients | length')
+
+if [[ "$MDS_STATE" != "up:active" ]]; then
+    echo "WARNING: MDS state is $MDS_STATE"
+fi
+
+# Check for slow requests
+SLOW=$(ceph daemon mds.0 dump_historic_ops 2>/dev/null | \
+       jq '[.ops[] | select(.duration > 5.0)] | length')
+if [[ "$SLOW" -gt 0 ]]; then
+    echo "WARNING: $SLOW slow requests (>5s)"
+fi
+
+# Check OSD health
+ceph health detail | grep -i "osd"
+```
+
+## CephFS vs Other Distributed Filesystems
+
+| Feature | CephFS | GlusterFS | Lustre | BeeGFS |
+|---------|--------|-----------|--------|--------|
+| Architecture | MDS + RADOS | Translators | MDS + OSS | MDS + Storage |
+| POSIX compliance | Full | Full | Full | Full |
+| Scalability | Petabyte+ | Petabyte+ | Exabyte | Petabyte |
+| Self-healing | Yes (CRUSH) | Yes (replication) | Manual | Manual |
+| Snapshot support | Yes | Yes | No (ZFS needed) | No |
+| Inline compression | Yes (BlueStore) | No | No | No |
+| Best for | Cloud, research | NAS replacement | HPC, supercomputing | HPC, small-medium |
+
 ## Further Reading
 
 - [CephFS Documentation](https://docs.ceph.com/en/latest/cephfs/) — Official Ceph docs
@@ -499,3 +692,5 @@ getfattr -n ceph.dir.rbytes /some/dir    # Total nested bytes
 - [CRUSH Algorithm Paper](https://ceph.io/assets/pdfs/weil-crush-sc06.pdf) — Original CRUSH paper
 - [docs.kernel.org: libceph](https://docs.kernel.org/rst/networking/device_drivers/ethernet/mellanox/mlx5/index.html) — Kernel Ceph client internals
 - [Kernel documentation: Ceph Distributed File System](https://docs.kernel.org/filesystems/ceph.html) — Official kernel docs with mount options and architecture
+- [CephFS Troubleshooting](https://docs.ceph.com/en/latest/cephfs/troubleshooting/) — Official troubleshooting guide
+- [CephX Authentication](https://docs.ceph.com/en/latest/rados/operations/auth-intro/) — Authentication docs

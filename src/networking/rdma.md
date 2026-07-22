@@ -611,7 +611,230 @@ ethtool -S enp1s0f0 | grep -i drop
 ethtool -S enp1s0f0 | grep -i pause
 ```
 
+## Security Considerations
+
+### RDMA Security Model
+
+RDMA introduces unique security concerns because the NIC directly accesses memory:
+
+1. **Memory Protection**: Memory regions are protected by lkey/rkey tokens. Without the remote key, an attacker cannot read or write memory.
+2. **IOMMU**: Modern systems use the IOMMU (Intel VT-d / AMD-Vi) to restrict which physical memory addresses the NIC can access.
+3. **Partition Keys (P_Key)**: In InfiniBand, P_Keys isolate traffic between different groups on the same fabric.
+4. **RoCE Security**: Since RoCE runs over Ethernet/IP, it inherits network security concerns. Use VLANs and ACLs to restrict access.
+
+```bash
+# Enable IOMMU for RDMA protection
+# Add to kernel boot parameters:
+# intel_iommu=on iommu=pt
+
+# Check IOMMU groups
+ls /sys/kernel/iommu_groups/
+
+# Verify IOMMU is active
+dmesg | grep -i iommu
+```
+
+### P_Key Configuration (InfiniBand)
+
+```bash
+# List P_Keys for a port
+ibstat -P 1
+
+# Set P_Key index for a QP application
+# Applications configure P_Key via ibv_modify_qp() or rdma_cm options
+```
+
+## RDMA in Container Environments
+
+### RDMA Device Access in Containers
+
+```bash
+# Enable RDMA device passthrough with --device
+sudo docker run --device /dev/infiniband/uverbs0 \
+    --device /dev/infiniband/ucm0 \
+    --device /dev/infiniband/umad0 \
+    -v /sys/class/infiniband:/sys/class/infiniband \
+    rdma-app:latest
+
+# Using Kubernetes with RDMA device plugin
+# Install the Mellanox RDMA device plugin
+kubectl apply -f https://raw.githubusercontent.com/Mellanox/k8s-rdma-shared-dev-plugin/master/k8s-rdma-shared-dev-plugin-config.yaml
+
+# Pod spec with RDMA resources:
+# resources:
+#   limits:
+#     rdma/hca: 1
+```
+
+### RDMA in Virtual Machines
+
+```bash
+# SR-IOV for RDMA in VMs
+# Enable SR-IOV on the physical NIC
+sudo mlxconfig -d mlx5_0 set SRIOV_EN=1 NUM_OF_VFS=16
+
+# Create VFs
+echo 8 | sudo tee /sys/class/infiniband/mlx5_0/device/sriov_numvfs
+
+# Assign VF to VM (libvirt)
+# <hostdev mode='subsystem' type='pci'>
+#   <source>
+#     <address domain='0x0000' bus='0x03' slot='0x00' function='0x1'/>
+#   </source>
+# </hostdev>
+```
+
+## Advanced Topics
+
+### Reliable Connected (RC) vs Unreliable Datagram (UD)
+
+| Feature | Reliable Connected (RC) | Unreliable Datagram (UD) | Extended Reliable Connected (XRC) |
+|---------|:----------------------:|:-----------------------:|:--------------------------------:|
+| Delivery guarantee | Yes | No | Yes |
+| Connection model | Point-to-point | Multicast-capable | Shared receive queues |
+| Scalability | O(n²) connections | O(n) | O(n) |
+| RDMA operations | All supported | SEND only | All supported |
+| Use case | Storage, HPC | Management, multicast | Large-scale HPC |
+
+### Shared Receive Queues (SRQ)
+
+SRQs allow multiple QPs to share a single receive buffer pool, reducing memory consumption:
+
+```c
+/* Create a shared receive queue */
+struct ibv_srq_init_attr srq_attr = {
+    .attr.max_wr = 1024,
+    .attr.max_sge = 1,
+};
+struct ibv_srq *srq = ibv_create_srq(pd, &srq_attr);
+
+/* Post receives to SRQ */
+struct ibv_recv_wr wr = {
+    .wr_id = 0x1234,
+    .sg_list = &sge,
+    .num_sge = 1,
+};
+ibv_post_srq_recv(srq, &wr, &bad_wr);
+```
+
+### Extended Connection (XRC) Transport
+
+XRC reduces the number of QPs needed in large clusters by sharing receive-side resources. In a cluster of N nodes, RC requires N×(N-1) QPs, while XRC requires only N QPs per node.
+
+```bash
+# XRC requires kernel support
+# Check: ibv_devinfo | grep -i xrc
+```
+
+### Dynamically Connected Transport (DCT)
+
+Available in ConnectX-5 and later, DCT further reduces connection state:
+
+```c
+/* Create DCT target */
+struct ibv_qp_init_attr_ex attr_ex = {
+    .qp_type = IBV_QPT_DRIVER,
+    /* DCT-specific attributes */
+};
+```
+
+## RDMA Application Programming
+
+### Minimal RDMA SEND/RECEIVE Example
+
+```c
+/* Minimal RDMA ping-pong using libibverbs */
+#include <infiniband/verbs.h>
+
+/* Create protection domain */
+struct ibv_pd *pd = ibv_alloc_pd(ctx);
+
+/* Register memory */
+char *buf = malloc(4096);
+struct ibv_mr *mr = ibv_reg_mr(pd, buf, 4096,
+    IBV_ACCESS_LOCAL_WRITE |
+    IBV_ACCESS_REMOTE_READ |
+    IBV_ACCESS_REMOTE_WRITE);
+
+/* Create completion queue */
+struct ibv_cq *cq = ibv_create_cq(ctx, 16, NULL, NULL, 0);
+
+/* Create queue pair */
+struct ibv_qp_init_attr qp_attr = {
+    .send_cq = cq,
+    .recv_cq = cq,
+    .cap = {
+        .max_send_wr = 16,
+        .max_recv_wr = 16,
+        .max_send_sge = 1,
+        .max_recv_sge = 1,
+    },
+    .qp_type = IBV_QPT_RC,
+};
+struct ibv_qp *qp = ibv_create_qp(pd, &qp_attr);
+
+/* Transition QP: RESET -> INIT -> RTR -> RTS */
+struct ibv_qp_attr attr = {};
+attr.qp_state = IBV_QPS_INIT;
+attr.pkey_index = 0;
+attr.port_num = 1;
+attr.qp_access_flags = IBV_ACCESS_LOCAL_WRITE |
+                        IBV_ACCESS_REMOTE_READ |
+                        IBV_ACCESS_REMOTE_WRITE;
+ibv_modify_qp(qp, &attr,
+    IBV_QP_STATE | IBV_QP_PKEY_INDEX | IBV_QP_PORT | IBV_QP_ACCESS_FLAGS);
+```
+
+### Error Handling
+
+```bash
+# Check work completion status
+# ibv_wc_status values:
+#   IBV_WC_SUCCESS - Operation completed successfully
+#   IBV_WC_LOC_LEN_ERR - Local length error
+#   IBV_WC_LOC_QP_OP_ERR - Local QP operation error
+#   IBV_WC_LOC_PROT_ERR - Local protection error
+#   IBV_WC_WR_FLUSH_ERR - Work request flush error
+#   IBV_WC_RETRY_EXC_ERR - Retry count exceeded
+#   IBV_WC_RNR_RETRY_EXC_ERR - RNR retry exceeded
+
+# Common causes:
+# - LOC_LEN_ERR: Send buffer size mismatch
+# - REM_ACCESS_ERR: Wrong rkey or insufficient remote permissions
+# - RETRY_EXC_ERR: Remote side not responding (connection lost)
+# - RNR_RETRY_EXC_ERR: Remote receive queue empty
+```
+
+## Ecosystem and Related Projects
+
+| Project | Description |
+|---------|-------------|
+| **rdma-core** | Userspace RDMA library suite (libibverbs, librdmacm) |
+| **MLNX_OFED** | NVIDIA Mellanox OFED distribution with latest features |
+| **perftest** | RDMA benchmarking suite (ib_write_bw, ib_read_lat, etc.) |
+| **SPDK** | Storage Performance Development Kit — uses RDMA for NVMe-oF target |
+| **MPI** | Message Passing Interface (OpenMPI, MVAPICH) over RDMA for HPC |
+| **UCX** | Unified Communication X — transport framework for HPC and AI |
+| **gRPC-RDMA** | gRPC transport over RDMA (experimental) |
+| **NVMe-oF** | NVMe over Fabrics using RDMA transport |
+| **NFS/RDMA** | NFS over RDMA for high-performance file serving |
+| **SMB Direct** | SMB/CIFS over RDMA (Windows and ksmbd) |
+
 ## References
+
+- Linux kernel RDMA subsystem: `drivers/infiniband/`
+- `rdma-core` project: <https://github.com/linux-rdma/rdma-core>
+- `libibverbs` API documentation: `man ibv_reg_mr`, `man ibv_create_qp`
+- `rdma_cm` API: `man rdma_connect`, `man rdma_resolve_addr`
+- OFED documentation: <https://www.openfabrics.org/>
+- NVIDIA MLNX_OFED: <https://network.nvidia.com/products/infiniband-drivers/linux/mlnx_ofed/>
+- perftest suite: <https://github.com/linux-rdma/perftest>
+- InfiniBand Trade Association: <https://www.infinibandta.org/>
+- Red Hat RDMA Guide: <https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html/configuring_infiniband_and_rdma_networks>
+- "InfiniBand Network Architecture" by Intel Press
+- DigitalOcean RDMA Explained: <https://www.digitalocean.com/community/conceptual-articles/rdma-high-performance-networking>
+- VMware RDMA Basics: <https://www.vmware.com/docs/the-basics-of-remote-direct-memory-access-rdma-in-vsphere>
+- UCX Framework: <https://openucx.org/>
 
 - Linux kernel RDMA subsystem: `drivers/infiniband/`
 - `rdma-core` project: <https://github.com/linux-rdma/rdma-core>

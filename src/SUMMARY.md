@@ -316,6 +316,7 @@
 
 # Networking
 
+- [Cifs Smb](./networking/cifs-smb.md)
 - [Dhcp](./networking/dhcp.md)
 - [Dns](./networking/dns.md)
 - [Fundamentals](./networking/fundamentals.md)
@@ -325,6 +326,7 @@
 - [Osi Model](./networking/osi-model.md)
 - [Packet Capture](./networking/packet-capture.md)
 - [Routing Protocols](./networking/routing-protocols.md)
+- [Rdma](./networking/rdma.md)
 - [Ssh](./networking/ssh.md)
 - [Tcpip Suite](./networking/tcpip-suite.md)
 - [Tls](./networking/tls.md)
