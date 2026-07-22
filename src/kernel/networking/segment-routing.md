@@ -238,6 +238,36 @@ uSID SID:              fcbb:bb00:1:2::  (128 bits = 2+ instructions)
 
 This reduces header overhead significantly.
 
+### uSID Encoding Format
+
+```
+uSID Container (128 bits):
++-------------------+-------------------+-------------------+-------------------+
+|   Block (16 bits) |  uSID 1 (16 bits) |  uSID 2 (16 bits) | ... | padding     |
++-------------------+-------------------+-------------------+-------------------+
+
+Example: fcbb:bb00:0001:0002:0003:0004:0000:0000
+  Block:  fcbb
+  uSID1:  bb00 → Node B, End function
+  uSID2:  0001 → Node 1, End function
+  uSID3:  0002 → Node 2, End function
+  uSID4:  0003 → Node 3, End function
+```
+
+**Advantage**: 4 SRv6 instructions in a single 128-bit address, vs 4 × 128 = 512 bits for traditional SRv6.
+
+```bash
+# uSID configuration (FRR example)
+segment-routing
+ srv6
+  locators
+   locator MAIN
+    prefix fcbb:bb00::/32
+   exit
+  exit
+ exit
+```
+
 ### SRv6 for VPN Services
 
 ```mermaid
@@ -551,6 +581,67 @@ struct seg6_action_desc {
     int attrs;
     int (*static_headroom)(struct seg6_action_desc *desc);
 };
+```
+
+## SRv6 with FRR (Full Router Configuration)
+
+FRRouting (FRR) provides production-grade SRv6 support for Linux routers:
+
+```bash
+# /etc/frr/frr.conf — Full SRv6 router configuration
+frr defaults traditional
+hostname spine1
+log file /var/log/frr/frr.log
+
+# Enable SRv6
+segment-routing
+ srv6
+  locators
+   locator MAIN
+    prefix 2001:db8:spine1::/48
+    behavior usid          # Enable uSID mode
+   exit
+  exit
+ exit
+
+# BGP with SRv6 VPN
+router bgp 65000
+ bgp router-id 10.0.0.1
+ neighbor 2001:db8:rr:: remote-as 65000
+ neighbor 2001:db8:rr:: update-source lo
+ !
+ address-family ipv6 vpn
+  neighbor 2001:db8:rr:: activate
+  neighbor 2001:db8:rr:: send-community extended
+ exit-address-family
+ !
+ segment-routing
+  srv6
+   locators
+    locator MAIN
+   exit
+  exit
+ exit
+
+# Show SRv6 status
+# show segment-routing srv6 locator
+# show segment-routing srv6 sid
+```
+
+### SRv6 with iproute2 + FRR Integration
+
+```bash
+# Kernel: configure SRv6 SIDs via iproute2
+sudo ip -6 sr add 2001:db8:spine1::1/128 action End
+sudo ip -6 sr add 2001:db8:spine1::2/128 action End.X nh6 2001:db8:1::2
+
+# FRR: configure SRv6 locator (auto-installs kernel SIDs)
+vtysh -c "configure terminal"
+vtysh -c "segment-routing"
+vtysh -c " srv6"
+vtysh -c "  locators"
+vtysh -c "   locator MAIN"
+vtysh -c "    prefix 2001:db8:spine1::/48"
 ```
 
 ## SRv6 vs SR-MPLS Comparison
