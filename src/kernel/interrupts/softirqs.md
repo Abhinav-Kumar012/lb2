@@ -49,6 +49,29 @@ DEFINE_PER_CPU(struct task_struct *, ksoftirqd);    /* ksoftirqd thread */
 DEFINE_PER_CPU(__u32, __softirq_pending);           /* Pending bitmask */
 ```
 
+### Per-CPU Pending Bitmask
+
+The pending bitmask is the core scheduling mechanism:
+
+```c
+/* Setting a bit (raising a softirq) */
+static inline void __raise_softirq_irqoff(unsigned int nr)
+{
+    trace_softirq_raise(nr);
+    or_softirq_pending(1UL << nr);
+}
+
+/* Reading pending bits */
+#define local_softirq_pending() \
+    __this_cpu_read(__softirq_pending)
+
+/* Clearing all pending bits */
+#define set_softirq_pending(x) \
+    __this_cpu_write(__softirq_pending, (x))
+```
+
+The bitmask is **per-CPU** — there's no global pending state. A softirq raised on CPU 0 runs on CPU 0.
+
 ## Softirq Processing
 
 ### When Softirqs Are Checked
@@ -59,6 +82,34 @@ Softirqs are processed at the following points in the kernel:
 2. **After waking `ksoftirqd`** — the per-CPU kernel thread
 3. **In `local_bh_enable()`** — when bottom-half processing is re-enabled
 4. **In the idle loop** — `do_idle()` processes pending softirqs before sleeping
+5. **After waking from `schedule()`** — if there are pending softirqs
+
+### irq_exit() — The Primary Entry Point
+
+```c
+/* kernel/softirq.c */
+void irq_exit(void)
+{
+    /* ... architecture-specific stuff ... */
+
+    if (!in_interrupt() && local_softirq_pending())
+        invoke_softirq();  /* Process pending softirqs */
+}
+
+static inline void invoke_softirq(void)
+{
+    if (ksoftirqd_running(local_softirq_pending()))
+        return;  /* ksoftirqd will handle it */
+
+    if (on_thread_stack()) {
+        /* Called from interrupt handler on kernel stack */
+        __do_softirq();
+    } else {
+        /* Called from ksoftirqd or other context */
+        do_softirq();
+    }
+}
+```
 
 ### The __do_softirq Function
 
@@ -139,6 +190,20 @@ To prevent softirq processing from starving the system, `__do_softirq()` enforce
 - **Iteration limit**: 10 restarts (`MAX_SOFTIRQ_RESTART = 10`)
 - If either limit is exceeded, remaining work is deferred to `ksoftirqd`
 
+**Why these limits matter:**
+
+```bash
+# If softirqs run too long, user-space processes starve
+# ksoftirqd (nice 19) takes over but at low priority
+
+# View softirq processing time
+$ sudo perf record -e softirq:softirq_entry -e softirq:softirq_exit -a -- sleep 1
+$ sudo perf script | head -20
+# <idle>-0  [000]  1234.567890: softirq_entry: vec=3 [action=NET_RX]
+# <idle>-0  [000]  1234.567912: softirq_exit:  vec=3 [action=NET_RX]
+# 22 microseconds — well within budget
+```
+
 ## The Built-in Softirqs
 
 ### HI_SOFTIRQ (Priority: Highest)
@@ -158,6 +223,17 @@ static void run_timer_softirq(struct softirq_action *h)
 }
 ```
 
+**Timer wheel structure:**
+
+```mermaid
+graph TD
+    TW[Timer Wheel] --> L0[Level 0: 0-255 jiffies<br/>256 slots, 1 jiffy each]
+    TW --> L1[Level 1: 256-65535 jiffies<br/>64 slots, 256 jiffies each]
+    TW --> L2[Level 2: 65536-16M jiffies<br/>64 slots, 65536 jiffies each]
+    TW --> L3[Level 3: 16M-4G jiffies<br/>64 slots, 16M jiffies each]
+    TW --> L4[Level 4: >4G jiffies<br/>64 slots, 4G jiffies each]
+```
+
 ### NET_TX_SOFTIRQ
 
 Deferred network packet transmission. When a network driver's hardirq handler detects that a TX queue has space, it raises `NET_TX_SOFTIRQ` to complete pending transmissions:
@@ -171,6 +247,16 @@ static __latent_entropy void net_tx_action(struct softirq_action *h)
 {
     /* Complete TX completions, free sk_buffs */
     /* Process completion queues */
+    
+    struct softnet_data *sd = this_cpu_ptr(&softnet_data);
+    
+    /* Process completion queue */
+    if (sd->completion_queue) {
+        struct sk_buff *skb;
+        while ((skb = __skb_dequeue(&sd->completion_queue))) {
+            dev_consume_skb_any(skb);
+        }
+    }
 }
 ```
 
@@ -181,16 +267,38 @@ The most performance-critical softirq. Handles incoming network packet processin
 ```c
 static __latent_entropy void net_rx_action(struct softirq_action *h)
 {
-    /* Poll all NAPI instances that have pending work */
-    list_for_each_entry_safe(n, ntmp, &sd->poll_list, poll_list) {
-        work += n->poll(n, weight);
-        if (work >= budget || time_after_eq(jiffies, time_limit))
-            break;
-    }
+    struct softnet_data *sd = this_cpu_ptr(&softnet_data);
+    unsigned long time_limit = jiffies + 2;  /* 2 jiffies budget */
+    int budget = netdev_budget;              /* Default: 300 */
+    struct napi_struct *n, *tmp;
 
-    /* If more work remains, raise softirq again */
-    if (!list_empty(&sd->poll_list))
-        raise_softirq(NET_RX_SOFTIRQ);
+    list_for_each_entry_safe(n, tmp, &sd->poll_list, poll_list) {
+        int work, weight;
+
+        weight = n->weight;
+        work = 0;
+
+        if (test_bit(NAPI_STATE_SCHED, &n->state)) {
+            work = n->poll(n, weight);
+            trace_napi_poll(n, work, budget);
+        }
+
+        budget -= work;
+
+        if (work >= weight) {
+            /* Budget exhausted for this NAPI, but more work remains */
+            if (napi_disable_pending(n))
+                napi_complete(n);
+            else
+                list_move_tail(&n->poll_list, &sd->poll_list);
+        }
+
+        if (budget <= 0 || time_after_eq(jiffies, time_limit)) {
+            sd->time_squeeze++;
+            raise_softirq(NET_RX_SOFTIRQ);  /* More work later */
+            break;
+        }
+    }
 }
 ```
 
@@ -218,6 +326,64 @@ sequenceDiagram
     NAPI->>NIC: Re-enable RX interrupts
 ```
 
+### NAPI in Detail
+
+```c
+/* NAPI structure */
+struct napi_struct {
+    struct list_head poll_list;  /* List of NAPI instances with work */
+    unsigned long state;         /* NAPI_STATE_SCHED, etc. */
+    int weight;                  /* Budget per poll cycle (default 64) */
+    int poll_count;              /* Number of polls this cycle */
+    struct net_device *dev;      /* Network device */
+    int (*poll)(struct napi_struct *, int);  /* Poll callback */
+    /* ... */
+};
+
+/* Driver's NAPI poll function */
+static int my_napi_poll(struct napi_struct *napi, int budget)
+{
+    struct my_device *dev = napi_to_mydev(napi);
+    int work_done = 0;
+
+    while (work_done < budget) {
+        struct sk_buff *skb = my_rx_dequeue(dev);
+        if (!skb)
+            break;
+        napi_gro_receive(napi, skb);  /* GRO: aggregate packets */
+        work_done++;
+    }
+
+    if (work_done < budget) {
+        napi_complete(napi);  /* Done, re-enable interrupts */
+        my_enable_rx_irq(dev);
+    }
+
+    return work_done;
+}
+```
+
+**NAPI budget system:**
+
+| Parameter | Default | Tunable | Description |
+|-----------|---------|---------|-------------|
+| `weight` | 64 | Per-NAPI | Max packets per poll call |
+| `netdev_budget` | 300 | `/proc/sys/net/core/netdev_budget` | Max total packets per NET_RX cycle |
+| `netdev_budget_usecs` | 2000 | `/proc/sys/net/core/netdev_budget_usecs` | Max time per NET_RX cycle (μs) |
+| `dev_weight` | 64 | `/proc/sys/net/core/dev_weight` | Default weight for new NAPI instances |
+
+### NAPI Busy Polling
+
+For ultra-low latency, NAPI supports **busy polling** — the application polls for packets without waiting for interrupts:
+
+```bash
+# Enable busy polling globally
+$ echo 50 > /proc/sys/net/core/busy_read  # Poll for 50μs before sleeping
+
+# Per-socket via setsockopt()
+# setsockopt(fd, SOL_SOCKET, SO_BUSY_POLL, &timeout, sizeof(timeout));
+```
+
 ### BLOCK_SOFTIRQ
 
 Handles block device I/O completion. When a disk I/O request completes (interrupt from the disk controller), the hardirq handler raises `BLOCK_SOFTIRQ` to process the completion:
@@ -233,6 +399,22 @@ static void blk_done_softirq(struct softirq_action *h)
 ```
 
 On modern kernels with blk-mq, I/O completions are often processed via IPIs to the CPU that submitted the request, rather than via softirqs.
+
+### blk-mq Completion Flow
+
+```mermaid
+sequenceDiagram
+    participant Disk as NVMe Disk
+    participant IRQ as Hard IRQ
+    participant IPI as IPI to Submitting CPU
+    participant Complete as Completion on Submitting CPU
+
+    Disk->>IRQ: Completion interrupt
+    IRQ->>IPI: Send IPI to CPU that submitted request
+    IPI->>Complete: Raise softirq / direct complete
+    Complete->>Complete: req->q->mq_ops->complete(req)
+    Complete->>Complete: Wake waiters
+```
 
 ### TASKLET_SOFTIRQ
 
@@ -250,6 +432,20 @@ static void run_rebalance_domains(struct softirq_action *h)
 }
 ```
 
+**Scheduler domains** define the hierarchy of CPU groupings for load balancing:
+
+```bash
+# View scheduler domains
+$ ls /sys/kernel/debug/sched/domains/
+cpu0/  cpu1/  cpu2/  cpu3/  cpu4/  cpu5/  cpu6/  cpu7/
+
+$ cat /sys/kernel/debug/sched/domains/cpu0/domain0/name
+MC    # Multi-Core (same physical package)
+
+$ cat /sys/kernel/debug/sched/domains/cpu0/domain1/name
+NUMA  # NUMA node
+```
+
 ### RCU_SOFTIRQ
 
 Processes RCU (Read-Copy-Update) callbacks. When a grace period expires, all deferred RCU callbacks are invoked in this softirq:
@@ -260,6 +456,11 @@ static void rcu_core_si(struct softirq_action *h)
     rcu_core();
 }
 ```
+
+RCU uses softirqs for callback processing because:
+- Callbacks must run in atomic context
+- Callbacks can be numerous (thousands of grace period completions)
+- Processing must not starve user-space
 
 See [RCU](../sync/rcu.md) for details.
 
@@ -297,9 +498,44 @@ static int ksoftirqd(void *data)
 }
 ```
 
+### ksoftirqd Behavior
+
+```mermaid
+stateDiagram-v2
+    [*] --> Sleeping: No pending softirqs
+    Sleeping --> Running: wakeup_softirqd()
+    Running --> Processing: __do_softirq()
+    Processing --> Sleeping: No more pending
+    Processing --> Processing: More softirqs raised
+    Processing --> Sleeping: Budget exhausted
+```
+
 **Problem: Softirq starvation**
 
 If `NET_RX_SOFTIRQ` keeps firing (high packet rate), `ksoftirqd` may not get a chance to run, starving other softirqs and user-space. The kernel addresses this with the time budget and by ensuring softirqs are processed in priority order.
+
+### Detecting Softirq Overload
+
+```bash
+# Check ksoftirqd CPU usage
+$ top -bn1 | grep ksoftirqd
+   12 root      20   0       0      0   0 S  0.0  0.0   0:00.00 ksoftirqd/0
+
+# High CPU usage indicates softirq overload
+# Use perf to identify which softirq is consuming time
+$ sudo perf record -e softirq:softirq_entry -a -- sleep 5
+$ sudo perf report --sort=comm,event
+
+# Use bpftrace for real-time analysis
+$ sudo bpftrace -e '
+tracepoint:softirq:softirq_entry {
+    @start[args->vec] = nsecs;
+}
+tracepoint:softirq:softirq_exit /@start[args->vec]/ {
+    @usecs[args->vec] = hist((nsecs - @start[args->vec]) / 1000);
+    delete(@start[args->vec]);
+}'
+```
 
 ## Raising Softirqs
 
@@ -336,6 +572,15 @@ static inline void __raise_softirq_irqoff(unsigned int nr)
 }
 ```
 
+### Raising Softirqs from Different Contexts
+
+| Context | Function | Behavior |
+|---------|----------|----------|
+| Hardirq | `raise_softirq_irqoff()` | Sets pending bit, softirq runs on return from hardirq |
+| Softirq | `raise_softirq_irqoff()` | Sets pending bit, processed in current `__do_softirq` iteration |
+| Process | `raise_softirq()` | Sets pending bit, wakes `ksoftirqd` |
+| NMI | `raise_softirq_irqoff()` | Sets pending bit, processed when NMI returns to normal flow |
+
 ## Registering Softirq Handlers
 
 Softirq handlers are registered at boot time (or module init) using `open_softirq()`:
@@ -352,6 +597,48 @@ open_softirq(NET_RX_SOFTIRQ, net_rx_action);
 - The handler runs in softirq context (cannot sleep)
 - The handler is called with a pointer to its own `softirq_action` entry
 
+### Registration Order
+
+```c
+/* kernel/softirq.c — called from start_kernel() */
+void __init softirq_init(void)
+{
+    int cpu;
+
+    for_each_possible_cpu(cpu) {
+        per_cpu(tasklet_vec, cpu).tail =
+            &per_cpu(tasklet_vec, cpu).head;
+        per_cpu(hi_tasklet_vec, cpu).tail =
+            &per_cpu(hi_tasklet_vec, cpu).head;
+    }
+
+    open_softirq(HI_SOFTIRQ, tasklet_hi_action);
+    open_softirq(TASKLET_SOFTIRQ, tasklet_action);
+}
+
+/* net/core/dev.c — called from net_dev_init() */
+static int __init net_dev_init(void)
+{
+    /* ... */
+    open_softirq(NET_TX_SOFTIRQ, net_tx_action);
+    open_softirq(NET_RX_SOFTIRQ, net_rx_action);
+    /* ... */
+}
+
+/* kernel/time/timer.c */
+void __init init_timers(void)
+{
+    open_softirq(TIMER_SOFTIRQ, run_timer_softirq);
+}
+
+/* kernel/rcu/tree.c */
+static int __init rcu_spawn_gp_kthread(void)
+{
+    open_softirq(RCU_SOFTIRQ, rcu_core_si);
+    /* ... */
+}
+```
+
 ## Softirq Context Properties
 
 Softirq context is **not** the same as process context:
@@ -365,6 +652,8 @@ Softirq context is **not** the same as process context:
 | Can call `GFP_ATOMIC` alloc? | ✅ Yes | ✅ Yes |
 | Preemptible? | ❌ No (BH disabled) | ✅ Yes |
 | `in_softirq()` returns | true | false |
+| Can call `schedule()`? | ❌ No | ✅ Yes |
+| Can access user memory? | ❌ No (generally) | ✅ Yes |
 
 ## Monitoring Softirqs
 
@@ -387,6 +676,29 @@ $ cat /proc/softirqs
 
 High `NET_RX` counts on a single CPU indicate a potential bottleneck. Consider using multi-queue NICs with RSS and RPS to distribute load.
 
+### Analyzing /proc/softirqs
+
+```bash
+# Calculate softirq rate per second (1-second sample)
+$ cat /proc/softirqs > /tmp/s1; sleep 1; cat /proc/softirqs > /tmp/s2
+$ paste /tmp/s1 /tmp/s2 | awk '
+/^[A-Z]/ {
+    name = $1
+    for (i = 2; i <= NF; i++) {
+        cpu[i-2] += ($i - $(i+NF))
+    }
+}
+END {
+    for (i in cpu) printf "CPU%d: %d/sec\n", i, cpu[i]
+}'
+
+# Identify which softirq is consuming the most time
+$ sudo perf stat -e 'softirq:*' -a sleep 5
+# Performance counter stats for 'system wide':
+#     softirq:softirq_entry    1234567
+#     softirq:softirq_exit     1234567
+```
+
 ### /proc/stat
 
 ```bash
@@ -404,6 +716,30 @@ $ echo 1 > /sys/kernel/debug/tracing/events/softirq/enable
 $ cat /sys/kernel/debug/tracing/trace
           <idle>-0     [000] d.h1  1234.567890: softirq_entry: vec=3 [action=NET_RX]
           <idle>-0     [000] d.h1  1234.568012: softirq_exit:  vec=3 [action=NET_RX]
+```
+
+### Using trace-cmd for Softirq Analysis
+
+```bash
+# Record softirq events
+$ sudo trace-cmd record -e softirq -e irq/softirq_raise sleep 5
+
+# Analyze latency (time between raise and entry)
+$ trace-cmd report | grep -E "softirq_(raise|entry)" | head -20
+# <idle>-0  [000]  1234.567: softirq_raise: vec=3 [action=NET_RX]
+# <idle>-0  [000]  1234.568: softirq_entry: vec=3 [action=NET_RX]
+# 1 microsecond latency — excellent
+
+# Measure time spent in each softirq
+$ sudo bpftrace -e '
+tracepoint:softirq:softirq_entry { @start[args->vec] = nsecs; }
+tracepoint:softirq:softirq_exit /@start[args->vec]/ {
+    $dur = nsecs - @start[args->vec];
+    @time[args->vec] = sum($dur);
+    @count[args->vec] = count();
+    @avg_us[args->vec] = avg($dur / 1000);
+    delete(@start[args->vec]);
+}'
 ```
 
 ## Softirq vs Other Bottom Halves
@@ -430,6 +766,53 @@ graph TD
 | Concurrency | Multiple CPUs simultaneously | Serialized per tasklet | Concurrency-managed |
 | Use case | High-frequency I/O | Simple deferred work | Complex, sleeping work |
 | Latency | Very low | Low | Higher (scheduling) |
+| Preemption | No | No | Yes |
+
+## Softirq Performance Tuning
+
+### Tuning NET_RX Processing
+
+```bash
+# Increase NAPI budget for high-throughput networks
+$ echo 600 > /proc/sys/net/core/netdev_budget
+$ echo 4000 > /proc/sys/net/core/netdev_budget_usecs
+
+# Increase per-device weight
+$ echo 128 > /proc/sys/net/core/dev_weight
+
+# Enable busy polling for low latency
+$ echo 50 > /proc/sys/net/core/busy_read
+$ echo 50 > /proc/sys/net/core/busy_poll
+```
+
+### Softirq CPU Pinning
+
+```bash
+# Pin ksoftirqd to specific CPUs for isolation
+$ sudo taskset -p 0f $(pgrep ksoftirqd/0)  # Allow on CPUs 0-3
+
+# For real-time workloads, isolate CPUs from softirq processing
+# In kernel command line:
+# isolcpus=4-7 nohz_full=4-7
+
+# Then pin IRQs and softirqs to non-isolated CPUs
+```
+
+### Softirq Latency Profiling
+
+```bash
+# Measure the time between softirq raise and entry
+$ sudo bpftrace -e '
+tracepoint:irq:softirq_raise {
+    @raise_time[args->vec] = nsecs;
+}
+tracepoint:softirq:softirq_entry /@raise_time[args->vec]/ {
+    $latency = nsecs - @raise_time[args->vec];
+    @latency_us[args->vec] = hist($latency / 1000);
+    delete(@raise_time[args->vec]);
+}'
+# Output shows histogram of latency in microseconds per softirq type
+```
 
 ## Writing a New Softirq (Kernel Module)
 
