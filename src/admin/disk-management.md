@@ -421,6 +421,280 @@ smartctl -t long /dev/sda   # Long test (~hours)
 systemctl enable --now smartd
 ```
 
+## LVM — Logical Volume Manager
+
+LVM adds a flexible abstraction layer between physical disks and filesystems, enabling online resizing, snapshots, and spanning multiple disks:
+
+### LVM Architecture
+
+```mermaid
+graph TB
+    subgraph Physical
+        P1["/dev/sda1<br/>PV"]
+        P2["/dev/sdb1<br/>PV"]
+        P3["/dev/nvme0n1p1<br/>PV"]
+    end
+    subgraph Volume_Group["Volume Group: vg0"]
+        VG["Physical Extents<br/>4MB each"]
+    end
+    subgraph Logical_Volumes
+        LV1["lv_root<br/>50G / "]
+        LV2["lv_home<br/>200G /home"]
+        LV3["lv_swap<br/>8G"]
+        LV4["lv_data<br/>500G /data"]
+    end
+    P1 --> VG
+    P2 --> VG
+    P3 --> VG
+    VG --> LV1
+    VG --> LV2
+    VG --> LV3
+    VG --> LV4
+```
+
+### Creating LVM Volumes
+
+```bash
+# 1. Create physical volumes
+pvcreate /dev/sda1 /dev/sdb1 /dev/nvme0n1p1
+pvs
+#  PV             VG  Fmt  Attr PSize   PFree
+#  /dev/sda1      vg0 lvm2 a--  499.00g 499.00g
+#  /dev/sdb1      vg0 lvm2 a--   <2.00t  <2.00t
+#  /dev/nvme0n1p1 vg0 lvm2 a--  999.00g 999.00g
+
+# 2. Create volume group
+vgcreate vg0 /dev/sda1 /dev/sdb1 /dev/nvme0n1p1
+vgs
+#  VG  #PV #LV #SN Attr   VSize   VFree
+#  vg0   3   0   0 wz--n- <3.46t <3.46t
+
+# 3. Create logical volumes
+lvcreate -L 50G -n lv_root vg0
+lvcreate -L 200G -n lv_home vg0
+lvcreate -L 8G -n lv_swap vg0
+lvcreate -l 100%FREE -n lv_data vg0
+
+lvs
+#  LV      VG  Attr       LSize   Pool Origin Data%  Meta%
+#  lv_data vg0 -wi-a-----  <3.20t
+#  lv_home vg0 -wi-a----- 200.00g
+#  lv_root vg0 -wi-a-----  50.00g
+#  lv_swap vg0 -wi-a-----   8.00g
+
+# 4. Create filesystems
+mkfs.ext4 /dev/vg0/lv_root
+mkfs.ext4 /dev/vg0/lv_home
+mkswap /dev/vg0/lv_swap
+mkfs.xfs /dev/vg0/lv_data
+
+# 5. Mount
+mount /dev/vg0/lv_root /mnt/root
+mount /dev/vg0/lv_home /mnt/root/home
+swapon /dev/vg0/lv_swap
+mount /dev/vg0/lv_data /mnt/root/data
+```
+
+### LVM Snapshots
+
+```bash
+# Create a snapshot (COW-based, space-efficient)
+lvcreate -L 10G -s -n snap_root /dev/vg0/lv_root
+# Snapshots use space only for changed blocks
+
+# Mount snapshot (read-only view of filesystem at snapshot time)
+mount -o ro /dev/vg0/snap_root /mnt/snapshot
+
+# View snapshot usage
+lvs
+#  snap_root vg0 swi-aos---  10.00g      lv_root 2.34
+
+# Merge snapshot back (revert to snapshot state)
+# WARNING: merges into origin, destroying current data
+umount /mnt/root
+lvconvert --merge /dev/vg0/snap_root
+mount /dev/vg0/lv_root /mnt/root
+
+# Thin-provisioned snapshots (more flexible)
+lvcreate -L 100G --thinpool thin_pool vg0
+lvcreate -V 50G --thin -n thin_vol vg0/thin_pool
+lvcreate -s --name thin_snap /dev/vg0/thin_vol
+```
+
+### Online LVM Resize
+
+```bash
+# Extend logical volume (no downtime)
+lvextend -L +50G /dev/vg0/lv_data
+resize2fs /dev/vg0/lv_data     # ext4
+# Or: xfs_growfs /data           # XFS
+
+# Shrink ext4 (must unmount first!)
+umount /mnt/home
+e2fsck -f /dev/vg0/lv_home
+resize2fs /dev/vg0/lv_home 100G
+lvreduce -L 100G /dev/vg0/lv_home
+mount /dev/vg0/lv_home /mnt/home
+
+# Move data between physical volumes (online)
+pvmove /dev/sda1 /dev/nvme0n1p1
+```
+
+### LVM Cache (dm-cache)
+
+```bash
+# Use SSD as cache for HDD
+lvcreate -L 50G -n cache_data vg0 /dev/nvme0n1p1
+lvcreate -L 1G -n cache_meta vg0 /dev/nvme0n1p1
+
+# Convert to cached LV
+lvconvert --type cache --cachepool cache_data --cachevol cache_meta vg0/lv_data
+
+# Monitor cache hit rate
+dmsetup status vg0-lv_data
+lvs -o +cache_read_hits,cache_read_misses
+```
+
+## Disk Encryption with LUKS
+
+```bash
+# Create encrypted partition
+cryptsetup luksFormat /dev/sdb1
+# WARNING: Destroys all data. Enter passphrase.
+
+# Open (unlock) encrypted partition
+cryptsetup luksOpen /dev/sdb1 encrypted_data
+# Creates /dev/mapper/encrypted_data
+
+# Create filesystem on decrypted device
+mkfs.ext4 /dev/mapper/encrypted_data
+mount /dev/mapper/encrypted_data /mnt/secure
+
+# Close (lock) encrypted partition
+umount /mnt/secure
+cryptsetup luksClose encrypted_data
+
+# Add additional key slot
+cryptsetup luksAddKey /dev/sdb1
+
+# Auto-unlock with keyfile
+dd if=/dev/urandom of=/root/.luks-key bs=4096 count=1
+chmod 400 /root/.luks-key
+cryptsetup luksAddKey /dev/sdb1 /root/.luks-key
+
+# /etc/crypttab entry for auto-unlock:
+# encrypted_data  UUID=<uuid>  /root/.luks-key  luks
+
+# LUKS2 with Argon2id (modern, recommended)
+cryptsetup luksFormat --type luks2 --pbkdf argon2id /dev/sdb1
+
+# Benchmark PBKDF options
+cryptsetup benchmark
+# PBKDF2-sha1       N/A
+# PBKDF2-sha256     N/A
+# PBKDF2-sha512     N/A
+# Argon2i           N/A
+# Argon2id       N/A
+```
+
+## Swap Management
+
+```bash
+# Create swap file
+fallocate -l 4G /swapfile       # Or: dd if=/dev/zero of=/swapfile bs=1M count=4096
+chmod 600 /swapfile
+mkswap /swapfile
+swapon /swapfile
+
+# /etc/fstab entry:
+# /swapfile  none  swap  sw  0  0
+
+# Swap partition
+mkswap /dev/vg0/lv_swap
+swapon /dev/vg0/lv_swap
+
+# Monitor swap
+swapon --show
+# NAME       TYPE  SIZE  USED  PRIO
+# /swapfile  file    4G  1.2G    -2
+
+free -h
+#               total   used   free  shared  buff/cache  available
+# Mem:           16Gi   8.0Gi  2.0Gi  512Mi   6.0Gi       7.5Gi
+# Swap:         4.0Gi   1.2Gi  2.8Gi
+
+# Tune swappiness (0-100)
+sysctl vm.swappiness=10  # Lower = prefer to keep data in RAM
+# For databases: 1-10
+# Default: 60
+
+# Zswap: compressed swap cache
+# CONFIG_ZSWAP=y
+# Writes compressed pages to swap, reducing I/O
+sysctl vm.swappiness=30
+echo zstd > /sys/module/zswap/parameters/compressor
+echo 200 > /sys/module/zswap/parameters/max_pool_percent
+
+# ZRAM: compressed RAM-based block device
+modprobe zram
+echo zstd > /sys/block/zram0/comp_algorithm
+echo 4G > /sys/block/zram0/disksize
+mkswap /dev/zram0
+swapon -p 100 /dev/zram0  # Higher priority = used first
+```
+
+## tmpfs — RAM-Based Filesystem
+
+```bash
+# Mount tmpfs (RAM-backed, volatile)
+mount -t tmpfs -o size=512M,nr_inodes=100k tmpfs /mnt/ramdisk
+
+# Common uses:
+# /tmp — temporary files
+# /run — runtime data (PID files, sockets)
+# /dev/shm — shared memory
+
+# /etc/fstab entries:
+tmpfs  /tmp     tmpfs  defaults,size=2G,mode=1777  0  0
+tmpfs  /var/log tmpfs  defaults,size=256M          0  0
+
+# Monitor tmpfs usage
+df -h /tmp
+mount | grep tmpfs
+
+# tmpfs is backed by both RAM and swap
+# Actual usage can exceed RAM if swap is available
+```
+
+## Disk Quotas
+
+```bash
+# Enable quotas on filesystem
+# Add usrquota,grpquota to /etc/fstab:
+# /dev/vg0/lv_home  /home  ext4  defaults,usrquota,grpquota  0  2
+
+mount -o remount /home
+quotacheck -cugm /home
+quotaon /home
+
+# Set user quota (soft=warn, hard=block)
+edquota -u myuser
+# Filesystem   blocks   soft   hard   inodes  soft  hard
+# /dev/vg0/lv_home  500000  1000000  1200000   5000  8000  10000
+
+# Set group quota
+edquota -g developers
+
+# Check quotas
+repquota /home
+quota -u myuser
+
+# Grace period (before soft limit becomes hard)
+edquota -t
+# Filesystem  Block grace period  Inode grace period
+# /dev/vg0/lv_home  7days            7days
+```
+
 ## Disk Management Workflow
 
 ```mermaid
