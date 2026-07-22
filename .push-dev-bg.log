@@ -188,3 +188,6 @@ M	src/kernel/memory/damon.md
 Your branch is ahead of 'origin/dev' by 14 commits.
   (use "git push" to publish your local commits)
 [Wed Jul 22 21:26:18 CST 2026] Committed: 422 pages, 4 files
+M	src/kernel/filesystems/namespaces.md
+Your branch is ahead of 'origin/dev' by 25 commits.
+  (use "git push" to publish your local commits)

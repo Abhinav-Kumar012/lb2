@@ -392,6 +392,325 @@ nsenter --mount --pid --net --target <pid> bash
 - **Cannot unmount**: Mount has children or is shared; use `MNT_DETACH` for lazy unmount
 - **Permission denied**: Mount requires `CAP_SYS_ADMIN` in the relevant user namespace
 
+## Chroot vs Mount Namespaces
+
+Understanding the difference between chroot and mount namespaces is important:
+
+| Aspect | chroot | Mount Namespace |
+|--------|--------|----------------|
+| Scope | Single path resolution | Full mount tree |
+| Escape resistance | Weak (euid=0 can escape) | Strong (requires CAP_SYS_ADMIN in init ns) |
+| Propagation | N/A | Full propagation control |
+| Other namespaces | Not combined | Combined via clone()/unshare() |
+| Security | NOT a security boundary | Security boundary (with user ns) |
+| Kernel code | `fs/open.c:do_chroot()` | `fs/namespace.c` |
+
+```bash
+# chroot: limited isolation
+chroot /chroot_dir /bin/bash
+# Can escape with:
+# mkdir /tmp/x; for i in $(seq 1 100); do mkdir /tmp/x/$i; done
+# chroot /tmp/x/../../.. /bin/bash
+
+# Mount namespace: proper isolation
+unshare --mount /bin/bash
+# Mount operations are fully isolated
+# No simple escape path
+```
+
+## pivot_root
+
+`pivot_root` is used by container runtimes to replace the root filesystem:
+
+```bash
+# pivot_root switches the root mount to a new location
+# Used by Docker, LXC, and other container runtimes
+
+# Typical container setup:
+# 1. Create new mount namespace
+# 2. Mount new root filesystem
+# 3. pivot_root to new root
+# 4. Unmount old root
+# 5. Drop capabilities
+```
+
+```c
+/* fs/namespace.c - pivot_root syscall */
+SYSCALL_DEFINE2(pivot_root, const char __user *, new_root,
+                const char __user *, put_old)
+{
+    /* 1. Validate new_root is a mount point */
+    /* 2. Validate put_old is under new_root */
+    /* 3. Detach new_root from parent */
+    /* 4. Make new_root the root of the namespace */
+    /* 5. Attach old root at put_old */
+}
+```
+
+```mermaid
+sequenceDiagram
+    participant Container as Container Init
+    participant NS as Mount Namespace
+
+    Container->>NS: unshare(CLONE_NEWNS)
+    Container->>NS: mount overlayfs on /new_root
+    Container->>NS: mount proc on /new_root/proc
+    Container->>NS: pivot_root("/new_root", "/new_root/.old_root")
+    Container->>NS: umount("/.old_root", MNT_DETACH)
+    Container->>NS: chroot("/")
+    Note over Container: Now isolated with new root
+```
+
+## OverlayFS in Containers
+
+Container runtimes use OverlayFS with mount namespaces for layered filesystems:
+
+```bash
+# Container layers
+# Layer 0 (base): Ubuntu image (read-only)
+# Layer 1 (app): Application files (read-only)
+# Layer 2 (container): Runtime changes (read-write)
+
+# OverlayFS mount inside container namespace
+mount -t overlay overlay \
+    -o lowerdir=/layers/base:/layers/app,upperdir=/container/upper,workdir=/container/work \
+    /merged
+```
+
+```mermaid
+flowchart TD
+    subgraph Container["Container Mount Namespace"]
+        Merged["/merged (OverlayFS)"]
+        Upper["Upper dir (read-write)"]
+        Lower1["Lower: app layer"]
+        Lower0["Lower: base layer"]
+
+        Merged --> Upper
+        Merged --> Lower1
+        Merged --> Lower0
+    end
+
+    subgraph Host["Host Mount Namespace"]
+        Store["/var/lib/docker/overlay2/..."]
+    end
+
+    Upper --> Store
+```
+
+## Bind Mount Patterns
+
+Bind mounts are essential for container filesystem configuration:
+
+```bash
+# Bind mount /etc/resolv.conf into container
+mount --bind /etc/resolv.conf /container/root/etc/resolv.conf
+
+# Read-only bind mount
+mount --bind /sys /container/root/sys
+mount -o remount,bind,ro /container/root/sys
+
+# Bind mount with propagation control
+mount --make-rslave /container/root  # Slave propagation
+mount --make-rshared /container/root # Shared propagation
+
+# Recursive bind mount
+mount --rbind /dev /container/root/dev
+```
+
+### Container Mount Propagation Setup
+
+```bash
+# Typical Docker container setup:
+
+# 1. Make root private (prevent propagation to host)
+mount --make-rprivate /
+
+# 2. Bind mount container root
+mount --bind /var/lib/docker/overlay2/xxx/merged /container/root
+
+# 3. Mount proc (private, no propagation)
+mount -t proc proc /container/root/proc
+
+# 4. Mount sysfs (read-only, slave)
+mount --bind /sys /container/root/sys
+mount --make-rslave /container/root/sys
+mount -o remount,bind,ro /container/root/sys
+
+# 5. Mount tmpfs for /dev
+touch /container/root/dev
+mount -t tmpfs tmpfs /container/root/dev
+
+# 6. Bind mount device nodes
+mount --bind /dev/null /container/root/dev/null
+mount --bind /dev/zero /container/root/dev/zero
+mount --bind /dev/random /container/root/dev/random
+mount --bind /dev/urandom /container/root/dev/urandom
+```
+
+## Namespace Lifecycle
+
+Mount namespaces persist as long as any process or file descriptor references them:
+
+```mermaid
+flowchart TD
+    A["Process creates namespace"] --> B{Any process alive?}
+    B -->|Yes| C["Namespace persists"]
+    B -->|No| D{Any fd to /proc/PID/ns/mnt?}
+    D -->|Yes| E["Namespace persists"]
+    D -->|No| F["Namespace destroyed"]
+    F --> G["All mounts unmounted"]
+    G --> H["Mount tree freed"]
+```
+
+```bash
+# Keep namespace alive with a file descriptor
+exec 3</proc/12345/ns/mnt
+# Process 12345 can exit, namespace persists
+
+# Join preserved namespace
+nsenter --target 12345 --mount bash
+
+# Or using the fd directly
+nsenter --target 12345 --mount bash
+
+# Bind namespace reference to filesystem
+mount --bind /proc/12345/ns/mnt /var/run/ns/container_mnt
+# Now namespace survives even if PID is recycled
+```
+
+### PID Recycling Problem
+
+```bash
+# Problem: PID can be reused, making /proc/PID/ns/mnt stale
+# Solution: Bind mount the namespace fd
+mount --bind /proc/PID/ns/mnt /var/run/ns/mnt_container1
+
+# Now you can always join via:
+nsenter --mount=/var/run/ns/mnt_container1 bash
+```
+
+## FD-Based Mounts (New Mount API)
+
+Linux 5.2+ introduced a new mount API using file descriptors:
+
+```c
+/* New mount API (fsopen/fsconfig/fsmount) */
+int fd = fsopen("ext4", FSOPEN_CLOEXEC);
+fsconfig(fd, FSCONFIG_SET_STRING, "source", "/dev/sda1", 0);
+fsconfig(fd, FSCONFIG_SET_FLAG, "ro", NULL, 0);
+fsconfig(fd, FSCONFIG_CMD_CREATE, NULL, NULL, 0);
+int mnt_fd = fsmount(fd, FSMOUNT_CLOEXEC, 0);
+
+/* Move mount into namespace */
+int tree_fd = fsopen("none", FSOPEN_CLOEXEC);
+move_mount(tree_fd, "", mnt_fd, "", MOVE_MOUNT_F_EMPTY_PATH);
+```
+
+```bash
+# New mount API syscall equivalents
+fsopen("ext4", 0) -> fd
+fsconfig(fd, FSCONFIG_SET_STRING, "source", "/dev/sda1", 0)
+fsconfig(fd, FSCONFIG_SET_FLAG, "ro", NULL, 0)
+fsconfig(fd, FSCONFIG_CMD_CREATE, NULL, NULL, 0)
+fsmount(fd, 0, 0) -> mnt_fd
+move_mount(AT_FDCWD, "/target", mnt_fd, "", MOVE_MOUNT_F_EMPTY_PATH)
+```
+
+### Advantages of New Mount API
+
+| Aspect | mount() syscall | New mount API |
+|--------|----------------|---------------|
+| Security | Requires CAP_SYS_ADMIN | Can work with user namespaces |
+| Atomicity | Single step | Multi-step, each atomic |
+| Error handling | Limited | Rich error reporting |
+| Config options | String parsing | Key-value pairs |
+| File descriptor | N/A | Returns mount fd |
+
+## Mountinfo Parsing
+
+The `/proc/<pid>/mountinfo` file format is critical for understanding namespace state:
+
+```bash
+# Format:
+# mount_id parent_id major:minor root mount_point optional_fields - fs_type source super_options
+
+# Example:
+# 31 23 8:2 / / rw,relatime shared:1 - ext4 /dev/sda2 rw
+# │  │  │   │  │  │           │       │     │      │
+# │  │  │   │  │  │           │       │     │      └─ super options
+# │  │  │   │  │  │           │       │     └─ source device
+# │  │  │   │  │  │           │       └─ filesystem type
+# │  │  │   │  │  │           └─ separator
+# │  │  │   │  │  └─ optional fields (propagation, etc.)
+# │  │  │   │  └─ mount point
+# │  │  │   └─ root in filesystem
+# │  │  └─ device major:minor
+# │  └─ parent mount ID
+# └─ mount ID
+```
+
+### Propagation Tags in mountinfo
+
+```bash
+# shared:N — shared mount, peer group N
+# master:N — slave mount, master peer group N
+# propagate_from:N — (slave) receives events from peer group N
+# unbindable — mount cannot be bind-mounted
+
+# Example propagation view:
+cat /proc/self/mountinfo | grep -E "shared|master|unbindable"
+# 31 23 8:2 / / rw shared:1 - ext4 /dev/sda2 rw
+# 121 31 0:42 / /tmp rw shared:25 - tmpfs tmpfs rw
+# 150 31 0:50 / /data rw master:30 - ext4 /dev/sdb1 rw
+```
+
+## Real-World Container Setup
+
+A complete container rootfs setup combining all namespace features:
+
+```bash
+#!/bin/bash
+# Minimal container setup script
+
+ROOTFS=/var/lib/containers/mycontainer/rootfs
+CONTAINER_NAME=mycontainer
+
+# 1. Create new mount + PID namespace
+unshare --mount --pid --fork -- /bin/bash -c "
+    # 2. Make all mounts private (prevent propagation)
+    mount --make-rprivate /
+
+    # 3. Mount overlayfs for rootfs
+    mount -t overlay overlay \
+        -o lowerdir=$ROOTFS/base,upperdir=$ROOTFS/upper,workdir=$ROOTFS/work \
+        $ROOTFS/merged
+
+    # 4. Mount proc (new PID namespace)
+    mount -t proc proc $ROOTFS/merged/proc
+
+    # 5. Mount tmpfs for /dev
+    mount -t tmpfs tmpfs $ROOTFS/merged/dev
+
+    # 6. Create device nodes
+    mknod $ROOTFS/merged/dev/null c 1 3
+    mknod $ROOTFS/merged/dev/zero c 1 5
+    mknod $ROOTFS/merged/dev/random c 1 8
+    mknod $ROOTFS/merged/dev/urandom c 1 9
+
+    # 7. pivot_root
+    cd $ROOTFS/merged
+    mkdir -p .old_root
+    pivot_root . .old_root
+
+    # 8. Unmount old root
+    umount -l /.old_root
+    rmdir /.old_root
+
+    # 9. Drop into container
+    exec /bin/sh
+"
+```
+
 ## Security Considerations
 
 - Mount namespaces alone do not restrict access to block devices; combine with device cgroups
