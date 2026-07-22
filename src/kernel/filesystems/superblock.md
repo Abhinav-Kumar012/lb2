@@ -186,6 +186,67 @@ sequenceDiagram
 
 If there are still-open files or working directories under the mount, `umount` fails with `EBUSY` (unless lazy unmount with `MNT_DETACH` is used).
 
+## On-Disk Superblock Formats
+
+Different filesystems have different on-disk superblock structures. Here are examples:
+
+### ext4 On-Disk Superblock
+
+```c
+/* Simplified from fs/ext4/ext4.h */
+struct ext4_super_block {
+    __le32 s_inodes_count;      /* Inode count */
+    __le32 s_blocks_count_lo;   /* Block count */
+    __le32 s_r_blocks_count_lo; /* Reserved block count */
+    __le32 s_free_blocks_count_lo; /* Free block count */
+    __le32 s_free_inodes_count; /* Free inode count */
+    __le32 s_first_data_block;  /* First data block */
+    __le32 s_log_block_size;    /* Log2 of block size */
+    __le32 s_log_cluster_size;  /* Log2 of cluster size */
+    __le32 s_blocks_per_group;  /* Blocks per group */
+    __le32 s_clusters_per_group; /* Clusters per group */
+    __le32 s_inodes_per_group;  /* Inodes per group */
+    __le32 s_mtime;             /* Mount time */
+    __le32 s_wtime;             /* Write time */
+    __le16 s_mnt_count;         /* Mount count */
+    __le16 s_max_mnt_count;     /* Max mount count */
+    __le16 s_magic;             /* Magic: 0xEF53 */
+    __le16 s_state;             /* Filesystem state */
+    __le16 s_errors;            /* Error behavior */
+    __le16 s_minor_rev_level;   /* Minor revision */
+    __le32 s_lastcheck;         /* Last check time */
+    __le32 s_checkinterval;     /* Check interval */
+    __le32 s_creator_os;        /* Creator OS */
+    __le32 s_rev_level;         /* Revision level */
+    __le16 s_def_resuid;        /* Default reserved UID */
+    __le16 s_def_resgid;        /* Default reserved GID */
+    /* ... many more fields ... */
+    __u8   s_uuid[16];          /* UUID */
+    __u8   s_volume_name[16];   /* Volume label */
+    /* ... */
+};
+```
+
+### XFS On-Disk Superblock
+
+```c
+/* Simplified from fs/xfs/libxfs/xfs_format.h */
+struct xfs_dsb {
+    __be32 sb_magicnum;         /* XFS_SB_MAGIC: 0x58465342 */
+    __be32 sb_blocksize;        /* Block size in bytes */
+    __be64 sb_dblocks;          /* Total data blocks */
+    __be64 sb_rblocks;          /* Realtime blocks */
+    __be64 sb_rextents;         /* Realtime extents */
+    __u8   sb_uuid[16];         /* UUID */
+    __be64 sb_logstart;         /* Log start block */
+    __be64 sb_rootino;          /* Root inode number */
+    __be32 sb_rbmino;           /* Realtime bitmap inode */
+    __be32 sb_rsumino;          /* Realtime summary inode */
+    __be32 sb_rextsize;         /* Realtime extent size */
+    /* ... more fields ... */
+};
+```
+
 ## Superblock and Inode Relationship
 
 Every inode belongs to exactly one superblock. The superblock tracks all its inodes:
@@ -326,6 +387,125 @@ static struct file_system_type ext4_fs_type = {
     .kill_sb    = kill_block_super,
     .fs_flags   = FS_REQUIRES_DEV,
 };
+```
+
+## Superblock in Different Filesystem Types
+
+### Virtual Filesystems (tmpfs, procfs, sysfs)
+
+Virtual filesystems don't have a backing block device. Their superblocks are created in memory:
+
+```c
+/* tmpfs superblock creation */
+static int shmem_fill_super(struct super_block *sb, struct fs_context *fc)
+{
+    struct inode *inode;
+    struct shmem_sb_info *sbinfo;
+
+    /* Allocate in-memory superblock info */
+    sbinfo = kzalloc(sizeof(struct shmem_sb_info), GFP_KERNEL);
+    sb->s_fs_info = sbinfo;
+
+    /* Set up operations */
+    sb->s_op = &shmem_ops;
+
+    /* Create root inode */
+    inode = shmem_get_inode(sb, NULL, S_IFDIR | 0777, 0, 0);
+    sb->s_root = d_make_root(inode);
+
+    return 0;
+}
+```
+
+### Network Filesystems (NFS, CIFS)
+
+Network filesystems have superblocks that represent remote servers:
+
+```c
+/* NFS superblock */
+struct nfs_server {
+    struct super_block *super;      /* VFS superblock */
+    struct rpc_clnt *client;        /* RPC client */
+    struct nfs_client *nfs_client;  /* NFS client state */
+    /* ... */
+};
+```
+
+### Cluster Filesystems (GFS2, OCFS2)
+
+Cluster filesystems have superblocks that coordinate with other nodes:
+
+```c
+/* GFS2 superblock */
+struct gfs2_sbd {
+    struct super_block *sd_vfs;     /* VFS superblock */
+    struct gfs2_holder sd_mount_gh; /* Mount glock holder */
+    /* ... cluster locks, journals, etc. ... */
+};
+```
+
+## Performance Characteristics
+
+### Superblock Operations Overhead
+
+| Operation | Frequency | Cost |
+|-----------|-----------|------|
+| `alloc_inode` | On file create/open | Low (memory allocation) |
+| `dirty_inode` | On every metadata change | Very low (set flag) |
+| `write_inode` | Periodic writeback | Medium (disk I/O) |
+| `sync_fs` | On sync(2) | High (flush all dirty data) |
+| `statfs` | On df(1) | Low (read cached values) |
+
+### Caching
+
+The kernel caches superblock information aggressively:
+- **s_fs_info** is kept in memory for the entire mount duration
+- **Inode cache** reduces `alloc_inode` calls
+- **Dentry cache** reduces path lookups
+- **Page cache** reduces disk reads
+
+## Troubleshooting
+
+### Viewing Superblock Information
+
+```bash
+# ext4 superblock info
+$ tune2fs -l /dev/sda1
+Filesystem volume name:   root
+Filesystem magic number:  0xEF53
+Filesystem state:         clean
+Block count:              52428800
+Block size:               4096
+Blocks per group:         32768
+Inodes per group:         8192
+Inode size:               256
+
+# XFS superblock info
+$ xfs_db -r -c "sb 0" -c "p" /dev/sdb1
+magicnum = 0x58465342
+blocksize = 4096
+dblocks = 104857600
+rootino = 128
+
+# btrfs superblock info
+$ btrfs inspect-internal dump-super /dev/sdc1
+superblock: bytenr=65536, fsid=...
+magic: _BHRfS_M
+nodesize: 16384
+leafsize: 16384
+```
+
+### Common Superblock Issues
+
+```bash
+# ext4: "Superblock has an invalid journal"
+$ e2fsck -f /dev/sda1
+
+# ext4: "Bad magic number in super-block"
+$ e2fsck -b 32768 /dev/sda1  # Use backup superblock
+
+# XFS: "Superblock has unknown features"
+$ xfs_repair /dev/sdb1
 ```
 
 ## References

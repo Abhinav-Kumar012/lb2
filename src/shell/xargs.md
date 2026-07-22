@@ -543,15 +543,88 @@ echo "*.txt" | xargs bash -c 'echo $1' _  # *.txt
 echo "*.txt" | xargs -I{} sh -c 'eval echo {}'  # DANGEROUS
 ```
 
+## xargs Environment and Signals
+
+### Environment Variables
+
+```bash
+# xargs inherits the current environment
+export MY_VAR="hello"
+echo "file.txt" | xargs -I{} sh -c 'echo $MY_VAR {}'
+
+# xargs does NOT pass stdin to the executed command
+# stdin is used for the argument list
+echo "input" | xargs cat file.txt    # cat reads file.txt, not stdin
+
+# Use -a to read from file instead of stdin
+xargs -a filenames.txt echo
+```
+
+### Signal Handling
+
+```bash
+# xargs forwards signals to child processes
+# SIGTERM, SIGINT are propagated
+
+# With parallel jobs, all children receive the signal
+find . -name "*.py" -print0 | xargs -0 -P4 python3 -m py_compile
+# Ctrl+C kills all parallel processes
+
+# Timeout individual commands
+find . -name "*.py" -print0 | xargs -0 -I{} timeout 30 python3 {}
+```
+
+### Quoting and Escaping
+
+```bash
+# xargs handles quoting from stdin automatically
+printf "'hello world'\n" | xargs echo
+# Output: hello world (quotes stripped)
+
+# Single quotes, double quotes, and backslashes are handled
+printf '"hello world"\n' | xargs echo
+# Output: hello world
+
+# Backslash escaping
+printf 'hello\ world\n' | xargs echo
+# Output: hello world
+
+# Show quoting with -p
+printf "hello world\n" | xargs -p echo
+# echo hello world ?...
+```
+
+## GNU xargs vs BSD xargs (macOS)
+
+| Feature | GNU xargs | BSD xargs |
+|---|---|---|
+| `-0` (null delimiter) | ✅ | ✅ |
+| `-r` (no run if empty) | ✅ (default) | ❌ (needs flag) |
+| `-I{}` placeholder | ✅ | ✅ |
+| `-P` parallel | ✅ | ✅ (macOS 10.13+) |
+| `-d` custom delimiter | ✅ | ❌ |
+| `-a` read from file | ✅ | ❌ |
+| Multiple commands | ✅ | Limited |
+
+```bash
+# Portable: always use -r on macOS
+find . -name "*.tmp" -print0 | xargs -0r rm
+
+# macOS install GNU xargs
+brew install findutils    # Installs as gxargs
+```
+
 ## References
 
 - [xargs(1) man page](https://man7.org/linux/man-pages/man1/xargs.1.html)
 - [GNU findutils manual](https://www.gnu.org/software/findutils/manual/)
 - [Bash Pitfalls - xargs](https://mywiki.wooledge.org/BashPitfalls#xargs)
 - [GNU Parallel](https://www.gnu.org/software/parallel/)
+- [POSIX xargs specification](https://pubs.opengroup.org/onlinepubs/9699919799/utilities/xargs.html)
 
 ## Related Topics
 
 - [find](./find.md) — producing input for xargs
 - [grep](./grep.md) — common xargs partner
 - [POSIX Shell](./posix-shell.md) — portable xargs usage
+- [Shell Overview](./overview.md) — shell fundamentals
