@@ -117,6 +117,44 @@ static struct task_struct *find_new_reaper(struct task_struct *father,
 }
 ```
 
+### Zombie and Orphan Processes
+
+When a process exits, it becomes a **zombie** until its parent calls `wait()`. If the parent dies first, the child becomes an **orphan** and is reparented to `init`.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Running: fork()
+    Running --> Zombie: exit()
+    Zombie --> [*]: Parent calls wait()
+    Running --> Orphan: Parent dies
+    Orphan --> Zombie: Reparented to init, eventually exits
+    Zombie --> [*]: init calls wait()
+```
+
+```c
+/* kernel/exit.c — do_exit() */
+void __noreturn do_exit(long code)
+{
+    struct task_struct *tsk = current;
+
+    /* Release resources */
+    exit_signals(tsk);
+    exit_mm(tsk);           /* Release memory */
+    exit_files(tsk);        /* Close files */
+
+    /* Notify parent via SIGCHLD */
+    tsk->exit_code = code;
+    tsk->exit_state = EXIT_ZOMBIE;
+
+    /* Wake parent if waiting */
+    do_notify_parent(tsk, tsk->exit_signal);
+
+    /* Schedule away — this task is now a zombie */
+    schedule();
+    /* Never returns */
+}
+```
+
 ### Process Tree Inspection
 
 ```bash
@@ -213,7 +251,136 @@ flowchart LR
 | Thread group | New | Same | `CLONE_THREAD` |
 | PID namespace | Same | Same | `CLONE_NEWPID` (if new) |
 
-### Thread Group Signal Delivery
+### fork() Implementation
+
+When `fork()` is called, the kernel uses `clone()` internally:
+
+```c
+/* kernel/fork.c — kernel_clone() (simplified) */
+pid_t kernel_clone(struct kernel_clone_args *args)
+{
+    struct task_struct *p;
+    pid_t pid;
+
+    /* Copy the task structure and resources */
+    p = copy_process(NULL, args);
+
+    /* Wake up the new task */
+    wake_up_new_task(p);
+
+    return pid;
+}
+
+/* fork() uses these flags */
+/* CSIGNAL = SIGCHLD, all other CLONE flags = 0 */
+```
+
+The `copy_process()` function performs the heavy lifting:
+
+```c
+/* kernel/fork.c — copy_process() (simplified) */
+static struct task_struct *copy_process(struct pid *pid,
+                                        struct kernel_clone_args *args)
+{
+    struct task_struct *p;
+
+    /* Allocate new task_struct */
+    p = dup_task_struct(current);
+
+    /* Copy or share resources based on flags */
+    if (args->flags & CLONE_VM)
+        p->mm = get_mm(current->mm);    /* Share: just increment refcount */
+    else
+        p->mm = dup_mm(current->mm);    /* Copy: COW copy of page tables */
+
+    if (args->flags & CLONE_FILES)
+        p->files = get_files_struct(current->files);  /* Share FD table */
+    else
+        p->files = dup_fd(current->files);            /* Copy FD table */
+
+    if (args->flags & CLONE_THREAD) {
+        p->tgid = current->tgid;         /* Same thread group */
+        p->signal = current->signal;     /* Share signal struct */
+    } else {
+        p->tgid = p->pid;               /* New thread group */
+        p->signal = copy_signal();       /* Copy signal struct */
+    }
+
+    /* Set up PID namespace */
+    copy_pid_ns_flags(p, args);
+
+    return p;
+}
+```
+
+### vfork() and CLONE_VFORK
+
+`vfork()` is an optimization where the parent **suspends** until the child calls `exec()` or `_exit()`. The child shares the parent's memory without copying:
+
+```c
+/* vfork flags */
+/* CLONE_VFORK | CLONE_VM — parent waits, child shares memory */
+```
+
+This is used by shells for command execution where the child immediately `exec()`s a new program:
+
+```mermaid
+sequenceDiagram
+    participant Parent as Parent (shell)
+    participant Child as Child (vfork)
+
+    Parent->>Child: vfork()
+    Note over Parent: SUSPENDED (TASK_KILLABLE)
+    Note over Child: Runs in parent's address space
+    Child->>Child: exec("/bin/ls")
+    Note over Parent: RESUMED (child's exec freed CLONE_VFORK)
+    Parent->>Parent: Continues
+```
+
+### Modern clone3() System Call
+
+Linux 5.3 introduced `clone3()`, which uses a structured argument instead of variadic flags:
+
+```c
+/* include/uapi/linux/sched.h */
+struct clone_args {
+    __aligned_u64 flags;        /* Flags bit mask */
+    __aligned_u64 pidfd;        /* Where to store pidfd */
+    __aligned_u64 child_tid;    /* Where to store child TID */
+    __aligned_u64 parent_tid;   /* Where to store parent TID */
+    __aligned_u64 exit_signal;  /* Signal to deliver on exit */
+    __aligned_u64 stack;        /* Stack pointer for child */
+    __aligned_u64 stack_size;   /* Stack size */
+    __aligned_u64 tls;          /* TLS descriptor */
+    /* New in 5.5+: */
+    __aligned_u64 set_tid;      /* Specify exact PID for child */
+    __aligned_u64 set_tid_size; /* Number of elements in set_tid */
+    /* New in 5.7+: */
+    __aligned_u64 cgroup;       /* Cgroup to place child in */
+};
+
+/* Usage */
+struct clone_args args = {
+    .flags       = CLONE_VM | CLONE_THREAD | CLONE_SIGHAND,
+    .exit_signal = 0,
+    .stack       = (u64)child_stack,
+    .stack_size  = STACK_SIZE,
+    .tls         = (u64)tls_area,
+};
+pid_t pid = syscall(SYS_clone3, &args, sizeof(args));
+```
+
+### clone3() vs clone()
+
+| Feature | clone() | clone3() |
+|---------|---------|----------|
+| Argument passing | Variadic (va_args) | Structured struct |
+| Extensibility | Limited (flag bits run out) | Struct can grow |
+| PID specification | Not supported | `set_tid` field |
+| Cgroup placement | Not supported | `cgroup` field |
+| Available since | Linux 2.0 | Linux 5.3 |
+
+## Thread Group Signal Delivery
 
 When a signal is sent to a process (identified by `tgid`), the kernel must choose which thread receives it:
 
@@ -234,6 +401,17 @@ Rules for signal delivery to threads:
 2. **Thread-directed signals** (`pthread_kill(tid, sig)`) — delivered to the specific thread
 3. **SIGSEGV, SIGFPE, SIGILL** — always delivered to the thread that caused the fault
 4. **SIGSTOP, SIGCONT** — affect the entire thread group
+
+```mermaid
+flowchart TD
+    KILL["kill(pid, SIGTERM)"] --> CHECK{"Which thread<br/>doesn't block SIGTERM?"}
+    CHECK -->|"Thread 2"| T2["Deliver to Thread 2"]
+    CHECK -->|"No thread available"| PEND["Signal remains pending"]
+
+    PT["pthread_kill(tid, SIGUSR1)"] --> SPECIFIC["Deliver to specific<br/>thread tid"]
+
+    SEGV["Thread 3: segfault"] --> T3["SIGSEGV → Thread 3<br/>(always the faulting thread)"]
+```
 
 ## Thread-Local Storage (TLS)
 
@@ -257,6 +435,15 @@ $ cat /proc/500/task/1000/maps | grep -i tls
 7f8c1c000000-7f8c1c020000 rw-p 00000000 00:00 0  [stack:1001]
 7f8c1c020000-7f8c1c040000 rw-p 00000000 00:00 0  [stack:1002]
 ```
+
+### TLS on Different Architectures
+
+| Architecture | TLS Register | Mechanism |
+|-------------|-------------|-----------|
+| x86-64 | FS base | `arch_prctl(ARCH_SET_FS, addr)` |
+| i386 | GS segment | `set_thread_area()` syscall |
+| ARM64 | TPIDR_EL0 | `prctl(PR_SET_TLS, addr)` |
+| RISC-V | tp register | Direct register set |
 
 ## Namespace Awareness
 
@@ -283,6 +470,91 @@ Pid:    1
 # From host, the same process has a different PID
 $ ps aux | grep nginx
 root  12345  ... nginx: master process
+```
+
+### Namespace Types
+
+| Namespace | Flag | Isolates |
+|-----------|------|----------|
+| PID | `CLONE_NEWPID` | Process ID space |
+| Network | `CLONE_NEWNET` | Network stack, interfaces, routing |
+| Mount | `CLONE_NEWNS` | Filesystem mount points |
+| UTS | `CLONE_NEWUTS` | Hostname, domain name |
+| IPC | `CLONE_NEWIPC` | System V IPC, POSIX message queues |
+| User | `CLONE_NEWUSER` | UID/GID mappings |
+| Cgroup | `CLONE_NEWCGROUP` | Cgroup root directory |
+
+## Thread Count and Resource Limits
+
+```bash
+# System-wide thread limit
+$ cat /proc/sys/kernel/threads-max
+15000
+
+# Per-user thread limit (RLIMIT_NPROC)
+$ ulimit -u
+4096
+
+# Check current thread count
+$ cat /proc/loadavg
+0.50 0.40 0.35 2/500 12345
+#                     ^^^ - 2 running, 500 total threads
+
+# Per-process thread limit
+$ cat /proc/sys/kernel/pid_max
+32768
+```
+
+### Kernel Thread Accounting
+
+The kernel tracks threads via `struct pid` (one per PID namespace) and `struct task_struct`:
+
+```c
+/* include/linux/pid.h */
+struct pid {
+    atomic_t count;
+    unsigned int level;           /* PID namespace depth */
+    struct hlist_head tasks[PIDTYPE_MAX]; /* Tasks using this PID */
+    struct rcu_head rcu;
+    struct upid numbers[];        /* One per namespace level */
+};
+
+/* PID type enum */
+enum pid_type {
+    PIDTYPE_PID,      /* Process ID */
+    PIDTYPE_TGID,     /* Thread group ID */
+    PIDTYPE_PGID,     /* Process group ID */
+    PIDTYPE_SID,      /* Session ID */
+};
+```
+
+## Process States
+
+A task can be in one of several states:
+
+```mermaid
+stateDiagram-v2
+    [*] --> TASK_RUNNING: fork() / clone()
+    TASK_RUNNING --> TASK_INTERRUPTIBLE: Wait (interruptible)
+    TASK_RUNNING --> TASK_UNINTERRUPTIBLE: Wait (uninterruptible, e.g., disk I/O)
+    TASK_RUNNING --> __TASK_STOPPED: SIGSTOP / ptrace
+    TASK_RUNNING --> TASK_ZOMBIE: exit()
+    TASK_INTERRUPTIBLE --> TASK_RUNNING: Wake up / signal
+    TASK_UNINTERRUPTIBLE --> TASK_RUNNING: Wake up only
+    __TASK_STOPPED --> TASK_RUNNING: SIGCONT
+    TASK_ZOMBIE --> [*]: Parent calls wait()
+```
+
+```c
+/* include/linux/sched.h — task states */
+#define TASK_RUNNING            0x0000
+#define TASK_INTERRUPTIBLE      0x0001
+#define TASK_UNINTERRUPTIBLE    0x0002
+#define __TASK_STOPPED          0x0004
+#define __TASK_TRACED           0x0008
+#define EXIT_DEAD               0x0020
+#define EXIT_ZOMBIE             0x0040
+#define TASK_KILLABLE           (TASK_WAKEKILL | TASK_UNINTERRUPTIBLE)
 ```
 
 ## Practical Examples
@@ -358,22 +630,6 @@ Tgid:   500
 Threads:    3
 ```
 
-### Thread Count Limits
-
-```bash
-# System-wide thread limit
-$ cat /proc/sys/kernel/threads-max
-15000
-
-# Per-user thread limit
-$ cat /proc/sys/kernel/threads-max
-
-# Check current thread count
-$ cat /proc/loadavg
-0.50 0.40 0.35 2/500 12345
-#                     ^^^ - 2 running, 500 total threads
-```
-
 ## Differences from Other Operating Systems
 
 | Feature | Linux | Windows | macOS |
@@ -399,6 +655,7 @@ $ cat /proc/loadavg
 - [Linux kernel: include/linux/sched.h](https://elixir.bootlin.com/linux/latest/source/include/linux/sched.h)
 - [LWN: A (not so) short overview of the Linux kernel threading model](https://lwn.net/Articles/651785/)
 - [The Linux Programming Interface - Chapter 28: Process Creation](https://man7.org/tlpi/)
+- [clone3(2) man page](https://man7.org/linux/man-pages/man2/clone3.2.html) — Modern clone interface
 
 ## Related Topics
 

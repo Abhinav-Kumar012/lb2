@@ -64,3 +64,7 @@ Your branch is ahead of 'origin/dev' by 4 commits.
 Your branch is ahead of 'origin/dev' by 6 commits.
   (use "git push" to publish your local commits)
 [Wed Jul 22 19:45:52 CST 2026] Committed: 392 pages, 1 files
+M	src/kernel/processes/processes-and-threads.md
+M	src/sysprog/inline-asm.md
+Your branch is ahead of 'origin/dev' by 13 commits.
+  (use "git push" to publish your local commits)

@@ -400,6 +400,324 @@ int popcount(uint64_t x) {
 int val = __sync_fetch_and_add(&counter, 1);
 ```
 
+## Kernel Inline Assembly Patterns
+
+The Linux kernel makes extensive use of inline assembly for hardware interaction.
+
+### System Call Invocation
+
+```c
+/* x86-64 syscall wrapper (simplified) */
+static inline long syscall3(long nr, long a1, long a2, long a3) {
+    long ret;
+    __asm__ __volatile__(
+        "syscall"
+        : "=a"(ret)
+        : "a"(nr), "D"(a1), "S"(a2), "d"(a3)
+        : "rcx", "r11", "memory"
+    );
+    return ret;
+}
+
+/* Usage */
+long bytes = syscall3(1 /* __NR_write */, 1 /* stdout */,
+                     (long)"Hello\n", 6);
+```
+
+The kernel also defines syscalls using inline asm macros:
+
+```c
+/* From arch/x86/include/asm/unistd.h */
+#define __SYSCALL_DEFINEx(x, name, ...) \
+    asmlinkage long sys##name(__MAP(x,__SC_DECL,__VA_ARGS__))
+
+/* Example: sys_write defined via macro */
+SYSCALL_DEFINE3(write, unsigned int, fd, const char __user *, buf,
+                size_t, count)
+{
+    /* ... kernel implementation ... */
+}
+```
+
+### Interrupt Control
+
+```c
+/* Disable interrupts (x86-64, kernel only) */
+static inline void local_irq_disable(void) {
+    __asm__ __volatile__("cli" ::: "memory");
+}
+
+/* Enable interrupts */
+static inline void local_irq_enable(void) {
+    __asm__ __volatile__("sti" ::: "memory");
+}
+
+/* Save and restore interrupt state */
+static inline unsigned long local_irq_save(void) {
+    unsigned long flags;
+    __asm__ __volatile__(
+        "pushfq\n\t"
+        "pop %0\n\t"
+        "cli"
+        : "=r"(flags) :: "memory"
+    );
+    return flags;
+}
+```
+
+### x86 Port I/O
+
+```c
+/* Read from I/O port */
+static inline uint8_t inb(uint16_t port) {
+    uint8_t val;
+    __asm__ __volatile__("inb %1, %0" : "=a"(val) : "Nd"(port));
+    return val;
+}
+
+/* Write to I/O port */
+static inline void outb(uint8_t val, uint16_t port) {
+    __asm__ __volatile__("outb %0, %1" : : "a"(val), "Nd"(port));
+}
+
+/* Read from PCI config space (uses port I/O) */
+static inline uint32_t pci_config_read(uint8_t bus, uint8_t dev,
+                                        uint8_t func, uint8_t offset) {
+    uint32_t addr = 0x80000000 |
+                    (bus << 16) | (dev << 11) | (func << 8) | (offset & 0xFC);
+    outl(addr, 0xCF8);  /* PCI CONFIG_ADDRESS */
+    return inl(0xCFC);   /* PCI CONFIG_DATA */
+}
+```
+
+### Reading Performance Counters
+
+```c
+/* Read CR4 register (kernel only) */
+static inline unsigned long read_cr4(void) {
+    unsigned long val;
+    __asm__("mov %%cr4, %0" : "=r"(val));
+    return val;
+}
+
+/* Write CR4 register */
+static inline void write_cr4(unsigned long val) {
+    __asm__ __volatile__("mov %0, %%cr4" : : "r"(val) : "memory");
+}
+
+/* Read TSC with serialization (prevents out-of-order execution) */
+static inline uint64_t rdtscp(uint32_t *aux) {
+    uint32_t lo, hi, aux_val;
+    __asm__ __volatile__(
+        "rdtscp"
+        : "=a"(lo), "=d"(hi), "=c"(aux_val)
+    );
+    if (aux) *aux = aux_val;
+    return ((uint64_t)hi << 32) | lo;
+}
+
+/* Serialize instruction stream (CPUID as serialization point) */
+static inline void cpuid_serialize(void) {
+    uint32_t eax, ebx, ecx, edx;
+    __asm__ __volatile__("cpuid"
+        : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx)
+        : "a"(0)
+    );
+}
+```
+
+### SIMD Operations
+
+```c
+#include <immintrin.h>  /* Prefer intrinsics over inline asm for SIMD */
+
+/* But sometimes inline asm is needed for specific instructions */
+
+/* AES-NI round key generation */
+static inline __m128i aeskeygenassist(__m128i key, uint8_t rcon) {
+    __m128i result;
+    __asm__("aeskeygenassist %1, %2, %0"
+            : "=x"(result)
+            : "x"(key), "i"(rcon)
+    );
+    return result;
+}
+
+/* CRC32 instruction (hardware CRC) */
+static inline uint32_t crc32c(uint32_t crc, uint8_t val) {
+    __asm__("crc32b %1, %0" : "+r"(crc) : "rm"(val));
+    return crc;
+}
+```
+
+## Debugging Inline Assembly
+
+### Common Pitfalls
+
+```c
+/* BAD: Missing "memory" clobber */
+__asm__(
+    "mov %0, (%1)"
+    :
+    : "r"(value), "r"(ptr)
+    /* Missing: "memory" */
+);
+/* Compiler may reorder memory accesses around this asm! */
+
+/* BAD: Assuming specific register allocation */
+int a = 1, b = 2;
+__asm__("add %0, %1" : "=r"(a) : "r"(b));
+/* Compiler may put a and b in the same register! */
+
+/* GOOD: Use matching constraint or early clobber */
+int a = 1, b = 2;
+__asm__("add %1, %0" : "+r"(a) : "r"(b) : "cc");
+```
+
+### Disassembling Inline Assembly
+
+```bash
+# Compile and disassemble to verify asm output
+$ gcc -O2 -S -o test.s test.c
+$ objdump -d test.o
+
+# Check specific asm block with -fverbose-asm
+$ gcc -O2 -fverbose-asm -S -o test.s test.c
+```
+
+### Using GDB to Step Through Assembly
+
+
+```bash
+# Compile with debug info
+$ gcc -g -O0 -o test test.c
+
+# In GDB
+$ gdb ./test
+(gdb) break main
+(gdb) run
+(gdb) display/i $pc   # Show next instruction
+(gdb) stepi           # Step one instruction
+(gdb) info registers  # Show all registers
+(gdb) x/10i $pc       # Disassemble from current PC
+```
+
+## Compiler Intrinsics vs Inline Assembly
+
+Modern compilers provide **intrinsics** — built-in functions that map to specific instructions without writing raw assembly. Prefer intrinsics when available:
+
+| Task | Inline Assembly | Compiler Intrinsic |
+|---|---|---|
+| Population count | `__asm__("popcnt ...")` | `__builtin_popcountll()` |
+| Byte swap | `__asm__("bswap ...")` | `__builtin_bswap64()` |
+| Leading zeros | `__asm__("lzcnt ...")` | `__builtin_clzll()` |
+| Trailing zeros | `__asm__("tzcnt ...")` | `__builtin_ctzll()` |
+| Atomic add | `__asm__("lock add ...")` | `__atomic_add_fetch()` |
+| Memory barrier | `__asm__("mfence ...")` | `__atomic_thread_fence()` |
+| Unreachable | `__asm__("ud2")` | `__builtin_unreachable()` |
+
+**Advantages of intrinsics over inline asm:**
+- Compiler can optimize around them (register allocation, instruction scheduling)
+- Portable across architectures (intrinsic works on x86 and ARM)
+- No risk of clobber list errors
+- Better interaction with optimizers and LTO (Link-Time Optimization)
+
+```c
+/* Compare: byte swap with inline asm vs intrinsic */
+
+/* Inline assembly — verbose, architecture-specific */
+static inline uint64_t bswap64_asm(uint64_t x) {
+    __asm__("bswap %0" : "+r"(x));
+    return x;
+}
+
+/* Intrinsic — clean, portable */
+static inline uint64_t bswap64_builtin(uint64_t x) {
+    return __builtin_bswap64(x);
+}
+
+/* Both generate the same bswap instruction on x86-64 */
+```
+
+### SSE/AVX Intrinsics
+
+For SIMD operations, intrinsics are strongly preferred:
+
+```c
+#include <immintrin.h>
+
+/* Vectorized add using AVX2 intrinsics */
+void vector_add(float *a, float *b, float *out, size_t n) {
+    size_t i;
+    for (i = 0; i + 8 <= n; i += 8) {
+        __m256 va = _mm256_loadu_ps(&a[i]);
+        __m256 vb = _mm256_loadu_ps(&b[i]);
+        __m256 vc = _mm256_add_ps(va, vb);
+        _mm256_storeu_ps(&out[i], vc);
+    }
+    /* Handle remainder */
+    for (; i < n; i++) {
+        out[i] = a[i] + b[i];
+    }
+}
+
+/* Compare: same thing with inline asm (much harder to write correctly) */
+void vector_add_asm(float *a, float *b, float *out, size_t n) {
+    for (size_t i = 0; i + 8 <= n; i += 8) {
+        __asm__ __volatile__(
+            "vmovups (%1), %%ymm0\n\t"
+            "vaddps (%2), %%ymm0, %%ymm0\n\t"
+            "vmovups %%ymm0, (%0)\n\t"
+            : : "r"(&out[i]), "r"(&a[i]), "r"(&b[i])
+            : "ymm0", "memory"
+        );
+    }
+}
+```
+
+## Inline Assembly in Bootloaders
+
+Bootloaders and early boot code use inline assembly extensively:
+
+```c
+/* Real-mode interrupt (BIOS call) */
+static void bios_print(const char *msg) {
+    while (*msg) {
+        __asm__ __volatile__(
+            "int $0x10"
+            : : "a"((0x0E << 8) | *msg), "b"(0x0007)
+        );
+        msg++;
+    }
+}
+
+/* Switch from real mode to protected mode */
+static void switch_to_protected(void) {
+    /* Disable interrupts */
+    __asm__ __volatile__("cli");
+
+    /* Load GDT */
+    __asm__ __volatile__("lgdt %0" : : "m"(gdt_desc));
+
+    /* Set PE bit in CR0 */
+    uint32_t cr0;
+    __asm__("mov %%cr0, %0" : "=r"(cr0));
+    cr0 |= 1;  /* Protected Enable */
+    __asm__ __volatile__("mov %0, %%cr0" : : "r"(cr0));
+
+    /* Far jump to flush pipeline and load CS */
+    __asm__ __volatile__(
+        "ljmpl $0x08, $1f\n"
+        "1:\n"
+        "mov $0x10, %%ax\n"
+        "mov %%ax, %%ds\n"
+        "mov %%ax, %%es\n"
+        "mov %%ax, %%ss\n"
+        : : : "ax"
+    );
+}
+```
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
