@@ -534,3 +534,157 @@ content-type: application/json
 - [Packet Capture](./packet-capture.md) — Analyzing HTTP traffic with Wireshark
 - [VPN](./vpn.md) — Tunneling HTTP traffic
 - [Network Troubleshooting](./troubleshooting.md) — Debugging HTTP connectivity
+
+## HTTP Cookies
+
+Cookies are small pieces of data stored by the browser and sent with every request to the same domain.
+
+```bash
+# Send cookies
+curl -b "session=abc123; theme=dark" https://example.com/
+
+# Save cookies from response
+curl -c /tmp/cookies.txt https://example.com/login \
+    -d "user=admin&pass=secret"
+
+# Use saved cookies
+curl -b /tmp/cookies.txt https://example.com/dashboard
+
+# View Set-Cookie headers
+curl -v https://example.com/ 2>&1 | grep -i set-cookie
+# < set-cookie: session=abc123; Path=/; HttpOnly; Secure; SameSite=Strict
+```
+
+### Cookie Attributes
+
+| Attribute | Purpose |
+|---|---|
+| `Path` | URL path scope |
+| `Domain` | Domain scope |
+| `Expires` / `Max-Age` | Lifetime |
+| `Secure` | HTTPS only |
+| `HttpOnly` | Not accessible via JavaScript |
+| `SameSite` | Cross-site request control (`Strict`, `Lax`, `None`) |
+
+## HTTP Content Negotiation
+
+Clients and servers negotiate content type, encoding, and language:
+
+```bash
+# Request specific content type
+curl -H "Accept: application/json" https://api.example.com/users
+
+# Request compressed response
+curl -H "Accept-Encoding: gzip, deflate, br" https://example.com/
+
+# Request specific language
+curl -H "Accept-Language: en-US, en;q=0.9, zh-CN;q=0.8" https://example.com/
+```
+
+## WebSockets
+
+WebSocket provides full-duplex communication over a single TCP connection, upgraded from HTTP.
+
+```bash
+# WebSocket handshake (HTTP Upgrade)
+curl -v -H "Connection: Upgrade" \
+     -H "Upgrade: websocket" \
+     -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" \
+     -H "Sec-WebSocket-Version: 13" \
+     https://example.com/ws
+
+# HTTP/1.1 101 Switching Protocols
+```
+
+```python
+# Python WebSocket client
+import websockets
+import asyncio
+
+async def main():
+    async with websockets.connect('wss://example.com/ws') as ws:
+        await ws.send('Hello')
+        response = await ws.recv()
+        print(response)
+
+asyncio.run(main())
+```
+
+## Server-Sent Events (SSE)
+
+SSE allows servers to push events to clients over HTTP:
+
+```bash
+curl -N -H "Accept: text/event-stream" https://example.com/events
+# data: {"time": "2024-01-15T12:00:00Z"}
+# event: update
+# data: {"status": "processing"}
+```
+
+## gRPC (HTTP/2-based)
+
+gRPC uses HTTP/2 for high-performance RPC:
+
+```bash
+grpcurl -plaintext -d '{"id": 1}' \
+    localhost:50051 mypackage.MyService/GetUser
+```
+
+## HTTP Security Headers
+
+```bash
+curl -sI https://example.com/ | grep -iE 'strict-transport|x-frame|x-content|content-security|referrer-policy|permissions-policy'
+# strict-transport-security: max-age=31536000; includeSubDomains; preload
+# x-frame-options: SAMEORIGIN
+# x-content-type-options: nosniff
+# content-security-policy: default-src 'self'
+# referrer-policy: strict-origin-when-cross-origin
+# permissions-policy: camera=(), microphone=()
+```
+
+### Nginx Security Headers
+
+```nginx
+add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
+add_header X-Frame-Options "SAMEORIGIN" always;
+add_header X-Content-Type-Options "nosniff" always;
+add_header Content-Security-Policy "default-src 'self'" always;
+add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+add_header Permissions-Policy "camera=(), microphone=()" always;
+```
+
+## HTTP Rate Limiting
+
+```nginx
+http {
+    limit_req_zone $binary_remote_addr zone=api:10m rate=10r/s;
+
+    server {
+        location /api/ {
+            limit_req zone=api burst=20 nodelay;
+            limit_req_status 429;
+        }
+    }
+}
+```
+
+## HTTP Compression
+
+```nginx
+gzip on;
+gzip_vary on;
+gzip_proxied any;
+gzip_comp_level 6;
+gzip_types text/plain text/css application/json application/javascript text/xml;
+
+# Brotli (better compression)
+brotli on;
+brotli_comp_level 6;
+brotli_types text/plain text/css application/json application/javascript;
+```
+
+```bash
+# Test compression
+curl -H "Accept-Encoding: gzip, deflate, br" -v https://example.com/ 2>&1 | grep -i content-encoding
+# < content-encoding: br
+```
