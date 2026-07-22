@@ -204,3 +204,6 @@ M	src/kernel/drivers/usb.md
 Your branch is ahead of 'origin/dev' by 10 commits.
   (use "git push" to publish your local commits)
 [Wed Jul 22 21:38:31 CST 2026] Committed: 427 pages, 4 files
+M	src/kernel/memory/reclaim.md
+Your branch is ahead of 'origin/dev' by 18 commits.
+  (use "git push" to publish your local commits)

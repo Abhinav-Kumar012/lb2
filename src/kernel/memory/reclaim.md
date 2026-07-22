@@ -440,6 +440,241 @@ cat /sys/fs/cgroup/<cgroup>/memory.pressure
 
 ---
 
+## zswap and zram
+
+### zswap
+
+zswap is a compressed write-back cache for swap. It intercepts pages
+being swapped out and stores them compressed in a memory pool. If the
+pool fills up, the least recently used pages are written to the actual
+swap device.
+
+```bash
+# Enable zswap
+echo 1 > /sys/module/zswap/parameters/enabled
+
+# Configure zswap
+echo z3fold > /sys/module/zswap/parameters/zpool   # Compression allocator
+echo lz4hc > /sys/module/zswap/parameters/compressor  # Compression algorithm
+echo 20 > /sys/module/zswap/parameters/max_pool_percent  # Max 20% of RAM
+
+# Check zswap statistics
+cat /sys/kernel/debug/zswap/
+pool_total_size  # Total compressed size
+stored_pages     # Number of pages stored
+pool_limit_hit   # Times pool was full
+reject_compress  # Pages that didn't compress well
+reject_reclaim   # Pages evicted from pool
+reject_kmemcache # Slab allocation failures
+```
+
+```mermaid
+flowchart LR
+    SWAP["Page to swap out"] --> ZSWAP{"zswap enabled?"}
+    ZSWAP -->|Yes| COMP["Compress page"]
+    COMP --> POOL{"Pool has space?"}
+    POOL -->|Yes| STORE["Store in pool"]
+    POOL -->|No| EVICT["Evict LRU to disk"]
+    EVICT --> STORE
+    ZSWAP -->|No| DISK["Write to swap disk"]
+```
+
+### zram
+
+zram creates a compressed block device in RAM, used as swap:
+
+```bash
+# Create zram device
+modprobe zram num_devices=1
+
+# Configure zram
+echo lz4 > /sys/block/zram0/comp_algorithm
+echo 4G > /sys/block/zram0/disksize   # 4GB compressed swap
+
+# Create and enable swap
+mkswap /dev/zram0
+swapon -p 100 /dev/zram0  # Higher priority than disk swap
+
+# Check zram statistics
+cat /sys/block/zram0/mm_stat
+# orig_data_size compr_data_size mem_used_total mem_limit mem_used_max
+# 1073741824      268435456       301989888      0        301989888
+
+# Disable and remove zram
+swapoff /dev/zram0
+echo 1 > /sys/block/zram0/reset
+```
+
+### zswap vs zram
+
+| Feature | zswap | zram |
+|---------|-------|------|
+| Type | Swap cache | Block device |
+| Requires swap | Yes (write-back) | No (is swap) |
+| Compression | On swap-out path | On all writes |
+| Eviction | To backing swap | Cannot evict |
+| Use case | Systems with disk swap | Systems without swap |
+
+## Memory Compaction
+
+Memory compaction moves pages to create contiguous free regions needed
+for higher-order allocations (THP, slab). It runs alongside reclaim:
+
+```bash
+# Trigger compaction manually
+echo 1 > /proc/sys/vm/compact_memory
+
+# Check compaction statistics
+grep compact /proc/vmstat
+# compact_stall    — Direct compaction stalls
+# compact_success  — Successful compactions
+# compact_fail     — Failed compactions
+
+# Proactive compaction (Linux 5.9+)
+echo 20 > /proc/sys/vm/compaction_proactiveness
+# 0 = disabled, 100 = very aggressive
+```
+
+### Compaction vs Reclaim
+
+```mermaid
+flowchart TD
+    A["High-order allocation fails"] --> B{"Enough free pages?"}
+    B -->|No| C["Reclaim: free pages"]
+    B -->|Yes| D["Compaction: move pages"]
+    C --> E{"Contiguous region?"}
+    D --> E
+    E -->|Yes| F["Allocation succeeds"]
+    E -->|No| G["Try harder or fail"]
+```
+
+## Cgroup Memory Reclaim
+
+### Per-Cgroup Reclaim
+
+Each cgroup has its own memory limit and reclaim behavior:
+
+```bash
+# Set memory limit
+echo 2G > /sys/fs/cgroup/myapp/memory.max
+
+# Set memory high (throttle, not OOM)
+echo 1.5G > /sys/fs/cgroup/myapp/memory.high
+
+# Set memory low (protected, won't be reclaimed)
+echo 512M > /sys/fs/cgroup/myapp/memory.low
+
+# Set memory min (hard protected)
+echo 256M > /sys/fs/cgroup/myapp/memory.min
+
+# Check cgroup memory events
+cat /sys/fs/cgroup/myapp/memory.events
+# low 0
+# high 0
+# max 0
+# oom 0
+# oom_kill 0
+```
+
+### Memory Pressure Notifications
+
+```bash
+# PSI-based pressure monitoring (Linux 4.20+)
+cat /proc/pressure/memory
+# some avg10=0.00 avg60=0.00 avg300=0.00 total=0
+# full avg10=0.00 avg60=0.00 avg300=0.00 total=0
+
+# Per-cgroup pressure
+cat /sys/fs/cgroup/myapp/memory.pressure
+
+# Monitor with systemd
+systemd-run --scope -p MemoryMax=2G \
+    --property=MemoryPressureWatch=on \
+    stress-ng --vm 2 --vm-bytes 1G --timeout 60s
+```
+
+## Advanced Reclaim Tuning
+
+### Per-Zone Reclaim Mode
+
+On NUMA systems, `vm.zone_reclaim_mode` controls whether the kernel
+reclaims from the local zone or accesses remote nodes:
+
+```bash
+# 0 (default): Don't reclaim from local zone, access remote memory
+# 1: Reclaim from local zone before going remote
+# 2: Write dirty pages from local zone
+# 4: Swap from local zone
+sysctl vm.zone_reclaim_mode=0
+
+# For most workloads, 0 is optimal (allows remote access)
+# For HPC with strict NUMA locality, use 1
+```
+
+### Huge Pages and Reclaim
+
+THP (Transparent Huge Pages) interact with reclaim:
+
+```bash
+# Check THP settings
+cat /sys/kernel/mm/transparent_hugepage/enabled
+# always [madvise] never
+
+# THP can increase reclaim latency (2MB pages vs 4KB)
+# For latency-sensitive workloads, use madvise mode
+echo madvise > /sys/kernel/mm/transparent_hugepage/enabled
+
+# Check THP stats
+grep thp /proc/vmstat
+# thp_fault_alloc — THP allocated on fault
+# thp_collapse_alloc — THP allocated during collapse
+# thp_split — THP split to 4KB pages
+```
+
+### Reclaim Latency Monitoring
+
+```bash
+# Enable reclaim latency tracing
+echo 1 > /sys/kernel/debug/tracing/events/vmscan/mm_vmscan_direct_reclaim_begin/enable
+echo 1 > /sys/kernel/debug/tracing/events/vmscan/mm_vmscan_direct_reclaim_end/enable
+
+# View with timestamps
+cat /sys/kernel/debug/tracing/trace_pipe | grep direct_reclaim
+
+# Measure reclaim latency distribution
+# Using bpftrace:
+bpftrace -e '
+tracepoint:vmscan:mm_vmscan_direct_reclaim_begin {
+    @start[tid] = nsecs;
+}
+tracepoint:vmscan:mm_vmscan_direct_reclaim_end {
+    if (@start[tid]) {
+        @usecs = hist((nsecs - @start[tid]) / 1000);
+        delete(@start[tid]);
+    }
+}'
+```
+
+## Reclaim Decision Tree
+
+```mermaid
+flowchart TD
+    A["Memory allocation"] --> B{"Order > 0?"}
+    B -->|Yes| C["Try compaction first"]
+    B -->|No| D{"Below low watermark?"}
+    C --> E{"Compaction successful?"}
+    E -->|Yes| F["Allocate"]
+    E -->|No| G["Reclaim + compact"]
+    D -->|No| H{"Below min watermark?"}
+    D -->|Yes| I["Wake kswapd"]
+    H -->|No| J["Direct reclaim"]
+    H -->|Yes| K["kswapd + direct reclaim"]
+    J --> L{"Enough pages freed?"}
+    K --> L
+    L -->|Yes| F
+    L -->|No| M["OOM killer"]
+```
+
 ## Common Issues
 
 ### Direct Reclaim Stalls
