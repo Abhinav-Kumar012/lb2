@@ -377,6 +377,52 @@ validate_input() {
         return 1
     fi
 }
+
+# Safe PATH for scripts
+export PATH=/usr/local/bin:/usr/bin:/bin
+
+# Prevent globbing
+set -f
+
+# Prevent word splitting
+IFS=$'\n\t'
+
+# Trap for cleanup
+trap 'rm -f "$tempfile"' EXIT
+tempfile=$(mktemp) || exit 1
+```
+
+## Debugging and Troubleshooting
+
+```bash
+# Trace script execution
+bash -x script.sh       # Print each command before execution
+
+# Selective tracing
+set -x                  # Enable trace
+# ... code to debug ...
+set +x                  # Disable trace
+
+# Syntax checking
+bash -n script.sh       # Check syntax without running
+
+# Show shell options
+set -o                  # All options with state
+shopt                    # Bash-specific options
+
+# Show defined functions
+declare -F              # List function names
+type function_name      # Show function body
+
+# Show exported variables
+export -p
+
+# Show aliases
+alias
+
+# Verbose prompt for debugging
+export PS4='+ ${BASH_SOURCE}:${LINENO}: '
+set -x
 ```
 
 ## References
