@@ -517,6 +517,99 @@ io_uring is Linux's modern async I/O interface (kernel 5.1+):
 - **[Gentoo Wiki](https://wiki.gentoo.org/)** — Excellent kernel and optimization docs
 - **[Gentoo Forums](https://forums.gentoo.org/)** — Technical discussions
 
+### Debian
+
+- **[Debian Handbook](https://debian-handbook.info/)** — Comprehensive Debian administration guide, free online
+- **[Debian Wiki](https://wiki.debian.org/)** — Community-maintained documentation
+
+### openSUSE
+
+- **[openSUSE Documentation](https://doc.opensuse.org/)** — Official docs with YaST and Btrfs focus
+- **[openSUSE Wiki](https://en.opensuse.org/Portal:Wiki)** — Community wiki
+
+---
+
+## Podcasts and Newsletters
+
+### Podcasts
+
+- **[Linux Unplugged](https://linuxunplugged.com/)** — Weekly Linux discussion podcast
+- **[Late Night Linux](https://latenightlinux.com/)** — Linux and open-source news
+- **[Kernel Report](https://www.kernel.org/)** — Periodic kernel development updates
+- **[The Linux Cast](https://thelinuxcast.com/)** — Linux news and tutorials
+- **[BSD Now](https://www.bsdnow.tv/)** — BSD and UNIX news (relevant to Linux users)
+
+### Newsletters
+
+- **[LWN.net Weekly Edition](https://lwn.net/)** — Premier kernel/free software newsletter (subscription recommended)
+- **[Phoronix](https://www.phoronix.com/)** — Linux hardware and kernel news
+- **[The Pragmatic Engineer](https://newsletter.pragmaticengineer.com/)** — Engineering deep dives including kernel topics
+- **[This Week in Rust](https://this-week-in-rust.org/)** — Rust ecosystem news (relevant for kernel Rust)
+- **[Brendan Gregg's Blog](https://www.brendangregg.com/blog/)** — Performance and observability articles
+
+---
+
+## Community and Q&A
+
+#### [Ask Ubuntu](https://askubuntu.com/)
+Q&A site for Ubuntu users. Great for distribution-specific questions.
+
+#### [Unix & Linux Stack Exchange](https://unix.stackexchange.com/)
+Q&A for Linux, BSD, and other UNIX-like systems. High-quality answers.
+
+#### [Server Fault](https://serverfault.com/)
+Q&A for system administrators and network professionals.
+
+#### [Reddit](https://www.reddit.com/)
+- [r/linux](https://www.reddit.com/r/linux/) — General Linux discussion
+- [r/linuxadmin](https://www.reddit.com/r/linuxadmin/) — System administration
+- [r/kernel](https://www.reddit.com/r/kernel/) — Kernel development
+- [r/commandline](https://www.reddit.com/r/commandline/) — Command-line tools
+- [r/linuxquestions](https://www.reddit.com/r/linuxquestions/) — Linux help
+
+#### [Kernel Newbies](https://kernelnewbies.org/)
+Resources for Linux kernel beginners. Includes an FAQ, tutorials, and a helpful community.
+
+- **Content:** Beginner guides, kernel coding style, first kernel patch tutorial
+- **Key pages:**
+  - [KernelNewbies FAQ](https://kernelnewbies.org/FAQ)
+  - [Kernel Janitors](https://kernelnewbies.org/KernelJanitors)
+  - [Kernel Newbies Tutorial](https://kernelnewbies.org/KernelTutorial)
+
+---
+
+## Reference Tools
+
+#### [Explainshell](https://explainshell.com/)
+Break down shell commands into their component parts.
+
+#### [tldr pages](https://tldr.sh/)
+Simplified and community-driven man pages. Install the client:
+```bash
+npm install -g tldr
+tldr tar
+```
+
+#### [commandlinefu.com](https://www.commandlinefu.com/)
+Community-driven repository of command-line tricks and tips.
+
+#### [cheat.sh](https://cheat.sh/)
+Unified command-line cheat sheet service:
+```bash
+curl cheat.sh/tar
+curl cheat.sh/find
+curl cheat.sh/python/lambda
+```
+
+#### [tldr.inbrowser.app](https://tldr.inbrowser.app/)
+Web-based tldr pages viewer.
+
+#### [DevDocs](https://devdocs.io/)
+API documentation browser. Includes Linux man pages.
+
+#### [cpuid](https://github.com/tycho/cpuid)
+Detailed CPU feature information from the command line.
+
 ---
 
 ## Related Chapters
