@@ -491,6 +491,471 @@ sysctl -w vm.dirty_background_ratio=10
 sysctl -w vm.dirty_expire_centisecs=3000
 ```
 
+## Write Barriers and Cache Flushes
+
+Write barriers ensure data ordering on storage devices with volatile write caches. Without barriers, the disk controller may reorder writes, leading to filesystem corruption after a power failure.
+
+### The Problem
+
+Consider a journaling filesystem writing a transaction:
+
+```
+1. Write data blocks
+2. Write journal commit record
+3. Write metadata to final location
+```
+
+If the disk reorders these writes, the commit record might reach disk before the data blocks, leaving the filesystem in an inconsistent state after a crash.
+
+### Barrier Implementation
+
+```c
+/* A write barrier is a sequence:
+ * 1. Flush the disk's volatile write cache (cache flush)
+ * 2. Write the barrier request
+ * 3. Flush again (optional, for full barrier semantics)
+ */
+
+/* bio with barrier flag */
+bio->bi_opf = REQ_OP_WRITE | REQ_PREFLUSH | REQ_FUA;
+
+/* REQ_PREFLUSH — flush disk cache before this write
+ * REQ_FUA (Force Unit Access) — bypass disk write cache, write to media
+ */
+```
+
+### Checking Barrier Support
+
+```bash
+# Check if disk supports write cache flush
+cat /sys/block/sda/device/scsi_disk/*/cache_type
+# write through | write back | none
+
+# Disable disk write cache (for safety, slower)
+echo 'wce off' | sudo tee /sys/block/sda/scsi_disk/*/manage_start_stop_page
+
+# Force full flush (barrier)
+sync
+# or: blockdev --flushbufs /dev/sda
+
+# Filesystem barrier options
+mount -o barrier=1 /dev/sda1 /mnt   # ext4: barriers enabled (default)
+mount -o nobarrier /dev/sda1 /mnt   # ext4: disable barriers (DANGEROUS)
+```
+
+### Barrier Trade-offs
+
+| Setting | Safety | Performance |
+|---------|--------|-------------|
+| Barriers on (default) | Safe — metadata consistent | 10-30% slower on some workloads |
+| Barriers off | Unsafe — corruption risk on crash | Faster journal commits |
+| data=ordered (ext4 default) | Data written before commit | Balanced |
+| data=journal | All data journaled | Safest, slowest |
+| data=writeback | No data ordering | Fastest, least safe |
+
+## Control Groups — blkcg (Block I/O Controller)
+
+The block I/O controller (blkcg) allows per-cgroup I/O bandwidth limiting, prioritization, and accounting. It works with both the legacy blk-throttle and the BFQ scheduler.
+
+### blkcg Architecture
+
+```mermaid
+graph TD
+    subgraph "blkcg Hierarchy"
+        ROOT["Root cgroup<br/>blkio root"]
+        CG1["cgroup: app1<br/>weight=500"]
+        CG2["cgroup: app2<br/>weight=200"]
+        CG3["cgroup: app3<br/>weight=300"]
+    end
+    subgraph "Block Devices"
+        DEV1["/dev/sda"]
+        DEV2["/dev/nvme0n1"]
+    end
+    ROOT --> CG1
+    ROOT --> CG2
+    ROOT --> CG3
+    CG1 -->|"weight 50%"| DEV1
+    CG2 -->|"weight 20%"| DEV1
+    CG3 -->|"weight 30%"| DEV1
+```
+
+### Using blkcg with cgroup v2
+
+```bash
+# cgroup v2 — enable IO controller in hierarchy
+echo "+io" > /sys/fs/cgroup/cgroup.subtree_control
+
+# Create a cgroup
+mkdir /sys/fs/cgroup/app1
+
+# Set I/O weight (BFQ: 1-1000, default 100)
+echo "8:0 500" > /sys/fs/cgroup/app1/io.weight
+
+# Set I/O max (bandwidth limit — bytes per second)
+echo "8:0 10485760" > /sys/fs/cgroup/app1/io.max
+# Limit sda (major 8, minor 0) to 10 MB/s
+
+# Set I/O max with burst
+echo "8:0 rbps=10485760 wbps=5242880 riops=1000 wiops=500" > /sys/fs/cgroup/app1/io.max
+
+# I/O latency target (BFQ)
+echo "8:0 target=5000" > /sys/fs/cgroup/app1/io.latency
+
+# Move a process to the cgroup
+echo $PID > /sys/fs/cgroup/app1/cgroup.procs
+
+# View I/O statistics for the cgroup
+cat /sys/fs/cgroup/app1/io.stat
+# 8:0 rbytes=1048576 wbytes=524288 rios=256 wios=128
+```
+
+### I/O Cost Model (io.cost)
+
+cgroup v2 also supports a proportional I/O controller based on cost models:
+
+```bash
+# Enable io.cost controller
+echo "+io" > /sys/fs/cgroup/cgroup.subtree_control
+
+# Set cost model parameters for a device
+echo "8:0 ctrl=auto" > /sys/fs/cgroup/io.cost.qos
+
+# Set proportional weights
+echo "8:0 enable=1" > /sys/fs/cgroup/io.cost.model
+
+# Per-cgroup weight
+echo "100" > /sys/fs/cgroup/app1/io.cost.weight
+echo "200" > /sys/fs/cgroup/app2/io.cost.weight
+```
+
+## I/O Error Handling
+
+The block layer implements sophisticated error handling with retry logic:
+
+### Error Path
+
+```c
+/* bio completion with error */
+static void bio_endio(struct bio *bio)
+{
+    if (bio->bi_status) {
+        /* Error occurred — may retry */
+        if (bio->bi_opf & REQ_RAHEAD) {
+            /* Readahead error — silently drop */
+            bio_put(bio);
+            return;
+        }
+        /* Call bio's end_io with error */
+    }
+    bio->bi_end_io(bio);
+}
+
+/* Block layer retry logic */
+static void blk_update_request(struct request *req, blk_status_t error)
+{
+    if (error && blk_retry_request(req)) {
+        /* Reset and retry */
+        req->bio = req->bio->bi_next;
+        blk_requeue_request(req->q, req);
+        return;
+    }
+    /* Complete with error */
+}
+```
+
+### Common I/O Errors
+
+```bash
+# Check for I/O errors in dmesg
+dmesg | grep -i 'error\|fail\|reset\|abort' | grep -i '\(sd\|nvme\|ata\)'
+
+# SCSI errors
+# sd 0:0:0:0: [sda] tag#0 FAILED Result: hostbyte=DID_OK driverbyte=DRIVER_SENSE
+# sd 0:0:0:0: [sda] tag#0 Sense Key : Medium Error [current]
+# sd 0:0:0:0: [sda] tag#0 Add. Sense: Unrecovered read error
+
+# NVMe errors
+# nvme nvme0: I/O 0 QID 0 timeout, reset controller
+# nvme nvme0: I/O 5 QID 1 timeout, aborting
+
+# View I/O error statistics
+cat /sys/block/sda/stat
+# Field 12: I/O errors (count)
+# Field 13: I/O errors (weighted time)
+
+# Check SMART status for predictive failure
+smartctl -a /dev/sda
+smartctl -H /dev/sda  # Health check
+```
+
+### I/O Timeout Configuration
+
+```bash
+# SCSI timeout (default 30 seconds)
+echo 60 > /sys/block/sda/timeout
+
+# NVMe timeout
+echo 30 > /sys/block/nvme0n1/queue/io_timeout
+
+# Device mapper error handling
+# dmsetup targets — shows available error handling modes
+```
+
+## Data Integrity — T10 Protection Information
+
+Modern enterprise storage supports T10-PI (Protection Information), also called DIF/DIX, which adds end-to-end data integrity checking from application to disk.
+
+### How It Works
+
+```mermaid
+graph LR
+    A["Application"] -->|"Data + metadata tag"| B["Block Layer"]
+    B -->|"Data + PI (ref-tag, app-tag, guard)"| C["HBA Driver"]
+    C -->|"DIF: PI in LBA gap"| D["Storage Device"]
+    D -->|"Verify PI on read"| C
+    C -->|"Verify PI"| B
+    B -->|"Verify"| A
+```
+
+Each block gets a Protection Information tuple:
+- **Guard** — CRC-16 checksum of the data
+- **Application Tag** — application-defined identifier
+- **Reference Tag** — typically the lower 32 bits of the LBA
+
+```bash
+# Enable DIX (data integrity extensions) for a device
+# Kernel config: CONFIG_BLK_DEV_INTEGRITY
+
+# Check if device supports PI
+cat /sys/block/sda/integrity/format
+# "T10-DIF-TYPE3-CRC" or similar
+
+# Check integrity profile
+cat /sys/block/sda/integrity/profile
+```
+
+## io_uring Block Integration
+
+`io_uring` provides efficient asynchronous I/O with reduced syscall overhead:
+
+### io_uring vs Traditional I/O
+
+```mermaid
+graph TD
+    subgraph "Traditional I/O"
+        T1["read() syscall"] --> T2["Kernel: submit bio"]
+        T2 --> T3["Wait for completion"]
+        T3 --> T4["Return to user"]
+        T4 --> T5["Next read() syscall"]
+    end
+    subgraph "io_uring"
+        I1["Setup ring"] --> I2["Submit batch (SQE)"]
+        I2 --> I3["Kernel processes async"]
+        I3 --> I4["Check completions (CQE)"]
+        I4 --> I5["No syscall per I/O"]
+    end
+```
+
+### Basic io_uring Read Example
+
+```c
+#include <liburing.h>
+
+struct io_uring ring;
+
+/* Initialize with 256-entry ring */
+io_uring_queue_init(256, &ring, IORING_SETUP_SQPOLL);
+
+/* Prepare a read */
+struct io_uring_sqe *sqe = io_uring_get_sqe(&ring);
+io_uring_prep_read(sqe, fd, buf, 4096, offset);
+sqe->flags |= IOSQE_FIXED_FILE;  /* Use pre-registered fd */
+
+/* Submit and wait for one completion */
+io_uring_submit(&ring);
+struct io_uring_cqe *cqe;
+io_uring_wait_cqe(&ring, &cqe);
+int bytes_read = cqe->res;
+io_uring_cqe_seen(&ring, cqe);
+```
+
+### io_uring Features for Block I/O
+
+| Feature | Kernel Version | Description |
+|---------|---------------|-------------|
+| `IORING_SETUP_SQPOLL` | 5.11+ | Kernel-side submission polling |
+| `IORING_OP_READ_FIXED` | 5.1+ | Pre-registered buffers |
+| `IORING_OP_READV` | 5.1+ | Vectored read |
+| `IORING_REGISTER_BUFFERS` | 5.1+ | Pre-register buffers for DMA |
+| `IORING_SETUP_IOPOLL` | 5.1+ | Busy-poll for completions |
+| `IORING_OP_URING_CMD` | 5.19+ | NVMe passthrough commands |
+
+## NVMe I/O Path Specifics
+
+NVMe has a fundamentally different I/O path from SCSI/SATA, bypassing much of the legacy block layer overhead.
+
+### NVMe Queue Architecture
+
+```mermaid
+graph TD
+    subgraph "NVMe Controller"
+        SQ0["Admin Submission Queue"]
+        SQ1["I/O Submission Queue 0 (per-CPU)"]
+        SQ2["I/O Submission Queue 1 (per-CPU)"]
+        CQ0["Admin Completion Queue"]
+        CQ1["I/O Completion Queue 0"]
+        CQ2["I/O Completion Queue 1"]
+    end
+    CPU0["CPU 0"] --> SQ1
+    CPU1["CPU 1"] --> SQ2
+    SQ1 --> CQ1
+    SQ2 --> CQ2
+    CQ1 -->|"Interrupt/coalesce"| CPU0
+    CQ2 -->|"Interrupt/coalesce"| CPU1
+```
+
+Each CPU gets its own submission/completion queue pair, avoiding lock contention:
+
+```bash
+# NVMe queue configuration
+cat /sys/block/nvme0n1/queue/nr_requests  # Requests per queue
+echo 1024 > /sys/block/nvme0n1/queue/nr_requests
+
+# NVMe queue count (one per CPU by default)
+cat /sys/block/nvme0n1/device/queue_count
+
+# Adjust interrupt coalescing
+cat /sys/block/nvme0n1/device/ioctl
+nvme set-feature /dev/nvme0 -f 8 -v 0x080008  # 8 usec, 8 events
+```
+
+### NVMe I/O Command Passthrough
+
+```c
+/* NVMe passthrough via io_uring (since Linux 5.19) */
+struct io_uring_sqe *sqe = io_uring_get_sqe(&ring);
+struct nvme_passthru_cmd cmd = {
+    .opcode = nvme_cmd_read,
+    .nsid = 1,
+    .addr = (uint64_t)buf,
+    .data_len = 4096,
+    .cdw10 = lba & 0xFFFFFFFF,
+    .cdw11 = lba >> 32,
+    .cdw12 = 0,  /* 1 LBA */
+};
+io_uring_prep_uring_cmd(sqe, nvme_fd, 0);
+sqe->addr3 = (uint64_t)&cmd;
+sqe->cmd_op = NVME_URING_CMD_IO;
+```
+
+## Advanced Monitoring and Tracing
+
+### BPF/bcc Tools for I/O Analysis
+
+```bash
+# biolatency — block I/O latency histogram
+sudo biolatency -D 1
+# disk = sda
+#        usecs          : count    distribution
+#        0 -> 1         : 0       |                                        |
+#        2 -> 3         : 0       |                                        |
+#        4 -> 7         : 3       |**                                      |
+#        8 -> 15        : 28      |******************                      |
+#       16 -> 31        : 56      |****************************************|
+#       32 -> 63        : 45      |******************************          |
+#       64 -> 127       : 23      |***************                         |
+
+# biosnoop — trace block I/O with latency
+sudo biosnoop
+# TIME     COMM         PID   DISK  T  SECTOR     BYTES   LAT(ms)
+# 0.001    dd           1234  sda   W  12345678   4096    0.42
+# 0.003    jbd2/sda1    567   sda   W  87654321   8192    0.18
+
+# biotop — top for block I/O
+sudo biotop
+# PID    COMM         D   MAJ MIN  DISK   I/O  Kbytes  AVGms
+# 1234   dd           W   8   0    sda    256  1024    0.45
+# 5678   dd           R   8   0    sda    128  512     0.32
+
+# ext4slower — trace slow ext4 operations
+sudo ext4slower 10  # Trace operations slower than 10ms
+
+# filetop — top for file I/O
+sudo filetop
+```
+
+### iostat Advanced Usage
+
+```bash
+# Extended stats with per-partition and utilization histogram
+iostat -xz -p ALL 1
+
+# Fields of interest:
+# r_await  — read latency (ms)
+# w_await  — write latency (ms)
+# aqu-sz   — average queue depth
+# %util    — device utilization (>60% may indicate saturation)
+
+# Note: %util is misleading for NVMe and RAID devices
+# (can show 100% while still having headroom)
+
+# Per-device request merging stats
+iostat -xm 1
+# rrqm/s  wrqm/s  — merged requests/sec
+# High merge rates = sequential I/O (good)
+# Low merge rates = random I/O (expected for databases)
+```
+
+### /sys/block Statistics Deep Dive
+
+```bash
+# /sys/block/sda/stat fields (11 fields):
+#  1: reads completed
+#  2: reads merged
+#  3: sectors read
+#  4: time spent reading (ms)
+#  5: writes completed
+#  6: writes merged
+#  7: sectors written
+#  8: time spent writing (ms)
+#  9: I/Os currently in progress
+# 10: time spent doing I/Os (ms)
+# 11: weighted time spent doing I/Os (ms)
+
+# Calculate average I/O latency
+# avg_read_ms = field4 / field1
+# avg_write_ms = field8 / field5
+
+# Inflight requests
+cat /sys/block/sda/inflight
+# 2 0  (2 reads, 0 writes in-flight)
+```
+
+## I/O Priority
+
+Linux supports per-process I/O priorities that interact with the I/O scheduler:
+
+```bash
+# Set I/O priority (ionice)
+ionice -c 2 -n 0 -p $PID    # Best-effort, highest priority
+ionice -c 2 -n 7 -p $PID    # Best-effort, lowest priority
+ionice -c 3 -p $PID          # Idle — only runs when no other I/O
+ionice -c 1 -n 4 -p $PID    # Real-time, priority 4
+
+# Classes:
+# 0 = none (use scheduling class default)
+# 1 = real-time (highest, can starve others)
+# 2 = best-effort (default, uses nice value)
+# 3 = idle (lowest, only runs when disk is idle)
+
+# Check I/O priority
+cat /proc/$PID/io
+# ioprio=4  (class 2 = best-effort << 8 | level 4)
+
+# BFQ supports per-cgroup I/O priority
+echo "8:0 prio=3" > /sys/fs/cgroup/app1/io.weight
+```
+
 ## References
 
 - [Kernel Block Layer Documentation](https://www.kernel.org/doc/html/latest/block/)
@@ -499,6 +964,10 @@ sysctl -w vm.dirty_expire_centisecs=3000
 - [blktrace documentation](https://git.kernel.org/pub/scm/linux/kernel/git/axboe/blktrace.git)
 - [iovisor/bcc: biolatency](https://github.com/iovisor/bcc)
 - [Linux Performance Tools](https://www.brendangregg.com/linuxperf.html)
+- [io_uring documentation](https://kernel.dk/io_uring.pdf)
+- [NVMe specification](https://nvmexpress.org/specifications/)
+- [T10 DIF/DIX specification](https://www.t10.org/)
+- [blk-cgroup documentation](https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html#io)
 
 ## Related Topics
 
@@ -506,3 +975,5 @@ sysctl -w vm.dirty_expire_centisecs=3000
 - [File Systems](../filesystems/index.md) — Filesystem layer above block layer
 - [Page Cache](./page-cache.md) — Memory caching for disk I/O
 - [Scheduler](./scheduler.md) — I/O scheduler details
+- [NVMe Drivers](./nvme.md) — NVMe subsystem details
+- [io_uring](../../sysprog/io-uring.md) — Modern async I/O interface
