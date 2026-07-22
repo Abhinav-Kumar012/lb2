@@ -420,27 +420,240 @@ echo -1000 > /proc/1234/oom_score_adj
 echo -1000 > /proc/$(pidof sshd)/oom_score_adj
 ```
 
+## Memory Performance Analysis Workflow
+
+```mermaid
+flowchart TD
+    A["Application is slow"] --> B{"Check vmstat si/so"}
+    B -->|"si/so > 0"| C["Swapping detected"]
+    B -->|"si/so = 0"| D{"Check available memory"}
+    C --> E["Reduce swappiness or add RAM"]
+    D -->|"available < 10%"| F["Memory pressure"]
+    D -->|"available > 20%"| G{"Check page cache hit rate"}
+    F --> H["Check cgroup limits / OOM scores"]
+    G -->|"Low hit rate"| I["Increase RAM or reduce working set"]
+    G -->|"High hit rate"| J{"Check NUMA balance"}
+    J -->|"Imbalanced"| K["Bind process to NUMA node"]
+    J -->|"Balanced"| L["Check huge page usage"]
+    L -->|"Low THP"| M["Enable THP or static huge pages"]
+    L -->|"Good"| N["Memory is healthy"]
+```
+
+## Memory Profiling with perf
+
+### Heap Profiling
+
+```bash
+# Profile memory allocations with perf
+perf record -e kmem:kmalloc -a -g -- sleep 30
+perf script | stackcollapse-perf.pl | flamegraph.pl \
+    --title "Kernel Memory Allocation Flame Graph" > kmalloc_flame.svg
+
+# Profile page allocations
+perf record -e kmem:mm_page_alloc -a -g -- sleep 30
+perf script | stackcollapse-perf.pl | flamegraph.pl \
+    --title "Page Allocation Flame Graph" > page_alloc_flame.svg
+
+# Profile memory leaks
+perf record -e kmem:kmalloc -e kmem:kfree -a -g -- sleep 30
+# Compare allocation vs free counts to find leaks
+```
+
+### Memory Bandwidth Profiling
+
+```bash
+# Intel Memory Bandwidth Monitoring (MBM)
+perf stat -e offcore_response.all_data_rd.l3_miss.snoop_none -- sleep 5
+
+# Using cgroup memory bandwidth
+# Check cgroup memory stats
+cat /sys/fs/cgroup/myapp/memory.stat
+cat /sys/fs/cgroup/myapp/memory.numa_stat
+
+# Memory bandwidth with Intel PCM (if available)
+pcm-memory 1
+# Socket 0 Read: 45.6 GB/s  Write: 23.4 GB/s
+# Socket 1 Read: 34.5 GB/s  Write: 18.9 GB/s
+```
+
+## Memory Leak Detection
+
+### Using valgrind
+
+```bash
+# Detect memory leaks
+valgrind --leak-check=full --show-leak-kinds=all ./myapp
+# ==1234== LEAK SUMMARY:
+# ==1234==    definitely lost: 1,024 bytes in 1 blocks
+# ==1234==    indirectly lost: 0 bytes in 0 blocks
+# ==1234==      possibly lost: 5,120 bytes in 10 blocks
+# ==1234==    still reachable: 0 bytes in 0 blocks
+# ==1234==         suppressed: 0 bytes in 0 blocks
+
+# Track kernel memory leaks
+# Enable kmemleak
+echo scan > /sys/kernel/debug/kmemleak
+cat /sys/kernel/debug/kmemleak
+```
+
+### Using AddressSanitizer
+
+```bash
+# Compile with AddressSanitizer
+gcc -fsanitize=address -g myapp.c -o myapp_asan
+
+# Run — detects buffer overflows, use-after-free, leaks
+./myapp_asan
+# ==1234==ERROR: AddressSanitizer: heap-buffer-overflow on address...
+```
+
+## Memory Compaction and Fragmentation
+
+```bash
+# Check memory fragmentation
+cat /proc/buddyinfo
+# Node 0, zone      DMA      1      1      0      1      2      1      1      0      1      1      3
+# Node 0, zone    DMA32   1234    567    890    123     45      6      7      8      9     10     11
+# Node 0, zone   Normal  12345   6789   1234    567    123     45      6      7      0      0      0
+
+# Each column = 2^order free blocks (order 0=4K, 1=8K, ... 10=4M)
+# If higher orders are 0, huge page allocation may fail
+
+# Trigger compaction
+echo 1 > /proc/sys/vm/compact_memory
+
+# Check compaction status
+cat /proc/vmstat | grep compact
+# compact_success 1234
+# compact_fail 56
+# compact_stall 89
+
+# Per-zone fragmentation
+cat /proc/pagetypeinfo
+```
+
+## Memory Performance for Specific Workloads
+
+### Database Servers
+
+```bash
+# PostgreSQL memory tuning
+# shared_buffers = 25% of RAM (max 8GB for most workloads)
+# effective_cache_size = 75% of RAM
+# work_mem = 256MB (per-sort operation)
+# maintenance_work_mem = 2GB
+
+# MySQL/InnoDB memory tuning
+# innodb_buffer_pool_size = 70-80% of RAM
+# innodb_log_file_size = 1-2GB
+# innodb_flush_method = O_DIRECT
+
+# Verify buffer pool is working
+cat /proc/$(pidof mysqld)/smaps_rollup | grep -E "Rss|Pss"
+```
+
+### Java Applications
+
+```bash
+# JVM memory settings
+java -Xms4g -Xmx4g -XX:+UseG1GC -XX:MaxGCPauseMillis=200 \
+    -XX:+UseLargePages -XX:+UseNUMA -jar myapp.jar
+
+# Monitor JVM memory
+jstat -gc $(pidof java) 1000
+# S0C    S1C    S0U    S1U      EC       EU        OC         OU       MC     MU    CCSC   CCSU   YGC     YGCT    FGC    FGCT     GCT
+# 512.0  512.0   0.0   128.0  32768.0  28672.0  131072.0   98304.0  4864.0 4234.0 512.0  456.0     12    0.234     2    0.123    0.357
+
+# Check if huge pages are used
+grep -i huge /proc/$(pidof java)/smaps | head
+# AnonHugePages:    512000 kB
+```
+
+### Container Workloads
+
+```bash
+# Check container memory usage
+cat /sys/fs/cgroup/docker/<container-id>/memory.stat
+# cache 123456789
+# rss 234567890
+# rss_huge 123456789
+# pgfault 345678
+# pgmajfault 1234
+
+# Set memory limits
+docker run -m 4g --memory-swap 8g myapp
+
+# Check for memory pressure
+cat /sys/fs/cgroup/docker/<container-id>/memory.pressure
+# some avg10=0.00 avg60=0.00 avg300=0.00 total=0
+# full avg10=0.00 avg60=0.00 avg300=0.00 total=0
+```
+
+## Memory Performance Anti-Patterns
+
+### Anti-Pattern: Disabling Swap Entirely
+
+```bash
+# DON'T: Disable swap on high-memory systems
+swapoff -a
+# OOM killer activates immediately under pressure
+# No buffer for unexpected memory spikes
+
+# DO: Keep small swap, set low swappiness
+mkswap /dev/sda2 -L swap
+swapon /dev/sda2
+sysctl -w vm.swappiness=1
+# Swap available for emergencies, but rarely used
+```
+
+### Anti-Pattern: Ignoring THP for Databases
+
+```bash
+# DON'T: Leave THP enabled for databases
+cat /sys/kernel/mm/transparent_hugepage/enabled
+# [always] ← causes latency spikes from compaction
+
+# DO: Disable THP for databases
+echo never > /sys/kernel/mm/transparent_hugepage/enabled
+# Use static huge pages instead
+echo 1024 > /proc/sys/vm/nr_hugepages
+```
+
+### Anti-Pattern: Dropping Caches in Production
+
+```bash
+# DON'T: Drop caches regularly
+echo 3 > /proc/sys/vm/drop_caches
+# Causes massive I/O spike as cache is rebuilt
+# Only use for benchmarking baseline
+
+# DO: Tune cache pressure instead
+sysctl -w vm.vfs_cache_pressure=50
+# Gradually adjusts cache retention
+```
+
 ## References
 
-- Gregg, B. *Systems Performance: Enterprise and the Cloud*, 2nd Edition.
+- Gregg, B. *Systems Performance: Enterprise and the Cloud*, 2nd Edition (2020).
 - [Linux Memory Management Documentation](https://www.kernel.org/doc/html/latest/admin-guide/mm/)
 - [NUMA Deep Dive](https://frankdenneman.nl/2016/07/07/numa-deep-dive-part-1-uma-numa/)
 - [Huge Pages Documentation](https://www.kernel.org/doc/html/latest/admin-guide/mm/hugetlbpage.html)
+- [Linux perf Examples — Brendan Gregg](https://www.brendangregg.com/perf.html)
+- [Understanding the Linux Virtual Memory Manager — Mel Gorman](https://www.kernel.org/doc/gorman/)
 
 ## Further Reading
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
-- [LWN.net - Linux and free software news](https://lwn.net/)
+- [LWN.net — Linux and free software news](https://lwn.net/)
 - [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
 - [GNU Manuals](https://www.gnu.org/manual/manual.html)
 - [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
 - [Planet GNU](https://planet.gnu.org/)
 - [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
-
-- <https://www.brendangregg.com/linuxperf.html> - Linux performance tools
-- <https://www.kernel.org/doc/html/latest/admin-guide/sysctl/vm.html> - VM sysctl documentation
-- <https://www.intel.com/content/www/us/en/developer/articles/tool/intelr-memory-latency-checker.html> - Intel MLC
-- <https://github.com/jeffhammond/STREAM> - STREAM benchmark
+- <https://www.brendangregg.com/linuxperf.html> — Linux performance tools
+- <https://www.kernel.org/doc/html/latest/admin-guide/sysctl/vm.html> — VM sysctl documentation
+- <https://www.intel.com/content/www/us/en/developer/articles/tool/intelr-memory-latency-checker.html> — Intel MLC
+- <https://github.com/jeffhammond/STREAM> — STREAM benchmark
 
 ## Related Topics
 
@@ -448,3 +661,5 @@ echo -1000 > /proc/$(pidof sshd)/oom_score_adj
 - [CPU Performance](cpu.md)
 - [NUMA Optimization](numa.md)
 - [I/O Performance](io.md)
+- [Cache Statistics](cachestat.md)
+- [Kernel Tuning Parameters](kernel-params.md)
