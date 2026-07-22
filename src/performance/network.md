@@ -360,28 +360,272 @@ netstat -s | grep -E "segments|retrans"
 sysctl net.core.rmem_max net.core.wmem_max
 ```
 
+## Network Analysis Workflow
+
+```mermaid
+flowchart TD
+    A["Network performance issue"] --> B{"Check link speed"}
+    B -->|"Speed OK"| C{"Check packet drops"}
+    B -->|"Speed low"| D["Check NIC/auto-negotiation"]
+    C -->|"Drops > 0"| E{"Check ring buffer"}
+    C -->|"No drops"| F{"Check TCP retransmits"}
+    E -->|"Ring buffer full"| G["Increase ring buffer: ethtool -G"]
+    E -->|"Buffer OK"| H["Check netdev_budget"]
+    F -->|"High retransmits"| I{"Check congestion"}
+    F -->|"Low retransmits"| J{"Check latency"}
+    I --> K["Switch to BBR congestion control"]
+    J -->|"High latency"| L["Check route / MTU / offloads"]
+    J -->|"Low latency"| M{"Check throughput"}
+    M -->|"Below line rate"| N["Increase TCP buffers (BDP)"]
+    M -->|"Near line rate"| O["Network is healthy"]
+```
+
+## TCP BBR Congestion Control
+
+BBR (Bottleneck Bandwidth and Round-trip propagation time) is a Google-developed
+congestion control algorithm that significantly outperforms CUBIC on lossy and
+high-latency networks.
+
+```bash
+# Check available congestion control
+sysctl net.ipv4.tcp_available_congestion_control
+# reno cubic bbr
+
+# Load BBR module
+modprobe tcp_bbr
+
+# Enable BBR
+sysctl -w net.ipv4.tcp_congestion_control=bbr
+sysctl -w net.core.default_qdisc=fq
+
+# Persist
+echo "net.ipv4.tcp_congestion_control = bbr" >> /etc/sysctl.d/99-bbr.conf
+echo "net.core.default_qdisc = fq" >> /etc/sysctl.d/99-bbr.conf
+sysctl -p /etc/sysctl.d/99-bbr.conf
+
+# Verify
+cat /proc/sys/net/ipv4/tcp_congestion_control
+# bbr
+
+# Per-connection congestion control
+iperf3 -c server --congestion bbr
+```
+
+**BBR vs CUBIC performance** (typical 10 Gbps link with 0.1% loss):
+
+| Algorithm | Throughput | P50 Latency | P99 Latency |
+|-----------|-----------|-------------|-------------|
+| CUBIC | 2.3 Gbps | 12ms | 89ms |
+| BBR | 8.7 Gbps | 8ms | 23ms |
+
+BBR achieves ~3.8x higher throughput under packet loss because it doesn't
+reduce the congestion window as aggressively as CUBIC.
+
+## TCP Buffer Sizing with BDP
+
+The **Bandwidth-Delay Product (BDP)** determines the optimal TCP buffer size:
+
+```
+BDP = Bandwidth × RTT
+```
+
+```bash
+# Example: 25 Gbps link, 1ms RTT
+# BDP = 25,000,000,000 bits/s × 0.001s = 25,000,000 bits = 3.125 MB
+
+# Set buffers to at least 2× BDP
+sysctl -w net.core.rmem_max=8388608       # 8 MB
+sysctl -w net.core.wmem_max=8388608
+sysctl -w net.ipv4.tcp_rmem="4096 262144 8388608"
+sysctl -w net.ipv4.tcp_wmem="4096 262144 8388608"
+
+# Example: 100 Gbps link, 60ms RTT (long distance)
+# BDP = 100,000,000,000 × 0.060 / 8 = 750 MB
+sysctl -w net.core.rmem_max=1073741824    # 1 GB
+sysctl -w net.core.wmem_max=1073741824
+sysctl -w net.ipv4.tcp_rmem="4096 262144 1073741824"
+sysctl -w net.ipv4.tcp_wmem="4096 262144 1073741824"
+```
+
+### Verifying Buffer Auto-Tuning
+
+```bash
+# Monitor actual buffer sizes in use
+watch -n 1 'ss -tnpi | grep -oP "skmem:\(r\d+,rb\d+" | head -5'
+
+# Or with bpftrace
+sudo bpftrace -e 'kprobe:tcp_rcv_established {
+    @buf_size = hist(((struct sock *)arg0)->sk_rcvbuf);
+}'
+
+# Check if auto-tuning is enabled
+sysctl net.ipv4.tcp_moderate_rcvbuf
+# 1 (enabled)
+```
+
+## Network Latency Analysis
+
+### Measuring Latency
+
+```bash
+# ICMP latency
+ping -c 100 -i 0.01 192.168.1.100
+# rtt min/avg/max/mdev = 0.045/0.067/0.123/0.012 ms
+
+# TCP handshake latency
+hping3 -S -p 80 -c 100 192.168.1.100
+
+# Application-level latency
+curl -o /dev/null -s -w "dns: %{time_namelookup}s\nconnect: %{time_connect}s\nttfb: %{time_starttransfer}s\ntotal: %{time_total}s\n" https://example.com
+
+# Tracepath with per-hop latency
+tracepath 192.168.1.100
+```
+
+### Latency Histogram with bpftrace
+
+```bash
+# TCP RTT histogram
+sudo bpftrace -e 'kprobe:tcp_rcv_established {
+    $sk = (struct sock *)arg0;
+    @usec = hist($sk->tcp_mstamp - $sk->tcp_rcv_tstamp);
+}'
+
+# Connection latency histogram
+sudo bpftrace -e 'kprobe:tcp_v4_connect { @start[tid] = nsecs; }
+    kretprobe:tcp_v4_connect /@start[tid]/ {
+        @latency_us = hist((nsecs - @start[tid]) / 1000);
+        delete(@start[tid]);
+    }'
+```
+
+## Network Offloads and Hardware Features
+
+Modern NICs offer hardware offloads that significantly impact performance:
+
+```bash
+# Check current offload status
+ethtool -k eth0 | grep -E "on|off"
+
+# Key offloads:
+ethtool -K eth0 tso on       # TCP Segmentation Offload
+ethtool -K eth0 gro on       # Generic Receive Offload
+ethtool -K eth0 gso on       # Generic Segmentation Offload
+ethtool -K eth0 lro on       # Large Receive Offload
+ethtool -K eth0 rxvlan on    # VLAN offload
+ethtool -K eth0 txvlan on
+
+# Check offload statistics
+ethtool -S eth0 | grep -i offload
+```
+
+| Offload | Direction | Impact | Notes |
+|---------|-----------|--------|-------|
+| TSO | TX | Reduces CPU by ~80% for large sends | Kernel merges segments in HW |
+| GRO | RX | Reduces interrupt rate | Aggregates small packets |
+| GSO | TX | Software TSO fallback | Used when TSO unavailable |
+| LRO | RX | Similar to GRO | Deprecated in favor of GRO |
+| Checksum | Both | Reduces CPU per packet | Always enable |
+
+### Verifying Offload Impact
+
+```bash
+# Test with offloads enabled
+iperf3 -c 192.168.1.100 -t 10 -P 4
+# [SUM] 37.8 Gbits/sec
+
+# Disable TSO and test
+ethtool -K eth0 tso off
+iperf3 -c 192.168.1.100 -t 10 -P 4
+# [SUM] 22.3 Gbits/sec  ← ~40% drop!
+
+# Re-enable
+ethtool -K eth0 tso on
+```
+
+## Network Namespace Performance Testing
+
+Use network namespaces for isolated testing:
+
+```bash
+# Create test namespaces
+ip netns add server
+ip netns add client
+
+# Create veth pair
+ip link add veth-srv type veth peer name veth-cli
+ip link set veth-srv netns server
+ip link set veth-cli netns client
+
+# Configure and bring up
+ip netns exec server ip addr add 10.0.0.1/24 dev veth-srv
+ip netns exec server ip link set veth-srv up
+ip netns exec client ip addr add 10.0.0.2/24 dev veth-cli
+ip netns exec client ip link set veth-cli up
+
+# Test throughput in isolation
+ip netns exec server iperf3 -s &
+ip netns exec client iperf3 -c 10.0.0.1 -t 10
+
+# Cleanup
+ip netns del server
+ip netns del client
+```
+
+## Network Performance Monitoring with eBPF
+
+```bash
+# TCP connection tracking
+sudo bpftrace -e 'kprobe:tcp_v4_connect { @connects[comm] = count(); }'
+
+# TCP retransmit tracking
+sudo bpftrace -e 'tracepoint:tcp:tcp_retransmit_skb {
+    @retransmits[comm] = count();
+    printf("retransmit: %s %s\n", comm, ntop(args->saddr));
+}'
+
+# Socket buffer overflow detection
+sudo bpftrace -e 'kprobe:__udp_enqueue_schedule_skb /retval != 0/ {
+    @drops[comm] = count();
+    printf("UDP drop: %s\n", comm);
+}'
+
+# Packet latency (time from NIC to application)
+sudo /usr/share/bcc/tools/tcprtt
+# Tracing TCP RTT... Hit Ctrl-C to end.
+#     msecs        : count    distribution
+#     0 -> 1       : 2345     |****************************************|
+#     2 -> 3       : 123      |**                                      |
+#     4 -> 7       : 45       |*                                       |
+```
+
 ## References
 
 - [Linux Network Performance Tuning](https://access.redhat.com/sites/default/files/attachments/20150325_network_performance_tuning.pdf)
 - [TCP/IP Illustrated, Volume 1](https://www.amazon.com/TCP-IP-Illustrated-Vol-Implementation/dp/0201633469)
 - [iperf3 Documentation](https://iperf.fr/iperf-doc.php)
+- Gregg, B. *Systems Performance: Enterprise and the Cloud*, 2nd Edition (2020).
+- [Linux perf Examples — Brendan Gregg](https://www.brendangregg.com/perf.html)
+- [BBR Congestion Control — Google](https://developers.google.com/speed/bbr)
 
 ## Further Reading
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
-- [LWN.net - Linux and free software news](https://lwn.net/)
+- [LWN.net — Linux and free software news](https://lwn.net/)
 - [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
 - [GNU Manuals](https://www.gnu.org/manual/manual.html)
 - [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
 - [Planet GNU](https://planet.gnu.org/)
 - [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
-
-- <https://www.kernel.org/doc/html/latest/networking/> - Linux networking documentation
-- <https://blog.cloudflare.com/> - Cloudflare networking blog
-- <https://netdevconf.org/> - Linux networking conference
+- <https://www.kernel.org/doc/html/latest/networking/> — Linux networking documentation
+- <https://blog.cloudflare.com/> — Cloudflare networking blog
+- <https://netdevconf.org/> — Linux networking conference
+- <https://datatracker.ietf.org/doc/draft-cardwell-iccrg-bbr-congestion-control/> — BBR RFC draft
 
 ## Related Topics
 
 - [Performance Overview](overview.md)
 - [Kernel Tuning Parameters](kernel-params.md)
 - [Benchmarking](benchmarking.md)
+- [NUMA Optimization](numa.md)
+- [I/O Performance](io.md)
