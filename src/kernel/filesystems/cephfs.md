@@ -682,6 +682,59 @@ ceph health detail | grep -i "osd"
 | Inline compression | Yes (BlueStore) | No | No | No |
 | Best for | Cloud, research | NAS replacement | HPC, supercomputing | HPC, small-medium |
 
+## CephFS File Layouts (Advanced)
+
+### Per-Directory Layouts
+
+Different directories can have different data layouts:
+
+```bash
+# Set layout on a directory
+setfattr -n ceph.file.layout.stripe_unit -v 1048576 /data/fast
+setfattr -n ceph.file.layout.stripe_count -v 4 /data/fast
+setfattr -n ceph.file.layout.pool -v cephfs_data_fast /data/fast
+
+# Inherit layout from parent directory
+# Files created under /data/fast will use the configured layout
+```
+
+### RADOS Pool Configuration for Performance
+
+```bash
+# Create pools with different replication levels
+cfs osd pool create cephfs_fast 128 128 replicated
+cfs osd pool create cephfs_archive 64 64 erasure
+
+# Set erasure coding for archive data (space-efficient)
+cfs osd pool set cephfs_archive crush_rule erasure
+
+# Map directories to pools
+setfattr -n ceph.file.layout.pool -v cephfs_archive /data/archive
+```
+
+## CephFS with DAX (Direct Access)
+
+On supported hardware (DAX-capable storage), the kernel client can bypass
+the page cache for memory-mapped files:
+
+```bash
+# Enable DAX on a directory
+setfattr -n ceph.dir.pin -v -1 /data/dax
+
+# Mount with DAX support (kernel 5.11+)
+mount -t ceph ... -o dax=always
+```
+
+## CephFS Limitations
+
+| Limitation | Description |
+|------------|-------------|
+| Quota enforcement | Client-cooperative; adversarial clients can bypass |
+| Hard links | Limited to same MDS rank |
+| File locking | Distributed locks via MDS, higher overhead than local FS |
+| Small file I/O | MDS becomes bottleneck for metadata-heavy workloads |
+| Network dependency | All I/O requires network; no local caching for writes |
+
 ## Further Reading
 
 - [CephFS Documentation](https://docs.ceph.com/en/latest/cephfs/) — Official Ceph docs

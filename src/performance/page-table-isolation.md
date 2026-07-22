@@ -487,6 +487,60 @@ perf stat -e dTLB-load-misses,dTLB-store-misses -a sleep 10
 cat /proc/vmstat | grep tlb
 ```
 
+## KPTI Implementation Deep Dive
+
+### User Page Table Construction
+
+```c
+/* When a process is created, KPTI builds two page tables:
+ *
+ * 1. Kernel page table (full, shared per-CPU)
+ *    - All kernel memory (0xFFFF800000000000+)
+ *    - All user memory (mapped, but US=0 in kernel mode)
+ *    - All device MMIO regions
+ *
+ * 2. User page table (per-process)
+ *    - User memory only
+ *    - Minimal kernel entry trampolines (syscall, interrupt entry points)
+ *    - Just enough to switch to kernel page tables
+ */
+
+/* The trampoline code is mapped from kernel page tables
+ * into user page tables at boot time:
+ */
+static void pti_clone_pmds(char *start, char *end, pgprot_t prot)
+{
+    /* For each PMD in the range, clone it from kernel
+     * page tables into user page tables */
+    for (; start < end; start += PMD_SIZE) {
+        pti_clone_pmd(start, prot);
+    }
+}
+```
+
+### CR3 Switch Cost Analysis
+
+```
+Cost breakdown of a CR3 switch:
+
+With PCID:
+- Write CR3 with new PCID: ~20 cycles
+- TLB entries from old PCID preserved
+- No TLB flush
+- Total: ~20 cycles (fast)
+
+Without PCID:
+- Write CR3 with flush: ~200-1000 cycles
+- Full TLB flush on every switch
+- Next memory access: TLB miss (~100 cycles)
+- Total: ~300-1100 cycles per switch (slow)
+
+Syscall with KPTI:
+- User → kernel: CR3 switch (kernel PCID)
+- Kernel → user: CR3 switch (user PCID)
+- Total overhead: ~40 cycles with PCID, ~600-2200 without
+```
+
 ## Additional CPU Vulnerabilities and Mitigations
 
 ### L1TF (L1 Terminal Fault)
