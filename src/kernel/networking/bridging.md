@@ -666,6 +666,100 @@ bridge vlan del dev tap1 vid 1
 ip link set br0 up
 ```
 
+## Bridge Performance Tuning
+
+### FDB Hash Table Sizing
+
+```bash
+# Default hash size: 4096 entries
+# Increase for large networks
+echo 65536 > /sys/class/net/br0/bridge/hash_max
+
+# Set ageing time (seconds)
+# Default: 300s (5 minutes)
+echo 600 > /sys/class/net/br0/bridge/ageing_time
+
+# View FDB statistics
+cat /sys/class/net/br0/bridge/hash_max
+# 4096
+```
+
+### Bridge Port Settings
+
+```bash
+# Set port priority (lower = preferred for STP)
+ip link set eth0 type bridge_slave priority 10
+
+# Set path cost (lower = preferred path)
+ip link set eth0 type bridge_slave cost 100
+
+# Enable hairpin mode (for VM-to-VM on same port)
+ip link set tap0 type bridge_slave hairpin on
+
+# Set multicast fast leave
+ip link set eth0 type bridge_slave mcast_fast_leave on
+```
+
+### Monitoring Bridge Performance
+
+```bash
+# Bridge statistics
+ip -s link show br0
+# RX: bytes packets errors dropped overrun mcast
+# TX: bytes packets errors dropped carrier collsns
+
+# Per-port statistics
+bridge -s link show
+# Port 1: eth0
+#   RX: 12345678 bytes, 12345 packets
+#   TX: 98765432 bytes, 98765 packets
+
+# Monitor FDB changes in real-time
+bridge monitor fdb
+
+# Count active FDB entries
+bridge fdb show | grep -v permanent | wc -l
+```
+
+## Common Bridge Issues
+
+### Broadcast Storms
+
+Without STP, redundant bridge paths cause broadcast storms:
+
+```bash
+# Enable STP to prevent loops
+ip link set br0 type bridge stp_state 1
+
+# Or use bridge priority to control root bridge election
+ip link set br0 type bridge priority 4096
+```
+
+### MTU Mismatch
+
+```bash
+# Ensure all bridge ports have same MTU
+ip link set eth0 mtu 1500
+ip link set eth1 mtu 1500
+ip link set br0 mtu 1500
+
+# For jumbo frames
+ip link set br0 mtu 9000
+ip link set eth0 mtu 9000
+ip link set eth1 mtu 9000
+```
+
+### DHCP Issues with Bridging
+
+```bash
+# Ensure bridge forwards DHCP
+echo 1 > /proc/sys/net/bridge/bridge-nf-call-iptables
+
+# Or use bridge-specific ebtables
+ebtables -A FORWARD -p IPv4 --ip-protocol UDP \
+    --ip-destination-port 67:68 -j ACCEPT
+```
+
 ## Related Topics
 
 - [Network Bonding](./bonding.md) — Link aggregation
