@@ -413,6 +413,104 @@ CONFIG_CGROUP_V2=y
 zgrep CONFIG_CGROUP_NS /proc/config.gz
 ```
 
+## Cgroup v1 vs v2 Namespaces
+
+### Key Differences
+
+Cgroup namespaces work differently with cgroup v1 and v2:
+
+| Feature | cgroup v1 | cgroup v2 |
+|---------|-----------|-----------|
+| Namespace support | Yes (Linux 4.6+) | Yes (Linux 4.6+) |
+| Hierarchy | Multiple hierarchies | Single hierarchy |
+| Delegation | Complex (per-controller) | Simple (subtree_control) |
+| Container view | Hides path per controller | Hides unified path |
+| Resource control | Per-controller limits | Unified controllers |
+
+### Migration from v1 to v2
+
+```bash
+# Check current cgroup version
+$ stat -fc %T /sys/fs/cgroup/
+cgroup2fs  # cgroup v2
+# tmpfs    # cgroup v1
+
+# Check which version a container uses
+$ docker inspect --format '{{.HostConfig.CgroupnsMode}}' <container>
+private   # cgroup namespace enabled
+host      # no cgroup namespace
+
+# Kubernetes cgroup driver (must match runtime)
+# /var/lib/kubelet/config.yaml
+cgroupDriver: systemd  # or cgroupfs
+```
+
+## Security Implications
+
+### Information Leak Prevention
+
+Without cgroup namespaces, a container can enumerate all cgroups on the host:
+
+```bash
+# Without cgroup namespace -- information leak
+$ docker run --rm --cgroupns=host ubuntu cat /proc/self/cgroup
+0::/system.slice/docker-abc123.scope
+
+# Container can see other cgroups:
+$ ls /sys/fs/cgroup/
+# system.slice/  user.slice/  docker-xyz.scope/  kubepods/...
+# Reveals: other containers, system services, user sessions
+```
+
+With cgroup namespaces, the container only sees its own subtree:
+
+```bash
+# With cgroup namespace (default)
+$ docker run --rm ubuntu cat /proc/self/cgroup
+0::/
+
+$ docker run --rm ubuntu ls /sys/fs/cgroup/
+# Only shows files in the container's own cgroup
+# cgroup.procs  cgroup.controllers  cgroup.subtree_control  ...
+```
+
+### Capability Requirements
+
+Creating a cgroup namespace requires `CAP_SYS_ADMIN` in the current
+user namespace.  Unprivileged users can create cgroup namespaces only if
+cgroup delegation is properly configured:
+
+```bash
+# Check if user can create cgroup namespace
+$ unshare --cgroup echo "OK"
+# Fails without privilege
+
+# With proper delegation (rootless containers)
+$ podman run --rm ubuntu cat /proc/self/cgroup
+0::/  # Works with user namespace + cgroup delegation
+```
+
+### Attack Surface Reduction
+
+Cgroup namespaces reduce the attack surface by:
+
+1. **Hiding host topology**: Containers cannot discover other workloads
+2. **Preventing cgroup escapes**: Delegation boundaries are enforced
+3. **Limiting information**: No visibility into resource limits of others
+4. **Supporting rootless**: Enables unprivileged cgroup management
+
+```mermaid
+flowchart TD
+    subgraph "Without cgroup ns"
+        C1["Container"] -->|"sees all"| HOST_CGROUPS["Host cgroup tree
+(all workloads visible)"]
+    end
+    subgraph "With cgroup ns"
+        C2["Container"] -->|"sees only self"| OWN_CGROUP["Own cgroup
+(isolated view)"]
+    end
+```
+
 ## Further Reading
 
 - [cgroup_namespaces(7) man page](https://man7.org/linux/man-pages/man7/cgroup_namespaces.7.html)
