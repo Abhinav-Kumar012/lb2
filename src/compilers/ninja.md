@@ -448,15 +448,421 @@ build build/app: link build/main.o | check
 # 'check' runs as a side-effect but doesn't block 'build/app'
 ```
 
-## References
+## Dynamic Dependencies (dyndep)
 
-- [The Linux Kernel Documentation](https://docs.kernel.org/)
-- [LWN.net - Linux and free software news](https://lwn.net/)
-- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
-- [GNU Manuals](https://www.gnu.org/manual/manual.html)
-- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
-- [Planet GNU](https://planet.gnu.org/)
-- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+Ninja 1.10+ supports dynamic dependencies, where build edges can discover additional inputs at build time:
+
+```ninja
+# dyndep allows rules to produce .ninja files that declare
+# additional implicit/order-only dependencies
+
+rule gen_dd
+  command = ./generate_deps.py $in $out $out.dyn
+  dyndep = $out.dyn
+  restat = 1
+
+build build/intermediate.o: gen_dd source.txt | build/deps.ninja
+  dyndep = build/deps.ninja
+```
+
+The dyndep file format:
+
+```ninja
+# build/deps.ninja (generated at build time)
+ninja_dyndep_version = 1
+
+build build/intermediate.o: dyndep
+  implicit = build/extra_dep1.h build/extra_dep2.h
+```
+
+### Use Cases for dyndep
+
+- **Fortran module dependencies** — module files discovered after compilation
+- **Code generators** — output dependencies unknown until generator runs
+- **Protocol buffers** — `.proto` imports discovered at build time
+- **Rust build scripts** — `build.rs` declares dependencies dynamically
+
+```bash
+# Verify dyndep is supported
+ninja --version
+# Must be >= 1.10
+
+# CMake uses dyndep for Fortran projects
+cmake -G Ninja -DCMAKE_Fortran_COMPILER=gfortran ..
+```
+
+## Restat Optimization
+
+The `restat = 1` attribute enables a powerful optimization: if a rule's output doesn't change after execution, Ninja skips rebuilding downstream dependents:
+
+```ninja
+rule configure
+  command = ./configure.sh $out
+  restat = 1           # If output unchanged, skip dependents
+  generator = 1
+
+rule compile
+  command = gcc -c $in -o $out
+
+build config.h: configure config.sh
+build main.o: compile main.c
+  # Won't rebuild main.o if config.h content unchanged!
+```
+
+### How Restat Works
+
+```mermaid
+sequenceDiagram
+    participant N as Ninja
+    participant R as Rule (configure)
+    participant F as config.h
+    participant C as Compile (main.o)
+
+    N->>R: Execute configure
+    R->>F: Write config.h
+    N->>F: stat() config.h
+    alt mtime changed
+        N->>C: Rebuild main.o
+    else mtime unchanged
+        N->>C: SKIP (no change)
+    end
+```
+
+Benefits:
+- Avoids unnecessary rebuilds when generator output is identical
+- Critical for CMake configure step (regenerates `build.ninja`)
+- Reduces build times in CI where configure runs every time
+
+## Advanced Pool Strategies
+
+### Memory-Aware Pool Configuration
+
+```ninja
+# Heavy compilation (e.g., template-heavy C++)
+pool heavy_pool
+  depth = 2
+
+# Light compilation (simple C files)
+pool light_pool
+  depth = 8
+
+rule cc_heavy
+  command = g++ -O3 -flto $in -c -o $out
+  pool = heavy_pool
+
+rule cc_light
+  command = gcc -O0 $in -c -o $out
+  pool = light_pool
+
+# Linking is always memory-intensive
+pool link_pool
+  depth = 1
+
+rule link
+  command = g++ $in -o $out
+  pool = link_pool
+
+# Console pool for interactive commands
+pool console
+  depth = 1
+
+rule test
+  command = ./run_tests.sh
+  pool = console
+```
+
+### Combining Pools with Response Files
+
+```ninja
+rule link
+  command = g++ @$out.rsp -o $out
+  rspfile = $out.rsp
+  rspfile_content = $in_newline $ldflags
+  pool = link_pool
+  description = LINK $out
+
+# Response files handle command-line length limits (>128KB)
+# Especially important for large projects with many object files
+```
+
+## CI/CD Integration
+
+### GitHub Actions with Ninja
+
+```yaml
+# .github/workflows/build.yml
+name: Build
+on: [push, pull_request]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: sudo apt-get install -y ninja-build cmake build-essential
+      - name: Configure
+        run: cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: ninja -C build -j$(nproc)
+      - name: Test
+        run: ninja -C build test
+```
+
+### CCache + Ninja
+
+```bash
+# CCache caches compilation results for faster rebuilds
+apt install ccache
+
+# Configure with CCache
+cmake -G Ninja -B build \
+    -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+    -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+# Build with cache
+ninja -C build
+
+# First build: compiles everything
+# Subsequent builds: ccache hits (near-instant)
+
+# CCache stats
+ccache -s
+# Cacheable calls:   1234 / 1234 (100%)
+# Hits:               987 / 1234 (80%)
+# Direct:             800
+# Preprocessed:       187
+```
+
+### Ninja in Docker Builds
+
+```dockerfile
+FROM ubuntu:22.04
+RUN apt-get update && apt-get install -y ninja-build cmake g++
+COPY . /src
+WORKDIR /src
+RUN cmake -G Ninja -B build && ninja -C build
+```
+
+## Performance Profiling Builds
+
+### Measuring Build Time
+
+```bash
+# Time the build
+time ninja -j$(nproc)
+
+# Ninja's built-in timing (build log)
+cat .ninja_log | sort -k2 -n | tail -20
+# Format: start_time end_time mtime target
+# Shows which targets took longest
+
+# Parse ninja_log for analysis
+awk -F'\t' '{print ($2-$1)/1000 "s " $5}' .ninja_log | sort -rn | head -20
+# 12.345s src/libheavy.cpp.o
+# 8.234s src/app.cpp.o
+# 5.678s tests/test_main.cpp.o
+```
+
+### Identifying Bottlenecks
+
+```bash
+# Show what would be rebuilt (dry run)
+ninja -n -j1 2>&1 | head -50
+
+# Show the critical path
+ninja -t graph all | dot -Tpng > dep_graph.png
+
+# Show commands that would run
+ninja -t commands all | head -50
+
+# Stats about build graph
+ninja -d stats
+# metric             count
+# edges visited      4567
+# edges examined     12345
+# nodes total        2345
+# paths searched     5678
+# path hash hits     234
+```
+
+### Build Graph Visualization
+
+```bash
+# Generate dependency graph
+cmake --build build --target graphviz  # CMake-specific
+
+# Or from Ninja directly
+ninja -t graph all | dot -Tsvg > build_graph.svg
+
+# Show why a target rebuilds
+ninja -t commands target.o
+
+# List all targets with descriptions
+ninja -t targets all
+ninja -t targets rule cc  # Filter by rule
+```
+
+## Ninja Debugging Reference
+
+### Debug Flags
+
+```bash
+ninja -d stats        # Build graph statistics
+ninja -d explain      # Explain why targets rebuild
+ninja -d keeprsp      # Keep response files for inspection
+ninja -d list         # List all debug options
+
+# Combine with verbose output
+ninja -d explain -v 2>&1 | tee build_debug.log
+```
+
+### Common Build Issues
+
+```bash
+# Problem: "no such file or directory" for generated headers
+# Solution: Add order-only dependency
+# build main.o: cc main.c || build/generated.h
+
+# Problem: Build loops ("still dirty after 100 tries")
+# Solution: Check for circular dependencies or missing outputs
+ninja -t targets all | grep <problematic_target>
+
+# Problem: Builds too slow
+# Solution: Check parallelism and pools
+ninja -j$(nproc)  # Use all cores
+ninja -t graph | dot -Tpng > graph.png  # Visualize dependencies
+
+# Problem: "multiple rules generate the same output"
+# Solution: Remove duplicate build edges
+ninja -t targets all | sort | uniq -d  # Find duplicates
+```
+
+## Writing Ninja Generators
+
+### Python Generator Pattern
+
+```python
+#!/usr/bin/env python3
+"""Advanced build.ninja generator with dependency tracking."""
+
+import glob
+import os
+import hashlib
+
+# Configuration
+CXX = "g++"
+CFLAGS = "-Wall -Wextra -O2 -g"
+LDFLAGS = "-lm -lpthread"
+
+# Source discovery
+sources = sorted(glob.glob("src/**/*.cpp", recursive=True))
+objects = []
+
+with open("build.ninja", "w") as f:
+    # Rules
+    f.write(f"""
+rule cc
+  command = {CXX} -MMD -MF $out.d ${{cflags}} -c $in -o $out
+  depfile = $out.d
+  description = CC $out
+
+rule link
+  command = {CXX} @$out.rsp -o $out ${{ldflags}}
+  rspfile = $out.rsp
+  rspfile_content = $in_newline
+  description = LINK $out
+
+rule test
+  command = ./$in
+  pool = console
+  description = TEST $in
+""")
+
+    # Build edges
+    for src in sources:
+        obj = src.replace("src/", "build/").replace(".cpp", ".o")
+        objects.append(obj)
+        f.write(f"build {obj}: cc {src}\n")
+
+    f.write(f"\nbuild build/app: link {' '.join(objects)}\n")
+    f.write("build test: phony build/app\n")
+    f.write("default build/app\n")
+
+print(f"Generated build.ninja with {len(objects)} targets")
+```
+
+### CMake Custom Generator for Ninja
+
+```cmake
+# CMakeLists.txt — generates build.ninja
+cmake_minimum_required(VERSION 3.20)
+project(MyApp LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+
+# Main library
+add_library(mylib src/lib.cpp src/utils.cpp)
+target_include_directories(mylib PUBLIC include)
+
+# Main executable
+add_executable(app src/main.cpp)
+target_link_libraries(app mylib)
+
+# Custom command with Ninja-specific features
+add_custom_command(
+  OUTPUT ${CMAKE_BINARY_DIR}/generated.h
+  COMMAND ${CMAKE_SOURCE_DIR}/scripts/gen_header.py ${CMAKE_BINARY_DIR}/generated.h
+  DEPENDS ${CMAKE_SOURCE_DIR}/scripts/gen_header.py
+  COMMENT "Generating header"
+)
+
+# Tests
+enable_testing()
+add_executable(tests test/test_main.cpp)
+target_link_libraries(tests mylib)
+add_test(NAME unit_tests COMMAND tests)
+```
+
+## Ninja File Format Specification
+
+### Valid Characters
+
+```ninja
+# Identifiers: [a-zA-Z0-9_.-]+
+# Variables: $
+# Comments: # (must be at start of line or after a rule/build keyword)
+# Paths: forward slashes (even on Windows)
+
+# Escaping:
+# $: literal dollar
+# $: newline continuation (line continues after whitespace)
+# ${var}: variable reference (braces for disambiguation)
+```
+
+### Edge Scoping Rules
+
+```ninja
+# Variables can be set at three scopes:
+
+# 1. Global scope
+cflags = -O2
+
+# 2. Rule scope (inside rule block)
+rule cc
+  command = gcc $cflags -c $in -o $out
+  # $cflags refers to global variable
+
+# 3. Build edge scope (overrides rule defaults)
+build debug.o: cc debug.c
+  cflags = -O0 -g  # Overrides global $cflags for this edge only
+
+# Variable lookup order:
+# 1. Edge-specific
+# 2. Rule defaults
+# 3. Global
+```
+
+## References
 
 - [Ninja Manual](https://ninja-build.org/manual.html) — official documentation
 - [Ninja GitHub](https://github.com/ninja-build/ninja) — source code
@@ -464,6 +870,7 @@ build build/app: link build/main.o | check
 - [Meson Build System](https://mesonbuild.com/) — uses Ninja as backend
 - [GN Build System](https://gn.googlesource.com/gn/) — Chromium's generator for Ninja
 - [How Ninja differs from Make](https://ninja-build.org/manual.html#_comparison_to_make) — design rationale
+- [Ninja dyndep specification](https://ninja-build.org/manual.html#_dynamic_dependencies) — dynamic dependency docs
 
 ## Related Topics
 
