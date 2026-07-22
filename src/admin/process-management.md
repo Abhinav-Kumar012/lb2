@@ -450,6 +450,466 @@ graph TD
     style F fill:#d69e2e,color:#fff
 ```
 
+## Cgroups v2 — Modern Resource Control
+
+Linux Control Groups v2 (unified hierarchy) is the modern resource management framework:
+
+### Cgroups v2 Architecture
+
+```mermaid
+graph TB
+    subgraph Unified_Hierarchy
+        ROOT["/sys/fs/cgroup/\n(root cgroup)"]
+        SYS["system.slice"]
+        USR["user.slice"]
+        CUSTOM["custom.slice"]
+        NGINX["nginx.service"]
+        PG["postgresql.service"]
+        APP["myapp.service"]
+    end
+    ROOT --> SYS
+    ROOT --> USR
+    ROOT --> CUSTOM
+    SYS --> NGINX
+    SYS --> PG
+    CUSTOM --> APP
+```
+
+### Cgroups v2 Filesystem Interface
+
+```bash
+# Mount cgroups v2
+mount -t cgroup2 none /sys/fs/cgroup
+
+# View cgroup tree
+cat /sys/fs/cgroup/cgroup.controllers
+# cpuset cpu io memory hugetlb pids rdma misc
+
+# Create a cgroup
+mkdir /sys/fs/cgroup/myapp
+
+# Enable controllers for children
+echo "+cpu +memory +io +pids" > /sys/fs/cgroup/cgroup.subtree_control
+
+# Assign process to cgroup
+echo $PID > /sys/fs/cgroup/myapp/cgroup.procs
+
+# View processes in cgroup
+cat /sys/fs/cgroup/myapp/cgroup.procs
+
+# Remove cgroup (must be empty)
+rmdir /sys/fs/cgroup/myapp
+```
+
+### CPU Controller
+
+```bash
+# Set CPU weight (relative share, 1-10000, default 100)
+echo 200 > /sys/fs/cgroup/myapp/cpu.weight
+
+# Set CPU max (hard limit)
+echo "50000 100000" > /sys/fs/cgroup/myapp/cpu.max
+# 50ms per 100ms period = 50% CPU
+
+# CPU pressure (PSI — Pressure Stall Information)
+cat /sys/fs/cgroup/myapp/cpu.pressure
+# some avg10=2.50 avg60=1.23 avg300=0.89 total=12345678
+# full avg10=0.00 avg60=0.00 avg300=0.00 total=0
+
+# Top-level CPU pressure
+cat /proc/pressure/cpu
+```
+
+### Memory Controller
+
+```bash
+# Set memory hard limit (OOM-kill if exceeded)
+echo 512M > /sys/fs/cgroup/myapp/memory.max
+
+# Set memory high (throttle, don't kill)
+echo 384M > /sys/fs/cgroup/myapp/memory.high
+
+# Set memory low (best-effort protection)
+echo 256M > /sys/fs/cgroup/myapp/memory.low
+
+# Swap limit
+echo 100M > /sys/fs/cgroup/myapp/memory.swap.max
+
+# View memory usage
+cat /sys/fs/cgroup/myapp/memory.current
+cat /sys/fs/cgroup/myapp/memory.stat
+
+# Memory pressure
+cat /sys/fs/cgroup/myapp/memory.pressure
+# some avg10=5.20 avg60=3.10 avg300=1.50 total=98765432
+# full avg10=1.20 avg60=0.50 avg300=0.20 total=12345678
+```
+
+### I/O Controller
+
+```bash
+# Set I/O weight (relative, 1-10000)
+echo "default 200" > /sys/fs/cgroup/myapp/io.weight
+
+# Set I/O max (bytes per second)
+echo "8:0 rbps=50000000 wbps=25000000" > /sys/fs/cgroup/myapp/io.max
+# 8:0 = major:minor device number
+
+# View I/O usage
+cat /sys/fs/cgroup/myapp/io.stat
+# 8:0 rbytes=123456789 wbytes=987654321 rios=1234 wios=5678
+```
+
+### PIDs Controller
+
+```bash
+# Limit number of processes in cgroup
+echo 100 > /sys/fs/cgroup/myapp/pids.max
+
+# View current PID count
+cat /sys/fs/cgroup/myapp/pids.current
+```
+
+### systemd Integration with cgroups v2
+
+```bash
+# systemd uses cgroups v2 by default (unified hierarchy)
+systemd-cgls          # Show cgroup tree
+systemd-cgtop         # Real-time cgroup monitoring
+
+# Set resource limits via systemd
+systemctl set-property myapp.service CPUQuota=50%
+systemctl set-property myapp.service MemoryMax=512M
+systemctl set-property myapp.service IOReadBandwidthMax="/dev/sda 50M"
+
+# Persistent limits in unit file:
+# [Service]
+# CPUQuota=50%
+# CPUWeight=200
+# MemoryMax=512M
+# MemoryHigh=384M
+# MemoryLow=256M
+# IOWeight=200
+# TasksMax=100
+# AllowedCPUs=0-3
+
+# Delegate cgroup to user (unprivileged resource control)
+systemctl set-property user-1000.slice Delegate=yes
+```
+
+## Zombie Processes
+
+Zombies are terminated processes whose parent hasn't called `wait()`. They consume no resources but waste PID space:
+
+```bash
+# Find zombie processes
+ps aux | awk '$8 == "Z" {print}'
+# Or:
+ps -eo pid,ppid,stat,comm | grep ' Z '
+
+# Zombie state: Z (zombie) or Z+ (zombie, foreground)
+
+# Why zombies exist:
+# 1. Parent process didn't call wait()/waitpid()
+# 2. Parent is busy or buggy
+# 3. Parent is in D state (uninterruptible sleep)
+
+# Clean up zombies:
+
+# Method 1: Signal parent to reap children
+kill -SIGCHLD <PPID>
+
+# Method 2: Kill parent (zombie re-parented to init, which reaps)
+kill -TERM <PPID>
+# If parent is also zombie, try:
+kill -9 <PPID>
+
+# Method 3: Find and fix the buggy parent
+pstree -p <PPID>
+strace -p <PPID> -e trace=process
+
+# Method 4: Re-parent to init (last resort)
+# Modern kernels: PR_SET_CHILD_SUBREAPER
+prctl(PR_SET_CHILD_SUBREAPER, 1)  # In parent code
+
+# Monitor zombie count
+watch -n 1 'ps aux | awk "\$8 == \"Z\" {count++} END {print \"Zombies:\", count+0}"'
+
+# Kernel limit on zombies
+sysctl kernel.pid_max  # Max PIDs (default 32768)
+```
+
+## Process Accounting
+
+### Kernel Process Accounting
+
+```bash
+# Enable process accounting (logs all process exits)
+apt install acct
+systemctl enable --now acct
+
+# View accounting data
+lastcomm              # Show last commands executed
+lastcomm -u myuser    # Commands by user
+lastcomm -comm=ssh    # Commands by name
+
+# Summary by user
+sa -u
+# root    0.01 cpu   1234k mem   0 io  156 pts/0
+# myuser  0.05 cpu   2345k mem   12 io  89 pts/1
+
+# Summary by command
+sa -m
+# root     0.02 cpu  1500k mem  5 io
+# myuser   0.08 cpu  3000k mem  15 io
+
+# Accounting file
+# /var/log/account/pacct (binary format)
+# /var/log/account/savacct (summary)
+# /var/log/account/usracct (per-user summary)
+```
+
+### auditd — Process Auditing
+
+```bash
+# Enable audit rules for process tracking
+auditctl -a always,exit -F arch=b64 -S execve -k process_exec
+
+# Search audit logs
+ausearch -k process_exec -ts today
+
+# Process creation/destruction
+ausearch -m USER_START,USER_END -ts today
+```
+
+## Process Namespaces
+
+Namespaces isolate process views of the system:
+
+```mermaid
+graph TB
+    subgraph Host
+        PID_NS["PID namespace<br/>Process IDs"]
+        NET_NS["NET namespace<br/>Network stack"]
+        MNT_NS["MNT namespace<br/>Mount points"]
+        USER_NS["USER namespace<br/>UID/GID mapping"]
+        UTS_NS["UTS namespace<br/>Hostname"]
+        IPC_NS["IPC namespace<br/>Shared memory, semaphores"]
+        CGROUP_NS["CGROUP namespace<br/>Cgroup root"]
+        TIME_NS["TIME namespace<br/>System clocks"]
+    end
+```
+
+### Creating Namespaces
+
+```bash
+# Run command in new namespace
+unshare --pid --mount --net --uts --ipc --fork /bin/bash
+
+# With user namespace (no root needed)
+unshare --user --map-root-user /bin/bash
+
+# Enter existing namespace
+nsenter --target $PID --pid --net --mount /bin/bash
+
+# View namespace info
+ls -la /proc/$PID/ns/
+# lrwxrwxrwx 1 root root 0 ... cgroup -> 'cgroup:[4026531835]'
+# lrwxrwxrwx 1 root root 0 ... ipc -> 'ipc:[4026531839]'
+# lrwxrwxrwx 1 root root 0 ... mnt -> 'mnt:[4026531841]'
+# lrwxrwxrwx 1 root root 0 ... net -> 'net:[4026531969]'
+# lrwxrwxrwx 1 root root 0 ... pid -> 'pid:[4026531836]'
+# lrwxrwxrwx 1 root root 0 ... user -> 'user:[4026531837]'
+# lrwxrwxrwx 1 root root 0 ... uts -> 'uts:[4026531838]'
+
+# Compare namespaces
+ls -la /proc/$PID1/ns/ /proc/$PID2/ns/
+```
+
+### Practical Namespace Examples
+
+```bash
+# Network namespace for isolated network testing
+ip netns add testnet
+ip netns exec testnet ip addr
+ip netns exec testnet ping 8.8.8.8  # Fails — isolated!
+
+# Connect namespaces with veth pair
+ip link add veth0 type veth peer name veth1
+ip link set veth1 netns testnet
+ip addr add 10.0.0.1/24 dev veth0
+ip link set veth0 up
+ip netns exec testnet ip addr add 10.0.0.2/24 dev veth1
+ip netns exec testnet ip link set veth1 up
+
+# Mount namespace for isolated testing
+unshare --mount /bin/bash
+mount -t tmpfs tmpfs /tmp  # Only visible in this namespace
+
+# PID namespace
+unshare --pid --fork /bin/bash
+echo $$  # PID 1 in new namespace!
+ps aux   # Only sees processes in this namespace
+```
+
+## Resource Limits with `ulimit` and `prlimit`
+
+```bash
+# View current limits
+ulimit -a
+# core file size          (blocks, -c) 0
+# data seg size           (kbytes, -d) unlimited
+# scheduling priority             (-e) 0
+# file size               (blocks, -f) unlimited
+# max locked memory       (kbytes, -l) 64
+# max memory size         (kbytes, -m) unlimited
+# open files                      (-n) 1024
+# pipe size            (512 bytes, -p) 8
+# POSIX message queues     (bytes, -q) 819200
+# real-time priority              (-r) 0
+# stack size              (kbytes, -s) 8192
+# cpu time               (seconds, -t) unlimited
+# max user processes              (-u) 15677
+# virtual memory          (kbytes, -v) unlimited
+# file locks                      (-x) unlimited
+
+# Set limits for current shell
+ulimit -n 65536   # Open files
+ulimit -u 4096    # Max processes
+
+# Permanently in /etc/security/limits.conf:
+# myuser  soft  nofile  65536
+# myuser  hard  nofile  131072
+# myuser  soft  nproc   4096
+# myuser  hard  nproc   8192
+
+# View/set limits for running process
+prlimit -p $PID
+prlimit -p $PID --nofile=65536:131072
+
+# /proc interface
+cat /proc/$PID/limits
+# Limit                     Soft Limit Hard Limit
+# Max cpu time              unlimited  unlimited
+# Max file size             unlimited  unlimited
+# Max data size             unlimited  unlimited
+# Max stack size            8388608    unlimited
+# Max core file size        0          unlimited
+# Max resident set          unlimited  unlimited
+# Max processes             15677      15677
+# Max open files            1024       1048576
+# Max locked memory         67108864   67108864
+```
+
+## Process Security Features
+
+### seccomp — System Call Filtering
+
+```bash
+# List syscalls used by a process
+strace -c -p $PID 2>&1 | tail -20
+
+# Create seccomp filter (sandboxing)
+# Using bwrap (bubblewrap) for sandboxing:
+bwrap --ro-bind / / --dev /dev --proc /proc \
+    --unshare-all --die-with-parent \
+    /usr/bin/myapp
+
+# systemd service with seccomp
+# [Service]
+# SystemCallFilter=@system-service
+# SystemCallArchitectures=native
+# MemoryDenyWriteExecute=yes
+# ProtectSystem=strict
+# ProtectHome=yes
+```
+
+### Capabilities
+
+```bash
+# View process capabilities
+capsh --print
+cat /proc/$PID/status | grep Cap
+
+# Drop capabilities from a process
+setcap cap_net_raw+ep /usr/bin/myapp
+
+# Run with minimal capabilities
+capsh --drop=all -- -c "./myapp"
+
+# systemd service with capabilities
+# [Service]
+# CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+# AmbientCapabilities=CAP_NET_BIND_SERVICE
+# NoNewPrivileges=yes
+```
+
+## Process Debugging Deep Dive
+
+### GDB Attach to Running Process
+
+```bash
+# Attach GDB to running process (for debugging hangs)
+gdb -p $PID
+(gdb) bt           # Backtrace
+(gdb) thread apply all bt  # All threads backtrace
+(gdb) info threads
+(gdb) thread 3
+(gdb) bt
+(gdb) detach
+
+# Generate core dump without killing
+gcore $PID
+# Creates core.$PID file
+```
+
+### `/proc` Filesystem Deep Dive
+
+```bash
+# Process memory map
+wc -l /proc/$PID/maps  # Number of memory regions
+pmap -x $PID           # Detailed memory map
+
+# Process memory usage details
+cat /proc/$PID/statm
+# total resident shared text lib data dt (pages)
+
+# Process I/O statistics
+cat /proc/$PID/io
+# rchar: 1234567890
+# wchar: 987654321
+# syscr: 12345
+# syscw: 6789
+# read_bytes: 0
+# write_bytes: 0
+# cancelled_write_bytes: 0
+
+# Process status details
+cat /proc/$PID/status
+# Name:   myapp
+# Umask:  0022
+# State:  S (sleeping)
+# Tgid:   1234
+# Ngid:   0
+# Pid:    1234
+# PPid:   567
+# TracerPid: 0
+# FDSize: 64
+# Groups: 1000 1001
+# VmPeak: 2345678 kB
+# VmSize: 1234567 kB
+# VmRSS:   123456 kB
+# voluntary_ctxt_switches: 12345
+# nonvoluntary_ctxt_switches: 678
+
+# Process mount namespace info
+cat /proc/$PID/mountinfo
+
+# Process network connections
+cat /proc/$PID/net/tcp
+# Or: ss -p | grep $PID
+```
+
 ## References
 
 - [ps(1) man page](https://man7.org/linux/man-pages/man1/ps.1.html)

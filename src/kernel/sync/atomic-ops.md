@@ -101,6 +101,33 @@ s64 old = atomic64_xchg(&v, new);
 
 On 64-bit architectures, `atomic64_t` operations are native. On 32-bit architectures, they may use spinlock-based emulation (slower).
 
+### atomic64_t on 32-bit Architectures
+
+On 32-bit systems, 64-bit atomic operations cannot be performed with a single instruction. The kernel provides two strategies:
+
+1. **Spinlock emulation** (`CONFIG_GENERIC_ATOMIC64`): Uses a hash table of spinlocks keyed by the address of the `atomic64_t`. This is correct but slow — each operation requires lock acquisition.
+
+2. **Native LL/SC** (ARM with `LDRD`/`STRD`): Some 32-bit ARM processors support 64-bit load/store-exclusive pairs, enabling native 64-bit atomics.
+
+```c
+/* 32-bit x86: cmpxchg8b for 64-bit CAS */
+asm volatile("lock cmpxchg8b %0"
+             : "=m" (*ptr), "=A" (old)
+             : "m" (*ptr), "b" ((u32)new), "c" ((u32)(new >> 32)), "0" (old)
+             : "memory");
+```
+
+### Performance: atomic_t vs atomic64_t
+
+| Architecture | `atomic_inc` | `atomic64_inc` | Ratio |
+|-------------|-------------|----------------|-------|
+| x86_64 | ~5ns | ~5ns | 1x (both native) |
+| x86_32 | ~5ns | ~50ns | 10x (emulated) |
+| ARM64 | ~10ns | ~10ns | 1x (both native) |
+| ARM32 (no LDRD) | ~10ns | ~80ns | 8x (emulated) |
+
+On 32-bit systems, prefer `atomic_t` over `atomic64_t` when 32 bits suffice.
+
 ## Bit Operations
 
 ### Atomic Bit Manipulation
