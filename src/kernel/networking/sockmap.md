@@ -501,7 +501,177 @@ sudo perf trace -e 'bpf:*' -a sleep 5
 
 ---
 
-## 11. Limitations
+## 11. Error Handling and Edge Cases
+
+### Socket State Transitions
+
+Sockmap requires sockets to be in a connected state. Inserting a socket that is still listening or has been closed will fail:
+
+```c
+int ret = bpf_map_update_elem(sock_map, &key, &fd, BPF_ANY);
+if (ret < 0) {
+    /* Common errors:
+     * -EINVAL: socket not in valid state
+     * -EOPNOTSUPP: socket type not supported
+     * -ENOMEM: map full
+     */
+}
+```
+
+### Handling Socket Closure
+
+When a socket in a sockmap is closed, the kernel automatically removes it from the map. The BPF program does not need to handle this explicitly, but the application should handle the resulting errors:
+
+```c
+/* Application side: detect when peer closes */
+int n = recv(fd, buf, sizeof(buf), 0);
+if (n <= 0) {
+    /* Socket closed or error
+     * The kernel already removed it from the sockmap */
+    close(fd);
+}
+```
+
+### Race Conditions
+
+Sockmap operations are subject to standard concurrency concerns:
+
+* **Map update vs. redirect**: A socket removed from the map while a redirect is in flight will cause the redirect to fail gracefully (data is dropped).
+* **Multiple programs**: Only one verdict program can be attached to a sockmap at a time. Attaching a new one replaces the old one.
+* **Socket migration**: If a socket is moved between sockmaps, there is a brief window where redirects may target the old map.
+
+### BPF Program Error Paths
+
+```c
+SEC("sk_skb/stream_verdict")
+int verdict(struct __sk_buff *skb)
+{
+    /* Always handle malformed packets */
+    if (skb->len < sizeof(struct proto_hdr))
+        return SK_DROP;
+
+    /* Validate key before redirect */
+    int key = get_stream_key(skb);
+    if (key < 0 || key >= MAX_STREAMS)
+        return SK_DROP;
+
+    /* Check if target socket exists */
+    void *target = bpf_map_lookup_elem(&sock_map, &key);
+    if (!target)
+        return SK_PASS;  /* Fall back to normal delivery */
+
+    return bpf_sk_redirect_map(skb, &sock_map, key, 0);
+}
+```
+
+## 12. Sockmap with SO_REUSEPORT
+
+Sockmap can work with `SO_REUSEPORT` sockets, enabling multi-threaded server architectures where each thread has its own socket:
+
+```c
+/* Server: create reuseport sockets */
+int opt = 1;
+setsockopt(server_fd, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt));
+
+/* Each worker thread accepts on the same port */
+for (int i = 0; i < num_workers; i++) {
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt));
+    bind(fd, ...);
+    listen(fd, 128);
+
+    /* Insert accepted sockets into per-worker sockmap */
+    int key = i;
+    bpf_map_update_elem(worker_map[i], &key, &accepted_fd, BPF_ANY);
+}
+```
+
+With sockmap, the BPF program can distribute incoming connections across workers based on custom logic (e.g., consistent hashing of source IP).
+
+## 13. Multi-Map Architectures
+
+Complex applications may use multiple sockmaps for different traffic flows:
+
+```
+Incoming TCP ──→ Sockmap A (ingress verdict) ──→ Backend Pool 1
+                └──→ Sockmap B (ingress verdict) ──→ Backend Pool 2
+
+Backend Response ──→ Sockmap C (egress verdict) ──→ Client Socket
+```
+
+```c
+/* BPF program routing to different maps based on port */
+SEC("sk_skb/stream_verdict")
+int multi_pool_verdict(struct __sk_buff *skb)
+{
+    struct iphdr *ip = (void *)(long)skb->data;
+    struct tcphdr *tcp = (void *)(ip + 1);
+
+    __u16 dport = bpf_ntohs(tcp->dest);
+
+    if (dport == 80) {
+        int key = 0;
+        return bpf_sk_redirect_map(skb, &http_map, key, 0);
+    } else if (dport == 443) {
+        int key = 0;
+        return bpf_sk_redirect_map(skb, &https_map, key, 0);
+    }
+
+    return SK_PASS;
+}
+```
+
+## 14. Performance Tuning
+
+### Socket Buffer Sizes
+
+Sockmap bypasses the normal networking stack, but socket buffer sizes still matter:
+
+```bash
+# Increase socket buffer sizes for high-throughput sockmap
+sysctl -w net.core.rmem_max=16777216
+sysctl -w net.core.wmem_max=16777216
+sysctl -w net.ipv4.tcp_rmem="4096 131072 16777216"
+sysctl -w net.ipv4.tcp_wmem="4096 131072 16777216"
+```
+
+### BPF Program Optimization
+
+Keep verdict programs short to minimize softirq latency:
+
+* Avoid loops (use `bpf_loop()` for bounded iteration)
+* Minimize map lookups (cache results in `skb->cb[]`)
+* Use `bpf_msg_apply_bytes()` to avoid re-invocation for partial messages
+* Prefer sockhash over sockmap for dynamic socket sets (avoids linear scan)
+
+### Benchmarking
+
+```bash
+# Use perf to measure sockmap overhead
+sudo perf record -g -e 'bpf:bpf_prog_run' -- sleep 10
+sudo perf report
+
+# Measure redirect throughput
+# Install sockmap benchmark from kernel samples
+make -C tools/testing/selftests/bpf
+./tools/testing/selftests/bpf/test_sockmap
+```
+
+## 15. Kernel Version History
+
+| Kernel | Feature |
+|--------|--------|
+| 4.18   | Initial sockmap support (TCP only) |
+| 5.0    | sk_msg support, sendmsg hook |
+| 5.3    | Sockhash map type |
+| 5.6    | IPv6 sk_msg metadata |
+| 5.10   | UDP sockmap (experimental) |
+| 5.15   | Sockmap + kTLS improvements |
+| 6.0    | Multi-prog attachment |
+| 6.4    | Sockmap performance optimizations |
+| 6.8    | Sockmap + SO_REUSEPORT improvements |
+
+## 16. Limitations
 
 * Only works with **connected** sockets (TCP, Unix stream).  UDP support is
   limited and experimental.
@@ -514,16 +684,20 @@ sudo perf trace -e 'bpf:*' -a sleep 5
   sockmap has quirks).
 * TLS offload requires kTLS to be configured on both sockets.
 * IPv6 support requires kernel 5.6+ for full sk_msg metadata.
+* Sockmap redirects are per-CPU — no cross-CPU redirection without extra work.
+* Data redirected via sockmap does not pass through netfilter, so firewall
+  rules are not applied.
 
----
-
-## 12. Kernel Source Structure
+## 17. Kernel Source Structure
 
 ```
 net/core/sock_map.c          # Core sockmap/sockhash implementation
 net/core/filter.c             # BPF helper functions (redirect, etc.)
 include/linux/bpf_types.h    # BPF map type definitions
 include/uapi/linux/bpf.h     # User-space API (map types, helpers)
+net/core/skbuff.c             # sk_buff management for redirects
+net/ipv4/tcp.c                # TCP socket integration with sockmap
+net/unix/af_unix.c            # Unix socket sockmap support
 ```
 
 Key functions:
@@ -535,11 +709,13 @@ int sock_map_update_elem(struct bpf_map *map, void *key,
 int sock_hash_update_elem(struct bpf_map *map, void *key,
                           void *value, u64 flags);
 int sock_map_bpf_prog_attach(/* ... */);
+
+/* Redirect path */
+int __sock_map_redirect(struct sk_buff *skb, struct bpf_map *map);
+int sock_map_redirect(struct sk_buff *skb, struct bpf_map *map, u32 key);
 ```
 
----
-
-## 13. Further Reading
+## 18. Further Reading
 
 * **LWN: [BPF and Sockmap](https://lwn.net/Articles/731133/)**
 * **LWN: [Socket redirection with BPF](https://lwn.net/Articles/776717/)**
@@ -560,3 +736,5 @@ int sock_map_bpf_prog_attach(/* ... */);
 * [Socket Layer](./sockets.md) — the socket subsystem
 * [TC and cls_bpf](./tc.md) — traffic control BPF
 * [cgroups](../containers/cgroups-v2.md) — cgroup BPF programs
+* [tcpip-suite](../../networking/tcpip-suite.md) — TCP/IP protocol suite overview
+* [vpn](../../networking/vpn.md) — VPN technologies and tunneling
