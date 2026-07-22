@@ -443,7 +443,226 @@ quotacheck -ugm /home
 
 ---
 
-## Further Reading
+## Quota Internals
+
+### dquot Lifecycle
+
+```mermaid
+stateDiagram-v2
+    [*] --> Allocated: User first writes
+    Allocated --> Active: Quota loaded from disk
+    Active --> Dirty: Usage changes
+    Dirty --> Writeback: Periodic flush
+    Writeback --> Active: Written to disk
+    Active --> Freed: Quota disabled or inode freed
+    Freed --> [*]
+```
+
+### Quota Accounting
+
+The kernel tracks quota usage at multiple levels:
+
+```c
+/* Simplified quota accounting */
+struct dquot {
+    struct hlist_node dq_hash;     /* Hash table linkage */
+    struct list_head dq_inuse;     /* In-use list */
+    struct list_head dq_free;      /* Free list */
+    struct super_block *dq_sb;     /* Owning superblock */
+    struct kqid dq_id;             /* User or group ID */
+    qsize_t dq_dqb[MAXQUOTAS];    /* Block and inode usage */
+    /* ... */
+};
+
+/* Quota data structure */
+struct dquot {
+    qsize_t dqb_curspace;     /* Current space used */
+    qsize_t dqb_curinodes;    /* Current inodes used */
+    qsize_t dqb_bsoftlimit;   /* Block soft limit */
+    qsize_t dqb_bhardlimit;   /* Block hard limit */
+    qsize_t dqb_isoftlimit;   /* Inode soft limit */
+    qsize_t dqb_ihardlimit;   /* Inode hard limit */
+    time_t dqb_btime;         /* Block grace time */
+    time_t dqb_itime;         /* Inode grace time */
+};
+```
+
+### Quota Hash Table
+
+Dquots are stored in a hash table for fast lookup:
+
+```c
+/* Hash function for dquot lookup */
+static inline struct hlist_bl_head *
+dqhash(struct super_block *sb, struct kqid qid)\{
+    unsigned int n = hash_32(qid.val + sb->s_dev,
+                             dq_hash_bits);
+    return &dq_hashtable[n];
+}
+```
+
+## Quota Performance Impact
+
+### Overhead Analysis
+
+| Operation | Overhead | Notes |
+|-----------|----------|-------|
+| File create | ~1-2% | Inode quota check |
+| File write | ~1-3% | Block quota check + update |
+| File delete | ~1-2% | Quota release |
+| mkdir | ~1-2% | Inode quota check |
+| Quota report | ~5-10% | Scans quota database |
+
+### Tuning Quota Performance
+
+```bash
+# Reduce quota sync frequency (trade consistency for performance)
+# /etc/fstab mount options
+/dev/sda1  /home  ext4  defaults,usrquota,grpquota,jqfmt=vfsv1  0 2
+
+# For XFS, quota is always on (no performance tuning needed)
+# But you can disable enforcement while keeping accounting:
+mount -o remount,account /data
+```
+
+## Quota in Production
+
+### Multi-User Server Example
+
+```bash
+#!/bin/bash
+# Setup quotas for a shared hosting server
+
+# Enable quota on /home
+mount -o remount,usrquota,grpquota /home
+
+# Create quota files
+quotacheck -cugm /home
+
+# Set default quotas for new users
+setquota -u default 5G 6G 5000 6000 /home
+
+# Set quotas for specific users
+setquota -u alice 10G 12G 10000 12000 /home
+setquota -u bob 2G 3G 2000 3000 /home
+
+# Set group quotas
+setquota -g developers 50G 60G 50000 60000 /home
+
+# Enable quotas
+quotaon -ug /home
+
+# Verify
+repquota -s /home
+```
+
+### Quota Monitoring Script
+
+```bash
+#!/bin/bash
+# Monitor quota usage and alert on threshold
+
+THRESHOLD=90
+
+for user in $(awk -F: '$3 >= 1000 {print $1}' /etc/passwd); do
+    usage=$(quota -u $user | tail -1 | awk '{print $2}' | sed 's/%//')
+    if [ "$usage" -ge "$THRESHOLD" ]; then
+        echo "WARNING: User $user is at $usage% quota"
+        # Send alert email
+        echo "User $user quota usage: $usage%" | mail -s "Quota Alert" admin@example.com
+    fi
+done
+```
+
+## Quota and Containers
+
+### Docker Storage Limits
+
+```bash
+# Docker uses project quotas for storage limits
+# Requires XFS with pquota mount option
+
+# Mount with project quota support
+mount -o pquota /dev/sdb1 /var/lib/docker
+
+# Set container storage limit
+docker run --storage-opt size=10G ubuntu
+
+# Verify quota
+xfs_quota -x -c 'report -h' /var/lib/docker
+```
+
+### Kubernetes Ephemeral Storage
+
+```yaml
+# Kubernetes ephemeral storage limits
+apiVersion: v1
+kind: Pod
+metadata:
+  name: myapp
+spec:
+  containers:
+  - name: app
+    image: myapp:latest
+    resources:
+      limits:
+        ephemeral-storage: "10Gi"
+      requests:
+        ephemeral-storage: "5Gi"
+```
+
+## Quota Troubleshooting
+
+### Common Issues
+
+| Problem | Cause | Solution |
+|---------|-------|----------|
+| Quota not enforcing | Not mounted with quota option | Add `usrquota` to mount options |
+| Wrong usage numbers | Dirty quota database | Run `quotacheck -ugm` |
+| Project quota not working | Feature not enabled | `tune2fs -O project` |
+| Grace time not expiring | Clock skew or wrong timezone | Verify system time |
+| "Quota exceeded" error | Hard limit reached | Increase limit or free space |
+| Quota database corruption | Unclean shutdown | Run `quotacheck -ugm` |
+
+### Debugging Quota Issues
+
+```bash
+# Check quota status
+quota -v
+
+# View quota for specific user
+repquota -u alice /home
+
+# Check quota database integrity
+quotacheck -ugm /home
+
+# Force quota database rebuild
+quotacheck -fugm /home
+
+# View kernel quota messages
+dmesg | grep -i quota
+
+# Check quota format
+dumpe2fs /dev/sda1 | grep -i quota
+```
+
+### Quota Format Versions
+
+| Format | Description | Features |
+|--------|-------------|----------|
+| v0 | Original quota format | 32-bit UIDs, basic limits |
+| v1 | Improved format | 32-bit UIDs, grace times |
+| v2 | Modern format | 64-bit space accounting, project quotas |
+
+```bash
+# Check current quota format
+quotactl -f /home
+
+# Convert quota format
+quotacheck -cugm -F vfsv1 /home
+```
+
+## References
 
 - [Linux kernel source: `fs/quota/dquot.c`](https://elixir.bootlin.com/linux/latest/source/fs/quota/dquot.c)
 - [Linux kernel source: `fs/quota/quota.c`](https://elixir.bootlin.com/linux/latest/source/fs/quota/quota.c)
@@ -452,5 +671,14 @@ quotacheck -ugm /home
 - [xfs_quota(8) man page](https://man7.org/linux/man-pages/man8/xfs_quota.8.html)
 - [Arch Linux Wiki: Disk Quotas](https://wiki.archlinux.org/title/Disk_quota)
 - [Red Hat: Setting up disk quotas](https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html/managing_file_systems/setting-up-disk-quotas_managing-file-systems)
+
+## Further Reading
+
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
 
 > **Related topics:** [ext4 Filesystem](./ext4.md), [XFS Filesystem](./xfs.md), [VFS Layer](./vfs.md), [Disk Management](../admin/disk-management.md)
