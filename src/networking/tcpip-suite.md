@@ -749,6 +749,16 @@ $ cat /proc/net/snmp | grep -A1 Icmp
 $ cat /proc/net/netstat | head -2
 ```
 
+## Cross-References
+
+- [vpn](./vpn.md) — VPN technologies using TCP/IP tunnels
+- [sockmap](../kernel/networking/sockmap.md) — BPF socket redirection for TCP
+- [Network Fundamentals](fundamentals.md) — OSI model and network basics
+- [DNS](dns.md) — Domain Name System
+- [SSH](ssh.md) — Secure Shell
+- [TLS](tls.md) — Transport Layer Security
+- [Kernel TCP/IP Implementation](../kernel/networking/tcpip.md) — How the kernel implements TCP/IP
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
