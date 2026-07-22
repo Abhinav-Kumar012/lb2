@@ -191,6 +191,18 @@ typeof(*ptr) old = cmpxchg64(ptr, old_val, new_val);
 typeof(*ptr) old = cmpxchg128(ptr, old_val, new_val);
 ```
 
+### Architecture Implementation Details
+
+On x86, `cmpxchg` compiles to a single `LOCK CMPXCHG` instruction. On ARM64, it compiles to an `LDXR`/`STXR` loop. The kernel's `cmpxchg()` macro selects the correct implementation based on the pointer type size:
+
+```c
+/* x86: size-dependent instruction selection */
+case 1: asm volatile("lock cmpxchgb %b1, %0" ...);  /* LOCK CMPXCHGB */
+case 2: asm volatile("lock cmpxchw %w1, %0" ...);   /* LOCK CMPXCHGW */
+case 4: asm volatile("lock cmpxchgl %k1, %0" ...);  /* LOCK CMPXCHGL */
+case 8: asm volatile("lock cmpxchgq %1, %0" ...);   /* LOCK CMPXCHGQ */
+```
+
 ### CAS Loop Pattern
 
 The standard pattern for using cmpxchg is a retry loop:
@@ -208,6 +220,11 @@ void atomic_cas_increment(atomic_long_t *counter)
     /* Loop if cmpxchg failed (another CPU changed the value) */
 }
 ```
+
+**CAS loop performance**: Each failed iteration costs a full round-trip to the cache line owner. Under high contention, CAS loops can degrade badly. The kernel mitigates this with:
+- **Exponential backoff** (in some algorithms)
+- **Per-CPU data** to avoid contention entirely
+- **Ticket/queue-based locks** (e.g., qspinlock) instead of CAS-based spinlocks
 
 ### Lock-Free Linked List Insertion
 
@@ -283,14 +300,33 @@ rmb();
 ### x86 vs ARM Memory Ordering
 
 x86 is **strongly ordered** — loads are not reordered with loads, stores are not reordered with stores, and loads are not reordered with older stores. On x86:
-- `smp_mb()` = `lock; addl $0,0(%rsp)` (full barrier)
-- `smp_wmb()` = `barrier()` (compiler only)
-- `smp_rmb()` = `barrier()` (compiler only)
+- `smp_mb()` = `lock; addl $0,0(%rsp)` (full barrier, ~20 cycles)
+- `smp_wmb()` = `barrier()` (compiler only, ~0 cycles)
+- `smp_rmb()` = `barrier()` (compiler only, ~0 cycles)
 
 ARM is **weakly ordered** — all reorderings are possible. On ARM:
-- `smp_mb()` = `dmb ish` (data memory barrier)
-- `smp_wmb()` = `dmb ishst` (store barrier)
-- `smp_rmb()` = `dmb ishld` (load barrier)
+- `smp_mb()` = `dmb ish` (data memory barrier, ~50-100 cycles)
+- `smp_wmb()` = `dmb ishst` (store barrier, ~30-50 cycles)
+- `smp_rmb()` = `dmb ishld` (load barrier, ~30-50 cycles)
+
+RISC-V is also **weakly ordered**:
+- `smp_mb()` = `fence rw,rw` (~20-40 cycles)
+- `smp_wmb()` = `fence w,w` (~10-20 cycles)
+- `smp_rmb()` = `fence r,r` (~10-20 cycles)
+
+**Practical implication**: Code that works correctly on x86 without explicit barriers may fail on ARM/RISC-V. Always use the `_acquire`/`_release` variants or explicit barriers for portable code.
+
+### Barrier Cost Comparison
+
+| Barrier | x86_64 | ARM64 | RISC-V |
+|---------|--------|-------|--------|
+| `smp_mb()` | ~20 cycles | ~50-100 cycles | ~20-40 cycles |
+| `smp_wmb()` | ~0 (compiler) | ~30-50 cycles | ~10-20 cycles |
+| `smp_rmb()` | ~0 (compiler) | ~30-50 cycles | ~10-20 cycles |
+| `smp_store_release()` | ~0 (compiler) | ~0 (STLR) | ~0 (fence+store) |
+| `smp_load_acquire()` | ~0 (compiler) | ~0 (LDAR) | ~0 (fence+load) |
+
+The `_acquire`/`_release` variants are often cheaper than explicit barriers because they can be fused with the load/store instruction on ARM64.
 
 ### Control and Data Dependencies
 

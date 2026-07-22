@@ -471,6 +471,210 @@ The kernel documentation at `docs.kernel.org/dev-tools/index.html` provides a co
 
 The kernel supports building inside containers for reproducible build environments, with configuration for user ID mapping and environment variables.
 
+## Valgrind
+
+Valgrind is a dynamic binary analysis framework that detects memory errors, threading issues, and profiling data without recompilation.
+
+### Memory Error Detection (memcheck)
+
+```bash
+# Compile with debug info
+ gcc -g -O0 -o myapp myapp.c
+
+# Run under Valgrind
+valgrind --leak-check=full --show-leak-kinds=all ./myapp
+
+# Output example:
+# ==1234== Invalid read of size 4
+# ==1234==    at 0x400542: process_data (myapp.c:42)
+# ==1234==    by 0x4005AB: main (myapp.c:67)
+# ==1234==  Address 0x5204040 is 0 bytes after a block of size 16 alloc'd
+# ==1234==    at 0x4C2AB80: malloc (in /usr/lib/valgrind/...)
+
+# Suppress known errors
+valgrind --suppressions=myapp.supp ./myapp
+```
+
+### Thread Error Detection (helgrind)
+
+```bash
+# Detect data races and threading issues
+valgrind --tool=helgrind ./myapp
+
+# Output:
+# ==1234== Possible data race during read of size 4 at 0x5204040
+# ==1234==    at 0x400542: worker_thread (myapp.c:89)
+```
+
+### Cache Profiling (cachegrind)
+
+```bash
+# Profile CPU cache usage
+valgrind --tool=cachegrind ./myapp
+cg_annotate cachegrind.out.1234
+
+# Visualize with KCachegrind
+kcachegrind cachegrind.out.1234
+```
+
+## Sanitizers
+
+Compile-time sanitizers provide faster detection than Valgrind with lower overhead:
+
+### AddressSanitizer (ASan)
+
+```bash
+# Compile with ASan
+ gcc -fsanitize=address -g -o myapp myapp.c
+
+# Run
+./myapp
+# Detects: heap buffer overflow, stack buffer overflow, use-after-free,
+#          use-after-return, double-free, memory leaks
+
+# With leak detection
+ASAN_OPTIONS=detect_leaks=1 ./myapp
+
+# Example output:
+# ==1234==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x60200000eff4
+# READ of size 4 at 0x60200000eff4 thread T0
+#     #0 0x400702 in process_data myapp.c:42
+```
+
+### ThreadSanitizer (TSan)
+
+```bash
+# Compile with TSan
+ gcc -fsanitize=thread -g -o myapp myapp.c
+
+# Detects: data races between threads
+# Example output:
+# WARNING: ThreadSanitizer: data race (pid=1234)
+#   Write of size 4 at 0x7f1234567890 by thread T1:
+#     #0 worker myapp.c:45
+#   Previous read of size 4 at 0x7f1234567890 by thread T0:
+#     #0 main myapp.c:30
+```
+
+### MemorySanitizer (MSan)
+
+```bash
+# Compile with MSan
+ clang -fsanitize=memory -g -o myapp myapp.c
+
+# Detects: use of uninitialized memory
+```
+
+### UndefinedBehaviorSanitizer (UBSan)
+
+```bash
+# Compile with UBSan
+ gcc -fsanitize=undefined -g -o myapp myapp.c
+
+# Detects: signed integer overflow, null pointer dereference,
+#          misaligned pointer, division by zero
+```
+
+## Kernel Debugging with KASAN
+
+KASAN (Kernel Address Sanitizer) detects memory bugs in kernel code:
+
+```bash
+# Enable KASAN in kernel config
+ CONFIG_KASAN=y
+CONFIG_KASAN_INLINE=y  # Faster, larger kernel binary
+CONFIG_KASAN_OUTLINE=y # Slower, smaller kernel binary
+
+# Boot the KASAN-enabled kernel
+# KASAN reports appear in dmesg:
+dmesg | grep -i kasan
+
+# Example output:
+# BUG: KASAN: use-after-free in my_driver_read+0x100/0x200
+# Read of size 4 at addr ffff888123456789 by task myapp/1234
+# Allocated by task 1234:
+#  kmalloc+0x100/0x200
+#  my_driver_open+0x50/0x100
+# Freed by task 1234:
+#  kfree+0x100/0x200
+#  my_driver_close+0x50/0x100
+```
+
+### KFENCE (Kernel Electric-Fence)
+
+For production kernels with low overhead:
+
+```bash
+# Enable KFENCE (low overhead sampling)
+ CONFIG_KFENCE=y
+CONFIG_KFENCE_SAMPLE_INTERVAL=100  # ms
+
+# Check KFENCE status
+dmesg | grep -i kfence
+```
+
+## Practical Debugging Workflows
+
+### Workflow: Segfault Analysis
+
+```bash
+# Step 1: Get the crash address
+./myapp
+# Segmentation fault (core dumped)
+
+# Step 2: Enable core dumps
+ulimit -c unlimited
+./myapp
+
+# Step 3: Analyze with GDB
+gdb ./myapp core
+(gdb) bt
+# #0  0x0000555555555149 in process_data (ptr=0x0) at myapp.c:42
+
+# Step 4: Examine the crashing code
+(gdb) frame 0
+(gdb) print ptr
+# $1 = (int *) 0x0
+
+# Step 5: Check for related issues
+valgrind --leak-check=full ./myapp
+```
+
+### Workflow: Performance Bottleneck
+
+```bash
+# Step 1: Profile with perf
+perf record -g -F 99 ./myapp
+perf report
+
+# Step 2: Generate flame graph
+perf script | FlameGraph/stackcollapse-perf.pl | \
+    FlameGraph/flamegraph.pl > flame.svg
+
+# Step 3: If kernel-bound, use ftrace
+sudo trace-cmd record -p function_graph -g do_sys_open sleep 5
+sudo trace-cmd report
+
+# Step 4: For custom tracing, use bpftrace
+sudo bpftrace -e 'kprobe:do_sys_open { @[comm] = count(); }'
+```
+
+### Workflow: Memory Leak in Production
+
+```bash
+# Step 1: Use Valgrind (development)
+valgrind --leak-check=full --track-origins=yes ./myapp
+
+# Step 2: Or use ASan (lower overhead)
+ASAN_OPTIONS=detect_leaks=1 ./myapp
+
+# Step 3: For production, use eBPF
+sudo bpftrace -e 'kprobe:kmalloc { @[kstack] = sum(arg0); }'
+
+# Step 4: Analyze kernel memory
+sudo bpftrace -e 'kprobe:__kmalloc { @bytes[comm] = sum(arg0); }'
+```
+
 ## References
 
 - [GDB Manual](https://sourceware.org/gdb/documentation/) — official docs
