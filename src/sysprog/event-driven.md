@@ -372,6 +372,157 @@ while (1) {
 }
 ```
 
+## epoll Internals
+
+Understanding how epoll works internally helps write more efficient event-driven code.
+
+### Data Structures
+
+The kernel maintains two main data structures for each epoll instance:
+
+1. **Red-black tree** (`rb_root`): Stores all registered file descriptors. O(log n) insertion and deletion.
+2. **Ready list** (`rdllist`): Linked list of file descriptors with pending events. O(1) to add and retrieve.
+
+```mermaid
+graph TD
+    subgraph "epoll instance (epfd)"
+        RBT["Red-Black Tree<br>All registered FDs<br>O(log n) insert/delete"]
+        RDL["Ready List<br>FDs with pending events<br>O(1) add/remove"]
+    end
+    
+    subgraph "Callback chain"
+        CB["ep_poll_callback"]
+    end
+    
+    RBT -->|FD ready| CB
+    CB -->|Add to| RDL
+    RDL -->|epoll_wait returns| USER["User space"]
+```
+
+When a file descriptor becomes ready:
+1. The kernel calls `ep_poll_callback()` (registered as a wait queue callback)
+2. The callback adds the FD to the ready list (if not already there)
+3. `epoll_wait()` returns the ready list to user space
+
+### epoll_create vs epoll_create1
+
+```c
+/* Legacy: only flag is 0 */
+int epfd = epoll_create(256);  /* 256 is just a hint, not a limit */
+
+/* Modern: supports EPOLL_CLOEXEC */
+int epfd = epoll_create1(EPOLL_CLOEXEC);  /* Close-on-exec */
+```
+
+### Performance Characteristics
+
+| Operation | Time Complexity |
+|---|---|
+| `epoll_ctl(ADD)` | O(log n) |
+| `epoll_ctl(DEL)` | O(log n) |
+| `epoll_ctl(MOD)` | O(log n) |
+| `epoll_wait` (per ready FD) | O(1) |
+| Total `epoll_wait` for k ready FDs | O(k) |
+
+This is why epoll scales well: adding/removing FDs is O(log n), but waiting for events is O(1) per ready FD — regardless of the total number of monitored FDs.
+
+## kqueue: The BSD Alternative
+
+On BSD systems (FreeBSD, macOS, NetBSD), the equivalent of epoll is **kqueue**:
+
+```c
+#include <sys/event.h>
+#include <sys/time.h>
+
+/* Create kqueue */
+int kq = kqueue();
+
+/* Register interest in a file descriptor */
+struct kevent change;
+EV_SET(&change, fd, EVFILT_READ, EV_ADD, 0, 0, NULL);
+kevent(kq, &change, 1, NULL, 0, NULL);
+
+/* Wait for events */
+struct kevent events[64];
+int n = kevent(kq, NULL, 0, events, 64, NULL);
+for (int i = 0; i < n; i++) {
+    if (events[i].filter == EVFILT_READ) {
+        int fd = events[i].ident;
+        ssize_t n = read(fd, buf, sizeof(buf));
+        /* ... */
+    }
+}
+```
+
+### kqueue vs epoll
+
+| Feature | epoll | kqueue |
+|---|---|---|
+| Platform | Linux | FreeBSD, macOS, NetBSD |
+| FD types | Any FD | Any FD, plus signals, timers, processes |
+| Timer integration | Needs `timerfd` | Built-in (`EVFILT_TIMER`) |
+| Signal integration | Needs `signalfd` | Built-in (`EVFILT_SIGNAL`) |
+| Process monitoring | Needs `pidfd` | Built-in (`EVFILT_PROC`) |
+| Edge/Level trigger | Both | Edge-triggered by default |
+
+kqueue is more general — it can monitor file descriptors, signals, timers, and processes in a single API. On Linux, these require separate mechanisms (`timerfd`, `signalfd`, `pidfd`) that are then added to epoll.
+
+## Poll and Select: Legacy Multiplexing
+
+Before epoll/kqueue, Unix systems used `select()` and `poll()`:
+
+### select()
+
+```c
+#include <sys/select.h>
+
+fd_set readfds;
+FD_ZERO(&readfds);
+FD_SET(fd1, &readfds);
+FD_SET(fd2, &readfds);
+
+int maxfd = (fd1 > fd2 ? fd1 : fd2) + 1;
+struct timeval tv = { .tv_sec = 5, .tv_usec = 0 };
+
+int n = select(maxfd, &readfds, NULL, NULL, &tv);
+if (n > 0) {
+    if (FD_ISSET(fd1, &readfds)) { /* fd1 ready */ }
+    if (FD_ISSET(fd2, &readfds)) { /* fd2 ready */ }
+}
+```
+
+**Problems with select():**
+- O(n) scanning of all FDs on each call
+- Maximum FD number limited by `FD_SETSIZE` (typically 1024)
+- Must rebuild fd_set on each call
+
+### poll()
+
+```c
+#include <poll.h>
+
+struct pollfd fds[2] = {
+    { .fd = fd1, .events = POLLIN },
+    { .fd = fd2, .events = POLLIN | POLLOUT }
+};
+
+int n = poll(fds, 2, 5000);  /* 5000ms timeout */
+for (int i = 0; i < 2; i++) {
+    if (fds[i].revents & POLLIN)  { /* readable */ }
+    if (fds[i].revents & POLLOUT) { /* writable */ }
+}
+```
+
+### Comparison
+
+| Feature | select | poll | epoll |
+|---|---|---|---|
+| Max FDs | `FD_SETSIZE` (1024) | No hard limit | No hard limit |
+| Performance | O(n) | O(n) | O(1) per ready FD |
+| State between calls | Must rebuild | Keeps state | Keeps state |
+| Kernel overhead | Copies entire fd_set | Copies pollfd array | No copies |
+| Scalability | Poor | Poor | Excellent |
+
 ## The Thundering Herd Problem
 
 When multiple threads wait on the same listening socket, a new connection wakes **all** of them, but only one can accept. Solutions:
@@ -387,6 +538,153 @@ struct epoll_event ev = {
     .data.fd = listen_fd
 };
 epoll_ctl(epoll_fd, EPOLL_CTL_ADD, listen_fd, &ev);
+```
+
+## Connection Pooling with Event Loops
+
+In production event-driven servers, connection management is critical:
+
+```c
+struct connection {
+    int fd;
+    enum { CONN_READING, CONN_WRITING, CONN_IDLE } state;
+    char read_buf[16384];
+    char write_buf[16384];
+    size_t read_len;
+    size_t write_len;
+    time_t last_active;  /* For timeout detection */
+    struct connection *next;  /* Free list link */
+};
+
+#define MAX_CONNECTIONS 10000
+static struct connection conn_pool[MAX_CONNECTIONS];
+static struct connection *free_list = NULL;
+
+static void pool_init(void) {
+    for (int i = 0; i < MAX_CONNECTIONS - 1; i++) {
+        conn_pool[i].next = &conn_pool[i + 1];
+    }
+    conn_pool[MAX_CONNECTIONS - 1].next = NULL;
+    free_list = &conn_pool[0];
+}
+
+static struct connection *conn_alloc(void) {
+    if (!free_list) return NULL;  /* Pool exhausted */
+    struct connection *c = free_list;
+    free_list = c->next;
+    c->state = CONN_IDLE;
+    c->read_len = 0;
+    c->write_len = 0;
+    c->last_active = time(NULL);
+    return c;
+}
+
+static void conn_free(struct connection *c) {
+    close(c->fd);
+    c->next = free_list;
+    free_list = c;
+}
+```
+
+### Idle Connection Timeout
+
+Event loops must clean up idle connections to prevent resource exhaustion:
+
+```c
+static void sweep_idle_connections(int epoll_fd, struct connection **conns,
+                                   int max_fd, time_t now) {
+    for (int i = 0; i < max_fd; i++) {
+        if (conns[i] && (now - conns[i]->last_active) > 60) {
+            /* 60 second idle timeout */
+            epoll_ctl(epoll_fd, EPOLL_CTL_DEL, conns[i]->fd, NULL);
+            conn_free(conns[i]);
+            conns[i] = NULL;
+        }
+    }
+}
+```
+
+## Signal Handling in Event Loops
+
+Signals are problematic in event-driven programs because they can interrupt `epoll_wait()` at any time. Solutions:
+
+### signalfd
+
+```c
+#include <sys/signalfd.h>
+#include <signal.h>
+
+/* Block signals so they don't interrupt epoll_wait */
+    sigset_t mask;
+    sigemptyset(&mask);
+    sigaddset(&mask, SIGINT);
+    sigaddset(&mask, SIGTERM);
+    sigaddset(&mask, SIGHUP);
+    sigprocmask(SIG_BLOCK, &mask, NULL);
+
+/* Create signalfd — signals become readable events */
+    int sfd = signalfd(-1, &mask, SFD_NONBLOCK | SFD_CLOEXEC);
+
+/* Add to epoll */
+    struct epoll_event ev = { .events = EPOLLIN, .data.fd = sfd };
+    epoll_ctl(epoll_fd, EPOLL_CTL_ADD, sfd, &ev);
+
+/* In event loop */
+    if (fd == sfd) {
+        struct signalfd_siginfo si;
+        read(sfd, &si, sizeof(si));
+        if (si.ssi_signo == SIGINT) {
+            shutdown_server();
+        }
+    }
+```
+
+### eventfd for Cross-Thread Wakeup
+
+```c
+#include <sys/eventfd.h>
+
+int wakeup_fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+
+/* Add to epoll */
+struct epoll_event ev = { .events = EPOLLIN, .data.fd = wakeup_fd };
+epoll_ctl(epoll_fd, EPOLL_CTL_ADD, wakeup_fd, &ev);
+
+/* From another thread: wake up the event loop */
+uint64_t val = 1;
+write(wakeup_fd, &val, sizeof(val));
+
+/* In event loop: drain the eventfd */
+uint64_t dummy;
+read(wakeup_fd, &dummy, sizeof(dummy));
+/* Now handle cross-thread requests */
+```
+
+## io_uring as an Event Loop
+
+`io_uring` can serve as a complete event loop replacement, handling both I/O and timeouts:
+
+```c
+#include <liburing.h>
+
+struct io_uring ring;
+io_uring_queue_init(256, &ring, 0);
+
+/* Submit timeout operation */
+struct io_uring_sqe *sqe = io_uring_get_sqe(&ring);
+struct __kernel_timespec ts = { .tv_sec = 5 };
+io_uring_prep_timeout(sqe, &ts, 0, 0);
+
+/* Submit read */
+sqe = io_uring_get_sqe(&ring);
+io_uring_prep_read(sqe, fd, buf, sizeof(buf), 0);
+
+io_uring_submit(&ring);
+
+/* Wait for any completion */
+struct io_uring_cqe *cqe;
+io_uring_wait_cqe(&ring, &cqe);
+/* Check cqe->res to determine if it was the read or timeout */
 ```
 
 ## References

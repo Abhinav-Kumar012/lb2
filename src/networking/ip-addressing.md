@@ -263,6 +263,39 @@ tcp  6 431999 ESTABLISHED src=192.168.1.10 dst=93.184.216.34 sport=49152 \
     [ASSURED] mark=0 use=1
 ```
 
+### NAT with nftables (Modern Alternative)
+
+```bash
+# nftables NAT configuration
+$ nft add table inet nat
+$ nft add chain inet nat postrouting { type nat hook postrouting priority 100 \; }
+$ nft add chain inet nat prerouting { type nat hook prerouting priority -100 \; }
+
+# Masquerade outbound traffic
+$ nft add rule inet nat postrouting oifname "eth0" masquerade
+
+# Port forwarding
+$ nft add rule inet nat prerouting iifname "eth0" tcp dport 8080 \
+    dnat to 192.168.1.10:80
+
+# View rules
+$ nft list table inet nat
+```
+
+### NAT Hairpinning
+
+NAT hairpinning (also called NAT loopback) allows internal clients to access internal servers via the public IP:
+
+```bash
+# Hairpin NAT: internal client accesses public IP, traffic loops back
+# Without hairpin: client → public IP → drops (asymmetric routing)
+# With hairpin: client → public IP → NAT → internal server
+
+# iptables hairpin rule
+$ iptables -t nat -A POSTROUTING -s 192.168.1.0/24 \
+    -d 192.168.1.10 -p tcp --dport 80 -j MASQUERADE
+```
+
 ## VLSM — Variable Length Subnet Masking
 
 VLSM allows different subnet sizes within the same network, enabling efficient address allocation.
@@ -360,6 +393,16 @@ $ nmcli con mod "Wired connection 1" \
     ipv4.method manual
 
 $ nmcli con up "Wired connection 1"
+
+# Add a secondary IP
+$ nmcli con mod "Wired connection 1" +ipv4.addresses "10.0.0.1/24"
+
+# View connection details
+$ nmcli con show "Wired connection 1" | grep ipv4
+ipv4.method:                            manual
+ipv4.addresses:                         192.168.1.50/24
+ipv4.gateway:                           192.168.1.1
+ipv4.dns:                               8.8.8.8,8.8.4.4
 ```
 
 ### Using systemd-networkd
@@ -374,6 +417,32 @@ Address=192.168.1.50/24
 Gateway=192.168.1.1
 DNS=8.8.8.8
 DNS=8.8.4.4
+
+# Secondary address
+Address=10.0.0.1/24
+
+# Static route
+[Route]
+Destination=172.16.0.0/12
+Gateway=10.255.0.1
+```
+
+### Using Netplan (Ubuntu)
+
+```yaml
+# /etc/netplan/01-config.yaml
+network:
+  version: 2
+  ethernets:
+    eth0:
+      addresses:
+        - 192.168.1.50/24
+        - 10.0.0.1/24
+      routes:
+        - to: default
+          via: 192.168.1.1
+      nameservers:
+        addresses: [8.8.8.8, 8.8.4.4]
 ```
 
 ## Common Subnetting Scenarios
@@ -405,6 +474,221 @@ Private subnets (internal):
   10.0.11.0/24 → AZ-b (application servers)
   10.0.20.0/24 → AZ-a (databases)
   10.0.21.0/24 → AZ-b (databases)
+```
+
+### Scenario 3: Container Network Subnetting
+
+```bash
+# Docker default bridge: 172.17.0.0/16
+# Podman default: 10.88.0.0/16
+
+# Custom container networks
+$ podman network create --subnet 10.89.0.0/24 app-net
+$ podman network create --subnet 10.89.1.0/24 db-net
+
+# Kubernetes pod CIDR (per node)
+# Node 1: 10.244.0.0/24
+# Node 2: 10.244.1.0/24
+# Node 3: 10.244.2.0/24
+
+# View container network allocation
+$ podman network ls
+NAME    VERSION  PLUGINS  DRIVER
+bridge  1.0.0    bridge   bridge
+app-net 1.0.0    bridge   bridge
+db-net  1.0.0    bridge   bridge
+```
+
+## Supernetting (Route Aggregation)
+
+Supernetting combines multiple contiguous subnets into a larger prefix, reducing routing table size:
+
+```
+Individual routes:
+  192.168.0.0/24
+  192.168.1.0/24
+  192.168.2.0/24
+  192.168.3.0/24
+
+Aggregated (supernetted):
+  192.168.0.0/22
+
+Binary verification:
+  192.168.0.0 = 11000000.10101000.000000 00.00000000
+  192.168.1.0 = 11000000.10101000.000000 01.00000000
+  192.168.2.0 = 11000000.10101000.000000 10.00000000
+  192.168.3.0 = 11000000.10101000.000000 11.00000000
+                                 ^^^^^^ -- first 22 bits are identical
+```
+
+**Linux route aggregation:**
+
+```bash
+# Instead of 4 routes, add one aggregated route
+$ ip route add 192.168.0.0/22 via 10.0.0.1
+
+# BGP automatically aggregates routes
+# In BIRD routing daemon:
+# protocol bgp {
+#     ipv4 {
+#         export where net ~ 192.168.0.0/22;
+#     };
+# }
+```
+
+## Special-Purpose Addresses
+
+### Link-Local Addresses (169.254.0.0/16)
+
+When DHCP fails, hosts auto-assign a link-local address:
+
+```bash
+# Check for link-local address
+$ ip addr show | grep "169.254"
+    inet 169.254.12.34/16 scope link eth0
+
+# Link-local addresses are only valid on the local segment
+# They cannot be routed
+
+# Disable link-local (NetworkManager)
+$ nmcli con mod "Wired connection 1" ipv4.link-local disabled
+```
+
+### Loopback Address (127.0.0.0/8)
+
+```bash
+# The loopback interface
+$ ip addr show lo
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536
+    inet 127.0.0.1/8 scope host lo
+    inet6 ::1/128 scope host
+
+# Any address in 127.0.0.0/8 works
+$ ping 127.0.0.1
+$ ping 127.0.0.2    # Also works
+$ ping 127.255.255.254  # Also works
+
+# Applications bind to loopback for local-only services
+# /etc/postfix/main.cf: inet_interfaces = 127.0.0.1
+```
+
+### Multicast Addresses (224.0.0.0/4)
+
+```bash
+# Join a multicast group
+$ ip maddr add 239.0.0.1 dev eth0
+
+# View multicast group membership
+$ ip maddr show
+2:  eth0
+    inet  224.0.0.1
+    inet  239.0.0.1
+    inet6 ff02::1
+
+# Common multicast addresses
+# 224.0.0.1   - All hosts on the local segment
+# 224.0.0.2   - All routers on the local segment
+# 224.0.0.251 - mDNS
+# 239.0.0.0/8 - Administratively scoped (private multicast)
+
+# IGMP (Internet Group Management Protocol)
+$ cat /proc/net/igmp
+# Shows multicast group memberships per interface
+```
+
+## IP Address Lifecycle
+
+```mermaid
+flowchart LR
+    DHCP_DISCOVER["DHCP Discover<br/>(broadcast)"] --> DHCP_OFFER["DHCP Offer<br/>(server offers IP)"]
+    DHCP_OFFER --> DHCP_REQUEST["DHCP Request<br/>(client accepts)"]
+    DHCP_REQUEST --> DHCP_ACK["DHCP Ack<br/>(server confirms)"]
+    DHCP_ACK --> BOUND["Bound<br/>(IP in use)"]
+    BOUND --> RENEW["Renewal<br/>(T1 timer)"]
+    RENEW --> REBIND["Rebind<br/>(T2 timer)"]
+    REBIND --> DHCP_REQUEST
+    BOUND --> RELEASE["Release<br/>(client releases IP)"]
+```
+
+**DHCP on Linux:**
+
+```bash
+# Request IP via DHCP (dhclient)
+$ dhclient -v eth0
+DHCPDISCOVER on eth0 to 255.255.255.255 port 67 interval 3
+DHCPOFFER from 192.168.1.1
+DHCPREQUEST on eth0 to 255.255.255.255 port 67
+DHCPACK from 192.168.1.1
+bound to 192.168.1.50 -- renewal in 3600 seconds.
+
+# View DHCP lease
+$ cat /var/lib/dhcp/dhclient.leases
+lease {
+  interface "eth0";
+  fixed-address 192.168.1.50;
+  option routers 192.168.1.1;
+  option domain-name-servers 8.8.8.8, 8.8.4.4;
+  option dhcp-lease-time 7200;
+  renew 4 2024/01/01 12:00:00;
+  rebind 4 2024/01/01 14:30:00;
+  expire 4 2024/01/01 15:00:00;
+}
+
+# NetworkManager DHCP status
+$ nmcli con show "Wired connection 1" | grep -E "IP4|DHCP"
+IP4.ADDRESS[1]:                         192.168.1.50/24
+IP4.GATEWAY:                            192.168.1.1
+IP4.DNS[1]:                             8.8.8.8
+DHCP4.OPTION[1]:                        dhcp_server_identifier = 192.168.1.1
+```
+
+## Address Conflict Detection
+
+```bash
+# ARP-based conflict detection (arping)
+$ arping -I eth0 -c 3 192.168.1.50
+ARPING 192.168.1.50 from 192.168.1.100 eth0
+Unicast reply from 192.168.1.50 [00:1a:2b:3c:4d:5e] 1.234ms
+# If reply received, address is already in use
+
+# DAD (Duplicate Address Detection) for IPv6
+$ ip -6 addr show | grep "tentative"
+# "tentative" state means DAD is in progress
+
+# View ARP cache
+$ ip neigh show
+192.168.1.1 dev eth0 lladdr aa:bb:cc:dd:ee:ff REACHABLE
+192.168.1.50 dev eth0 lladdr 00:1a:2b:3c:4d:5e STALE
+
+# Clear ARP cache (force re-resolution)
+$ ip neigh flush dev eth0
+```
+
+## IP Address Planning Worksheet
+
+```
+Network Design Template:
+========================
+
+Organization: ________________
+Total hosts needed: ____________
+Growth factor: ____% over ____ years
+
+Address space: ________________ / ____
+
+Subnets:
+| Name | Hosts | CIDR | Range | Gateway | VLAN |
+|------|-------|------|-------|---------|------|
+|      |       |      |       |         |      |
+|      |       |      |       |         |      |
+
+Reserved:
+- Network address: ______________
+- Broadcast address: ____________
+- Gateway: _____________________
+- DNS servers: _________________
+- Loopbacks: ___________________
+- Infrastructure: _______________
 ```
 
 ## Further Reading
