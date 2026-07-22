@@ -534,9 +534,264 @@ graph TB
 - [Gentoo Wiki: Ebuild](https://wiki.gentoo.org/wiki/Ebuild)
 - [Gentoo Overlays Guide](https://wiki.gentoo.org/wiki/Overlay)
 
+## dispatch-conf: Configuration File Management
+
+When Portage upgrades a package that includes configuration files, it needs to handle merging changes with user modifications. `dispatch-conf` is the recommended tool:
+
+```bash
+# Run dispatch-conf after an emerge that changed config files
+sudo dispatch-conf
+
+# For each config file conflict, you see:
+# --- /etc/nginx/nginx.conf.current  (your current file)
+# +++ /etc/nginx/nginx.conf.new      (package's new file)
+# 
+# Options:
+#   z: Replace current with new (discard your changes)
+#   n: Keep current (discard package changes)
+#   m: Merge manually (opens merge editor)
+#   u: Use new file and apply your changes
+#   t: Toggle between showing the diff and the merged result
+#   p: Show the proposed merge
+#   l: View the current file
+#   r: View the new file
+#   h: Help
+
+# Configure dispatch-conf
+# /etc/portage/dispatch-conf.conf
+# merge-etc-file-dispatchers:
+#   /etc/portage/ make.conf  = diff3
+#   /etc/ make.conf  = diff3
+# Always use diff3 for three-way merge
+use_diff3 = yes
+```
+
+### etc-update (Alternative)
+
+```bash
+# etc-update is the older tool (less recommended)
+sudo etc_merge
+
+# Interactively merge changes
+# -3: Merge using diff3
+# -5: Merge using diff + your changes
+# -7: Discard all changes
+```
+
+## Package Sets
+
+Portage supports named sets of packages for bulk operations:
+
+```bash
+# Built-in sets:
+# @system    — Core system packages
+# @world     — All installed packages (user-selected)
+# @installed — Everything installed
+# @module-rebuild — Kernel module packages
+# @preserved-rebuild — Packages with preserved libraries
+
+# Custom sets
+# /etc/portage/sets/custom.sets
+[my-dev-tools]
+dev-lang/python
+dev-lang/go
+dev-util/cmake
+dev-vcs/git
+
+[my-server]
+www-servers/nginx
+dev-db/postgresql
+app-admin/syslog-ng
+
+# Use sets with emerge
+sudo emerge --ask @my-dev-tools
+sudo emerge --ask --update --deep @my-server
+
+# Query set contents
+emerge --pretend @my-dev-tools
+```
+
+## Binary Package Hosting (binhost)
+
+For managing multiple Gentoo machines, you can set up a binary package host:
+
+```bash
+# On the build machine:
+# Build binary packages for everything
+sudo emerge --buildpkg --update --deep @world
+
+# Serve binaries via HTTP
+# /etc/portage/repos.conf/binhost.conf
+[binhost]
+location = /var/cache/binpkgs
+# Use nginx or lighttpd to serve /var/cache/binpkgs/
+
+# On client machines:
+# /etc/portage/repos.conf/binhost.conf
+[binhost]
+# Fetch pre-built packages
+GETBINPKG="yes"
+BINPKG_FORMAT="gpkg"
+
+# Or set in make.conf
+# /etc/portage/make.conf
+FEATURES="getbinpkg"
+PORTAGE_BINHOST="http://buildserver/packages"
+```
+
+## Ebuild Development and Testing
+
+### Repoman (Quality Checker)
+
+```bash
+# Install repoman (part of Portage)
+sudo emerge app-portage/repoman
+
+# Check an ebuild for QA issues
+cd /var/db/repos/myoverlay/app-misc/example
+repoman full
+
+# Common checks:
+# - Manifest integrity
+# - Dependency correctness
+# - EAPI compatibility
+# - KEYWORDS validity
+# - HOMEPAGE accessibility
+# - License correctness
+```
+
+### Ebuild Testing in Sandbox
+
+```bash
+# Test individual phases
+ebuild example-1.0.ebuild clean
+ebuild example-1.0.ebuild fetch      # Download sources
+ebuild example-1.0.ebuild unpack     # Unpack sources
+ebuild example-1.0.ebuild prepare    # Apply patches
+ebuild example-1.0.ebuild configure  # Run configure
+ebuild example-1.0.ebuild compile    # Build
+ebuild example-1.0.ebuild install    # Install to temp root
+ebuild example-1.0.ebuild qmerge     # Merge to live filesystem
+
+# Full test cycle
+ebuild example-1.0.ebuild clean install
+
+# Test with specific USE flags
+USE="debug ssl" ebuild example-1.0.ebuild install
+```
+
+### EAPI (Ebuild API Version)
+
+```bash
+# EAPI defines the version of the ebuild specification
+# Each EAPI adds or changes features
+
+# Current EAPI versions (as of 2024):
+# EAPI 7: Stable, widely used
+# EAPI 8: Current recommended, adds:
+#   - BDEPEND (build-only deps)
+#   - Improved bash compatibility
+#   - Better SLOT handling
+#   - ED/EDESTDIR for install paths
+
+# Example EAPI 8 ebuild:
+EAPI=8
+
+inherit cmake
+
+# BDEPEND: build dependencies (only needed at build time)
+BDEPEND="dev-build/cmake"
+# DEPEND: compile-time dependencies
+DEPEND="dev-libs/openssl:="
+# RDEPEND: runtime dependencies
+RDEPEND="dev-libs/openssl:="
+```
+
+## Portage Hooks and Environment
+
+### bashrc Hooks
+
+```bash
+# /etc/portage/bashrc — runs during every emerge operation
+
+# Available phases:
+# pre_pkg_pretend, post_pkg_pretend
+# pre_pkg_setup, post_pkg_setup
+# pre_src_unpack, post_src_unpack
+# pre_src_prepare, post_src_prepare
+# pre_src_configure, post_src_configure
+# pre_src_compile, post_src_compile
+# pre_src_install, post_src_install
+# pre_pkg_preinst, post_pkg_preinst
+# pre_pkg_postinst, post_pkg_postinst
+
+# Example: log all emerge operations
+post_pkg_postinst() {
+    echo "$(date): ${CATEGORY}/${PF} installed" >> /var/log/emerge.log
+}
+
+# Example: set ccache per-package
+pre_src_compile() {
+    if [[ ${CATEGORY} == "sys-devel" ]]; then
+        export FEATURES="ccache"
+    fi
+}
+```
+
+### package.env: Per-Package Environment
+
+```bash
+# /etc/portage/env/debug-build.conf
+CFLAGS="${CFLAGS} -g -O0"
+CXXFLAGS="${CXXFLAGS} -g -O0"
+FEATURES="${FEATURES} splitdebug"
+
+# /etc/portage/package.env
+app-editors/vim debug-build.conf
+dev-lang/python debug-build.conf
+
+# /etc/portage/env/noccache.conf
+FEATURES="${FEATURES} -ccache"
+
+# Apply to packages that break with ccache
+www-client/firefox noccache.conf
+```
+
+## Maintenance Commands
+
+```bash
+# Check for dependency cycles
+emerge --pretend --emptytree @world
+
+# Find broken packages
+revdep-rebuild
+
+# Clean download cache
+eclean-dist
+
+# Clean binary packages
+eclean packages
+
+# Deep clean old distfiles
+eclean-dist --deep
+
+# Show world file (user-selected packages)
+cat /var/lib/portage/world
+
+# Check for security vulnerabilities
+sudo emerge --ask app-portage/glsa-check
+glsa-check -t all      # List all GLSAs
+glsa-check -f all      # Fix all affected packages
+
+# Sync repositories and update
+sudo emaint sync -a
+sudo emerge --ask --update --deep --newuse @world
+```
+
 ## Related Topics
 
 - [dpkg and APT](./dpkg-apt.md) — Binary package management
 - [RPM and DNF](./rpm-dnf.md) — Red Hat family package management
 - [Pacman](./pacman.md) — Arch Linux package management
 - [Cross-compilation](../../embedded/buildroot.md) — Cross-compiling for embedded targets
+
