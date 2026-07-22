@@ -62,6 +62,7 @@
 - [Make](./compilers/make.md)
 - [Ninja](./compilers/ninja.md)
 - [Rust For Linux](./compilers/rust-for-linux.md)
+- [Rust Kernel](./compilers/rust-kernel.md)
 
 ---
 
@@ -245,6 +246,7 @@
 - [Barriers](./kernel/memory/barriers.md)
 - [Buffer Cache](./kernel/memory/buffer-cache.md)
 - [Compaction](./kernel/memory/compaction.md)
+- [Cxl](./kernel/memory/cxl.md)
 - [Damon](./kernel/memory/damon.md)
 - [Huge Pages](./kernel/memory/huge-pages.md)
 - [Idle Page Tracking](./kernel/memory/idle-page-tracking.md)
@@ -288,6 +290,7 @@
 - [Vlans](./kernel/networking/vlans.md)
 - [Wireless](./kernel/networking/wireless.md)
 - [Xdp](./kernel/networking/xdp.md)
+- [Xdp Advanced](./kernel/networking/xdp-advanced.md)
 - [Overview](./kernel/overview.md)
 - [Cfs](./kernel/processes/cfs.md)
 - [Cgroups](./kernel/processes/cgroups.md)
@@ -304,6 +307,7 @@
 - [Processes And Threads](./kernel/processes/processes-and-threads.md)
 - [Realtime Scheduling](./kernel/processes/realtime-scheduling.md)
 - [Sched Ext](./kernel/processes/sched-ext.md)
+- [Sched Ext Guide](./kernel/processes/sched-ext-guide.md)
 - [Scheduler](./kernel/processes/scheduler.md)
 - [Signals](./kernel/processes/signals.md)
 - [Task Struct](./kernel/processes/task-struct.md)
@@ -410,6 +414,7 @@
 - [Keyring](./security/keyring.md)
 - [Landlock](./security/landlock.md)
 - [Lockdown](./security/lockdown.md)
+- [Confidential Computing](./security/confidential-computing.md)
 - [Mac](./security/mac.md)
 - [Overview](./security/overview.md)
 - [Pam](./security/pam.md)
