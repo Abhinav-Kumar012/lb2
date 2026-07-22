@@ -461,6 +461,333 @@ waitpid(-job_pgid, &status, WUNTRACED);
 tcsetpgrp(terminal_fd, getpgrp());
 ```
 
+## setpgid() Race Condition Prevention
+
+When a shell creates a pipeline (e.g., `cat | grep`), there's a race
+between the parent calling `setpgid()` and the child starting. The
+kernel handles this:
+
+```c
+/* kernel/sys.c — setpgid() implementation */
+SYSCALL_DEFINE2(setpgid, pid_t, pid, pid_t, pgid)
+{
+    struct task_struct *p;
+    struct pid *pgrp;
+    int err = -EINVAL;
+
+    if (!pid)
+        pid = task_pid_vnr(current);
+    if (!pgid)
+        pgid = pid;
+    if (pgid < 0)
+        return -EINVAL;
+
+    rcu_read_lock();
+    p = find_task_by_vpid(pid);
+    if (!p) {
+        rcu_read_unlock();
+        return -ESRCH;
+    }
+
+    /* Permission check: can only set own pgid or child's */
+    if (p->real_parent == current ||
+        p->real_parent->tgid == current->tgid) {
+        /* ... additional checks ... */
+
+        /* Only if child hasn't done exec() yet */
+        if (task_session_vnr(p) != task_session_vnr(current))
+            err = -EPERM;
+        else if (pid == task_pid_vnr(current) &&
+                 pgid != pid &&
+                 !session_of_pgrp(pgrp))
+            err = -EPERM;
+        /* ... */
+    }
+    rcu_read_unlock();
+    return err;
+}
+```
+
+### Shell's Double-Setpgid Pattern
+
+```c
+/* Parent (shell) creates child */
+pid_t pid = fork();
+if (pid == 0) {
+    /* Child: set own pgid (may race with parent's setpgid) */
+    setpgid(0, target_pgid);
+    execvp(...);
+} else {
+    /* Parent: also set child's pgid (guarantees one succeeds) */
+    setpgid(pid, target_pgid);
+}
+```
+
+Both parent and child call `setpgid()` to avoid a race where the child
+executes before the parent sets its group. The kernel serializes both
+calls via `tasklist_lock`.
+
+---
+
+## Kernel Process Group Data Structures
+
+```c
+/* include/linux/sched/signal.h */
+struct signal_struct {
+    /* Session and process group information */
+    struct pid *leader_pid;        /* Session leader PID */
+    struct pid *tty_old_pgrp;     /* Previous foreground pgrp */
+    struct tty_struct *tty;        /* Controlling terminal */
+    /* ... */
+};
+
+struct pid {
+    refcount_t count;
+    unsigned int level;            /* PID namespace level */
+    /* One struct hlist_head per PID type */
+    struct hlist_head tasks[PIDTYPE_MAX];
+    struct rcu_head rcu;
+    struct upid numbers[];         /* One per namespace level */
+};
+
+/* PID types relevant to process groups */
+enum pid_type {
+    PIDTYPE_PID,      /* Process ID */
+    PIDTYPE_TGID,     /* Thread group ID */
+    PIDTYPE_PGID,     /* Process group ID */
+    PIDTYPE_SID,      /* Session ID */
+    PIDTYPE_MAX
+};
+```
+
+### Session and Group Lookup
+
+```c
+/* kernel/pid.c — looking up process groups */
+struct pid *task_pgrp(struct task_struct *task)
+{
+    return task->signal->pids[PIDTYPE_PGID];
+}
+
+struct pid *task_session(struct task_struct *task)
+{
+    return task->signal->pids[PIDTYPE_SID];
+}
+
+/* Get the task_struct of the session leader */
+struct task_struct *session_of_pgrp(struct pid *pgrp)
+{
+    struct task_struct *task;
+    /* ... find session leader via pgrp->tasks[PIDTYPE_SID] ... */
+    return task;
+}
+```
+
+---
+
+## Terminal Signal Delivery Internals
+
+When a terminal key generates a signal (e.g., Ctrl+C), the kernel
+delivers it to the entire foreground process group:
+
+```c
+/* drivers/tty/tty_jobctrl.c */
+void tty_signal_session_leader(struct tty_struct *tty, int sig)
+{
+    struct task_struct *p;
+    struct pid *session;
+
+    session = tty->session;
+    if (!session)
+        return;
+
+    /* Send signal to session leader */
+    p = pid_task(session, PIDTYPE_PID);
+    if (p)
+        group_send_sig_info(sig, SEND_SIG_PRIV, p, PIDTYPE_TGID);
+}
+
+/* Send signal to foreground process group */
+int tty_send_xchar(struct tty_struct *tty, char ch)
+{
+    /* ... sends character to foreground pgrp ... */
+}
+
+static int tiocspgrp(struct tty_struct *tty, pid_t __user *p)
+{
+    /* tcsetpgrp() implementation */
+    /* Sets the foreground process group for the terminal */
+}
+```
+
+### Signal Delivery Sequence
+
+```mermaid
+sequenceDiagram
+    participant User as User (Ctrl+C)
+    participant TTY as Terminal Driver
+    participant FG as Foreground Pgrp
+    participant P1 as Process 1 (cat)
+    participant P2 as Process 2 (grep)
+    participant P3 as Process 3 (sort)
+
+    User->>TTY: SIGINT character (0x03)
+    TTY->>TTY: Lookup foreground pgrp
+    TTY->>FG: Deliver SIGINT to group
+    FG->>P1: SIGINT → terminate
+    FG->>P2: SIGINT → terminate
+    FG->>P3: SIGINT → terminate
+    P1-->>TTY: Process exited
+    P2-->>TTY: Process exited
+    P3-->>TTY: Process exited
+```
+
+---
+
+## /proc Session and Process Group Info
+
+### Detailed /proc Fields
+
+```bash
+# Full /proc/PID/stat fields (relevant to groups)
+$ cat /proc/1234/stat
+# Field 5 (pgrp): Process group ID
+# Field 6 (session): Session ID
+# Field 7 (tty_nr): Controlling terminal (device number)
+# Field 8 (tpgid): Foreground process group ID
+
+# Extract specific fields
+$ awk '{print "PGID:", $5, "SID:", $6, "TTY:", $7, "FGPGRP:", $8}' /proc/1234/stat
+# PGID: 1234 SID: 789 TTY: 34816 FGPGRP: 1234
+
+# Decode TTY device number
+$ awk '{printf "TTY: %d:%d\n", rshift($7,8), and($7,255)}' /proc/1234/stat
+# TTY: 136:0  (= /dev/pts/0)
+
+# Namespace-aware session info
+$ cat /proc/1234/status | grep -E '^(NSpgid|NStgid|NSsid|NSpid)'
+# NStgid: 1234
+# NSpid:  1234
+# NSpgid: 1234
+# NSsid:  789
+```
+
+### Finding All Members of a Process Group
+
+```bash
+# Find all processes in PGID 1234
+$ ps -eo pid,pgid,comm | awk '$2 == 1234'
+#  PID  PGID COMMAND
+# 1234  1234 bash
+# 1235  1234 cat
+# 1236  1234 grep
+
+# Find all process groups in a session
+$ ps -eo pid,pgid,sid,comm | awk '$3 == 789' | sort -k2 -n
+#  PID  PGID   SID COMMAND
+#  789   789   789 bash
+# 1024   789   789 vim
+# 2048  2048   789 make
+# 2049  2048   789 gcc
+```
+
+### Counting Process Groups and Sessions
+
+```bash
+# Count unique process groups
+$ ps -eo pgid --no-headers | sort -un | wc -l
+# 42
+
+# Count unique sessions
+$ ps -eo sid --no-headers | sort -un | wc -l
+# 15
+
+# Find session leaders
+$ ps -eo pid,sid,comm | awk '$1 == $2' | head -5
+# Session leaders: PID == SID
+
+# Find process group leaders
+$ ps -eo pid,pgid,comm | awk '$1 == $2' | head -5
+# Group leaders: PID == PGID
+```
+
+---
+
+## Zombie Processes and wait()
+
+When a process exits, it becomes a zombie until its parent calls
+`wait()`. Process groups affect which processes get notified:
+
+```c
+/* include/linux/wait.h — waitpid options */
+#define WNOHANG     0x00000001  /* Don't block */
+#define WUNTRACED   0x00000002  /* Report stopped children */
+#define WCONTINUED  0x00000004  /* Report continued children */
+#define WEXITED     0x00000008  /* Report exited children (waitid) */
+#define __WNOTHREAD 0x20000000  /* Don't wait on children of other threads */
+
+/* waitpid(-pgid, ...) waits for any child in the process group */
+pid_t pid = waitpid(-pgid, &status, WUNTRACED);
+```
+
+### Zombie Cleanup on Process Group Exit
+
+```c
+/* kernel/exit.c — exit_notify() */
+static void exit_notify(struct task_struct *tsk, int group_dead)
+{
+    /* ... */
+
+    /* If we're the last in our process group, notify parent */
+    if (group_dead && tsk->signal->notify_count < 0) {
+        /* Wake parent with __WALL */
+        wake_up_process(tsk->real_parent);
+    }
+
+    /* ... */
+}
+```
+
+---
+
+## Nohup and Disown Internals
+
+### nohup
+
+```c
+/* nohup.c — what nohup does internally */
+int main(int argc, char *argv[])
+{
+    /* Ignore SIGHUP */
+    signal(SIGHUP, SIG_IGN);
+
+    /* Redirect stdout to nohup.out if it's a terminal */
+    if (isatty(STDOUT_FILENO)) {
+        int fd = open("nohup.out", O_WRONLY | O_CREAT | O_APPEND, 0644);
+        dup2(fd, STDOUT_FILENO);
+    }
+
+    execvp(argv[1], argv + 1);
+    return 1;
+}
+```
+
+### disown (shell builtin)
+
+When you `disown %1`:
+1. Shell removes the job from its job table
+2. Child process's SIGHUP handler remains default (terminate)
+3. But shell won't send SIGHUP to the child on exit
+4. Child becomes orphan → adopted by init/systemd
+
+```bash
+# View disowned processes
+$ ps -eo pid,ppid,sid,tty,comm | awk '$3 == 1 || $2 == 1'
+# Shows processes adopted by init (orphaned)
+```
+
+---
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
