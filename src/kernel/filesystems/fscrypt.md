@@ -412,6 +412,31 @@ CONFIG_BLK_INLINE_ENCRYPTION_FALLBACK=y
 | Metadata ops | < 1% | 2-5% |
 | Inline crypto | < 1% | < 1% |
 
+## Security Considerations
+
+### Threat Model
+
+fscrypt protects against:
+- **Offline attacks**: Data at rest is encrypted
+- **Key isolation**: Different directories can use different keys
+- **Authenticated encryption**: v2 policies use AEAD modes
+
+fscrypt does NOT protect against:
+- **Running system attacks**: Keys are in kernel memory
+- **Kernel compromise**: Root can access all keys
+- **Side-channel attacks**: Timing, power analysis
+
+### Key Erasure
+
+```bash
+# Secure key removal
+keyctl revoke $(keyctl search @u logon "fscrypt:mykey")
+
+# Verify directory is locked
+ls /encrypted/private/
+# Should show encrypted names only
+```
+
 ## Cross-References
 
 - [ext4](ext4.md) - ext4 filesystem (supports fscrypt)
