@@ -96,6 +96,7 @@ struct iomap {
 | `IOMAP_F_SHARED` | Shared extent (reflink/CoW) |
 | `IOMAP_F_BUFFER_HEAD` | Legacy buffer_head compatibility |
 | `IOMAP_F_MERGED` | Merged with adjacent mapping |
+| `IOMAP_F_ZONE_APPEND` | Use zone append for writes (ZNS SSDs) |
 
 ### `struct iomap_ops`
 
