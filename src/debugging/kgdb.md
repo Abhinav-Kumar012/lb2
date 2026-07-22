@@ -535,4 +535,395 @@ stty -F /dev/ttyUSB0 speed 115200
 - [LWN: KGDB revival (2010)](https://lwn.net/Articles/394398/)
 - [QEMU GDB stub documentation](https://www.qemu.org/docs/master/system/gdb.html)
 - [GDB documentation](https://sourceware.org/gdb/documentation/)
+
+## Debugging Real Kernel Bugs with KGDB
+
+### Case Study: Null Pointer Dereference
+
+When the kernel hits a null pointer dereference, it triggers an oops. With KGDB,
+you can catch this at the exact point of failure:
+
+```gdb
+# The kernel stops at the oops point
+# GDB shows:
+# Program received signal SIGSEGV, Segmentation fault.
+# 0xffffffff81234567 in my_function (ptr=0x0) at drivers/my.c:42
+
+(gdb) list
+37      struct data *ptr = get_data(handle);
+38      if (!ptr)
+39          return -EINVAL;
+40  
+41      /* BUG: forgot to check sub-structure */
+42      int value = ptr->child->value;  /* ptr->child is NULL! */
+43      return value;
+
+(gdb) print ptr
+$1 = (struct data *) 0xffff888012345678
+
+(gdb) print ptr->child
+$2 = (struct child_data *) 0x0
+
+(gdb) bt
+#0  my_function (ptr=0x...) at drivers/my.c:42
+#1  0xffffffff81234890 in caller_func at drivers/my.c:100
+#2  0xffffffff81234abc in top_func at drivers/my.c:150
+```
+
+### Case Study: Race Condition
+
+```gdb
+# Set a watchpoint on a shared variable
+(gdb) watch shared_counter
+
+# When the watchpoint fires:
+# Hardware watchpoint 1: shared_counter
+# Old value = 42
+# New value = 43
+
+(gdb) info threads
+# Shows which CPU/task modified the variable
+
+(gdb) bt
+# Shows the call stack of the modifier
+
+(gdb) thread 2
+# Switch to another CPU to check its state
+(gdb) bt
+(gdb) info locals
+```
+
+### Case Study: Memory Corruption
+
+```gdb
+# Set a watchpoint on a memory region that gets corrupted
+(gdb) watch *(int *)0xffff888012345678
+
+# Or use hardware watchpoints for specific addresses
+(gdb) hbreak *0xffffffff81234567
+
+# When corruption occurs, examine surrounding memory
+(gdb) x/64x 0xffff888012345640
+# Look for patterns: 0xdeadbeef, 0x6b6b6b6b (SLAB_POISON), etc.
+
+# Check slab allocator state
+(gdb) lx-slabinfo
+# (with GDB scripts loaded)
+```
+
+## KGDB vs Other Debugging Approaches
+
+```mermaid
+flowchart TD
+    A[Kernel Bug] --> B{Type of bug?}
+    B -->|Crash/oops| C[kcrash + crash tool\n         post-mortem analysis]
+    B -->|Race condition| D[KGDB: watchpoints\n         + thread inspection]
+    B -->|Performance issue| E[ftrace/perf/bpftrace\n         non-intrusive]
+    B -->|Logic error| F[KGDB: breakpoints\n         + stepping]
+    B -->|Memory corruption| G[KGDB: watchpoints\n         + KASAN]
+    B -->|Intermittent| H[KGDB: conditional\n         breakpoints + logging]
+    
+    C --> I[crash utility]
+    D --> J[KGDB + GDB]
+    E --> K[Tracing tools]
+    F --> J
+    G --> J
+    H --> J
+```
+
+### When NOT to Use KGDB
+
+- **Production systems**: KGDB halts the kernel, freezing all CPUs. Use tracing
+  tools (ftrace, bpftrace) instead.
+- **Timing-sensitive bugs**: The debugger alters timing, potentially hiding the bug.
+- **Simple crashes**: Use `crash` utility with a kernel dump — faster and doesn't
+  require a live connection.
+- **Network debugging**: If the bug is in the network stack, the KGDB connection
+  itself may be affected.
+
+## KGDB with KASAN and KCSAN
+
+### KGDB + KASAN (Kernel Address Sanitizer)
+
+KASAN detects memory corruption at runtime. When it finds a bug, it prints a
+report and optionally enters KGDB:
+
+```bash
+# Enable KASAN in kernel config
+CONFIG_KASAN=y
+CONFIG_KASAN_INLINE=y  # Faster but larger kernel
+# or
+CONFIG_KASAN_OUTLINE=y  # Smaller but slower
+
+# Boot with KASAN
+# Add to kernel command line: kasan=on
+
+# When KASAN detects an error, it calls BUG()
+# If KGDB is configured, it enters the debugger
+```
+
+```gdb
+# In GDB, KASAN reports show:
+# BUG: KASAN: use-after-free in my_function+0x42/0x100
+# Read of size 8 at addr ffff888012345678 by task myapp/1234
+
+(gdb) list my_function
+(gdb) print *(struct data *)0xffff888012345678
+# Shows the freed object's contents
+```
+
+### KGDB + KCSAN (Kernel Concurrency Sanitizer)
+
+KCSAN detects data races. When it finds one:
+
+```bash
+# Enable KCSAN
+CONFIG_KCSAN=y
+CONFIG_KCSAN_REPORT_ONCE_IN_MS=5000
+
+# KCSAN will report:
+# BUG: KCSAN: data-race in func_a / func_b
+# write to 0xffff888012345678 of 8 bytes by task 1234 on cpu 0
+# read to 0xffff888012345678 of 8 bytes by task 1235 on cpu 1
+```
+
+## Remote KGDB Setup Examples
+
+### KGDB over USB-Serial (Physical Hardware)
+
+```bash
+# Host side: connect USB-serial adapter
+ls /dev/ttyUSB0
+stty -F /dev/ttyUSB0 115200
+
+# Target kernel boot parameters:
+console=ttyS0,115200 kgdboc=ttyS0,115200 nokaslr
+
+# Or for USB-serial on target:
+console=ttyUSB0,115200 kgdboc=ttyUSB0,115200
+
+# Host GDB:
+gdb ./vmlinux
+(gdb) target remote /dev/ttyUSB0
+(gdb) set remotetimeout 30
+```
+
+### KGDB over QEMU (Development)
+
+```bash
+# Most common development setup
+# Terminal 1: QEMU
+qemu-system-x86_64 \
+    -kernel arch/x86/boot/bzImage \
+    -append "console=ttyS0 kgdboc=ttyS0,115200 nokaslr" \
+    -serial mon:stdio \
+    -s -S \
+    -m 2G \
+    -smp 4
+
+# Terminal 2: GDB
+gdb ./vmlinux
+(gdb) target remote :1234
+(gdb) hbreak start_kernel
+(gdb) continue
+# Kernel starts, hits breakpoint at start_kernel
+```
+
+### KGDB over QEMU with Networking
+
+```bash
+# QEMU with network + serial
+qemu-system-x86_64 \
+    -kernel arch/x86/boot/bzImage \
+    -append "console=ttyS0 kgdboc=ttyS0,115200 nokaslr" \
+    -serial tcp::4444,server,nowait \
+    -netdev user,id=net0,hostfwd=tcp::2222-:22 \
+    -device virtio-net-pci,netdev=net0 \
+    -m 2G
+
+# Host GDB:
+(gdb) target remote localhost:4444
+```
+
+## Kernel Module Debugging with KGDB
+
+### Loading Module Symbols
+
+```gdb
+# Method 1: Manual symbol loading
+(gdb) add-symbol-file /path/to/module.ko 0xffffffffa0000000 \
+      -s .text 0xffffffffa0000000 \
+      -s .data 0xffffffffa0002000 \
+      -s .bss 0xffffffffa0003000
+
+# Method 2: Use lx-symbols (requires GDB scripts)
+(gdb) lx-symbols
+# Automatically loads symbols for all loaded modules
+
+# Method 3: Load symbols for specific module
+(gdb) lx-symbols my_module
+```
+
+### Finding Module Load Address
+
+```bash
+# On target (before entering KGDB):
+cat /sys/module/my_module/sections/.text
+# 0xffffffffa0000000
+
+# Or in GDB:
+(gdb) p (void *)0xffffffffa0000000
+(gdb) lx-lsmod
+# Shows all loaded modules with their addresses
+```
+
+### Module Debugging Workflow
+
+```gdb
+# 1. Load module symbols
+(gdb) lx-symbols
+
+# 2. Set breakpoint in module function
+(gdb) break my_module_function
+
+# 3. Trigger the code path
+(gdb) continue
+
+# 4. When breakpoint hits, inspect
+(gdb) bt
+(gdb) info locals
+(gdb) print *my_struct
+
+# 5. Step through code
+(gdb) next
+(gdb) step
+
+# 6. Check for common issues
+(gdb) print sizeof(struct my_data)
+(gdb) x/16x my_pointer  # Check memory contents
+```
+
+## GDB Scripting for Kernel Debugging
+
+### Custom GDB Commands
+
+```python
+# Save as kgdb_helpers.py
+import gdb
+
+class KernelLogCommand(gdb.Command):
+    """Print recent kernel log messages"""
+    def __init__(self):
+        super().__init__("klog", gdb.COMMAND_USER)
+    
+    def invoke(self, arg, from_tty):
+        # Access kernel log buffer
+        log_buf = gdb.parse_and_eval("log_buf")
+        log_first_idx = gdb.parse_and_eval("log_first_idx")
+        log_next_idx = gdb.parse_and_eval("log_next_idx")
+        gdb.write(f"Log buffer: {log_buf}\n")
+        gdb.write(f"First: {log_first_idx}, Next: {log_next_idx}\n")
+
+KernelLogCommand()
+```
+
+```gdb
+# Load the script
+(gdb) source kgdb_helpers.py
+(gdb) klog
+```
+
+### GDB Command Files
+
+```gdb
+# Save as kgdb_init.gdb
+# Auto-run when connecting to kernel
+
+set pagination off
+set confirm off
+
+# Load kernel GDB scripts
+add-auto-load-safe-path /path/to/linux/scripts/gdb/
+
+# Set up useful defaults
+set print pretty on
+set print array on
+
+# Define helper macros
+define dump_task
+    set $task = (struct task_struct *)$arg0
+    printf "Task: %s (pid=%d, state=%d)\n", $task->comm, $task->pid, $task->__state
+    printf "  CPU: %d\n", $task->cpu
+    printf "  Start time: %llu\n", $task->start_time
+end
+
+define dump_stack_trace
+    set $task = (struct task_struct *)$arg0
+    set $sp = $task->thread.sp
+    # Walk the stack
+    info registers rsp
+end
+```
+
+```gdb
+# Use the command file
+gdb -ix kgdb_init.gdb ./vmlinux
+(gdb) target remote :1234
+```
+
+## Troubleshooting KGDB
+
+### Connection Issues
+
+```bash
+# Problem: GDB can't connect to target
+# Solution 1: Check serial connection
+stty -F /dev/ttyUSB0 115200 raw -echo
+cat /dev/ttyUSB0  # Should show kernel output
+
+# Problem: Timeout connecting
+# Solution: Increase timeout in GDB
+(gdb) set remotetimeout 60
+
+# Problem: Garbled output
+# Solution: Ensure baud rates match
+# Target: kgdboc=ttyS0,115200
+# Host: stty -F /dev/ttyUSB0 115200
+```
+
+### Breakpoint Issues
+
+```gdb
+# Problem: Breakpoint not hitting
+# Solution: Check if KASLR is changing addresses
+# Boot with: nokaslr
+# Or use GDB's lx-symbols to adjust
+
+# Problem: "Cannot access memory at address"
+# Solution: The address may be in vmalloc space
+(gdb) set vmalloc-offset 0xffff888000000000
+
+# Problem: Hardware breakpoint limit (4 on x86)
+# Solution: Use software breakpoints when possible
+(gdb) break function_name  # Software breakpoint
+(gdb) hbreak function_name  # Hardware breakpoint (limited)
+```
+
+### Performance Impact
+
+```bash
+# KGDB freezes ALL CPUs when a breakpoint hits
+# This includes:
+# - Network interrupts → network timeouts
+# - Disk I/O → filesystem corruption risk (if writing)
+# - Timers → watchdog timeouts
+
+# Mitigation:
+# 1. Use KGDB only for short debugging sessions
+# 2. Don't debug on systems with active I/O
+# 3. Use NMI watchdog timeout increase:
+echo 30 > /proc/sys/kernel/hung_task_timeout_secs
+```
+
+## Further Reading
 - See also: [kprobes](/debugging/kprobes), [ftrace](/debugging/ftrace), [crash](/debugging/crash), [perf](/performance/perf)
