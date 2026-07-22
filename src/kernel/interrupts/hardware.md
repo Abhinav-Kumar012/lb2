@@ -40,6 +40,61 @@ graph LR
 
 In modern Linux kernels, the 8259 is typically emulated by the IOAPIC or handled through ACPI firmware for backward compatibility.
 
+### 8259 Programming Interface
+
+The 8259 is programmed through two I/O ports:
+
+```c
+/* Master 8259 */
+#define PIC1_CMD    0x20    /* Command port */
+#define PIC1_DATA   0x21    /* Data port */
+
+/* Slave 8259 */
+#define PIC2_CMD    0xA0    /* Command port */
+#define PIC2_DATA   0xA1    /* Data port */
+
+/* Initialization Command Words (ICW) sequence: */
+/* ICW1: Initialization */
+outb(0x11, PIC1_CMD);  /* ICW4 needed, cascade mode, edge triggered */
+
+/* ICW2: Vector offset */
+outb(0x20, PIC1_DATA); /* Master vectors start at 0x20 (32) */
+
+/* ICW3: Cascade identity */
+outb(0x04, PIC1_DATA); /* Slave on IRQ 2 */
+
+/* ICW4: Mode */
+outb(0x01, PIC1_DATA); /* 8086 mode, non-buffered, normal EOI */
+
+/* Masking: disable all except keyboard */
+outb(0xFD, PIC1_DATA); /* IRQ 1 enabled */
+```
+
+**End of Interrupt (EOI):**
+
+```c
+/* Send EOI to master */
+outb(0x20, PIC1_CMD);
+
+/* If interrupt came from slave, also send to slave */
+outb(0x20, PIC2_CMD);
+```
+
+The Linux kernel disables the 8259 early in boot when it switches to APIC mode:
+
+```c
+/* arch/x86/kernel/i8259.c */
+void __init make_8259A_irq(unsigned int irq)
+{
+    /* ... setup 8259A for legacy interrupt ... */
+}
+
+static void mask_and_ack_8259A(struct irq_data *data)
+{
+    /* Mask the IRQ and send EOI */
+}
+```
+
 ## The APIC Architecture
 
 The Advanced Programmable Interrupt Controller (APIC) replaced the 8259 and is the standard interrupt delivery mechanism on x86 systems since the mid-1990s. It consists of two components:
@@ -68,11 +123,31 @@ The LAPIC is memory-mapped to a configurable base address (default `0xFEE00000` 
 | LVT LINT0 | 0x350 | Local Vector Table — Local Interrupt 0 |
 | LVT LINT1 | 0x360 | Local Vector Table — Local Interrupt 1 |
 | LVT Error | 0x370 | Local Vector Table — Error |
+| ICR high | 0x310 | Interrupt Command Register — high 32 bits |
 
 ```bash
 # Read LAPIC base from the MSR
 $ sudo rdmsr 0x1B
 fee000900
+```
+
+### LAPIC Timer
+
+The LAPIC includes a built-in per-CPU timer, which is the source of the kernel's timer tick:
+
+```c
+/* LAPIC timer modes */
+#define APIC_LVT_TIMER_PERIODIC   0x00020000  /* Periodic mode */
+#define APIC_LVT_TIMER_TSCDEADLINE 0x00040000  /* TSC-deadline mode */
+
+/* The kernel calibrates the LAPIC timer against the TSC */
+/* View LAPIC timer frequency */
+$ dmesg | grep -i "calibrating"
+[    0.000000] Calibrating delay loop (skipped), value calculated using timer frequency.. 4800.00 BogoMIPS (lpj=2400000)
+
+# Check which timer mode is in use
+$ dmesg | grep -i "tsc-deadline"
+[    0.000000] TSC deadline timer enabled
 ```
 
 ### IOAPIC (I/O APIC)
@@ -93,6 +168,39 @@ The IOAPIC contains a **Redirection Table** (IRT) with one entry per pin. Each e
 $ cat /proc/ioapic
 # Or via ACPI MADT table
 $ sudo acpidump -t | grep -A 5 IOAPIC
+
+# Detailed IOAPIC register dump
+$ sudo cat /sys/kernel/debug/irq/irqs/16
+handler:  handle_fasteoi_irq
+status:  0x00000040 (IRQD_IRQ_STARTED)
+depth:   0
+irq_count: 892341
+chip:    ioapic
+domain:  IO-APIC
+```
+
+### IOAPIC Redirection Table Entries
+
+Each Redirection Table Entry (RTE) is 64 bits wide:
+
+```c
+struct ioapic_rte {
+    union {
+        struct {
+            u32 vector       : 8;   /* Vector 0x10-0xFE */
+            u32 delivery     : 3;   /* 0=fixed, 1=lowest, 2=SMI, 4=NMI, 5=INIT */
+            u32 dest_mode    : 1;   /* 0=physical, 1=logical */
+            u32 delivery_stat: 1;   /* Read-only: delivery status */
+            u32 polarity     : 1;   /* 0=high, 1=low */
+            u32 irr          : 1;   /* Read-only: remote IRR */
+            u32 trigger      : 1;   /* 0=edge, 1=level */
+            u32 mask         : 1;   /* 0=enabled, 1=masked */
+            u32 reserved     : 15;
+        };
+        u32 low;
+        u32 high;    /* Destination field (APIC ID or logical cluster) */
+    };
+};
 ```
 
 ### Interrupt Delivery Flow (APIC)
@@ -112,6 +220,59 @@ sequenceDiagram
     CPU->>CPU: Save context, vector through IDT
     CPU->>LAPIC: Write EOI
     LAPIC->>IOAPIC: EOI broadcast (level-triggered)
+```
+
+### APIC Priority Mechanism
+
+The LAPIC uses a priority scheme to determine whether an interrupt should be delivered:
+
+```c
+/* Priority comparison */
+/* Interrupt priority = vector / 16 */
+/* Current priority = PPR (Processor Priority Register) */
+/* Interrupt is delivered only if its priority > PPR */
+
+/* TPR (Task Priority Register) can be used to block low-priority interrupts */
+/* Setting TPR = 0x20 blocks vectors 0x20-0x2F */
+```
+
+The Linux kernel uses TPR sparingly — it's primarily relevant for virtualization (where the hypervisor manages guest interrupt priorities).
+
+### Inter-Processor Interrupts (IPIs)
+
+IPIs are interrupts sent from one CPU to another (or to all CPUs) via the LAPIC's Interrupt Command Register (ICR):
+
+```c
+/* ICR fields for sending IPIs */
+#define APIC_ICR_DM_FIXED    0x00000000  /* Fixed delivery mode */
+#define APIC_ICR_DM_LOWEST   0x00000100  /* Lowest priority */
+#define APIC_ICR_DM_SMI      0x00000200  /* SMI */
+#define APIC_ICR_DM_NMI      0x00000400  /* NMI */
+#define APIC_ICR_DM_INIT     0x00000500  /* INIT */
+#define APIC_ICR_DM_SIPI     0x00000600  /* Start-up IPI */
+#define APIC_ICR_DEST_SELF   0x00040000  /* Send to self */
+#define APIC_ICR_DEST_ALL    0x00080000  /* Send to all */
+#define APIC_ICR_DEST_NOTSELF 0x000C0000 /* Send to all except self */
+```
+
+**Common IPI types in Linux:**
+
+| IPI Vector | Purpose | Triggered By |
+|------------|---------|--------------|
+| `RESCHEDULE_VECTOR` | Force reschedule | `smp_send_reschedule()` |
+| `CALL_FUNCTION_VECTOR` | Execute function on remote CPU | `smp_call_function()` |
+| `CALL_FUNCTION_SINGLE_VECTOR` | Execute on specific CPU | `smp_call_function_single()` |
+| `REBOOT_VECTOR` | Force reboot | `smp_send_stop()` |
+| `IRQ_WORK_VECTOR` | Process irq_work items | `irq_work_queue()` |
+| `X86_PLATFORM_IPI_VECTOR` | Platform-specific (e.g., thermal) | Various |
+| `UINTR_VECTOR` | User interrupts | `uintr` subsystem |
+
+```bash
+# View IPI statistics in /proc/interrupts
+$ grep -E 'RES|CAL|TLB|TRM' /proc/interrupts
+RES:   1234  2345  3456  4567   Rescheduling interrupts
+CAL:   5678  6789  7890  8901   Function call interrupts
+TLB:   1234  2345  3456  4567   TLB shootdowns
 ```
 
 ## MSI and MSI-X
@@ -170,6 +331,80 @@ $ sudo lspci -vvv -s 00:04.0
 Capabilities: [b0] MSI-X: Enable+ Count=32 Masked-
         Vector table: BAR=0 offset=00000000
         PBA: BAR=0 offset=00001000
+```
+
+### MSI Capability Structure (PCI Config Space)
+
+The MSI capability structure in PCI configuration space:
+
+```c
+/* MSI Capability Structure */
+struct msi_cap {
+    u8  cap_id;         /* 0x05 = MSI */
+    u8  next;           /* Next capability pointer */
+    u16 msg_control;    /* Message control */
+    /* Bits 0-2: Multiple Message Enable (log2 vectors) */
+    /* Bit 7: 64-bit address capable */
+    u32 msg_addr_lo;    /* Message address low 32 bits */
+    u32 msg_addr_hi;    /* Message address high 32 bits (if 64-bit) */
+    u16 msg_data;       /* Message data */
+    /* ... */
+};
+
+/* MSI-X Capability Structure */
+struct msix_cap {
+    u8  cap_id;         /* 0x11 = MSI-X */
+    u8  next;           /* Next capability pointer */
+    u16 msg_control;    /* Message control */
+    /* Bits 0-10: Table size (N-1, where N = number of vectors) */
+    /* Bit 14: Function mask */
+    u32 table_offset;   /* BAR and offset for vector table */
+    u32 pba_offset;     /* BAR and offset for pending bit array */
+};
+```
+
+### MSI Interrupt Flow
+
+```mermaid
+sequenceDiagram
+    participant NIC as Network Card (MSI-X)
+    participant MEM as Memory Write
+    participant LAPIC as Local APIC
+    participant CPU as CPU Core
+
+    NIC->>MEM: Write vector to LAPIC address
+    Note over MEM: 0xFEE000xx address
+    MEM->>LAPIC: Memory-mapped write triggers interrupt
+    LAPIC->>LAPIC: Decode vector from data
+    LAPIC->>CPU: Deliver interrupt
+    CPU->>CPU: IDT lookup, handler execution
+    CPU->>LAPIC: EOI (automatic for MSI)
+```
+
+**Key advantage**: MSI delivery is a simple memory write — no acknowledgment protocol, no shared lines, no race conditions.
+
+### Kernel MSI Allocation
+
+```c
+/* Allocate MSI-X vectors */
+int pci_alloc_irq_vectors(struct pci_dev *dev,
+                          unsigned int min_vectors,
+                          unsigned int max_vectors,
+                          unsigned int flags);
+
+/* Example: allocate 4 MSI-X vectors for a NIC */
+ret = pci_alloc_irq_vectors(pdev, 4, 4, PCI_IRQ_MSIX);
+if (ret < 0)
+    return ret;
+
+/* Get IRQ number for vector 0 */
+irq = pci_irq_vector(pdev, 0);
+
+/* Request IRQ for each vector */
+for (i = 0; i < num_queues; i++) {
+    irq = pci_irq_vector(pdev, i);
+    request_irq(irq, my_handler, 0, "nic", &queues[i]);
+}
 ```
 
 ## IRQ Domains
@@ -249,6 +484,49 @@ struct irq_domain_ops {
 };
 ```
 
+### Domain Types
+
+| Type | Description | Used By |
+|------|-------------|---------|
+| `irq_domain_linear` | Array-based lookup, O(1) | IOAPIC, GIC |
+| `irq_domain_tree` | Radix tree, sparse | GPIO controllers |
+| `irq_domain_nomap` | No virq mapping, direct hwirq | Some legacy controllers |
+| `irq_domain_hierarchy` | Stacked domains (chained controllers) | Modern complex topologies |
+
+### Stacked IRQ Domains
+
+Modern systems often have hierarchical interrupt controllers. The kernel models this with **stacked domains**:
+
+```mermaid
+graph TD
+    subgraph "Hardware"
+        GPIO[GPIO Controller]
+        GIC[GICv3 Distributor]
+    end
+    subgraph "IRQ Domain Stack"
+        D_GPIO[GPIO Domain]
+        D_GIC[GIC Domain]
+        D_PLATFORM[Platform Domain]
+    end
+    subgraph "Linux IRQ"
+        VIRQ[virq 50]
+    end
+    GPIO --> D_GPIO
+    D_GPIO --> D_GIC
+    D_GIC --> D_PLATFORM
+    D_PLATFORM --> VIRQ
+```
+
+```c
+/* Stacked domain allocation */
+struct irq_domain *gpio_domain = irq_domain_create_hierarchy(
+    parent_domain,      /* GIC domain */
+    IRQ_DOMAIN_FLAG_HIERARCHY,
+    nr_irqs,
+    ops,
+    host_data);
+```
+
 ## Trigger Modes: Edge vs Level
 
 Hardware interrupts use two electrical signaling modes:
@@ -280,6 +558,58 @@ In the IOAPIC redirection table, the trigger mode is encoded per entry:
 #define IRQ_TYPE_LEVEL_LOW      0x00000008
 ```
 
+### Edge vs Level: Handling Differences
+
+```mermaid
+sequenceDiagram
+    participant DEV as Device
+    participant IRQ as IRQ Line
+    participant CTRL as Controller
+    participant CPU as CPU
+
+    Note over DEV,CPU: Edge-Triggered
+    DEV->>IRQ: Assert (pulse)
+    IRQ->>CTRL: Rising edge detected
+    DEV->>IRQ: De-assert (line returns to idle)
+    CTRL->>CPU: Deliver interrupt
+    CPU->>CPU: Handle interrupt
+    Note over DEV,CPU: No EOI needed for line
+
+    Note over DEV,CPU: Level-Triggered
+    DEV->>IRQ: Assert (held high)
+    IRQ->>CTRL: Level detected
+    CTRL->>CPU: Deliver interrupt
+    CPU->>CPU: Handle interrupt
+    CPU->>DEV: Acknowledge → device de-asserts
+    DEV->>IRQ: De-assert
+    CPU->>CTRL: EOI
+```
+
+### Level-Triggered Shared IRQ Problem
+
+```mermaid
+sequenceDiagram
+    participant DEV_A as Device A
+    participant DEV_B as Device B
+    participant IRQ as Shared IRQ Line
+    participant HANDLER_A as Handler A
+    participant HANDLER_B as Handler B
+
+    DEV_A->>IRQ: Assert (level high)
+    IRQ->>HANDLER_A: IRQ fires
+    HANDLER_A->>HANDLER_A: Check device A status
+    alt Device A caused interrupt
+        HANDLER_A->>DEV_A: Acknowledge
+        DEV_A->>IRQ: De-assert
+    else Device A did NOT cause interrupt
+        HANDLER_A->>HANDLER_A: Return IRQ_NONE
+    end
+    IRQ->>HANDLER_B: IRQ fires (shared line)
+    HANDLER_B->>HANDLER_B: Check device B status
+    Note over IRQ: If neither handler acknowledges...
+    Note over IRQ: Interrupt storm! Line stays asserted.
+```
+
 ## Interrupt Controllers Beyond x86
 
 ### ARM GIC (Generic Interrupt Controller)
@@ -289,6 +619,7 @@ ARM systems use the GIC architecture (GICv2, GICv3, GICv4):
 - **Distributor (GICD)**: Routes interrupts to CPU interfaces
 - **Redistributor (GICR)**: Per-PE (Processing Element) component in GICv3+
 - **CPU Interface (GICC)**: Per-CPU interrupt acknowledgment and priority management
+- **ITS (Interrupt Translation Service)**: MSI-like support for GICv3+
 
 GICv3 supports:
 - Up to 1020 SPIs (Shared Peripheral Interrupts)
@@ -296,9 +627,82 @@ GICv3 supports:
 - 16 PPIs (Private Peripheral Interrupts) per CPU
 - Direct injection of virtual interrupts for VMs (GICv4)
 
+```c
+/* GIC interrupt types */
+#define GIC_SGI    0   /* Software Generated Interrupt (IPI) */
+#define GIC_PPI    1   /* Private Peripheral Interrupt (per-CPU timer, etc.) */
+#define GIC_SPI    2   /* Shared Peripheral Interrupt (device interrupts) */
+#define GIC_ESPI   3   /* Extended SPI (GICv4, up to 960 more) */
+```
+
+### GICv3 Architecture
+
+```mermaid
+graph TD
+    subgraph "CPU 0"
+        RD0[Redistributor 0]
+        ICC0[CPU Interface 0]
+    end
+    subgraph "CPU 1"
+        RD1[Redistributor 1]
+        ICC1[CPU Interface 1]
+    end
+    subgraph "Distributor"
+        GICD[GICD]
+    end
+    subgraph "ITS"
+        ITS[ITS - MSI translation]
+    end
+    GICD --> RD0
+    GICD --> RD1
+    RD0 --> ICC0
+    RD1 --> ICC1
+    ITS --> GICD
+```
+
+### GICv3 System Register Interface
+
+GICv3 uses system registers (not memory-mapped) for the CPU interface:
+
+```c
+/* Reading ICC (Interrupt Controller CPU interface) registers */
+static inline u64 gic_read_iar(void)
+{
+    u64 irq;
+    asm volatile("mrs %0, ICC_IAR1_EL1" : "=r" (irq));
+    return irq;
+}
+
+static inline void gic_write_eoir(u64 irq)
+{
+    asm volatile("msr ICC_EOIR1_EL1, %0" :: "r" (irq));
+}
+```
+
 ### RISC-V PLIC/PLIC
 
 RISC-V uses the **Platform-Level Interrupt Controller** (PLIC) for external interrupts and the **Core-Local Interrupt Controller** (CLINT) for timer and IPI interrupts.
+
+```c
+/* RISC-V interrupt types */
+#define RISCV_SMODE_SOFT_IRQ    1   /* Supervisor software interrupt */
+#define RISCV_SMODE_TIMER_IRQ   5   /* Supervisor timer interrupt */
+#define RISCV_SMODE_EXT_IRQ     9   /* Supervisor external interrupt */
+```
+
+```mermaid
+graph TD
+    subgraph "RISC-V System"
+        CLINT[CLINT<br/>Timer + IPI]
+        PLIC[PLIC<br/>External interrupts]
+        CORE0[Core 0]
+        CORE1[Core 1]
+    end
+    CLINT -->|Timer/IPI| CORE0
+    CLINT -->|Timer/IPI| CORE1
+    PLIC -->|External IRQs| CORE0
+    PLIC -->|External IRQs| CORE1
+```
 
 ## ACPI and Interrupt Routing
 
@@ -314,6 +718,32 @@ $ sudo acpidump -b -t MADT | xxd | head -20
 
 # Or use the decoded tables
 $ sudo dmidecode | grep -i interrupt
+
+# View ACPI interrupt source overrides
+$ dmesg | grep -i "ACPI:.*IRQ"
+[    0.000000] ACPI: INT_SRC_OVR (bus 0 bus_irq 9 global_irq 9 high level)
+[    0.000000] ACPI: INT_SRC_OVR (bus 0 bus_irq 0 global_irq 2 high edge)
+```
+
+### ACPI Interrupt Source Override
+
+The MADT table can contain **Interrupt Source Override** entries that remap ISA IRQs to different IOAPIC pins:
+
+```c
+struct acpi_madt_interrupt_override {
+    struct acpi_subtable_header header;
+    u8 bus;           /* 0 = ISA */
+    u8 source_irq;    /* ISA IRQ number */
+    u32 global_irq;   /* IOAPIC pin number */
+    u16 flags;        /* MPS INTI flags */
+};
+```
+
+**Common override**: ISA IRQ 0 (timer) is remapped to IOAPIC pin 2 on most systems:
+
+```bash
+$ dmesg | grep "ACPI.*timer"
+[    0.000000] ACPI: INT_SRC_OVR (bus 0 bus_irq 0 global_irq 2 high edge)
 ```
 
 ## Kernel Internals: irq_chip and irq_domain
@@ -352,6 +782,34 @@ struct irq_data {
 };
 ```
 
+### irq_chip Examples
+
+```c
+/* IOAPIC irq_chip */
+static struct irq_chip ioapic_chip = {
+    .name           = "IO-APIC",
+    .irq_enable     = ioapic_enable,
+    .irq_disable    = ioapic_disable,
+    .irq_ack        = ioapic_ack_irq,
+    .irq_mask       = ioapic_mask_irq,
+    .irq_unmask     = ioapic_unmask_irq,
+    .irq_eoi        = ioapic_eoi,
+    .irq_set_affinity = ioapic_set_affinity,
+    .irq_set_type   = ioapic_set_type,
+};
+
+/* MSI irq_chip */
+static struct irq_chip msi_chip = {
+    .name           = "PCI-MSI",
+    .irq_enable     = unmask_msi_irq,
+    .irq_disable    = mask_msi_irq,
+    .irq_ack        = ack_apic_edge,
+    .irq_mask       = mask_msi_irq,
+    .irq_unmask     = unmask_msi_irq,
+    .irq_set_affinity = msi_set_affinity,
+};
+```
+
 ## Practical Example: Tracing IRQ Routing
 
 ```bash
@@ -375,6 +833,79 @@ chip:    pci-msi
 domain:  PCI-MSI
 ```
 
+### Viewing IRQ Domain Hierarchy
+
+```bash
+# List all IRQ domains
+$ sudo cat /sys/kernel/debug/irq_domain/domains
+Domain  Name                 Parent
+------  ----                 ------
+0       IO-APIC              (root)
+1       IO-APIC-2            IO-APIC
+2       PCI-MSI              (root)
+3       GPIO-0               (root)
+
+# View domain mappings
+$ sudo cat /sys/kernel/debug/irq_domain/mappings
+hwirq    virq   chip          domain
+------   ----   ----          ------
+0        0      timer         IO-APIC
+1        1      i8042         IO-APIC
+16       16     ehci_hcd      IO-APIC
+524289   120    nvme          PCI-MSI
+```
+
+## Interrupt Storm Detection and Handling
+
+An **interrupt storm** occurs when an interrupt fires repeatedly without being properly handled, consuming all CPU time:
+
+```bash
+# Symptoms: 100% CPU usage in top, system unresponsive
+# /proc/interrupts shows rapidly incrementing counter for one IRQ
+
+# Monitor interrupt rate
+$ watch -n1 'cat /proc/interrupts | grep -E "^[0-9]+:" | awk "{print \$1, \$2}"'
+
+# Disable a problematic IRQ
+$ echo 1 > /proc/irq/16/spurious_count  # Not real API
+# Real approach: unbind the driver
+$ echo 0 > /proc/irq/16/smp_affinity
+
+# Kernel spurious interrupt handling
+$ dmesg | grep -i spurious
+[  123.456789] spurious 8259A interrupt: IRQ7.
+```
+
+### Kernel Spurious IRQ Detection
+
+The kernel tracks unhandled interrupts and automatically disables IRQs that appear spurious:
+
+```c
+/* kernel/irq/spurious.c */
+#define MAX_INTERRUPTS  100000
+
+static void note_interrupt(struct irq_desc *desc, irqreturn_t retval)
+{
+    if (retval == IRQ_WAKE_THREAD) {
+        /* Threaded handler — handled */
+        desc->threads_handled++;
+        return;
+    }
+
+    if (retval == IRQ_NONE) {
+        desc->irqs_unhandled++;
+        /* If too many unhandled, mark as spurious */
+        if (desc->irqs_unhandled > 99900 &&
+            time_after(jiffies, desc->last_unhandled + HZ/10)) {
+            /* Disable the IRQ */
+            desc->irq_count++;
+            if (desc->irq_count > 10)
+                __report_bad_irq(desc);
+        }
+    }
+}
+```
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
@@ -391,6 +922,7 @@ domain:  PCI-MSI
 - [ARM GIC Architecture Specification (GICv3/v4)](https://developer.arm.com/documentation/ihi0069/latest)
 - [RISC-V PLIC Specification](https://github.com/riscv/riscv-plic-spec)
 - [ACPI Specification, Chapter 5: ACPI Namespace](https://uefi.org/specifications)
+- [LWN: IRQ domain explained](https://lwn.net/Articles/493126/)
 
 ## Related Topics
 
