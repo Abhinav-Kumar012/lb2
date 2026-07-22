@@ -503,6 +503,303 @@ CONFIG_PROC_PAGE_MONITOR=y
 
 ---
 
+## Action Scripts
+
+CRIU supports **action scripts** — hooks that run at specific points during
+dump and restore. These are useful for setup/teardown tasks like configuring
+network interfaces, mounting filesystems, or notifying external services.
+
+```bash
+# Run a script before dump and after restore
+sudo criu dump -t <PID> -D /tmp/cpt/ --action-script /usr/local/bin/criu-hook.sh
+
+# Example action script
+#!/bin/bash
+# /usr/local/bin/criu-hook.sh
+# Called with arguments: <action> <dump|restore>
+
+ACTION=$1
+STAGE=$2
+
+case "$ACTION" in
+    pre-dump)
+        echo "[$(date)] Pre-dump starting" >> /var/log/criu.log
+        ;;
+    post-dump)
+        echo "[$(date)] Dump complete" >> /var/log/criu.log
+        ;;
+    pre-restore)
+        echo "[$(date)] Restore starting" >> /var/log/criu.log
+        # Set up network bridge
+        ip link add veth-criu type veth peer name veth-criu-peer
+        ip link set veth-criu up
+        ;;
+    post-restore)
+        echo "[$(date)] Restore complete" >> /var/log/criu.log
+        # Notify monitoring system
+        curl -X POST http://monitor.internal/api/restore-complete
+        ;;
+esac
+exit 0
+```
+
+Available hooks: `pre-dump`, `post-dump`, `pre-restore`, `post-restore`,
+`pre-resume`, `post-resume`.
+
+---
+
+## External UNIX Sockets
+
+When an application uses datagram UNIX sockets connected to an external
+server (not part of the checkpoint), CRIU can handle this with the
+`--ext-unix-sk` option. During dump, the socket is disconnected; during
+restore, it is reconnected to the server by path.
+
+```bash
+# Checkpoint with external UNIX socket handling
+sudo criu dump -t <PID> -D /tmp/cpt/ --ext-unix-sk
+
+# Restore — socket reconnects to the server path
+sudo criu restore -D /tmp/cpt/ --ext-unix-sk
+```
+
+This is essential for applications that communicate with system daemons
+(like `systemd-journald` or `dbus`) via UNIX datagram sockets.
+
+---
+
+## File Lock Checkpoint/Restore
+
+POSIX and BSD file locks can be checkpointed and restored:
+
+```bash
+# Enable file lock checkpoint
+sudo criu dump -t <PID> -D /tmp/cpt/ --file-locks
+
+# Restore with file locks
+sudo criu restore -D /tmp/cpt/ --file-locks
+```
+
+**Limitations:**
+- OFD (Open File Description) locks are supported since Linux 4.4.
+- F_SETLK leases require kernel support.
+- Network file locks (NFS, CIFS) cannot be checkpointed.
+
+---
+
+## Page Server Architecture
+
+The page server is a CRIU component that serves memory pages during
+lazy migration. It runs on the source host and responds to page
+requests from the restoring host:
+
+```mermaid
+sequenceDiagram
+    participant Src as Source Host
+    participant PS as Page Server
+    participant Dst as Destination Host
+
+    Src->>Src: criu dump --lazy-pages
+    Src->>PS: Start page server (port 9999)
+    Src->>Dst: Transfer checkpoint images
+    Dst->>Dst: criu restore --lazy-pages
+    Dst->>PS: Request missing pages (userfaultfd)
+    PS->>Dst: Send pages on demand
+    Dst->>Dst: Process continues running
+    Note over Dst,PS: Pages fetched on fault
+    PS->>Dst: All pages transferred
+    Dst->>PS: Close connection
+```
+
+### Page Server Options
+
+```bash
+# Start page server with specific options
+sudo criu page-server -D /tmp/cpt/ \
+    --port 9999 \
+    --address 0.0.0.0 \
+    --verbose 4 \
+    --log-file /var/log/criu-page-server.log
+
+# Limit page server to specific network
+sudo criu page-server -D /tmp/cpt/ \
+    --port 9999 \
+    --address 10.0.0.1
+```
+
+---
+
+## CRIU with systemd
+
+Systemd can manage CRIU-based checkpoint/restore for services:
+
+```ini
+# /etc/systemd/system/myapp.service
+[Unit]
+Description=My Checkpointable App
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/myapp
+# Enable CRIU checkpointing
+CheckpointRestore=yes
+# Where to store checkpoints
+CheckpointDirectory=/var/lib/checkpoints/myapp
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+# Checkpoint a systemd service
+systemctl checkpoint myapp.service
+
+# Restore from checkpoint
+systemctl start myapp.service --checkpoint=<checkpoint-id>
+
+# List checkpoints
+systemctl list-checkpoints myapp.service
+```
+
+**Note:** systemd checkpoint support requires systemd 248+ and CRIU 3.16+.
+
+---
+
+## CRIU with User Namespaces
+
+CRIU can checkpoint and restore processes inside user namespaces,
+enabling unprivileged checkpoint/restore:
+
+```bash
+# Checkpoint inside user namespace
+sudo criu dump -t <PID> -D /tmp/cpt/ --userns-path /proc/<pid>/ns/user
+
+# Restore into a new user namespace
+sudo criu restore -D /tmp/cpt/ --userns-path /proc/self/ns/user
+
+# Unprivileged checkpoint (requires user namespace)
+unshare --user --map-root-user -- bash -c "criu dump -t $$ -D /tmp/cpt/"
+```
+
+### Requirements for Unprivileged C/R
+
+- User namespace support: `CONFIG_USER_NS=y`
+- CRIU 3.12+ for user namespace support
+- All resources must be accessible from the user namespace
+- Network namespace must use user-space networking (slirp4netns)
+
+---
+
+## Memory Footprint Optimization
+
+For large-memory processes, CRIU offers several optimization techniques:
+
+### Memory Deduplication
+
+```bash
+# Use KSM (Kernel Same-page Merging) for restored processes
+echo 1 > /sys/kernel/mm/ksm/run
+
+# Check KSM stats
+cat /sys/kernel/mm/ksm/pages_shared
+cat /sys/kernel/mm/ksm/pages_sharing
+```
+
+### Image Compression
+
+```bash
+# Compress checkpoint images with zstd
+sudo criu dump -t <PID> -D /tmp/cpt/ --compress zstd
+
+# Compress with lz4 (faster, less compression)
+sudo criu dump -t <PID> -D /tmp/cpt/ --compress lz4
+
+# Decompress on restore (automatic)
+sudo criu restore -D /tmp/cpt/
+```
+
+### Image Deduplication Across Checkpoints
+
+```bash
+# Pre-dump shares pages with previous pre-dump
+# Only dirty pages are stored in subsequent dumps
+
+# Use parent images for incremental checkpoints
+sudo criu dump -t <PID> -D /tmp/cpt-2/ --parent-path /tmp/cpt-1/
+```
+
+---
+
+## Troubleshooting (Extended)
+
+### Permission Issues
+
+```bash
+# Error: "Can't dump pid 1234: Operation not permitted"
+# Solution: Ensure CAP_SYS_ADMIN, CAP_NET_ADMIN, CAP_SYS_PTRACE
+sudo setcap cap_sys_admin,cap_net_admin,cap_sys_ptrace+ep /usr/sbin/criu
+
+# Error: "No permission to dump task"
+# Solution: ptrace access check
+# /proc/sys/kernel/yama/ptrace_scope must allow it
+echo 0 > /proc/sys/kernel/yama/ptrace_scope
+```
+
+### Filesystem Issues
+
+```bash
+# Error: "Can't open dir /tmp/cpt: No such file or directory"
+# Solution: Create checkpoint directory
+mkdir -p /tmp/cpt
+
+# Error: "Can't mount devtmpfs"
+# Solution: Ensure /dev is accessible in the container
+# Check: ls -la /proc/<pid>/root/dev/
+
+# Error: "Filesystem mountpoints changed"
+# Solution: Use --ext-mount-map for external mounts
+sudo criu dump -t <PID> -D /tmp/cpt/ \
+    --ext-mount-map /mnt/data:/mnt/data
+```
+
+### Network Issues
+
+```bash
+# Error: "Can't dump TCP connection"
+# Solution: Use --tcp-established
+sudo criu dump -t <PID> -D /tmp/cpt/ --tcp-established
+
+# Error: "TCP connection in TIME_WAIT state"
+# Solution: Wait for connection to close or use --skip-in-flight
+sudo criu dump -t <PID> -D /tmp/cpt/ --skip-in-flight
+
+# Verify network state after restore
+ss -tlnp | grep <port>
+```
+
+### SELinux / AppArmor Issues
+
+```bash
+# Error: "Can't change apparmor profile"
+# Solution: Use unconfined profile or custom CRIU profile
+# /etc/apparmor.d/criu
+#include <tunables/global>
+/usr/sbin/criu {
+  #include <abstractions/base>
+  capability sys_admin,
+  capability net_admin,
+  capability sys_ptrace,
+  /proc/*/ns/* r,
+  /sys/fs/cgroup/** rw,
+}
+
+# Reload AppArmor
+apparmor_parser -r /etc/apparmor.d/criu
+```
+
+---
+
 ## Relation to Other Tools
 
 - **CRIU** is the core checkpoint/restore engine.
