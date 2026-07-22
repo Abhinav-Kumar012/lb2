@@ -493,6 +493,181 @@ hexdump -C /sys/firmware/devicetree/base/serial@10010000/reg
 - [Device Tree Specification](https://www.devicetree.org/specifications/)
 - [Kernel docs: Writing platform drivers](https://docs.kernel.org/driver-api/driver-model/platform.html)
 
+## Platform Driver Best Practices
+
+### Error Handling with dev_err_probe
+
+Modern kernels (5.15+) provide `dev_err_probe()` for cleaner error
+handling in probe functions:
+
+```c
+static int my_probe(struct platform_device *pdev)
+{
+    struct device *dev = &pdev->dev;
+    struct my_data *data;
+    int ret;
+
+    data = devm_kzalloc(dev, sizeof(*data), GFP_KERNEL);
+    if (!data)
+        return -ENOMEM;
+
+    /* dev_err_probe handles -EPROBE_DEFER automatically */
+    data->clk = devm_clk_get(dev, NULL);
+    if (IS_ERR(data->clk))
+        return dev_err_probe(dev, PTR_ERR(data->clk),
+                             "failed to get clock\n");
+
+    data->reg = devm_regulator_get(dev, "vdd");
+    if (IS_ERR(data->reg))
+        return dev_err_probe(dev, PTR_ERR(data->reg),
+                             "failed to get regulator\n");
+
+    data->rst = devm_reset_control_get(dev, NULL);
+    if (IS_ERR(data->rst))
+        return dev_err_probe(dev, PTR_ERR(data->rst),
+                             "failed to get reset\n");
+
+    return 0;
+}
+```
+
+### Multi-Function Device (MFD) Pattern
+
+SoC peripherals often combine multiple functions (GPIO + PWM + ADC).
+The MFD framework creates child platform devices:
+
+```c
+#include <linux/mfd/core.h>
+
+static struct mfd_cell my_mfd_cells[] = {
+    { .name = "my-gpio", .of_compatible = "vendor,my-gpio" },
+    { .name = "my-pwm",  .of_compatible = "vendor,my-pwm" },
+    { .name = "my-adc",  .of_compatible = "vendor,my-adc" },
+};
+
+static int my_mfd_probe(struct platform_device *pdev)
+{
+    /* Map shared registers, get clocks, etc. */
+    /* ... */
+
+    /* Register child devices */
+    return devm_mfd_add_devices(&pdev->dev, PLATFORM_DEVID_AUTO,
+                                 my_mfd_cells,
+                                 ARRAY_SIZE(my_mfd_cells),
+                                 NULL, 0, NULL);
+}
+```
+
+### Device Link Support
+
+Device links express dependencies between devices, ensuring proper
+probe ordering:
+
+```c
+/* In consumer driver's probe */
+static int my_consumer_probe(struct platform_device *pdev)
+{
+    struct device *dev = &pdev->dev;
+    struct device *supplier;
+
+    supplier = platform_device_find("my-supplier");
+    if (!supplier)
+        return -EPROBE_DEFER;
+
+    /* Create device link (DL_FLAG_AUTOPROBE_CONSUMER) */
+    struct device_link *link = device_link_add(dev, supplier,
+        DL_FLAG_AUTOPROBE_CONSUMER |
+        DL_FLAG_PM_RUNTIME);
+
+    if (!link)
+        return -EINVAL;
+
+    return 0;
+}
+```
+
+### Runtime PM Integration
+
+Platform drivers should integrate with runtime PM to save power when
+the device is idle:
+
+```c
+static int my_suspend(struct device *dev)
+{
+    struct my_data *data = dev_get_drvdata(dev);
+
+    /* Save hardware state */
+    data->saved_reg = readl(data->base + MY_REG);
+
+    /* Disable clocks */
+    clk_disable_unprepare(data->clk);
+
+    /* Disable regulator if not shared */
+    regulator_disable(data->supply);
+
+    return 0;
+}
+
+static int my_resume(struct device *dev)
+{
+    struct my_data *data = dev_get_drvdata(dev);
+
+    /* Enable regulator */
+    regulator_enable(data->supply);
+
+    /* Enable clocks */
+    clk_prepare_enable(data->clk);
+
+    /* Restore hardware state */
+    writel(data->saved_reg, data->base + MY_REG);
+
+    return 0;
+}
+
+static int my_runtime_suspend(struct device *dev)
+{
+    struct my_data *data = dev_get_drvdata(dev);
+    clk_disable_unprepare(data->clk);
+    return 0;
+}
+
+static int my_runtime_resume(struct device *dev)
+{
+    struct my_data *data = dev_get_drvdata(dev);
+    clk_prepare_enable(data->clk);
+    return 0;
+}
+
+static DEFINE_DEV_PM_OPS(my_pm_ops,
+                          my_suspend, my_resume,
+                          my_runtime_suspend, my_runtime_resume);
+
+static struct platform_driver my_driver = {
+    .probe = my_probe,
+    .remove = my_remove,
+    .driver = {
+        .name = "my-driver",
+        .of_match_table = my_of_match,
+        .pm = &my_pm_ops,
+    },
+};
+```
+
+## Platform Driver Checklist
+
+When writing a platform driver, follow this checklist:
+
+- [ ] Use `devm_*` APIs for resource management
+- [ ] Return `-EPROBE_DEFER` for missing dependencies
+- [ ] Use `dev_err_probe()` for error messages
+- [ ] Implement runtime PM for power savings
+- [ ] Use `of_match_table` for device tree matching
+- [ ] Include `MODULE_DEVICE_TABLE(of, ...)` for autoload
+- [ ] Use `platform_get_irq()` not `platform_get_resource(, IORESOURCE_IRQ)`
+- [ ] Handle all error paths in `probe()`
+- [ ] Clean up in `remove()` (or use devm_* to avoid it)
+- [ ] Test with `CONFIG_DEBUG_DEVRES` enabled
+
 ## Related Topics
 
 - [I2C and SPI](./i2c-spi.md) — Bus-level drivers using platform as controller base
@@ -501,3 +676,4 @@ hexdump -C /sys/firmware/devicetree/base/serial@10010000/reg
 - [ACPI](./acpi.md) — ACPI-based device enumeration
 - [Device Tree](../devicetree/index.md) — Device tree bindings and usage
 - [Kernel Modules](../modules/index.md) — Module loading and initialization
+- [Power Management](../power/index.md) — Runtime PM and system sleep
