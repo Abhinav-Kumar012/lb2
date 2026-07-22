@@ -485,6 +485,288 @@ graph TD
     style H fill:#d69e2e,color:#fff
 ```
 
+## IPv6 Configuration
+
+### Dual-Stack Setup
+
+```bash
+# NetworkManager
+nmcli con mod "Wired connection 1" ipv6.method auto
+nmcli con mod "Wired connection 1" ipv6.addresses 2001:db8::1/64
+nmcli con mod "Wired connection 1" ipv6.gateway 2001:db8::1
+
+# systemd-networkd
+# /etc/systemd/network/10-eth0.network
+[Network]
+DHCP=yes
+Address=2001:db8::1/64
+Gateway=2001:db8::1
+IPv6AcceptRA=yes
+
+# /etc/network/interfaces
+iface eth0 inet6 static
+    address 2001:db8::1/64
+    gateway 2001:db8::1
+```
+
+### IPv6 Privacy Extensions
+
+```bash
+# Enable temporary addresses (privacy)
+sysctl -w net.ipv6.conf.all.use_tempaddr=2
+sysctl -w net.ipv6.conf.default.use_tempaddr=2
+
+# Make persistent
+# /etc/sysctl.d/99-ipv6-privacy.conf
+net.ipv6.conf.all.use_tempaddr = 2
+net.ipv6.conf.default.use_tempaddr = 2
+
+# Check current addresses
+ip -6 addr show dev eth0
+# inet6 2001:db8::5054:ff:fe12:3456/64 scope global dynamic mngtmpaddr
+# inet6 2001:db8::abcd:1234:5678:9abc/64 scope global temporary dynamic
+# inet6 fe80::5054:ff:fe12:3456/64 scope link
+```
+
+### IPv6 Router Advertisement
+
+```bash
+# Accept router advertisements
+sysctl -w net.ipv6.conf.all.accept_ra=1
+# 0 = disabled
+# 1 = enabled when forwarding is disabled
+# 2 = enabled even when forwarding is enabled (for routers)
+
+# Configure radvd (Router Advertisement Daemon)
+# /etc/radvd.conf
+interface eth0 {
+    AdvSendAdvert on;
+    MinRtrAdvInterval 30;
+    MaxRtrAdvInterval 100;
+    prefix 2001:db8:1::/64 {
+        AdvOnLink on;
+        AdvAutonomous on;
+    };
+};
+```
+
+## WireGuard VPN Configuration
+
+### Quick WireGuard Setup
+
+```bash
+# Install
+apt install wireguard
+
+# Generate keys
+wg genkey | tee /etc/wireguard/private.key | wg pubkey > /etc/wireguard/public.key
+chmod 600 /etc/wireguard/private.key
+
+# Server config
+# /etc/wireguard/wg0.conf
+[Interface]
+PrivateKey = <server-private-key>
+Address = 10.0.0.1/24
+ListenPort = 51820
+PostUp = iptables -A FORWARD -i wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE
+
+[Peer]
+PublicKey = <client-public-key>
+AllowedIPs = 10.0.0.2/32
+
+# Client config
+# /etc/wireguard/wg0.conf
+[Interface]
+PrivateKey = <client-private-key>
+Address = 10.0.0.2/24
+DNS = 8.8.8.8
+
+[Peer]
+PublicKey = <server-public-key>
+Endpoint = server.example.com:51820
+AllowedIPs = 0.0.0.0/0  # Route all traffic through VPN
+PersistentKeepalive = 25
+
+# Start
+wg-quick up wg0
+systemctl enable wg-quick@wg0
+
+# Show status
+wg show
+```
+
+## Network Troubleshooting
+
+### Connectivity Testing
+
+```bash
+# Basic connectivity
+ping -c 4 8.8.8.8
+ping -c 4 gateway.example.com
+
+# DNS resolution
+dig example.com
+nslookup example.com
+host example.com
+
+# Trace route
+traceroute 8.8.8.8
+mtr 8.8.8.8  # Continuous traceroute
+
+# Check routing
+ip route get 8.8.8.8
+ip route show
+
+# Check if port is open
+curl -v http://example.com:80
+nc -zv example.com 80
+ss -tlnp | grep :80
+```
+
+### Socket Statistics with `ss`
+
+```bash
+# Show all TCP connections
+ss -tnp
+# State  Recv-Q  Send-Q  Local Address:Port  Peer Address:Port  Process
+# ESTAB  0       0       192.168.1.10:22     192.168.1.100:5432  users:((sshd,pid=1234))
+
+# Show listening sockets
+ss -tlnp
+# LISTEN  0  128  0.0.0.0:22   0.0.0.0:*  users:(("sshd",pid=1234,fd=3))
+# LISTEN  0  128  0.0.0.0:80   0.0.0.0:*  users:(("nginx",pid=5678,fd=6))
+
+# Show UDP sockets
+ss -ulnp
+
+# Show sockets in specific state
+ss -tnp state established
+ss -tnp state time-wait
+
+# Show sockets by destination
+ss -tn dst 192.168.1.0/24
+
+# Show socket memory usage
+ss -tm
+
+# Filter by process
+ss -tnp | grep nginx
+
+# Show connection counts by state
+ss -tan | awk '{print $1}' | sort | uniq -c | sort -rn
+#   150 ESTAB
+#    20 TIME-WAIT
+#     5 LISTEN
+#     2 CLOSE-WAIT
+```
+
+### Interface Statistics
+
+```bash
+# Detailed interface stats
+ip -s -s link show eth0
+# eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500
+#     RX:  bytes  packets  errors  dropped missed  mcast
+#     123456789  123456      0       5      0     100
+#     TX:  bytes  packets  errors  dropped carrier collsns
+#      98765432   98765      0       0      0       0
+
+# Watch stats in real time
+watch -n 1 'ip -s link show eth0 | grep -A 5 RX'
+
+# Check for errors
+ethtool -S eth0 | grep -i error
+# rx_errors: 0
+# tx_errors: 0
+# rx_crc_errors: 0
+
+# Check link status
+ethtool eth0
+# Speed: 1000Mb/s
+# Duplex: Full
+# Auto-negotiation: on
+# Link detected: yes
+
+# Check ARP table
+ip neigh show
+arp -a
+
+# Check for duplicate IPs
+arping -I eth0 192.168.1.10
+# ARPING 192.168.1.10 from 192.168.1.10 eth0
+# Unicast reply from 192.168.1.10 [52:54:00:12:34:56]
+# If you see a different MAC, there's an IP conflict
+```
+
+### Network Debugging Checklist
+
+```bash
+# 1. Is the interface up?
+ip link show eth0 | grep -q 'state UP' && echo 'UP' || echo 'DOWN'
+
+# 2. Do we have an IP?
+ip addr show dev eth0 | grep 'inet '
+
+# 3. Can we reach the gateway?
+ping -c 1 -W 2 $(ip route | awk '/default/ {print $3}')
+
+# 4. Can we reach an external IP?
+ping -c 1 -W 2 8.8.8.8
+
+# 5. Can we resolve DNS?
+dig +short example.com
+
+# 6. Can we reach the service?
+curl -s -o /dev/null -w '%{http_code}' http://example.com
+
+# 7. Check firewall rules
+iptables -L -n
+nft list ruleset
+
+# 8. Check for port conflicts
+ss -tlnp | grep ':80\|:443'
+
+# 9. Check system logs
+journalctl -u NetworkManager --since '1 hour ago'
+journalctl -u systemd-networkd --since '1 hour ago'
+dmesg | grep -i 'eth0\|link\|network'
+```
+
+### tcpdump Examples
+
+```bash
+# Capture all traffic on interface
+tcpdump -i eth0
+
+# Capture only TCP port 80
+tcpdump -i eth0 tcp port 80
+
+# Capture DNS queries
+tcpdump -i eth0 port 53
+
+# Capture with verbose output
+tcpdump -i eth0 -vv
+
+# Capture and save to file
+tcpdump -i eth0 -w capture.pcap
+
+# Read from file
+tcpdump -r capture.pcap
+
+# Capture specific host
+tcpdump -i eth0 host 192.168.1.100
+
+# Capture SYN packets only (connection attempts)
+tcpdump -i eth0 'tcp[tcpflags] & tcp-syn != 0'
+
+# Capture with timestamps
+tcpdump -i eth0 -tttt
+
+# Limit packet count
+tcpdump -i eth0 -c 100
+```
+
 ## Legacy Tools (Deprecated)
 
 ```bash
