@@ -405,6 +405,234 @@ cat /sys/kernel/debug/ubifs/ubifs0/stat
 | Scalability | Good | Poor (RAM) | Medium | Good |
 | Wear leveling | Via UBI | Via MTD | Via MTD | Via FTL |
 
+## Debugging UBIFS
+
+### Common UBIFS Issues
+
+| Problem | Cause | Solution |
+|---------|-------|----------|
+| Mount failure | Corrupt superblock | Use backup master node |
+| ENOSPC (no space) | Out of free LEBs | Run garbage collection |
+| Slow mount | Large TNC cache | Reduce TNC cache size |
+| Data corruption | Power cut during write | Check journal replay |
+| Bad block errors | NAND wear | Check UBI bad block count |
+
+### UBIFS Debug Commands
+
+```bash
+# View UBIFS debug info
+cat /sys/kernel/debug/ubifs/ubifs0/stat
+
+# Example output:
+# TNC:
+#   Znodes: 1234
+#   Znode size: 64
+#   In-memory size: 78976
+#   Leaf LEBs: 5
+#   Empty space: 1024
+#   Freeable: 0
+#   Structure violations: 0
+
+# Check UBIFS mount options
+mount | grep ubifs
+
+# View UBI device info
+ubinfo -a /dev/ubi0
+
+# Example output:
+# UBI device number 0
+# Total amount of logical eraseblock size: 126976 bytes
+# Total amount of available logical eraseblocks: 1234
+# Maximum logical eraseblock count: 2048
+
+# Check UBI volume info
+ubinfo /dev/ubi0_0
+
+# View UBI wear leveling info
+cat /sys/class/ubi/ubi0/reserved_for_beb
+```
+
+### UBIFS Recovery
+
+```bash
+# After power cut, UBIFS replays journal automatically
+# If mount fails, try:
+
+# 1. Check UBI device
+ubinfo -a /dev/ubi0
+
+# 2. Detach and reattach UBI
+ubidetach -d 0
+ubiattach -m 0 -d 0
+
+# 3. Check for bad blocks
+ubinfo -a /dev/ubi0 | grep bad
+
+# 4. If superblock corrupt, use backup master node
+# UBIFS stores two copies of master node for redundancy
+
+# 5. Last resort: reformat
+ubimkvol /dev/ubi0 -N rootfs -s 200MiB
+mkfs.ubifs -r /path/to/rootfs -m 2048 -e 126976 -c 2048
+```
+
+### Tracing UBIFS Operations
+
+```bash
+# Trace UBIFS functions
+sudo trace-cmd record -p function -l ubifs_* sleep 5
+sudo trace-cmd report
+
+# Trace specific UBIFS operations
+sudo trace-cmd record -e ubifs sleep 5
+sudo trace-cmd report
+
+# Use bpftrace to trace UBIFS
+echo 'kprobe:ubifs_read_node { @[comm] = count(); }' | sudo bpftrace -
+
+# Trace garbage collection
+sudo bpftrace -e 'kprobe:ubifs_garbage_collect { @[comm] = count(); }'
+
+# Trace write buffer operations
+sudo bpftrace -e 'kprobe:ubifs_wbuf_write_nolock { @[comm] = count(); }'
+```
+
+## UBIFS Performance Tuning
+
+### Compression Selection
+
+```bash
+# LZO: Fast, good for general use
+mount -t ubifs -o compr=lzo ubi0:rootfs /mnt
+
+# zlib: Better compression, slower
+mount -t ubifs -o compr=zlib ubi0:rootfs /mnt
+
+# zstd: Good balance
+mount -t ubifs -o compr=zstd ubi0:rootfs /mnt
+
+# No compression (for already compressed data)
+mount -t ubifs -o compr=none ubi0:rootfs /mnt
+
+# Benchmark compression
+ dd if=/dev/zero of=/mnt/test bs=1M count=100
+time cp /mnt/test /mnt/test2
+df -h /mnt
+```
+
+### Write Buffer Optimization
+
+```bash
+# The write buffer coalesces small writes
+# Size = min I/O unit (NAND page size)
+
+# Check current write buffer size
+cat /sys/kernel/debug/ubifs/ubifs0/wbuf_#
+
+# For workloads with many small writes:
+# - Increase max_bud_bytes for larger journal
+# - Use fsync() strategically (not after every write)
+
+# For sequential writes:
+# - Use direct I/O for large files
+# - Avoid unnecessary fsync()
+```
+
+### Space Management
+
+```bash
+# Check UBIFS space usage
+df -h /mnt
+ubinfo -a /dev/ubi0
+
+# Force garbage collection
+sync
+echo 3 > /proc/sys/vm/drop_caches
+
+# Check dark space (GC reserve)
+cat /sys/kernel/debug/ubifs/ubifs0/stat | grep -i dark
+
+# If running out of space:
+# 1. Delete unnecessary files
+# 2. Run sync
+# 3. Wait for GC to reclaim space
+# 4. Check for orphaned inodes
+```
+
+## Embedded Linux UBIFS Workflow
+
+### Complete Build and Flash
+
+```bash
+#!/bin/bash
+# build_ubifs.sh - Build and flash UBIFS image
+
+ROOTFS_DIR=$1
+OUTPUT_DIR=$2
+
+# Parameters for 128MB NAND with 2K page size
+PAGE_SIZE=2048
+PEB_SIZE=128KiB
+LEB_SIZE=126976  # PEB_SIZE - 2 * PAGE_SIZE
+MAX_LEBS=1024
+
+# Create UBIFS image
+mkfs.ubifs -r $ROOTFS_DIR \
+    -m $PAGE_SIZE \
+    -e $LEB_SIZE \
+    -c $MAX_LEBS \
+    -o $OUTPUT_DIR/rootfs.ubifs
+
+# Create UBI configuration
+cat > $OUTPUT_DIR/ubinize.cfg << EOF
+[rootfs]
+mode=ubi
+image=$OUTPUT_DIR/rootfs.ubifs
+vol_id=0
+vol_size=100MiB
+vol_name=rootfs
+vol_type=dynamic
+EOF
+
+# Create UBI image
+ubinize -o $OUTPUT_DIR/ubi.img \
+    -m $PAGE_SIZE \
+    -p $PEB_SIZE \
+    $OUTPUT_DIR/ubinize.cfg
+
+echo "UBI image created: $OUTPUT_DIR/ubi.img"
+echo "Flash with: nandwrite -p /dev/mtd0 $OUTPUT_DIR/ubi.img"
+```
+
+### Runtime Management
+
+```bash
+#!/bin/bash
+# ubifs_manage.sh - UBIFS runtime management
+
+UBI_DEV=0
+VOL_NAME=rootfs
+
+case "$1" in
+    status)
+        ubinfo -a /dev/ubi$UBI_DEV
+        mount -t ubifs
+        df -h
+        ;;
+    gc)
+        echo "Forcing garbage collection..."
+        sync
+        echo 3 > /proc/sys/vm/drop_caches
+        ;;
+    check)
+        echo "Checking UBI bad blocks..."
+        ubinfo -a /dev/ubi$UBI_DEV | grep -i bad
+        echo "Checking UBIFS debug info..."
+        cat /sys/kernel/debug/ubifs/ubifs0/stat
+        ;;
+esac
+```
+
 ## Source Files
 
 - `fs/ubifs/` — UBIFS implementation
