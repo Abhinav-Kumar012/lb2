@@ -158,11 +158,64 @@ When a CPU has no work, it enters low-power **C-states**. Deeper states save mor
 
 ### cpuidle Governors
 
-| Governor | Strategy |
-|----------|----------|
-| `menu` | Predict idle duration, choose deepest state |
-| `teo` | Timer Events Oriented (Linux 5.0+) |
-| `ladder` | Step through states sequentially |
+The cpuidle governor selects which idle state to enter when a CPU becomes idle. The decision is based on predicted idle duration versus the state's target residency and exit latency.
+
+#### menu Governor
+
+The `menu` governor predicts idle duration using:
+- Timer wheel: scans pending timers to estimate next wakeup
+- I/O activity: accounts for I/O completion interrupts
+- Historical data: uses recent idle durations for prediction
+
+```c
+/* drivers/cpuidle/governors/menu.c — simplified */
+static int menu_select(struct cpuidle_driver *drv,
+                       struct cpuidle_device *dev)
+{
+    /* 1. Predict idle duration from timer wheel */
+    predicted_ns = get_typical_interval(dev);
+
+    /* 2. Factor in performance multiplier */
+    predicted_ns *= performance_multiplier;
+
+    /* 3. Find deepest state within predicted duration */
+    for (i = drv->state_count - 1; i >= 0; i--) {
+        if (drv->states[i].target_residency <= predicted_ns)
+            return i;
+    }
+    return 0;  /* Fall back to C1 */
+}
+```
+
+#### TEO Governor (Timer Events Oriented)
+
+The TEO governor (Linux 5.0+) is designed to be more robust than `menu` for workloads with short, frequent timer wakeups:
+
+```c
+/* drivers/cpuidle/governors/teo.c — simplified concept */
+/*
+ * TEO categorizes idle states into "sleeping" and "non-sleeping":
+ * - Non-sleeping: C1/C1E (low latency, minimal savings)
+ * - Sleeping: C3+ (higher latency, better savings)
+ *
+ * TEO tracks how often timers vs non-timer events wake the CPU:
+ * - If timers dominate → predict based on timer list
+ * - If non-timer events dominate → use shallower states
+ *
+ * Key insight: the menu governor can be "fooled" by deep states
+ * that have long target residencies but the CPU wakes up early.
+ * TEO avoids this by focusing on timer events specifically.
+ */
+```
+
+```bash
+# Compare governors
+cat /sys/devices/system/cpu/cpu0/cpuidle/current_governor_ro
+# teo
+
+# TEO-specific debug info
+cat /sys/devices/system/cpu/cpu0/cpuidle/teo/name
+```
 
 ### cpuidle sysfs Interface
 
@@ -180,6 +233,28 @@ done
 
 # Disable a specific C-state
 echo 1 > /sys/devices/system/cpu/cpu0/cpuidle/state3/disable
+
+# View per-state time residency
+cat /sys/devices/system/cpu/cpu0/cpuidle/state*/time
+# Shows time (in µs) spent in each state
+```
+
+### Measuring C-State Residency
+
+```bash
+# turbostat shows C-state residency percentages
+turbostat --Summary
+# PkgWatt  CorWatt  GHz   Busy%  C1%  C6%  C7%
+#  12.5     8.3     1.2    45.2   12.3 25.1 17.4
+
+# Intel-specific: read MSR registers for precise residency
+# Use rdmsr tool (msr-tools package)
+rdmsr 0x3fd   # Core C3 residency counter
+rdmsr 0x3fe   # Core C6 residency counter
+rdmsr 0x3ff   # Core C7 residency counter
+
+# Or via turbostat (aggregated)
+turbostat --interval 1 | grep -E 'Busy|C1|C6|C7'
 ```
 
 ---
@@ -367,6 +442,72 @@ cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq
 # Intel thermal throttling
 cat /sys/devices/system/cpu/cpu0/thermal_throttle/core_throttle_count
 ```
+
+## PM QoS Framework
+
+The PM Quality of Service framework allows drivers and userspace to express latency and throughput requirements:
+
+```c
+/* include/linux/pm_qos.h */
+
+/* CPU DMA latency — how long the CPU can stay in deep C-states */
+struct pm_qos_request {
+    struct plist_node node;
+    int pm_qos_class;
+};
+
+/* Register a latency requirement */
+struct pm_qos_request my_req;
+my_req.pm_qos_class = PM_QOS_CPU_DMA_LATENCY;
+pm_qos_add_request(&my_req, PM_QOS_CPU_DMA_LATENCY,
+                   100);  /* Max 100 µs latency */
+
+/* Update requirement */
+pm_qos_update_request(&my_req, 50);  /* Now 50 µs max */
+
+/* Remove requirement */
+pm_qos_remove_request(&my_req);
+```
+
+### PM QoS sysfs Interface
+
+```bash
+# View current CPU DMA latency constraint
+cat /dev/cpu_dma_latency
+# Returns binary data; use xxd to read
+xxd /dev/cpu_dma_latency
+# Or use a C program to read the int32 value
+
+# Network latency/throughput PM QoS
+cat /sys/devices/system/cpu/cpu0/power/pm_qos_resume_latency_us
+# 0  (default: no constraint)
+
+# Set resume latency constraint
+echo 100 > /sys/devices/system/cpu/cpu0/power/pm_qos_resume_latency_us
+
+# Per-device PM QoS
+ls /sys/bus/pci/devices/0000:00:1f.2/power/
+# autosuspend_delay_ms  control  pm_qos_resume_latency_us
+```
+
+### Userspace PM QoS via /dev/cpu_dma_latency
+
+```c
+#include <fcntl.h>
+#include <stdint.h>
+#include <unistd.h>
+
+/* Prevent CPU from entering deep C-states */
+int fd = open("/dev/cpu_dma_latency", O_WRONLY);
+int32_t latency_us = 100;  /* Max 100 µs */
+write(fd, &latency_us, sizeof(latency_us));
+
+/* Now the system will use shallow C-states only */
+/* Close the file to release the constraint */
+close(fd);
+```
+
+This is critical for real-time audio, industrial control, and other latency-sensitive applications.
 
 ---
 

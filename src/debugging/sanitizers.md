@@ -522,3 +522,303 @@ int intentional_wraparound(int a, int b) {
 - [Debugging Overview](./overview.md) — tool selection guide
 - [Crash Dumps](./crash-dump.md) — kernel crash analysis
 - [SystemTap](./systemtap.md) — dynamic kernel tracing
+
+## ASan Internals: Shadow Memory
+
+ASan works by reserving a portion of the virtual address space as **shadow memory**. Every 8 bytes of application memory are mapped to 1 byte of shadow memory that records whether those bytes are accessible.
+
+```mermaid
+graph LR
+    subgraph "Application Memory (8 bytes)"
+        M1[byte 0-7]
+    end
+    subgraph "Shadow Memory (1 byte)"
+        S1[shadow byte]
+    end
+    M1 -->|"8:1 mapping"| S1
+    S1 -->|"0 = all accessible"| OK["OK"]
+    S1 -->|"1-7 = partial"| PARTIAL["Partial"]
+    S1 -->|"negative = poisoned"| BAD["Bad"]
+```
+
+```c
+// Shadow byte encoding:
+// 0: all 8 bytes are accessible
+// 1-7: first N bytes are accessible (for unaligned accesses)
+// negative: entire region is poisoned (redzone, freed memory)
+//   -1: heap redzone
+//   -2: freed memory
+//   -3: stack redzone
+//   -5: stack use-after-return
+```
+
+### Memory Layout with ASan
+
+```bash
+# With ASan enabled, the address space layout changes:
+cat /proc/$(pidof asan_app)/maps | head -20
+# Lots of reserved ranges for shadow memory
+# Typical overhead: ~3x virtual memory, ~2x RSS
+```
+
+## UBSan: Undefined Behaviors Detected
+
+UBSan catches a wide range of C/C++ undefined behaviors:
+
+```c
+// Signed integer overflow
+int x = INT_MAX;
+x++;  // UBSan: signed integer overflow
+
+// Null pointer dereference
+int *p = NULL;
+*p = 42;  // UBSan: null pointer dereference
+
+// Misaligned access
+char buf[10];
+int *p = (int *)(buf + 1);  // Misaligned
+*p = 42;  // UBSan: misaligned address
+
+// Division by zero
+int a = 1, b = 0;
+int c = a / b;  // UBSan: division by zero
+
+// Shift overflow
+int x = 1 << 32;  // UBSan: shift exponent 32 >= width 32
+
+// Invalid enum
+enum Color { RED, GREEN, BLUE };
+enum Color c = (enum Color)42;  // UBSan: invalid enum value
+
+// Out-of-bounds array (with -fsanitize=bounds)
+int arr[5];
+arr[10] = 42;  // UBSan: array index out of bounds
+```
+
+### UBSan Runtime Options
+
+```bash
+# Print full backtrace on each error
+UBSAN_OPTIONS=print_stacktrace=1 ./myapp
+
+# Halt on first error
+UBSAN_OPTIONS=halt_on_error=1 ./myapp
+
+# Continue after errors (default)
+UBSAN_OPTIONS=halt_on_error=0 ./myapp
+
+# Suppress specific checks
+# Compile with: -fno-sanitize-recover=all (abort on error)
+# Or: -fno-sanitize=signed-integer-overflow (disable specific check)
+```
+
+## Combining Sanitizers
+
+### ASan + UBSan
+
+```bash
+# These are compatible and commonly combined
+gcc -fsanitize=address,undefined -fno-omit-frame-pointer -g -O1 -o myapp myapp.c
+
+# CMake example
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=address,undefined -fno-omit-frame-pointer")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address,undefined -fno-omit-frame-pointer")
+set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} -fsanitize=address,undefined")
+```
+
+### TSan + UBSan
+
+```bash
+# Also compatible
+gcc -fsanitize=thread,undefined -g -O1 -o myapp myapp.c -lpthread
+```
+
+### Incompatible Combinations
+
+```bash
+# ASan and TSan are NOT compatible — use them separately
+# ASan and MSan are NOT compatible
+# MSan and TSan are NOT compatible
+
+# Run tests with each separately:
+# 1. ASan + UBSan: memory errors and UB
+# 2. TSan + UBSan: data races and UB
+# 3. MSan: uninitialized memory (Clang only)
+```
+
+## Sanitizers in CMake Projects
+
+```cmake
+# CMakeLists.txt
+option(ENABLE_ASAN "Enable AddressSanitizer" OFF)
+option(ENABLE_TSAN "Enable ThreadSanitizer" OFF)
+option(ENABLE_UBSAN "Enable UndefinedBehaviorSanitizer" OFF)
+option(ENABLE_MSAN "Enable MemorySanitizer" OFF)
+
+if(ENABLE_ASAN)
+    add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=address)
+endif()
+
+if(ENABLE_TSAN)
+    add_compile_options(-fsanitize=thread -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=thread)
+endif()
+
+if(ENABLE_UBSAN)
+    add_compile_options(-fsanitize=undefined -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=undefined)
+endif()
+
+if(ENABLE_MSAN)
+    add_compile_options(-fsanitize=memory -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=memory)
+endif()
+```
+
+```bash
+# Build with ASan
+cmake -DENABLE_ASAN=ON -DCMAKE_BUILD_TYPE=Debug ..
+make -j$(nproc)
+```
+
+## Sanitizers in Rust
+
+Rust has its own sanitizer support:
+
+```bash
+# AddressSanitizer
+RUSTFLAGS="-Zsanitizer=address" cargo build
+
+# ThreadSanitizer
+RUSTFLAGS="-Zsanitizer=thread" cargo build
+
+# MemorySanitizer
+RUSTFLAGS="-Zsanitizer=memory" cargo build
+
+# LeakSanitizer (with ASan)
+RUSTFLAGS="-Zsanitizer=leak" cargo build
+
+# Run tests with sanitizers
+cargo test -Zbuild-std --target x86_64-unknown-linux-gnu
+```
+
+## LeakSanitizer (LSan)
+
+LSan is integrated into ASan (enabled by default on Linux) but can also be used standalone:
+
+```bash
+# Standalone LSan
+gcc -fsanitize=leak -g -o myapp myapp.c
+
+# ASan with leak detection (default on Linux)
+ASAN_OPTIONS=detect_leaks=1 ./myapp
+
+# Disable leak detection
+ASAN_OPTIONS=detect_leaks=0 ./myapp
+
+# Suppression file for known leaks
+# /etc/lsan.supp
+leak:libsome_legacy.so
+leak:third_party_init
+```
+
+### LSan Report Example
+
+```
+=================================================================
+==12345==ERROR: LeakSanitizer: detected memory leaks
+
+Direct leak of 1024 byte(s) in 1 object(s) allocated from:
+    #0 0x4c3a76 in malloc (/home/user/myapp+0x4c3a76)
+    #1 0x4e2ae0 in process_request /home/user/server.c:45
+    #2 0x4e3000 in handle_connection /home/user/server.c:120
+
+Indirect leak of 256 byte(s) in 4 object(s) allocated from:
+    #0 0x4c3a76 in malloc (/home/user/myapp+0x4c3a76)
+    #1 0x4e2c00 in create_buffer /home/user/utils.c:30
+
+SUMMARY: AddressSanitizer: 1280 byte(s) leaked in 5 allocation(s).
+```
+
+## Kernel Sanitizer Configuration for Distributions
+
+```bash
+# Fedora/RHEL: pre-built debug kernels with KASAN
+sudo dnf install kernel-debug
+sudo dnf install kernel-debug-debuginfo
+
+# Boot the debug kernel
+# Select kernel-debug from GRUB menu
+
+# Ubuntu: custom kernel with KASAN
+# Enable in .config:
+CONFIG_KASAN=y
+CONFIG_KASAN_GENERIC=y
+CONFIG_KASAN_INLINE=y
+CONFIG_STACKTRACE=y
+CONFIG_SLUB_DEBUG=y
+
+# Build
+make -j$(nproc) deb-pkg
+sudo dpkg -i ../linux-image-*.deb
+
+# Verify KASAN is active
+cat /proc/config.gz | gunzip | grep KASAN
+# CONFIG_KASAN=y
+```
+
+## Sanitizer Performance Benchmarks
+
+```bash
+# Measure overhead
+# Baseline
+time ./myapp > /dev/null
+# real    0m10.000s
+
+# With ASan
+time ./myapp_asan > /dev/null
+# real    0m20.000s  (~2x)
+
+# With TSan
+time ./myapp_tsan > /dev/null
+# real    0m50.000s  (~5x)
+
+# With MSan
+time ./myapp_msan > /dev/null
+# real    0m30.000s  (~3x)
+
+# With UBSan
+time ./myapp_ubsan > /dev/null
+# real    0m12.000s  (~1.2x)
+
+# With Valgrind (for comparison)
+time valgrind ./myapp > /dev/null
+# real    1m00.000s  (~6x)
+```
+
+## Troubleshooting Sanitizer Issues
+
+```bash
+# "ASAN_OPTIONS" not working
+export ASAN_OPTIONS=detect_leaks=1
+./myapp  # Must be set before running
+
+# Missing symbolization
+# Install debug symbols
+apt install myapp-dbg  # Debian/Ubuntu
+
+# Set symbolizer path
+export ASAN_SYMBOLIZER_PATH=/usr/bin/llvm-symbolizer
+
+# TSan: too many mutexes (limit 64k)
+TSAN_OPTIONS=max_history_size=10000
+
+# MSan: instrumenting system libraries
+# Rebuild all dependencies with MSan
+# Or use MSAN_OPTIONS=intercept_tls_get_addr=0
+
+# KASAN: performance too slow
+# Use KFENCE for production (sampling-based, ~1% overhead)
+# Or use KASAN_SW_TAGS on ARM64 (hardware-assisted)
+```
