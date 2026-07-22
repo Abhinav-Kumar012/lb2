@@ -384,6 +384,260 @@ The syscall is available on x86_64, ARM64, and other architectures.
 
 ---
 
+## 11. Cache Analysis Workflow
+
+```mermaid
+flowchart TD
+    A["Application is slow"] --> B{"Run cachestat BPF tool"}
+    B --> C{"HITRATIO > 90%?"}
+    C -->|Yes| D["Page cache is healthy"]
+    C -->|No| E{"HITRATIO < 50%?"}
+    E -->|Yes| F["Severe cache miss - check RAM size"]
+    E -->|No| G["Moderate misses - check access pattern"]
+    F --> H{"Available RAM > working set?"}
+    H -->|No| I["Add RAM or reduce working set"]
+    H -->|Yes| J["Check for cache thrashing"]
+    G --> K{"Sequential or random?"}
+    K -->|Sequential| L["Increase read_ahead_kb"]
+    K -->|Random| M["Check if data is in cache"]
+    J --> N["Check vm.swappiness and cgroups"]
+    L --> O["Re-test with cachestat"]
+    M --> O
+    N --> O
+    I --> O
+```
+
+## 12. Advanced Page Cache Analysis
+
+### Per-File Cache Analysis with bpftrace
+
+```bash
+# Which files are being added to cache?
+sudo bpftrace -e '
+tracepoint:filemap:mm_filemap_add_to_page_cache {
+    @files[args->inode] = count();
+    @by_comm[comm] = count();
+}
+'
+
+# Cache miss rate per process
+sudo bpftrace -e '
+BEGIN { printf("Tracking page cache misses...\n"); }
+tracepoint:filemap:mm_filemap_add_to_page_cache {
+    @misses[comm] = count();
+}
+interval:s:5 {
+    print(@misses);
+    clear(@misses);
+}
+'
+
+# Page eviction tracking
+sudo bpftrace -e '
+tracepoint:vmscan:mm_shrink_slab_start {
+    @evictions[comm] = count();
+}
+interval:s:10 {
+    printf("=== Evictions per process (10s) ===\n");
+    print(@evictions);
+    clear(@evictions);
+}
+'
+```
+
+### Cache Pressure Analysis
+
+```bash
+# Monitor cache pressure over time
+watch -n 1 'grep -E "Cached|Buffers|Dirty|Writeback|Active\(file\)|Inactive\(file\)" /proc/meminfo'
+
+# Cache pressure ratio
+# = (Active(file) + Inactive(file)) / MemTotal
+# Low ratio = most RAM used by apps, little cache
+# High ratio = most RAM used by cache
+
+# Using sar for historical cache stats
+sar -r 1 5
+# kbmemfree kbmemused  %memused  kbbuffers  kbcached  %commit  kbactive  kbinact
+#   2048576  30719424     93.75     654320  18234560    49.56  12345678  18765432
+```
+
+### Cache Warming Strategies
+
+```bash
+# Pre-warm cache for database files
+find /var/lib/mysql -name "*.ibd" -exec cat {} > /dev/null \;
+
+# Pre-warm with vmtouch (more control)
+vmtouch -t /var/lib/mysql/mydb/*.ibd    # Touch (load into cache)
+vmtouch -e /var/lib/mysql/mydb/*.ibd    # Evict from cache
+vmtouch -v /var/lib/mysql/mydb/*.ibd    # Show cache status
+
+# Install vmtouch
+apt install vmtouch
+
+# Systematic cache warming script
+#!/bin/bash
+# warm-cache.sh — Pre-load critical files into page cache
+CRITICAL_FILES=(
+    "/var/lib/mysql/ibdata1"
+    "/var/lib/mysql/ib_logfile0"
+    "/var/www/static/*.js"
+    "/var/www/static/*.css"
+)
+for pattern in "${CRITICAL_FILES[@]}"; do
+    for f in $pattern; do
+        [[ -f "$f" ]] && vmtouch -t "$f"
+    done
+done
+echo "Cache warming complete"
+vmtouch /var/lib/mysql/ | tail -1
+```
+
+### Monitoring Cache Behavior During Workload
+
+```bash
+# Full cache monitoring dashboard
+#!/bin/bash
+# cache-monitor.sh — Real-time cache monitoring
+while true; do
+    clear
+    echo "=== Page Cache Status ($(date)) ==="
+    echo ""
+    grep -E "Cached:|Buffers:|Dirty:|Writeback:" /proc/meminfo
+    echo ""
+    echo "=== Cache Hit Rate ==="
+    grep -E "pgpgin|pgpgout|pswpin|pswpout|pgfault|pgmajfault" /proc/vmstat
+    echo ""
+    echo "=== Per-Device Read Ahead ==="
+    for dev in /sys/block/*/queue/read_ahead_kb; do
+        echo "$(dirname $(dirname $dev)): $(cat $dev) KB"
+    done
+    sleep 2
+done
+```
+
+## 13. Cache Behavior for Specific Workloads
+
+### Database Workloads
+
+```bash
+# PostgreSQL: Check shared buffer cache vs page cache
+# shared_buffers = 8GB → PostgreSQL manages its own cache
+# effective_cache_size = 24GB → estimates OS page cache
+
+# Monitor PostgreSQL cache hit ratio
+psql -c "SELECT
+dbname,
+blks_hit,
+blks_read,
+round(blks_hit * 100.0 / (blks_hit + blks_read), 2) as cache_hit_ratio
+FROM pg_stat_database
+WHERE blks_hit + blks_read > 0;"
+
+# If cache_hit_ratio < 99%, increase shared_buffers
+# Also check OS page cache for WAL files
+fincore /var/lib/postgresql/data/pg_wal/*
+```
+
+### Web Server Workloads
+
+```bash
+# Nginx: Static file serving
+# Check if static files are cached
+find /var/www -name "*.html" -o -name "*.js" -o -name "*.css" | \
+    xargs fincore 2>/dev/null | awk '$5 > 0 {print "Cached:", $6}'
+
+# Pre-warm frequently accessed files
+for f in /var/www/html/index.html /var/www/static/app.js; do
+    cat "$f" > /dev/null 2>&1
+done
+
+# Monitor cache usage for Nginx open_file_cache
+curl -s http://localhost/nginx_status
+# Active connections: 1234
+# Reading: 5  Writing: 12  Waiting: 1317
+```
+
+### Virtual Machine Host Caching
+
+```bash
+# For KVM hosts, check host page cache vs guest disk cache
+# Guest disk cache mode affects host caching:
+# cache=none → O_DIRECT, bypasses host page cache
+# cache=writeback → uses host page cache
+# cache=writethrough → read cache, no write cache
+
+# Check QEMU disk cache setting
+ps aux | grep qemu | grep -oP 'cache=\w+'
+
+# Monitor host cache for guest disk images
+fincore /var/lib/libvirt/images/*.qcow2
+```
+
+## 14. Page Cache Internals
+
+### LRU List Structure
+
+The kernel maintains two LRU (Least Recently Used) lists for page cache:
+
+```mermaid
+graph LR
+    subgraph "Active List (hot pages)"
+        A1["Page accessed ≥2 times"]
+        A2["Recently used"]
+        A3["Stays in cache"]
+    end
+    subgraph "Inactive List (cold pages)"
+        I1["Page accessed 0-1 times"]
+        I2["Candidate for eviction"]
+        I3["Moved to active if accessed"]
+    end
+    A1 --> I1
+    I1 --> A1
+    I1 --> E["Evicted when memory needed"]
+```
+
+```bash
+# View LRU list sizes
+grep -E "Active\(file\)|Inactive\(file\)" /proc/meminfo
+# Active(file):   12345678 kB  ← hot file pages
+# Inactive(file): 18765432 kB  ← cold file pages
+
+# Ratio of active to inactive indicates cache efficiency
+# Active/Inactive > 1 → most pages are hot (good)
+# Active/Inactive < 1 → many cold pages (may need more RAM)
+```
+
+### Cgroup Memory and Page Cache
+
+```bash
+# Per-cgroup cache stats
+cat /sys/fs/cgroup/myapp/memory.stat | grep -E "cache|pgfault|pgmajfault"
+# cache 123456789
+# pgfault 345678
+# pgmajfault 1234
+
+# High pgmajfault in cgroup = cache misses for that workload
+# Solutions:
+# 1. Increase cgroup memory limit
+# 2. Reduce other cgroup cache usage
+# 3. Use memory.min to protect cache
+
+echo 8G > /sys/fs/cgroup/myapp/memory.min  # Protect 8GB from reclaim
+```
+
+## 15. Further Reading
+
+* **LWN: [The cachestat() syscall](https://lwn.net/Articles/936574/)**
+* **Brendan Gregg: [Cachestat](https://www.brendangregg.com/Perf/bcc_cachestat.html)**
+* **Documentation: `Documentation/filesystems/cachestat.rst`**
+* **man page: `man 2 cachestat`**
+* **Source: `mm/filemap.c` — `cachestat()` implementation**
+* **BPF tools: `tools/cachestat` in the bcc repository**
+* Gregg, B. *Systems Performance: Enterprise and the Cloud*, 2nd Edition (2020).
+* [vmtouch — Virtual Memory Touch](https://hoytech.com/vmtouch/)
+
 ## Cross-References
 
 * [Page Cache](../kernel/memory/page-cache.md) — the page cache subsystem
@@ -392,3 +646,6 @@ The syscall is available on x86_64, ARM64, and other architectures.
 * [Swap](../kernel/memory/swap.md) — when pages go to disk
 * [BPF](../kernel/bpf/index.md) — programmable kernel tracing
 * [I/O Schedulers](../kernel/block/io-schedulers.md) — disk I/O scheduling
+* [Memory Performance](memory.md)
+* [I/O Performance](io.md)
+* [Kernel Tuning Parameters](kernel-params.md)

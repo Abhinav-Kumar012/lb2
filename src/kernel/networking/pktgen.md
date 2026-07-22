@@ -24,6 +24,20 @@ Pktgen uses a per-CPU thread model where each thread manages one or more network
 
 Each CPU runs a `kpktgend_N` kernel thread. The thread iterates over its assigned interfaces, constructs packets, and pushes them to the network driver's transmit queue. By binding threads to CPUs and interfaces to queues, pktgen can saturate multiple NIC queues simultaneously.
 
+### Packet Construction Pipeline
+
+```
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│  kpktgend_N     │     │  SKB Allocation │     │  Driver TX      │
+│  kernel thread  │────►│  + Header Fill  │────►│  ndo_start_xmit │
+│                 │     │  + Payload Gen  │     │  (or burst)     │
+└─────────────────┘     └─────────────────┘     └─────────────────┘
+        │                       │                       │
+        │                       │                       ▼
+   Per-CPU loop          clone_skb              NIC TX queue
+   (spin until done)     optimization           → Wire
+```
+
 ## Module Loading
 
 ```bash
@@ -123,6 +137,41 @@ echo "src6 fd00::2"  > /proc/net/pktgen/eth0
 echo "flow_label 0x12345" > /proc/net/pktgen/eth0
 ```
 
+### TCP Packet Generation
+
+```bash
+# Generate TCP SYN packets
+echo "tcp_data_offset 0" > /proc/net/pktgen/eth0
+echo "flag TCP_SYN" > /proc/net/pktgen/eth0
+
+# Set TCP flags individually
+echo "tcp_urg 0" > /proc/net/pktgen/eth0
+echo "tcp_ack 0" > /proc/net/pktgen/eth0
+echo "tcp_psh 0" > /proc/net/pktgen/eth0
+echo "tcp_rst 0" > /proc/net/pktgen/eth0
+echo "tcp_syn 1" > /proc/net/pktgen/eth0
+echo "tcp_fin 0" > /proc/net/pktgen/eth0
+
+# TCP sequence numbers
+echo "tcp_seq 1000" > /proc/net/pktgen/eth0
+echo "tcp_ack_seq 0" > /proc/net/pktgen/eth0
+
+# TCP window
+echo "tcp_window 65535" > /proc/net/pktgen/eth0
+```
+
+### Custom Payload
+
+```bash
+# Set custom payload (hex string)
+echo "data 0xdeadbeef0123456789abcdef" > /proc/net/pktgen/eth0
+
+# Or specify a file for payload data
+# (not directly supported - use script to set hex data)
+PAYLOAD=$(python3 -c "print('0x' + 'ab' * 100)")
+echo "data $PAYLOAD" > /proc/net/pktgen/eth0
+```
+
 ## clone_skb: Packet Cloning
 
 The `clone_skb` parameter controls how pktgen reuses packet buffers:
@@ -202,6 +251,8 @@ echo "flag VID_RND"     > /proc/net/pktgen/eth0  # Random VLAN ID
 echo "flag SVID_RND"    > /proc/net/pktgen/eth0  # Random SVLAN ID
 echo "flag FLOW_SEQ"    > /proc/net/pktgen/eth0  # Sequential flow
 echo "flag QUEUE_MAP_CPU" > /proc/net/pktgen/eth0  # Map queue to CPU
+echo "flag NODE"        > /proc/net/pktgen/eth0  # NUMA node allocation
+echo "flag NO_TIMESTAMP" > /proc/net/pktgen/eth0  # Disable timestamping
 ```
 
 ### Flag Combinations
@@ -226,6 +277,18 @@ echo "src_min 192.168.1.1" > /proc/net/pktgen/eth0
 echo "src_max 192.168.1.254" > /proc/net/pktgen/eth0
 ```
 
+### Port Range Control
+
+```bash
+# Source port range for randomization
+echo "udp_src_min 1024" > /proc/net/pktgen/eth0
+echo "udp_src_max 65535" > /proc/net/pktgen/eth0
+
+# Destination port range
+echo "udp_dst_min 80" > /proc/net/pktgen/eth0
+echo "udp_dst_max 80" > /proc/net/pktgen/eth0
+```
+
 ## Multi-Queue and CPU Affinity
 
 For maximum performance, bind pktgen threads to CPUs and assign interfaces to specific threads:
@@ -241,6 +304,21 @@ echo "rem_device eth0" > /proc/net/pktgen/kpktgend_1
 echo "cpu 0" > /proc/net/pktgen/eth0
 ```
 
+### NUMA-Aware Configuration
+
+```bash
+# Set NUMA node for memory allocation
+echo "node 0" > /proc/net/pktgen/eth0
+
+# Bind to specific CPU on NUMA node 0
+echo "cpu 0" > /proc/net/pktgen/eth0
+
+# For multi-NIC, use NIC's NUMA node
+# Check NIC NUMA node:
+cat /sys/class/net/eth0/device/numa_node
+# 0 means NUMA node 0
+```
+
 ### Multi-NIC Benchmarking
 
 ```bash
@@ -251,23 +329,59 @@ PGDEV=/proc/net/pktgen
 
 echo "reset" > $PGDEV/pgctrl
 
-# NIC 1 on CPU 0
+# NIC 1 on CPU 0 (NUMA node 0)
 echo "add_device eth0" > $PGDEV/kpktgend_0
 echo "count 0" > $PGDEV/eth0
 echo "pkt_size 64" > $PGDEV/eth0
 echo "dst 10.0.1.1" > $PGDEV/eth0
 echo "burst 32" > $PGDEV/eth0
 echo "clone_skb 1000" > $PGDEV/eth0
+echo "node 0" > $PGDEV/eth0
 
-# NIC 2 on CPU 1
+# NIC 2 on CPU 1 (NUMA node 0)
 echo "add_device eth1" > $PGDEV/kpktgend_1
 echo "count 0" > $PGDEV/eth1
 echo "pkt_size 64" > $PGDEV/eth1
 echo "dst 10.0.2.1" > $PGDEV/eth1
 echo "burst 32" > $PGDEV/eth1
 echo "clone_skb 1000" > $PGDEV/eth1
+echo "node 0" > $PGDEV/eth1
 
 echo "start" > $PGDEV/pgctrl
+```
+
+### Multi-Queue NIC with Multiple Threads
+
+```bash
+#!/bin/bash
+# Saturate a multi-queue 100GbE NIC
+
+PGDEV=/proc/net/pktgen
+DEV=eth0
+
+echo "reset" > $PGDEV/pgctrl
+
+# Get number of TX queues
+NUM_QUEUES=$(ethtool -l $DEV | grep "Combined" | head -1 | awk '{print $2}')
+echo "NIC has $NUM_QUEUES TX queues"
+
+# Create one pktgen thread per queue
+for i in $(seq 0 $((NUM_QUEUES - 1))); do
+    CPU=$i
+    echo "add_device $DEV@$i" > $PGDEV/kpktgend_$CPU
+    echo "count 0" > $PGDEV/${DEV}@$i
+    echo "pkt_size 64" > $PGDEV/${DEV}@$i
+    echo "clone_skb 1000" > $PGDEV/${DEV}@$i
+    echo "burst 64" > $PGDEV/${DEV}@$i
+    echo "dst 10.0.0.1" > $PGDEV/${DEV}@$i
+    echo "cpu $CPU" > $PGDEV/${DEV}@$i
+    echo "queue_map_min $i" > $PGDEV/${DEV}@$i
+    echo "queue_map_max $i" > $PGDEV/${DEV}@$i
+done
+
+echo "start" > $PGDEV/pgctrl
+sleep 10
+echo "stop" > $PGDEV/pgctrl
 ```
 
 ## MPLS Support
@@ -280,6 +394,32 @@ echo "mpls 0"        > /proc/net/pktgen/eth0  # Bottom of stack
 echo "mpls 100"      > /proc/net/pktgen/eth0  # Label 1
 echo "mpls 200"      > /proc/net/pktgen/eth0  # Label 2 (outer)
 echo "flag MPLS_RND" > /proc/net/pktgen/eth0  # Randomize labels
+```
+
+### MPLS Label Stack
+
+```bash
+#!/bin/bash
+# Generate MPLS traffic with label stack
+
+PGDEV=/proc/net/pktgen
+DEV=eth0
+
+echo "reset" > $PGDEV/pgctrl
+echo "add_device $DEV" > $PGDEV/kpktgend_0
+
+echo "count 0" > $PGDEV/$DEV
+echo "pkt_size 64" > $PGDEV/$DEV
+echo "clone_skb 1000" > $PGDEV/$DEV
+
+# MPLS: outer label 100, inner label 200
+echo "mpls 200" > $PGDEV/$DEV  # Inner (bottom of stack)
+echo "mpls 100" > $PGDEV/$DEV  # Outer
+
+echo "dst 10.0.0.1" > $PGDEV/$DEV
+echo "dst_mac 00:11:22:33:44:55" > $PGDEV/$DEV
+
+echo "start" > $PGDEV/pgctrl
 ```
 
 ## Monitoring Output
@@ -297,6 +437,47 @@ cat /proc/net/pktgen/eth0
 #   Rate:              1500000 pps
 #   Started:           yes
 #   Running:           yes
+```
+
+### Detailed Statistics
+
+```bash
+# Get detailed stats while running
+cat /proc/net/pktgen/eth0
+
+# Stats include:
+# - pkts_sent: Total packets transmitted
+# - pkts_rcvd: Packets received (if loopback)
+# - errors: Transmission errors
+# - bytes_sent: Total bytes
+# - elapsed_ns: Time elapsed in nanoseconds
+# - current_pps: Current packets per second
+# - current_bps: Current bits per second
+```
+
+### Real-time Monitoring Script
+
+```bash
+#!/bin/bash
+# Monitor pktgen output in real-time
+
+PGDEV=/proc/net/pktgen
+DEV=eth0
+
+echo "Monitoring pktgen on $DEV (Ctrl+C to stop)..."
+echo "-------------------------------------------"
+
+while true; do
+    STATS=$(cat $PGDEV/$DEV 2>/dev/null)
+    PKTS=$(echo "$STATS" | grep "Current count" | awk '{print $NF}')
+    RATE=$(echo "$STATS" | grep "Rate" | awk '{print $NF}')
+    ERRS=$(echo "$STATS" | grep "Errors" | awk '{print $NF}')
+    BYTES=$(echo "$STATS" | grep "Bytes" | awk '{print $NF}')
+
+    printf "Pkts: %-12s Rate: %-12s Errors: %-6s Bytes: %s\n" \
+        "$PKTS" "$RATE" "$ERRS" "$BYTES"
+    sleep 1
+done
 ```
 
 ## Global Control
@@ -321,6 +502,43 @@ echo "reset" > /proc/net/pktgen/pgctrl
 5. **Increase ring buffers**: `ethtool -G eth0 rx 4096 tx 4096`
 6. **Use huge pages**: Reduces TLB pressure for large packet buffers
 7. **Disable NAPI busy polling**: Avoid contention with pktgen threads
+8. **Use queue_map_cpu**: Map pktgen threads to NIC TX queues
+9. **Disable timestamping**: `flag NO_TIMESTAMP` reduces per-packet overhead
+10. **Increase kernel stack size**: For complex packet headers, ensure `CONFIG_16KSTACKS` or similar
+
+### NIC Tuning for Maximum PPS
+
+```bash
+# Increase TX ring buffer
+ethtool -G eth0 tx 4096
+
+# Disable interrupt coalescing (for lowest latency)
+ethtool -C eth0 tx-usecs 0 tx-frames 0
+
+# Set IRQ affinity
+echo 1 > /proc/irq/<irq_num>/smp_affinity
+
+# Disable GRO/GSO/TSO for accurate small packet testing
+ethtool -K eth0 gro off gso off tso off
+
+# Set interrupt moderation to minimum
+ethtool -C eth0 adaptive-rx off adaptive-tx off
+```
+
+### CPU Isolation for Pktgen
+
+```bash
+# Isolate CPUs 2-7 from the kernel scheduler
+# Add to kernel command line:
+isolcpus=2-7 nohz_full=2-7
+
+# Or use cgroups to isolate
+cgcreate -g cpuset:/pktgen
+cgset -r cpuset.cpus=2-7 pktgen
+cgset -r cpuset.mems=0 pktgen
+
+# Run pktgen threads in isolated CPUs
+```
 
 ## Example: Line Rate Test
 
@@ -350,9 +568,101 @@ cat $PGDEV/$DEV
 echo "stop" > $PGDEV/pgctrl
 ```
 
+## Example: Stress Test with Random Traffic
+
+```bash
+#!/bin/bash
+# Stress test with randomized source/destination
+
+PGDEV=/proc/net/pktgen
+DEV=eth0
+
+echo "reset" > $PGDEV/pgctrl
+echo "add_device $DEV" > $PGDEV/kpktgend_0
+
+echo "count 0" > $PGDEV/$DEV
+echo "pkt_size 128" > $PGDEV/$DEV
+echo "clone_skb 0" > $PGDEV/$DEV  # Must be 0 for randomization
+echo "burst 32" > $PGDEV/$DEV
+
+# Randomize everything
+echo "flag IPSRC_RND IPDST_RND UDPSRC_RND UDPDST_RND" > $PGDEV/$DEV
+echo "src_min 10.0.0.1" > $PGDEV/$DEV
+echo "src_max 10.0.0.254" > $PGDEV/$DEV
+echo "dst_min 10.0.1.1" > $PGDEV/$DEV
+echo "dst_max 10.0.1.254" > $PGDEV/$DEV
+echo "udp_src_min 1024" > $PGDEV/$DEV
+echo "udp_src_max 65535" > $PGDEV/$DEV
+echo "udp_dst_min 1" > $PGDEV/$DEV
+echo "udp_dst_max 1024" > $PGDEV/$DEV
+
+echo "start" > $PGDEV/pgctrl
+```
+
+## Example: VLAN-Tagged Traffic
+
+```bash
+#!/bin/bash
+# Generate VLAN-tagged traffic
+
+PGDEV=/proc/net/pktgen
+DEV=eth0
+
+echo "reset" > $PGDEV/pgctrl
+echo "add_device $DEV" > $PGDEV/kpktgend_0
+
+echo "count 100000" > $PGDEV/$DEV
+echo "pkt_size 1518" > $PGDEV/$DEV
+echo "vlan_id 100" > $PGDEV/$DEV
+echo "vlan_p 5" > $PGDEV/$DEV  # Priority 5
+echo "dst 192.168.100.2" > $PGDEV/$DEV
+echo "src 192.168.100.1" > $PGDEV/$DEV
+echo "dst_mac 00:11:22:33:44:55" > $PGDEV/$DEV
+
+echo "start" > $PGDEV/pgctrl
+```
+
 ## Userspace Frontend: pktgen-dpdk
 
 For even higher performance, the `pg` tool (part of the kernel source at `samples/pktgen/`) provides a simplified C interface. External tools like `pktgen-dpdk` use DPDK to bypass the kernel entirely for multi-million packets-per-second rates, but the in-kernel pktgen remains the most portable and easiest to use.
+
+### Comparison with Userspace Tools
+
+| Tool | PPS (64B, 10GbE) | Kernel Bypass | Ease of Use |
+|------|-------------------|---------------|-------------|
+| pktgen (kernel) | ~14.8 Mpps | No | Easy (proc) |
+| tcpreplay | ~2 Mpps | No | Easy |
+| TRex | ~14.8 Mpps | Optional | Medium |
+| pktgen-dpdk | ~14.8 Mpps | Yes | Complex |
+| moongen | ~14.8 Mpps | Yes | Medium |
+
+## Receiving Side Configuration
+
+When testing with pktgen, configure the receiver to accurately measure incoming traffic:
+
+```bash
+# On the receiving host
+
+# Enable promiscuous mode
+ip link set eth0 promisc on
+
+# Use tcpdump to verify
+tcpdump -i eth0 -c 1000 -nn
+
+# Or use a dedicated receiver
+# AF_PACKET with TPACKET_V3 for high-speed capture
+
+# Disable iptables on the receiver to avoid drops
+iptables -P INPUT ACCEPT
+iptables -F
+
+# Increase receive buffer
+sysctl -w net.core.rmem_max=16777216
+sysctl -w net.core.rmem_default=16777216
+
+# Monitor drops
+ethtool -S eth0 | grep -i drop
+```
 
 ## Troubleshooting
 
@@ -363,6 +673,27 @@ For even higher performance, the `pg` tool (part of the kernel source at `sample
 | Single CPU used | Thread not assigned | Use `kpktgend_N` to spread across CPUs |
 | Cannot load module | Not compiled | Enable `CONFIG_NET_PKTGEN` in kernel config |
 | Packets not seen on receiver | Wrong MAC/IP | Verify addressing; use promiscuous mode |
+| High CPU usage | No clone_skb | Enable `clone_skb` for static headers |
+| OOM errors | Large packet sizes | Reduce `pkt_size` or increase system memory |
+| Interface not found | Wrong interface name | Check `ip link show` for correct names |
+| Permission denied | Not root | Run as root or with `CAP_NET_RAW` |
+
+## Kernel Configuration
+
+```
+CONFIG_NET_PKTGEN=m    # Or =y for built-in
+```
+
+### Compile-time Options
+
+```bash
+# Check if pktgen is available
+modprobe pktgen 2>/dev/null && echo "pktgen available" || echo "not available"
+
+# If not available, rebuild kernel with CONFIG_NET_PKTGEN=m
+# Or check distribution packages:
+apt install linux-modules-extra-$(uname -r)  # Debian/Ubuntu
+```
 
 ## Further Reading
 
