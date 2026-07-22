@@ -419,6 +419,319 @@ struct nfs4_op_arg ops[] = {
 };
 ```
 
+## pNFS — Parallel NFS
+
+pNFS (parallel NFS), introduced in NFSv4.1, separates metadata and data paths, allowing clients to access storage devices directly for data I/O while still coordinating through a metadata server (MDS).
+
+### pNFS Layout Types
+
+```mermaid
+graph TB
+    subgraph "pNFS Architecture"
+        CLIENT["NFS Client"] -->|"Metadata ops"| MDS["Metadata Server (MDS)"]
+        CLIENT -->|"Data layout"| MDS
+        CLIENT -->|"Direct I/O"| DS1["Data Server 1"]
+        CLIENT -->|"Direct I/O"| DS2["Data Server 2"]
+        CLIENT -->|"Direct I/O"| DS3["Data Server 3"]
+        DS1 --> STORAGE["Shared Storage"]
+        DS2 --> STORAGE
+        DS3 --> STORAGE
+    end
+```
+
+| Layout Type | Transport | Description |
+|-------------|-----------|-------------|
+| **Files** | NFSv4 | Stripes files across data servers |
+| **Block** | SCSI/iSCSI | Direct block device access via SCSI |
+| **Flexfiles** | NFSv4 | Flexible layout, MDS ≠ data server |
+| **Object** | OSD | Object-based storage (rarely used) |
+
+### Flexfiles Layout Configuration
+
+```bash
+# Export data servers in /etc/exports
+/data/ds1  192.168.1.101(rw,sync,no_subtree_check)
+/data/ds2  192.168.1.102(rw,sync,no_subtree_check)
+
+# Mount with pNFS (client auto-negotiates layout)
+mount -t nfs -o vers=4.2 server:/data /mnt/pnfs
+
+# Verify pNFS is active
+nfsstat -m | grep pnfs
+#   pnfs = true
+```
+
+### pNFS Data Flow
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant MDS as Metadata Server
+    participant DS1 as Data Server 1
+    participant DS2 as Data Server 2
+
+    Client->>MDS: OPEN file.txt
+    MDS-->>Client: stateid + layout (stripe info)
+    Note over Client: Layout maps offsets to DS1, DS2
+    Client->>DS1: READ offset 0-64K
+    Client->>DS2: READ offset 64K-128K
+    DS1-->>Client: data (0-64K)
+    DS2-->>Client: data (64K-128K)
+    Client->>MDS: CLOSE file.txt
+```
+
+## NFS over RDMA (NFSoRDMA)
+
+NFS over RDMA (Remote Direct Memory Access) bypasses the TCP/IP stack, providing lower latency and higher throughput for high-performance computing environments.
+
+```bash
+# Server: enable RDMA transport
+# Requires RDMA-capable NIC (RoCE, InfiniBand)
+modprobe svcrdma
+
+# Configure nfsd to use RDMA
+# /etc/nfs.conf or /etc/sysconfig/nfs
+[nfsd]
+rdma=20049
+
+# Client: mount over RDMA
+mount -t nfs -o vers=4.2,rdma server:/data /mnt/data
+
+# Verify RDMA transport
+nfsstat -m | grep proto
+#   proto = rdma
+
+# Check RDMA device status
+ibv_devinfo
+rdma link show
+```
+
+**Performance comparison (approximate):**
+
+| Metric | NFS over TCP | NFS over RDMA |
+|--------|-------------|---------------|
+| Latency | ~200-500μs | ~50-100μs |
+| Throughput (100GbE) | ~8-10 GB/s | ~11-12 GB/s |
+| CPU utilization | Higher (TCP stack) | Lower (kernel bypass) |
+| Jumbo frames | Recommended (9000) | Required (often 4096+) |
+
+## NFS Ganesha — Userspace NFS Server
+
+NFS-Ganesha is a user-space NFS server that supports NFSv3, NFSv4.0, NFSv4.1, and NFSv4.2. It is commonly used in containerized environments and as a frontend for CephFS, GPFS, and GlusterFS.
+
+```bash
+# Install NFS-Ganesha
+apt install nfs-ganesha nfs-ganesha-gluster   # Debian/Ubuntu
+
+# Basic configuration: /etc/ganesha/ganesha.conf
+EXPORT {
+    Export_Id = 1;
+    Path = /export/data;
+    Pseudo = /data;
+    Access_Type = RW;
+    Squash = No_Root_Squash;
+    FSAL {
+        Name = VFS;
+    }
+    CLIENT {
+        Clients = 192.168.1.0/24;
+        Access_Type = RW;
+    }
+}
+
+# Start NFS-Ganesha
+systemctl enable --now nfs-ganesha
+
+# Reload exports without restart
+kill -SIGHUP $(pidof ganesha.nfsd)
+```
+
+## Autofs — On-Demand NFS Mounting
+
+Autofs automatically mounts NFS shares when accessed and unmounts them after an idle timeout, reducing boot-time dependencies and conserving resources.
+
+```bash
+# Install autofs
+apt install autofs
+
+# Master map: /etc/auto.master
+# Mount point    Map file    Options
+/nfs            /etc/auto.nfs   --timeout=300 --ghost
+/home/users     /etc/auto.home  --timeout=600
+
+# Direct map: /etc/auto.nfs
+# Key     Options   Server:path
+data    -rw,soft    server:/export/data
+shared  -rw,hard    server:/export/shared
+projects -rw,hard   server:/export/projects
+
+# Indirect map with wildcards: /etc/auto.home
+# Key     Options   Server:path
+*       -rw,hard    server:/home/&
+
+# Start autofs
+systemctl enable --now autofs
+
+# Test: accessing /nfs/data triggers mount
+ls /nfs/data
+# Mount happens automatically
+
+# Check autofs status
+automount -f -v -d  # Foreground debug mode
+```
+
+### Autofs with LDAP Maps
+
+```bash
+# /etc/auto.master
+/home   ldap:ou=autofs,dc=example,dc=com
+
+# LDAP schema stores mount maps
+# Requires nsswitch.conf:
+automount: files ldap
+```
+
+## NFS in Container Environments
+
+### Kubernetes NFS Volumes
+
+```yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: nfs-pv
+spec:
+  capacity:
+    storage: 100Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  nfs:
+    server: nfs-server.example.com
+    path: /export/data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nfs-pvc
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 100Gi
+```
+
+### Docker NFS Volumes
+
+```bash
+# Create Docker volume backed by NFS
+docker volume create --driver local \
+  --opt type=nfs \
+  --opt o=addr=192.168.1.100,rw,hard,nfsvers=4.2 \
+  --opt device=:/export/data \
+  nfs-data
+
+# Use in container
+docker run -v nfs-data:/data myimage
+```
+
+## NFS Server-Side Copy and Reflink
+
+NFSv4.2 server-side copy eliminates client-side data transfer:
+
+```bash
+# The kernel automatically uses CLONE for copy_file_range()
+# when both source and dest are on the same NFS mount
+
+cp --reflink=auto /mnt/nfs/source /mnt/nfs/dest
+
+# Verify server-side copy is happening (via tracing)
+echo 1 > /sys/kernel/debug/tracing/events/nfs/nfs4_copy/enable
+cat /sys/kernel/debug/tracing/trace_pipe
+```
+
+## NFS Quotas
+
+```bash
+# Enable quotas on NFS server (NFSv3)
+rpc.rquotad
+
+# Client: check quotas
+quota -u username
+repquota /export/data
+
+# NFSv4.2 supports server-side quotas via GETATTR
+# with the NFS4_ATTR_SPACE_USED attribute
+```
+
+## Common Troubleshooting Scenarios
+
+### Stale NFS File Handle
+
+```bash
+# Cause: file deleted on server while client still references it
+# Solution: unmount and remount
+umount -f /mnt/data    # Force unmount
+mount -t nfs server:/data /mnt/data
+
+# If umount hangs:
+umount -l /mnt/data    # Lazy unmount
+```
+
+### NFS Server Not Responding
+
+```bash
+# Check if server is reachable
+ping -c 3 server
+rpcinfo -p server
+
+# Check NFS service on server
+ssh server systemctl status nfs-server
+
+# Client: check mount options (hard vs soft)
+mount | grep nfs
+# If soft mount with small timeout, increase timeo:
+mount -o remount,timeo=100,retrans=5 /mnt/data
+```
+
+### Permission Denied
+
+```bash
+# Check exports on server
+showmount -e server
+exportfs -v
+
+# Check if root_squash is mapping to wrong UID
+# On server:
+id nobody
+# Ensure anonuid/anongid match expected values
+
+# Check Kerberos ticket (if using sec=krb5)
+klist
+kinit -k -t /etc/krb5.keytab host/server.example.com
+```
+
+### Performance Degradation
+
+```bash
+# Check NFS statistics for retransmissions
+nfsstat -c | grep retrans
+# High retrans = network issues
+
+# Check mount options
+nfsstat -m
+# Verify rsize/wsize are negotiated to expected values
+
+# Check network path
+tracepath server
+iperf3 -c server
+
+# Enable NFS debugging
+echo 7 > /proc/sys/sunrpc/nfs_debug
+```
+
 ## References
 
 - [NFS kernel documentation](https://www.kernel.org/doc/html/latest/filesystems/nfs/index.html)
