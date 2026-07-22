@@ -537,6 +537,147 @@ CONFIG_SECCOMP_USER_NOTIFICATION=y
 - [Container Security](../containers/security.md) - Container hardening
 - [Landlock](../security/landlock.md) - Complementary filesystem sandboxing
 
+## seccomp-notify in Container Runtimes
+
+### Podman and conmon
+
+Podman uses seccomp-notify via conmon (container monitor) for enhanced container security:
+
+```bash
+# Podman's container runtime configuration with seccomp-notify
+# /etc/containers/seccomp.json — OCI-compliant seccomp profile
+
+# Enable seccomp-notify for a container
+podman run --security-opt seccomp=notify:listener.sock \
+    docker.io/library/alpine:latest
+
+# conmon creates a Unix socket for the listener
+# The supervisor (conmon or external) receives notifications
+
+# Podman's built-in seccomp profile:
+# https://github.com/containers/common/blob/main/pkg/seccomp/default.json
+# Blocks: mount, kexec_load, reboot, swapon, swapoff, sysfs, etc.
+# Allows: read, write, open, close, stat, mmap, etc.
+```
+
+### Docker seccomp Profiles
+
+```bash
+# Docker uses seccomp profiles (not notify by default)
+# Default profile: https://github.com/moby/moby/blob/master/profiles/seccomp/default.json
+
+# Run with custom seccomp profile
+docker run --security-opt seccomp=custom-profile.json alpine
+
+# Run without seccomp (NOT recommended)
+docker run --security-opt seccomp=unconfined alpine
+
+# Docker's default profile blocks ~44 of ~300+ syscalls
+# Including: kexec_load, mount, reboot, swapon, etc.
+```
+
+### Containerd and seccomp-notify
+
+```bash
+# containerd supports seccomp-notify through the OCI runtime spec
+# In config.toml:
+# [plugins."io.containerd.grpc.v1.cri".containerd]
+#   default_runtime_name = "runc"
+# [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
+#   runtime_type = "io.containerd.runc.v2"
+#   [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
+#     BinaryName = "runc"
+```
+
+## Performance Considerations
+
+### Overhead of seccomp-notify
+
+```c
+// seccomp-notify has two main overhead sources:
+// 1. Context switch: syscall → filter → notification → supervisor → response
+// 2. Supervisor processing time per notification
+
+// Typical overhead per intercepted syscall:
+// Without seccomp-notify: ~100ns (direct syscall)
+// With SECCOMP_RET_ALLOW: ~200ns (filter evaluation)
+// With SECCOMP_RET_USER_NOTIF: ~10-50µs (depends on supervisor)
+```
+
+### When to Use seccomp-notify vs. Other Mechanisms
+
+| Mechanism | Overhead | Use Case |
+|-----------|----------|----------|
+| SECCOMP_RET_ALLOW | ~100ns | No filtering needed |
+| SECCOMP_RET_ERRNO | ~200ns | Simple deny with error |
+| SECCOMP_RET_KILL | ~200ns | Immediate termination |
+| SECCOMP_RET_USER_NOTIF | ~10-50µs | Complex policy decisions |
+| SECCOMP_RET_TRACE | ~5-20µs | ptrace-based tracing |
+| ptrace | ~50-200µs | Full syscall interception |
+
+```bash
+# Benchmark seccomp overhead
+# Install seccomp benchmark tool
+git clone https://github.com/seccomp/libseccomp.git
+cd libseccomp/tests
+make bench
+./bench
+
+# Compare:
+# No filter:      ~100ns/syscall
+# Simple allow:   ~200ns/syscall
+# Simple deny:    ~250ns/syscall
+# USER_NOTIF:     ~15µs/syscall (with fast supervisor)
+```
+
+## seccomp-notify vs. ptrace
+
+| Aspect | seccomp-notify | ptrace |
+|--------|---------------|--------|
+| Mechanism | Filter-based notification | Full process tracing |
+| Privilege | Filter owner + listener | CAP_SYS_PTRACE |
+| Process state | Suspended during notification | Stopped (SIGSTOP) |
+| Overhead | ~10-50µs | ~50-200µs |
+| Granularity | Syscall-level | Syscall + signal + memory |
+| Sandboxing | Primary use case | Debugging/tracing |
+| Multi-thread | Per-thread notifications | Per-thread tracing |
+| Race conditions | TOCTOU risk | Lower risk |
+
+## Advanced: Combining seccomp-notify with Landlock
+
+Landlock and seccomp-notify can be combined for defense in depth:
+
+```c
+// Landlock: filesystem access control (kernel-enforced, no supervisor needed)
+// seccomp-notify: syscall-level control (supervisor-mediated)
+
+// Combined approach:
+// 1. Apply Landlock for filesystem restrictions (fast, kernel-enforced)
+// 2. Apply seccomp-notify for remaining syscalls (mount, umount, etc.)
+// 3. Supervisor handles complex policy decisions
+
+// This reduces the number of notifications (Landlock handles common cases)
+// while maintaining flexibility for complex decisions
+```
+
+## Advanced: seccomp-notify with pidfd
+
+Linux 5.9+ supports pidfd for race-free process identification:
+
+```c
+#include <sys/pidfd.h>
+
+// Get pidfd for the target process
+int pidfd = pidfd_open(req->pid, 0);
+
+// Use pidfd for race-free operations:
+// - /proc/pid/mem access (via pidfd)
+// - Signal delivery (pidfd_send_signal)
+// - Process status check
+
+// This avoids PID reuse races when the target exits
+```
+
 ## Further Reading
 
 - [seccomp user notification (LWN.net)](https://lwn.net/Articles/756233/)
@@ -546,3 +687,6 @@ CONFIG_SECCOMP_USER_NOTIFICATION=y
 - [OCI runtime spec: seccomp](https://github.com/opencontainers/runtime-spec/blob/main/config-linux.md#seccomp)
 - [libseccomp](https://github.com/seccomp/libseccomp)
 - [seccomp notify proxy example](https://github.com/containers/conmon)
+- [Landlock documentation](https://docs.kernel.org/userspace-api/landlock.html)
+- [Podman seccomp](https://github.com/containers/common/tree/main/pkg/seccomp)
+
