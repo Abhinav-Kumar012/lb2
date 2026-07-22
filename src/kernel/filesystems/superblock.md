@@ -513,6 +513,8 @@ $ xfs_repair /dev/sdb1
 - [VFS documentation](https://www.kernel.org/doc/html/latest/filesystems/vfs.html)
 - [Superblock operations](https://www.kernel.org/doc/html/latest/filesystems/vfs.html#superblock-operations)
 - [include/linux/fs.h source](https://github.com/torvalds/linux/blob/master/include/linux/fs.h)
+- [mount(2) man page](https://man7.org/linux/man-pages/man2/mount.2.html)
+- [sync(2) man page](https://man7.org/linux/man-pages/man2/sync.2.html)
 
 ## Further Reading
 
