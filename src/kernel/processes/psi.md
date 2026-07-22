@@ -564,6 +564,45 @@ dmesg | grep psi
 # Unprivileged users: window must be multiple of 2s
 ```
 
+## PSI vs. Load Average
+
+The traditional Unix load average counts the number of runnable + uninterruptible
+processes. PSI measures the *fraction of time* tasks are stalled. This difference
+is significant:
+
+```text
+Scenario: 8 CPUs, 4 tasks constantly waiting on I/O
+
+Load average:     ~4.0  (just a count, hard to interpret)
+PSI io some:      50%   (half the time, at least one task is stalled)
+PSI io full:      0%    (CPUs still doing other work)
+
+→ Load average says "moderate load"
+→ PSI says "you're losing 50% of potential I/O throughput"
+```
+
+```text
+Scenario: 8 CPUs, 8 tasks all waiting on memory reclaim
+
+Load average:     ~8.0  (seems "fully loaded")
+PSI mem some:     100%  (always some task waiting)
+PSI mem full:     95%   (almost all time, everyone is stalled)
+
+→ Load average says "fully loaded" (misleading — it's thrashing)
+→ PSI says "95% of time is wasted on memory stalls" (actionable)
+```
+
+## Performance Overhead
+
+PSI accounting adds minimal overhead:
+
+- **Per-task**: ~8 bytes in `task_struct` (`psi_flags`, `in_memstall`)
+- **Per-CPU**: ~64 bytes for `psi_group_cpu` state
+- **CPU time**: <0.1% on typical workloads
+- **Trigger checking**: 10Hz per window (negligible)
+
+The overhead is so low that PSI is enabled by default in most distributions.
+
 ## Version History
 
 | Kernel | Changes |
