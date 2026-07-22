@@ -679,3 +679,86 @@ setsockopt(listen_fd, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt));
 - [signalfd(2)](https://man7.org/linux/man-pages/man2/signalfd.2.html) — signal readiness with epoll
 - [timerfd(2)](https://man7.org/linux/man-pages/man2/timerfd_create.2.html) — timer readiness with epoll
 - [eventfd(2)](https://man7.org/linux/man-pages/man2/eventfd.2.html) — event notification fd
+
+## Signal Integration with signalfd
+
+signalfd allows signals to be handled via file descriptors, integrating
+seamlessly with epoll:
+
+```c
+#include <sys/signalfd.h>
+#include <signal.h>
+#include <sys/epoll.h>
+
+int main(void) {
+    /* Block signals */
+    sigset_t mask;
+    sigemptyset(&mask);
+    sigaddset(&mask, SIGINT);
+    sigaddset(&mask, SIGTERM);
+    sigprocmask(SIG_BLOCK, &mask, NULL);
+
+    /* Create signalfd */
+    int sfd = signalfd(-1, &mask, SFD_NONBLOCK | SFD_CLOEXEC);
+
+    /* Add to epoll */
+    int epfd = epoll_create1(0);
+    struct epoll_event ev = { .events = EPOLLIN, .data.fd = sfd };
+    epoll_ctl(epfd, EPOLL_CTL_ADD, sfd, &ev);
+
+    /* Event loop handles signals like any other fd */
+    struct epoll_event events[10];
+    while (1) {
+        int n = epoll_wait(epfd, events, 10, -1);
+        for (int i = 0; i < n; i++) {
+            if (events[i].data.fd == sfd) {
+                struct signalfd_siginfo si;
+                read(sfd, &si, sizeof(si));
+                printf("Signal %d received\n", si.ssi_signo);
+                if (si.ssi_signo == SIGINT)
+                    return 0;
+            }
+        }
+    }
+}
+```
+
+## Timer Integration with timerfd
+
+timerfd creates a file descriptor that becomes readable when a timer
+expires, perfect for periodic tasks in event loops:
+
+```c
+#include <sys/timerfd.h>
+#include <unistd.h>
+
+int main(void) {
+    int tfd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
+
+    /* Set periodic timer: 100ms interval */
+    struct itimerspec ts = {
+        .it_interval = { .tv_sec = 0, .tv_nsec = 100000000 },
+        .it_value    = { .tv_sec = 0, .tv_nsec = 100000000 },
+    };
+    timerfd_settime(tfd, 0, &ts, NULL);
+
+    /* Add to epoll */
+    int epfd = epoll_create1(0);
+    struct epoll_event ev = { .events = EPOLLIN, .data.fd = tfd };
+    epoll_ctl(epfd, EPOLL_CTL_ADD, tfd, &ev);
+
+    /* Event loop */
+    struct epoll_event events[10];
+    while (1) {
+        int n = epoll_wait(epfd, events, 10, -1);
+        for (int i = 0; i < n; i++) {
+            if (events[i].data.fd == tfd) {
+                uint64_t expirations;
+                read(tfd, &expirations, sizeof(expirations));
+                /* Handle timer expiration */
+                printf("Timer fired %lu times\n", expirations);
+            }
+        }
+    }
+}
+```
