@@ -530,3 +530,317 @@ manufacturer  product  serial  version  bNumInterfaces
 - [PCI Subsystem](pci.md) — xHCI host controller is a PCI device
 - [Device Tree](device-tree.md) — USB controllers on embedded SoCs
 - [Kernel APIs](../apis.md) — DMA and memory allocation
+
+## USB Transfer Deep Dive
+
+### Transfer Scheduling
+
+The host controller schedules transfers based on their type:
+
+```mermaid
+graph LR
+    subgraph "xHCI Transfer Ring"
+        TRB1[TRB: Setup] --> TRB2[TRB: Data] --> TRB3[TRB: Status]
+    end
+    subgraph "Bulk Transfer Ring"
+        B1[TRB: Data] --> B2[TRB: Data] --> B3[TRB: Data]
+    end
+    subgraph "Interrupt/Isoc Ring"
+        I1[TRB: Data] --> I2[TRB: Data]
+    end
+```
+
+| Transfer Type | Scheduling | Error Handling | Typical Use |
+|---|---|---|---|
+| Control | Guaranteed bandwidth | Retries by HC | Device configuration |
+| Bulk | Best-effort | Retries by HC | Storage, serial |
+| Interrupt | Periodic, guaranteed | NAK → retry next interval | HID input |
+| Isochronous | Periodic, no guarantee | No retries (real-time) | Audio, video |
+
+### USB 3.x Streams
+
+USB 3.0 introduces **streams** for bulk endpoints, allowing multiple outstanding requests with different priorities:
+
+```c
+/* Create a stream context */
+unsigned int num_streams = 4;
+int ret = usb_alloc_streams(intf, eps, num_streams, GFP_KERNEL);
+
+/* Submit URBs on specific streams */
+urb->stream_id = 1;  /* Prioritize this stream */
+usb_submit_urb(urb, GFP_KERNEL);
+```
+
+This is particularly useful for NVMe-over-USB and UAS (USB Attached SCSI) devices, where multiple commands can be in flight simultaneously.
+
+## USB Type-C and Alt Modes
+
+USB Type-C is a connector standard that supports multiple protocols:
+
+```mermaid
+graph TD
+    TC["USB Type-C Connector"] --> USB["USB 2.0/3.x/4"]
+    TC --> DP["DisplayPort Alt Mode"]
+    TC --> TB["Thunderbolt 3/4"]
+    TC --> HDMI["HDMI Alt Mode"]
+    TC --> PPD["USB Power Delivery"]
+```
+
+```bash
+# Check Type-C status
+ls /sys/class/typec/
+# port0/  port1/
+
+ls /sys/class/typec/port0/
+# active_altmode  data_role  preferred_role  supported_altmodes
+# vconn_role  port_type  power_role
+
+# Check current mode
+cat /sys/class/typec/port0/data_role
+# host
+
+# Check power role
+cat /sys/class/typec/port0/power_role
+# source
+
+# Monitor Type-C events
+sudo udevadm monitor --subsystem-match=typec
+```
+
+### USB Power Delivery (PD)
+
+```bash
+# Check USB PD capabilities
+cat /sys/class/typec/port0/port_type
+# "dual" (supports both host and device roles)
+
+# Check power supply
+ls /sys/class/power_supply/
+# ucsi-source-psy.0/
+cat /sys/class/power_supply/ucsi-source-psy.0/online
+# 1
+```
+
+## USB Reliability and Error Handling
+
+### Common USB Errors
+
+```bash
+# Check for USB errors in dmesg
+dmesg | grep -i usb | grep -iE "error|fail|reset|disconnect"
+
+# Common errors:
+# usb 1-1: device descriptor read/64, error -71  (EPROTO — protocol error)
+# usb 1-1: device not accepting address, error -71
+# usb 1-1: reset high-speed USB device number 2 using xhci_hcd
+# usb 1-1: USB disconnect, device number 2
+```
+
+### USB Device Reset
+
+```bash
+# Reset a USB device via sysfs
+echo "1-1" | sudo tee /sys/bus/usb/drivers/usb/unbind
+echo "1-1" | sudo tee /sys/bus/usb/drivers/usb/bind
+
+# Or using usbreset tool
+sudo usbreset /dev/bus/usb/001/003
+```
+
+### USB Autosuspend Debugging
+
+```bash
+# Check autosuspend status
+cat /sys/bus/usb/devices/1-1/power/autosuspend
+# 2 (seconds, or -1 for disabled)
+
+# Disable autosuspend for a specific device
+echo -1 | sudo tee /sys/bus/usb/devices/1-1/power/autosuspend
+
+# Disable globally (kernel parameter)
+# usbcore.autosuspend=-1
+
+# Check power state
+cat /sys/bus/usb/devices/1-1/power/runtime_status
+# active, suspended, suspending, resuming
+
+# Prevent autosuspend for a specific driver
+echo "on" | sudo tee /sys/bus/usb/devices/1-1/power/control
+```
+
+## USB Security Considerations
+
+### USBGuard
+
+USBGuard is a tool for implementing USB device authorization policies:
+
+```bash
+# Install
+sudo apt install usbguard
+
+# Generate initial policy from connected devices
+sudo usbguard generate-policy > /etc/usbguard/rules.conf
+
+# Start service
+sudo systemctl enable --now usbguard
+
+# List devices
+usbguard list-devices
+# 1: allow id 046d:c077 serial "" name "USB Optical Mouse" hash "..." parent-hash "..."
+# 2: block id 0781:5567 serial "ABC123" name "Cruzer Blade" hash "..." parent-hash "..."
+
+# Allow a specific device permanently
+sudo usbguard allow-device 2
+
+# Block all new devices by default
+# In /etc/usbguard/rules.conf:
+# deny with-interface 08:*:*  # Block mass storage
+# allow  # Allow everything else
+```
+
+### USB Device Authorization via sysfs
+
+```bash
+# Authorize/deauthorize USB devices
+echo 0 | sudo tee /sys/bus/usb/devices/1-2/authorized  # Deauthorize
+echo 1 | sudo tee /sys/bus/usb/devices/1-2/authorized  # Authorize
+
+# Disable USB storage module
+sudo modprobe -r usb-storage
+sudo sh -c 'echo "install usb-storage /bin/true" >> /etc/modprobe.d/disable-usb-storage.conf'
+```
+
+## USB Performance Tuning
+
+### Buffer Size and URB Tuning
+
+```c
+/* Increase buffer size for bulk transfers */
+#define BULK_BUF_SIZE (512 * 1024)  /* 512KB */
+buf = kmalloc(BULK_BUF_SIZE, GFP_KERNEL);
+
+/* Multiple URBs for double/triple buffering */
+#define NUM_URBS 4
+struct urb *urbs[NUM_URBS];
+for (i = 0; i < NUM_URBS; i++) {
+    urbs[i] = usb_alloc_urb(0, GFP_KERNEL);
+    usb_fill_bulk_urb(urbs[i], udev, pipe, bufs[i], BULK_BUF_SIZE,
+                      complete, context);
+    usb_submit_urb(urbs[i], GFP_KERNEL);
+}
+```
+
+### xHCI Ring Size
+
+```bash
+# Check xHCI driver parameters
+modinfo xhci_hcd
+
+# Increase event ring size (kernel parameter)
+# xhci_hcd.quirks=0x...  (specific quirk flags)
+
+# Check USB speed negotiation
+sudo lsusb -t
+# /:  Bus 02.Port 1: Dev 1, Class=root_hub, Driver=xhci_hcd/6p, 5000M
+# /:  Bus 01.Port 1: Dev 1, Class=root_hub, Driver=xhci_hcd/14p, 480M
+```
+
+## USB Development Tools
+
+### usbutils
+
+```bash
+# Install
+sudo apt install usbutils
+
+# List all USB devices
+lsusb
+# Bus 001 Device 003: ID 046d:c077 Logitech, Inc. M105 Optical Mouse
+# Bus 001 Device 002: ID 05e3:0608 Genesys Logic, Inc. Hub
+# Bus 001 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub
+
+# Detailed device info
+lsusb -v -d 046d:c077
+
+# Tree view with speeds
+lsusb -t
+
+# Show device descriptor in hex
+lsusb -v -d 046d:c077 | head -20
+```
+
+### libusb (User-Space USB Access)
+
+```c
+#include <libusb-1.0/libusb.h>
+
+int main(void) {
+    libusb_context *ctx;
+    libusb_device_handle *handle;
+
+    libusb_init(&ctx);
+    handle = libusb_open_device_with_vid_pid(ctx, 0x046d, 0xc077);
+    if (!handle) {
+        fprintf(stderr, "Device not found\n");
+        return 1;
+    }
+
+    /* Claim interface */
+    libusb_claim_interface(handle, 0);
+
+    /* Bulk transfer */
+    unsigned char data[64];
+    int transferred;
+    libusb_bulk_transfer(handle, 0x81 /* EP1 IN */,
+                         data, sizeof(data), &transferred, 1000);
+    printf("Received %d bytes\n", transferred);
+
+    libusb_release_interface(handle, 0);
+    libusb_close(handle);
+    libusb_exit(ctx);
+    return 0;
+}
+```
+
+Compile: `gcc -o usbtest usbtest.c $(pkg-config --cflags --libs libusb-1.0)`
+
+### USB-Serial (CDC-ACM) Devices
+
+```bash
+# Check for USB serial devices
+ls /dev/ttyUSB* /dev/ttyACM*
+# /dev/ttyACM0  /dev/ttyUSB0
+
+# Monitor serial data
+sudo screen /dev/ttyACM0 115200
+# Or:
+sudo minicom -D /dev/ttyACM0 -b 115200
+
+# Python serial access
+python3 -c "
+import serial
+ser = serial.Serial('/dev/ttyACM0', 115200, timeout=1)
+ser.write(b'AT\r\n')
+print(ser.readline())
+ser.close()
+"
+```
+
+## USB in Virtualization
+
+```bash
+# Pass USB device to QEMU/KVM
+qemu-system-x86_64 -device usb-host,vendorid=0x046d,productid=0xc077 ...
+
+# Or via libvirt XML:
+# <hostdev mode='subsystem' type='usb'>
+#   <source>
+#     <vendor id='0x046d'/>
+#     <product id='0xc077'/>
+#   </source>
+# </hostdev>
+
+# Detach from host and attach to VM
+sudo virsh nodedev-detach usb_046d_c077
+sudo virsh nodedev-reattach usb_046d_c077
+```
