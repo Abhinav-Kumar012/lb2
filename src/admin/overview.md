@@ -375,6 +375,363 @@ graph TD
     style Backup fill:#38a169,color:#fff
 ```
 
+## systemd Deep Dive
+
+Modern Linux distributions use **systemd** as the init system and service manager. Understanding systemd is essential for every administrator.
+
+### Unit Types
+
+systemd manages the system through **units** — configuration files that describe resources and services:
+
+| Unit Type | Suffix | Purpose |
+|-----------|--------|---------|
+| Service | `.service` | Daemons and background processes |
+| Socket | `.socket` | Socket-activated services |
+| Timer | `.timer` | Scheduled tasks (cron replacement) |
+| Mount | `.mount` | Filesystem mounts |
+| Target | `.target` | Grouping of units (like runlevels) |
+| Path | `.path` | Filesystem path monitoring |
+| Slice | `.slice` | cgroup resource management |
+
+### Writing a Service Unit
+
+```ini
+# /etc/systemd/system/myapp.service
+[Unit]
+Description=My Application Server
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=notify
+User=myapp
+Group=myapp
+WorkingDirectory=/opt/myapp
+ExecStartPre=/opt/myapp/check-config.sh
+ExecStart=/opt/myapp/server --config /etc/myapp/config.yaml
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5s
+WatchdogSec=30s
+
+# Security hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/myapp /var/log/myapp
+PrivateTmp=yes
+
+# Resource limits
+LimitNOFILE=65535
+MemoryMax=2G
+CPUQuota=200%
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### Essential systemctl Commands
+
+```bash
+# Service lifecycle
+systemctl start myapp        # Start service
+systemctl stop myapp         # Stop service
+systemctl restart myapp      # Restart service
+systemctl reload myapp       # Reload config (no restart)
+systemctl status myapp       # Show status + recent logs
+
+# Enable/disable at boot
+systemctl enable myapp       # Create symlink for boot
+systemctl disable myapp      # Remove symlink
+systemctl enable --now myapp # Enable and start immediately
+
+# Listing units
+systemctl list-units --type=service             # Active services
+systemctl list-units --type=service --state=failed  # Failed services
+systemctl list-unit-files --type=service         # All installed services
+
+# Masking (prevent even manual start)
+systemctl mask myapp
+systemctl unmask myapp
+
+# Reload systemd after unit file changes
+daemon-reload
+```
+
+### journald: The systemd Journal
+
+`journald` is systemd's structured logging system. It stores logs in a binary format with rich metadata:
+
+```bash
+# View all logs
+journalctl
+
+# Follow live logs
+journalctl -f
+
+# Logs for a specific service
+journalctl -u nginx.service
+journalctl -u nginx.service --since "1 hour ago"
+
+# Filter by priority
+journalctl -p err                  # Errors and above
+journalctl -p warning..crit        # Range
+
+# Filter by time
+journalctl --since "2025-07-20"
+journalctl --since "2025-07-20 14:00" --until "2025-07-20 16:00"
+journalctl --since "-2h"           # Last 2 hours
+
+# Filter by boot
+journalctl -b                      # Current boot
+journalctl -b -1                   # Previous boot
+
+# Filter by unit and follow
+journalctl -u docker.service -f
+
+# Disk usage
+journalctl --disk-usage
+# Archived and active journals take up 2.3G.
+
+# Vacuum old logs
+journalctl --vacuum-size=500M      # Keep max 500MB
+journalctl --vacuum-time=30d       # Keep last 30 days
+
+# Export for analysis
+journalctl -u nginx.service -o json > nginx_logs.json
+
+# Output formats
+journalctl -o short                # Default (syslog-like)
+journalctl -o verbose              # All fields
+journalctl -o json                 # JSON
+journalctl -o cat                  # Message only (no metadata)
+```
+
+### Journal Persistent Storage
+
+```bash
+# Create persistent journal directory
+sudo mkdir -p /var/log/journal
+sudo systemd-tmpfiles --create --prefix /var/log/journal
+
+# Configure journald
+# /etc/systemd/journald.conf
+[Journal]
+Storage=persistent       # or 'volatile' for RAM-only
+SystemMaxUse=2G          # Max disk usage
+SystemKeepFree=1G        # Keep free on disk
+MaxRetentionSec=90day    # Max log retention
+Compress=yes             # Compress old logs
+ForwardToSyslog=yes      # Forward to rsyslog if installed
+
+# Apply changes
+systemctl restart systemd-journald
+```
+
+### Targets (Runlevels)
+
+```bash
+# View current target
+systemctl get-default
+# multi-user.target
+
+# Change default target
+systemctl set-default graphical.target
+
+# Switch to rescue mode
+systemctl isolate rescue.target
+
+# Common targets:
+# poweroff.target    — shutdown
+# rescue.target      — single-user mode
+# multi-user.target  — multi-user, no GUI
+# graphical.target   — multi-user + GUI
+# emergency.target   — minimal emergency shell
+```
+
+## Network Troubleshooting
+
+### Diagnostic Flowchart
+
+```mermaid
+flowchart TD
+    A["Network Issue"] --> B{"Can ping localhost?"}
+    B -->|No| C["Check: ip link, systemctl status networking"]
+    B -->|Yes| D{"Can ping gateway?"}
+    D -->|No| E["Check: ip route, ARP table, cables"]
+    D -->|Yes| F{"Can ping external IP?"}
+    F -->|No| G["Check: firewall, ISP, routing"]
+    F -->|Yes| H{"DNS resolution works?"}
+    H -->|No| I["Check: /etc/resolv.conf, dig, nslookup"]
+    H -->|Yes| J["Application-level issue"]
+```
+
+### Essential Network Commands
+
+```bash
+# Interface status
+ip link show                     # All interfaces
+ip addr show                     # IP addresses
+ip -br addr show                 # Brief output
+
+# Routing
+ip route show                    # Routing table
+ip route get 8.8.8.8             # Route to specific destination
+
+# Connectivity tests
+ping -c 3 8.8.8.8               # Basic connectivity
+traceroute 8.8.8.8               # Path tracing
+mtr 8.8.8.8                     # Continuous traceroute
+
+# DNS
+dig example.com                  # DNS lookup
+dig +short example.com           # Just the IP
+host example.com                 # Simple lookup
+
+# Connections and sockets
+ss -tunlp                        # Listening sockets
+ss -tunp                         # All connections
+ss -s                            # Socket statistics summary
+
+# Packet capture
+tcpdump -i eth0 -c 100 -w capture.pcap
+tcpdump -i eth0 port 443 -nn
+
+# Network throughput
+iperf3 -s                        # Server mode
+iperf3 -c server_ip              # Client mode
+
+# Interface statistics
+ip -s link show eth0             # Packet/error counters
+ethtool eth0                     # NIC capabilities
+```
+
+## Disk Management
+
+### Partition and Filesystem Setup
+
+```bash
+# List partitions
+lsblk
+fdisk -l
+parted /dev/sda print
+
+# Create partition (GPT)
+parted /dev/sda mklabel gpt
+parted /dev/sda mkpart primary ext4 0% 100%
+
+# Create filesystem
+mkfs.ext4 /dev/sda1
+mkfs.xfs /dev/sda1
+
+# Mount
+mount /dev/sda1 /data
+
+# Add to fstab for persistent mount
+# /etc/fstab
+# /dev/sda1  /data  ext4  defaults,noatime  0  2
+
+# Find UUID for fstab (preferred over device names)
+blkid /dev/sda1
+```
+
+### LVM (Logical Volume Manager)
+
+```bash
+# Create physical volume
+pvcreate /dev/sda /dev/sdb
+
+# Create volume group
+vgcreate data_vg /dev/sda /dev/sdb
+
+# Create logical volume
+lvcreate -L 500G -n app_lv data_vg
+lvcreate -l 100%FREE -n data_lv data_vg
+
+# Extend a logical volume
+lvextend -L +100G /dev/data_vg/app_lv
+resize2fs /dev/data_vg/app_lv       # For ext4
+xfs_growfs /dev/data_vg/app_lv       # For XFS
+
+# LVM snapshots
+lvcreate -L 10G -s -n app_snap /dev/data_vg/app_lv
+mount -o ro /dev/data_vg/app_snap /mnt/snapshot
+```
+
+## Incident Response Workflow
+
+### First Response Checklist
+
+When a system is down or degraded:
+
+```bash
+# 1. Assess severity and scope
+uptime                             # Load average
+free -h                            # Memory pressure
+df -h                              # Disk full?
+dmesg --time-format iso | tail -20  # Kernel messages
+
+# 2. Check service status
+systemctl status <service>
+journalctl -u <service> --since "10 min ago" -p err
+
+# 3. Check recent changes
+last -20                           # Recent logins
+cat /var/log/auth.log | tail -20   # Authentication
+dpkg --list | grep -i <package>    # Installed packages (Debian)
+rpm -qa --last | head -20          # Recent packages (RHEL)
+
+# 4. Resource bottleneck analysis
+# CPU
+mpstat -P ALL 1 5
+pidstat -u 1 5
+
+# Memory
+vmstat 1 5
+slabtop
+
+# Disk I/O
+iostat -xz 1 5
+iotop -aoP
+
+# Network
+ss -s
+nstat -z
+```
+
+### The USE Method
+
+Brendan Gregg's **USE Method** (Utilization, Saturation, Errors) for every resource:
+
+| Resource | Utilization | Saturation | Errors |
+|----------|-------------|------------|--------|
+| **CPU** | `mpstat` (all cores) | `vmstat` (r column) | `perf stat` (cache misses) |
+| **Memory** | `free -h` | `vmstat` (si/so), `dmesg` (OOM) | `dmesg` (ECC errors) |
+| **Disk** | `iostat -xz` (%util) | `iostat` (avgqu-sz) | `smartctl`, `dmesg` |
+| **Network** | `ip -s link` (bytes) | `ss` (retransmits) | `ip -s link` (errors/drops) |
+
+## Capacity Planning
+
+```bash
+# Disk growth trend
+df -h | grep -v tmpfs
+du -sh /var/log /var/lib /home /data
+
+# Monitor over time with sar (sysstat)
+sar -d 1 10              # Disk I/O every second, 10 times
+sar -r 1 10              # Memory
+sar -n DEV 1 10          # Network
+
+# Historical data (if sysstat is installed)
+sar -r -f /var/log/sysstat/sa20  # Memory from the 20th
+sar -d -f /var/log/sysstat/sa20  # Disk from the 20th
+
+# Estimate when disk fills up
+# Current usage: 750GB of 1000GB (75%)
+# Growth rate: 5GB/day
+# Days until full: (1000-750)/5 = 50 days
+```
+
 ## Linux Distribution Families
 
 Understanding the distribution landscape helps with cross-platform administration:
