@@ -446,6 +446,41 @@ struct fuse_operations {
 - https://github.com/libfuse/libfuse/wiki
 - https://lwn.net/Articles/787223/ — "FUSE passthrough"
 
+## Troubleshooting
+
+### Common Issues
+
+| Problem | Cause | Solution |
+|---------|-------|----------|
+| Transport endpoint not connected | Daemon crashed | Restart daemon or unmount |
+| Permission denied | /etc/fuse.conf missing user_allow_other | Add user_allow_other to /etc/fuse.conf |
+| fusermount3 not found | Package not installed | Install fuse3 package |
+| Cannot mount | /dev/fuse not accessible | Check permissions on /dev/fuse |
+| Slow performance | No writeback cache | Enable FUSE_CAP_WRITEBACK_CACHE in daemon |
+| Stale NFS-like errors | Daemon timeout | Increase max_read or check network |
+
+### Debugging Commands
+
+```bash
+# Check FUSE mounts
+mount -t fuse
+
+# View FUSE connection info
+cat /sys/fs/fuse/connections/*/waiting
+cat /sys/fs/fuse/connections/*/max_background
+cat /sys/fs/fuse/connections/*/congestion_threshold
+
+# FUSE debug logging
+fusermount3 -o debug /mnt/point
+
+# strace the FUSE daemon
+strace -p $(pgrep my_fuse_daemon)
+
+# Check /dev/fuse status
+ls -la /dev/fuse
+cat /proc/filesystems | grep fuse
+```
+
 ## Related Topics
 
 - [file-ops](./file-ops.md) — How FUSE implements VFS file operations
