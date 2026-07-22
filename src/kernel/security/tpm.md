@@ -686,6 +686,7 @@ CONFIG_TPM_KEY_PARSER=y        # TPM key blob parser
 - **Arch Wiki**: [TPM](https://wiki.archlinux.org/title/TPM)
 - **USENIX**: ["TPM-Fail: TPM meets Timing and Lattice Attacks"](https://www.usenix.org/system/files/sec20-moghimi-tpm.pdf)
 - **LWN**: ["Subverting TPM While You Are Sleeping"](https://www.usenix.org/system/files/conference/usenixsecurity18/sec18-han.pdf)
+- **TPM.dev**: [TPM 2.0 tutorials and guides](https://tpm.dev/)
 
 ---
 

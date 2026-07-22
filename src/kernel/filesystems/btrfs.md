@@ -489,6 +489,452 @@ $ sudo btrfs filesystem resize -5G /mnt/data   # Shrink by 5G
 $ sudo btrfs filesystem resize max /mnt/data   # Grow to fill device
 ```
 
+## Reflinks
+
+Btrfs supports **reflink** copies — instant, space-efficient file copies that share data blocks via CoW:
+
+```bash
+# Create a reflink copy (instant, no data copying)
+cp --reflink=always /source/file /dest/file
+
+# Auto-reflink (use reflink if supported, fallback to regular copy)
+cp --reflink=auto /source/file /dest/file
+
+# ioctl interface
+ioctl(dest_fd, FICLONE, src_fd);
+
+# Partial reflink (clone a range)
+struct file_clone_range range = {
+    .src_fd = src_fd,
+    .src_offset = 0,
+    .src_length = 4096 * 100,
+    .dest_offset = 0,
+};\ioctl(dest_fd, FICLONERANGE, &range);
+```
+
+```mermaid
+graph TD
+    subgraph Before["Before Reflink Copy"]
+        F1["Original File"] --> B1["Data Block A"]
+        F1 --> B2["Data Block B"]
+        F1 --> B3["Data Block C"]
+    end
+
+    subgraph After["After Reflink Copy"]
+        F2["Original File"] --> B1
+        F3["Reflink Copy"] --> B1
+        F2 --> B2
+        F3 --> B2
+        F2 --> B3
+        F3 --> B3
+    end
+
+    subgraph Modified["After Modifying Copy"]
+        F4["Original File"] --> B1
+        F5["Reflink Copy (modified)"] --> B6["Data Block A' (new)"]
+        F4 --> B2
+        F5 --> B2
+        F4 --> B3
+        F5 --> B3
+    end
+```
+
+Reflinks are especially useful for:
+- **Instant VM image provisioning**: Create a full copy in microseconds
+- **Build systems**: Share object files across build directories
+- **Backup snapshots**: CoW-aware copy without doubling disk usage
+
+```bash
+# Check if files share extents (reflink)
+filefrag -v /original /copy | grep -i extent
+# Both files show same physical extents until modified
+
+# Deduplication via reflinks (offline)
+duperemove -dr /path/to/data
+```
+
+## Send/Receive Stream Format
+
+The `btrfs send` command produces a binary stream of commands. The stream format is versioned:
+
+```c
+/* Stream header */
+#define BTRFS_SEND_STREAM_MAGIC "btrfs-stream"
+#define BTRFS_SEND_STREAM_VERSION 1
+
+struct btrfs_send_stream {
+    char magic[13];     /* "btrfs-stream" */
+    __le32 version;     /* Stream version */
+};
+
+/* Command header */
+struct btrfs_cmd_header {
+    __le32 len;         /* Length of attributes */
+    __le16 cmd;         /* BTRFS_SEND_C_* */
+    __le32 crc;         /* CRC32 of header + attributes */
+    __le64 cmd_seq;     /* Command sequence number */
+};
+```
+
+### Send Commands
+
+| Command | Code | Purpose |
+|---------|------|----------|
+| SUBVOL | 1 | Create subvolume (base) |
+| SNAPSHOT | 2 | Create snapshot (incremental base) |
+| MKFILE | 3 | Create file |
+| MKDIR | 4 | Create directory |
+| MKNOD | 5 | Create device node |
+| MKFIFO | 6 | Create FIFO |
+| MKSOCK | 7 | Create socket |
+| SYMLINK | 8 | Create symlink |
+| RENAME | 9 | Rename entry |
+| LINK | 10 | Create hard link |
+| UNLINK | 11 | Remove file |
+| RMDIR | 12 | Remove directory |
+| WRITE | 13 | Write data |
+| CLONE | 14 | Clone (reflink) range |
+| TRUNCATE | 15 | Set file size |
+| CHMOD | 16 | Change mode |
+| CHOWN | 17 | Change ownership |
+| UTIMES | 18 | Set timestamps |
+| END | 19 | End of stream |
+| UPDATE_EXTENT | 20 | Write extent (no data, for sparse) |
+| MAX | 20 | |
+
+### Send Attributes
+
+```c
+/* TLV-encoded attributes */
+struct btrfs_send_attr {
+    __le16 tl;     /* BTRFS_SEND_A_* type + length */
+    __le16 len;    /* Attribute data length */
+    /* Followed by attribute data */
+};
+
+/* Attribute types */
+#define BTRFS_SEND_A_UUID       1  /* Subvolume UUID */
+#define BTRFS_SEND_A_CTRANSID   2  /* Transaction ID */
+#define BTRFS_SEND_A_INO        3  /* Inode number */
+#define BTRFS_SEND_A_SIZE       4  /* File size */
+#define BTRFS_SEND_A_MODE       5  /* File mode */
+#define BTRFS_SEND_A_PATH       6  /* Path name */
+#define BTRFS_SEND_A_DATA       7  /* Write data */
+#define BTRFS_SEND_A_CLONE_UUID 9  /* Clone source UUID */
+#define BTRFS_SEND_A_CLONE_CTRANSID 10 /* Clone transaction */
+#define BTRFS_SEND_A_CLONE_PATH 11 /* Clone source path */
+#define BTRFS_SEND_A_CLONE_OFFSET 12 /* Clone source offset */
+```
+
+## Zoned Mode (ZNS/ZBC Devices)
+
+Btrfs supports **zoned storage devices** (Zoned Namespace SSDs, SMR HDDs) where writes must follow sequential write constraints:
+
+```mermaid
+flowchart TD
+    subgraph Zoned["Zoned Block Device"]
+        Z1["Zone 0: Sequential Write Required"]
+        Z2["Zone 1: Sequential Write Required"]
+        Z3["Zone 2: Conventional (random write OK)"]
+        Z4["Zone 3: Sequential Write Required"]
+    end
+
+    Btrfs --> Z1
+    Btrfs --> Z2
+    Btrfs --> Z3
+    Btrfs --> Z4
+```
+
+```bash
+# Create btrfs on zoned device
+mkfs.btrfs -d single -m single /dev/nvme0n1
+
+# Check zone info
+btrfs device usage /mnt/data
+# Shows zone size, conventional zones, sequential zones
+
+# Zone capacity vs zone size
+# Some ZNS devices have zone capacity < zone size
+# Btrfs handles this automatically
+```
+
+### Zoned Mode Constraints
+
+- **Metadata**: Written sequentially to conventional or sequential zones
+- **Data**: Written sequentially, grouped by block group type
+- **Garbage collection**: Btrfs reclaims zones by rewriting live data
+- **Zone size**: Must be at least as large as the maximum extent size (typically 256MB)
+
+```c
+/* fs/btrfs/zoned.c */
+int btrfs_load_zone_info(struct btrfs_fs_info *fs_info,
+                         struct btrfs_device *device, u64 logical);
+
+/* Zone types */
+enum btrfs_zone_type {
+    BTRFS_ZONE_TYPE_CONVENTIONAL = 0,
+    BTRFS_ZONE_TYPE_SEQ_WRITE,   /* Sequential write required */
+    BTRFS_ZONE_TYPE_SEQ_PREF,    /* Sequential preferred */
+};
+```
+
+## Tree-Log (FSync Optimization)
+
+Btrfs uses a **tree-log** to optimize `fsync()` performance. Instead of committing the entire filesystem, fsync writes a small log tree:
+
+```mermaid
+sequenceDiagram
+    participant App as Application
+    participant Btrfs as Btrfs
+    participant Log as Log Tree
+    participant Main as Main Tree
+
+    App->>Btrfs: write(data)
+    Btrfs->>Log: Write to log tree
+    App->>Btrfs: fsync()
+    Btrfs->>Log: Commit log tree (fast)
+    Note over Log: Only changed inodes in log
+    App->>Btrfs: Continue working...
+    Note over Main: Full commit happens later
+    Main->>Main: Merge log tree into main tree
+    Log->>Log: Clear log tree
+```
+
+```bash
+# Tree-log is enabled by default
+# Check log tree status
+btrfs inspect-internal dump-tree /dev/sda1 | grep -i log
+
+# The log tree contains only metadata changed since last full commit
+# fsync is fast because it only commits the log, not the entire tree
+# After a full transaction commit, the log tree is cleared
+```
+
+### Log Tree Performance Impact
+
+| Scenario | Without Tree-Log | With Tree-Log |
+|----------|-----------------|----------------|
+| fsync (1 file) | Full commit (~100ms) | Log commit (~1ms) |
+| fsync (1000 files) | 1 full commit | 1 log commit |
+| Crash recovery | Replay entire log | Replay log (fast) |
+| Steady-state throughput | No overhead | Minimal |
+
+## Defragmentation
+
+Btrfs defragmentation rewrites file extents to reduce fragmentation:
+
+```bash
+# Defragment a single file
+btrfs filesystem defragment /path/to/file
+
+# Defragment recursively
+btrfs filesystem defragment -r /path/to/directory
+
+# Defragment with compression
+btrfs filesystem defragment -r -czstd /path/to/dir
+
+# Defragment specific size threshold
+btrfs filesystem defragment -t 64K /path/to/file
+```
+
+### Defragment Caveats
+
+```bash
+# WARNING: Defragmentation breaks reflinks and snapshot sharing
+# Defragmented data is written to new blocks, consuming space
+# from snapshots that previously shared those blocks
+
+# Before defrag: snapshot and original share data blocks
+# After defrag: each has its own copy (doubled disk usage)
+
+# Safe defragmentation (preserve CoW for shared data)
+btrfs filesystem defragment -f /path/to/file
+# -f forces defragmentation even if CoW would be broken
+```
+
+```mermaid
+graph TD
+    subgraph Before["Before Defrag"]
+        S1["Original"] --> B1["Block A"]
+        S2["Snapshot"] --> B1
+        S1 --> B2["Block B"]
+        S2 --> B2
+    end
+
+    subgraph After["After Defrag"]
+        S3["Original"] --> B3["Block A+B (contiguous)"]
+        S4["Snapshot"] --> B1
+        S4 --> B2
+    end
+```
+
+## Nocow Behavior and Caveats
+
+Files with the `NOCOW` attribute (`chattr +C`) bypass CoW:
+
+```bash
+# Set nocow attribute
+chattr +C /path/to/file
+
+# Verify
+lsattr /path/to/file
+# ----C--------- /path/to/file
+```
+
+### Nocow Implications
+
+| Aspect | CoW (default) | Nocow |
+|--------|---------------|-------|
+| Snapshots | Instant, zero-copy | File data excluded from snapshot |
+| Checksums | Full data checksums | No data checksums |
+| RAID | Full RAID support | Limited (single device only) |
+| Compression | Supported | Not supported |
+| Data integrity | Protected by checksums | Unprotected |
+
+```bash
+# Nocow is required for:
+# - Database files (SQLite, PostgreSQL)
+# - VM disk images (qcow2, raw)
+# - Any workload with random writes
+
+# Set nocow on a directory (new files inherit)
+chattr +C /var/lib/libvirt/images/
+
+# Migration: files with data cannot be made nocow
+# Must copy, set attribute, then write
+mv /file /file.bak && touch /file && chattr +C /file
+mv /file.bak /file
+```
+
+## Data Consistency Model
+
+Btrfs provides strong consistency guarantees:
+
+```mermaid
+flowchart TD
+    A["Write Operation"] --> B{CoW: Write to new blocks}
+    B --> C["Update parent references"]
+    C --> D["Write new superblock (atomic)"]
+    D --> E["Free old blocks"]
+
+    F["Crash at any point"] --> G{Before superblock write?}
+    G -->|Yes| H["Old state visible (consistent)"]
+    G -->|No| I["New state visible (consistent)"]
+```
+
+### Superblock Copies
+
+Btrfs maintains 3 copies of the superblock for recovery:
+
+```bash
+# Superblock locations:
+# 1. Physical offset 64K on first device
+# 2. Physical offset 64M on first device
+# 3. Physical offset 256G on first device
+# 4. 64K on each additional device
+
+# Inspect superblock copies
+btrfs inspect-internal dump-super /dev/sda1
+btrfs inspect-internal dump-super -f 1 /dev/sda1  # Copy 1
+btrfs inspect-internal dump-super -f 2 /dev/sda1  # Copy 2
+```
+
+### Transaction Commit Model
+
+```c
+/* fs/btrfs/transaction.c */
+
+/* Transaction states */
+enum btrfs_trans_state {
+    TRANS_STATE_RUNNING,         /* Active, accepting writes */
+    TRANS_STATE_COMMIT_START,    /* Commit initiated */
+    TRANS_STATE_COMMIT_DOING,    /* Writing blocks */
+    TRANS_STATE_UNBLOCKED,       /* Superblock written */
+    TRANS_STATE_SUPER_COMMITTED, /* Superblock committed */
+    TRANS_STATE_COMPLETED,       /* Transaction complete */
+};
+```
+
+## Device Management Details
+
+### Device Stats
+
+```bash
+# Detailed device I/O statistics
+btrfs device stats /mnt/data
+# [/dev/sda1].write_io_errs    0
+# [/dev/sda1].read_io_errs     0
+# [/dev/sda1].flush_io_errs    0
+# [/dev/sda1].corruption_errs  0
+# [/dev/sda1].generation_errs  0
+
+# Reset error counters
+btrfs device stats --reset /mnt/data
+```
+
+### Device Replace
+
+```bash
+# Replace a device (online, no downtime)
+btrfs device replace start /dev/sda1 /dev/sdd1 /mnt/data
+
+# Monitor replacement progress
+btrfs device replace status /mnt/data
+# Started on 15. Jan 10:00:00, finished on 15. Jan 11:30:00
+# 100.00% done, 0 write errors, 0 read errors, 0 corruption errors
+
+# Cancel replacement
+btrfs device replace cancel /mnt/data
+```
+
+### Device Add/Remove with Balance
+
+```bash
+# Add device and redistribute
+btrfs device add /dev/sdc1 /mnt/data
+btrfs balance start /mnt/data
+
+# Remove device (migrates data off first)
+btrfs device delete /dev/sdc1 /mnt/data
+
+# Resize device to use more/less space
+btrfs filesystem resize devid:3:50G /mnt/data
+btrfs filesystem resize devid:3:max /mnt/data
+```
+
+## Filesystem Features
+
+### Feature Flags
+
+```bash
+# View enabled features
+btrfs filesystem show /mnt/data
+# Features: extref, skinny-metadata, no-holes
+
+# Enable features at mkfs time
+mkfs.btrfs -O extref,skinny-metadata,no-holes /dev/sda1
+```
+
+| Feature | Since | Description |
+|---------|-------|-------------|
+| extref | 3.7 | Extended backrefs for hard links |
+| skinny-metadata | 3.10 | Compact metadata extent refs |
+| no-holes | 3.14 | Efficient sparse file handling |
+| zoned | 5.12 | Zoned device support |
+| free-space-tree | 4.5 | Persistent free space cache |
+| raid1c34 | 5.9 | 3- and 4-copy RAID1 |
+
+### Feature Compatibility
+
+```bash
+# Check if a feature is safe to enable
+btrfs inspect-internal dump-super /dev/sda1 | grep -i compat
+
+# Compat flags: features that older kernels MUST understand
+# Ro compat flags: features that older kernels can mount read-only
+# Incompat flags: features that older kernels cannot mount at all
+```
+
 ## Known Limitations
 
 | Limitation | Status |
