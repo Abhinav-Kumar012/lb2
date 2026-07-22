@@ -445,6 +445,169 @@ When a file in a lower layer is "deleted" in the overlay:
 - During lookup, whiteouts cause the lower file to be hidden
 - Opaque directories use the `overlay.opaque` xattr
 
+## Performance Tuning
+
+### Benchmarking Overlay Options
+
+```bash
+#!/bin/bash
+# benchmark_overlay.sh - Compare overlay mount options
+
+UPPER=/tmp/overlay-upper
+LOWER=/tmp/overlay-lower
+WORK=/tmp/overlay-work
+MERGED=/tmp/overlay-merged
+
+mkdir -p $UPPER $LOWER $WORK $MERGED
+
+# Create test data in lower layer
+for i in $(seq 1 1000); do
+    echo "file $i content" > $LOWER/file_$i.txt
+done
+
+# Test 1: Default options
+echo "=== Default ==="
+mount -t overlay overlay -o lowerdir=$LOWER,upperdir=$UPPER,workdir=$WORK $MERGED
+time (for i in $(seq 1 1000); do cat $MERGED/file_$i.txt > /dev/null; done)
+umount $MERGED
+rm -f $UPPER/*
+
+# Test 2: With metacopy
+echo "=== metacopy=on ==="
+mount -t overlay overlay -o lowerdir=$LOWER,upperdir=$UPPER,workdir=$WORK,metacopy=on $MERGED
+time (for i in $(seq 1 1000); do chmod 644 $MERGED/file_$i.txt; done)
+umount $MERGED
+rm -f $UPPER/*
+
+# Test 3: With volatile
+echo "=== volatile ==="
+mount -t overlay overlay -o lowerdir=$LOWER,upperdir=$UPPER,workdir=$WORK,volatile $MERGED
+time (for i in $(seq 1 1000); do echo "new" > $MERGED/file_$i.txt; done)
+umount $MERGED
+```
+
+### Optimal Options for Different Workloads
+
+| Workload | Recommended Options | Reason |
+|----------|-------------------|--------|
+| Container runtime | `metacopy=on,volatile` | Fast metadata ops, no durability needed |
+| NFS export | `index=on,redirect_dir=on,nfs_export=on` | Required for NFS support |
+| Build containers | `volatile` | Fast fsync-heavy operations |
+| Database containers | Default (no volatile) | Durability required |
+| Read-heavy workloads | `xino=on` | Stable inodes for caching |
+| Live CD | Default | Read-only lower, minimal upper |
+
+### Copy-Up Optimization
+
+```bash
+# Use XFS with reflinks for near-instant copy-up
+mkfs.xfs -m reflink=1 /dev/sdb1
+mount /dev/sdb1 /var/lib/overlay-upper
+
+# Verify reflink support
+xfs_info /var/lib/overlay-upper | grep reflink
+# reflink=1 means reflinks are enabled
+
+# Without reflinks, copy-up copies entire file
+# With reflinks, copy-up creates a reference (CoW)
+# Modified pages are copied on demand
+```
+
+## Debugging Overlay Issues
+
+### Checking Mount Options
+
+```bash
+# View current overlay mount options
+mount -t overlay
+cat /proc/mounts | grep overlay
+findmnt -t overlay -o TARGET,OPTIONS
+
+# Check specific option values
+grep -o 'metacopy=[^,]*' /proc/mounts
+grep -o 'index=[^,]*' /proc/mounts
+```
+
+### Tracing Copy-Up Operations
+
+```bash
+# Watch copy-up in real time (requires inotifywait)
+inotifywait -m -r /upper &
+
+# Trigger a copy-up
+echo "test" > /merged/file.txt
+# inotifywait shows CREATE event in /upper
+
+# Check metacopy xattr
+getfattr -n overlay.metacopy /upper/file.txt
+
+# Check redirect xattr
+getfattr -n overlay.redirect /upper/renamed_dir
+```
+
+### Common Error Patterns
+
+```bash
+# Error: "mount: /merged: wrong fs type, bad option, bad superblock"
+# Cause: workdir not empty or on different filesystem
+# Fix: Clean workdir, ensure same filesystem as upperdir
+rm -rf /work/*
+mount -t overlay overlay -o lowerdir=/lower,upperdir=/upper,workdir=/work /merged
+
+# Error: "Invalid argument"
+# Cause: Incompatible options
+# Fix: Check kernel version supports the options
+uname -r
+grep OVERLAY_FS /boot/config-$(uname -r)
+
+# Error: Files not visible in merged view
+# Cause: Whiteout hiding lower files
+# Fix: Check for whiteout markers
+ls -la /upper/missing_file
+c--------- 1 root root 0, 0 ... /upper/missing_file  # Whiteout
+```
+
+### Overlay Debugfs
+
+```bash
+# View overlay debug information (if available)
+cat /sys/kernel/debug/overlayfs/*/info
+
+# Example output:
+# lowerdir=/lower
+# upperdir=/upper
+# workdir=/work
+# mount time: Mon Jan 15 10:30:00 2024
+# metacopy=on
+# index=on
+```
+
+## Kernel Version Compatibility
+
+| Feature | Minimum Kernel | Notes |
+|---------|---------------|-------|
+| Basic overlay | 3.18 | Initial mainline merge |
+| Multiple lower layers | 3.18 | Colon-separated lowerdir |
+| index | 4.13 | Directory index for NFS export |
+| metacopy | 4.19 | Metadata-only copy-up |
+| redirect_dir | 4.12 | Directory rename support |
+| xino | 4.15 | Extended inode numbers |
+| volatile | 5.0 | Skip fsync |
+| nfs_export | 5.10 | NFS export support |
+| Whiteout xattr | 5.11 | Non-device whiteouts |
+| Nested overlay (upper) | 5.8 | Overlay as upper layer |
+| FUSE passthrough | 6.2 | Direct I/O bypass |
+
+```bash
+# Check kernel overlay features
+grep OVERLAY_FS /boot/config-$(uname -r)
+# CONFIG_OVERLAY_FS_REDIRECT_DIR=y
+# CONFIG_OVERLAY_FS_REDIRECT_ALWAYS_FOLLOW=y
+# CONFIG_OVERLAY_FS_INDEX=y
+# CONFIG_OVERLAY_FS_METACOPY=y
+# CONFIG_OVERLAY_FS_NFS_EXPORT=y
+```
+
 ## Source Files
 
 - `fs/overlayfs/super.c` — mount option parsing
