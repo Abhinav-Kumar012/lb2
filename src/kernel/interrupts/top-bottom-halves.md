@@ -548,6 +548,184 @@ graph TD
     D -->|Block device| J[blk-mq with softirqs]
 ```
 
+## IRQ Affinity and Balancing
+
+The kernel distributes interrupts across CPUs to balance load:
+
+```bash
+# View interrupt distribution
+$ cat /proc/interrupts
+           CPU0       CPU1       CPU2       CPU3
+  16:      1234       5678       9012       3456  IR-PCI-MSI  eth0-TxRx-0
+  17:      5678       1234       3456       9012  IR-PCI-MSI  eth0-TxRx-1
+
+# Set IRQ affinity (pin IRQ 16 to CPU 0)
+$ echo 1 > /proc/irq/16/smp_affinity  # bitmask: 0x01 = CPU 0
+$ echo 2 > /proc/irq/17/smp_affinity  # bitmask: 0x02 = CPU 1
+
+# Check current affinity
+$ cat /proc/irq/16/smp_affinity
+00000001
+
+# View IRQ balance status
+$ systemctl status irqbalance
+```
+
+### IRQ Affinity Masks
+
+The affinity mask is a hex bitmask:
+
+| Mask | CPUs |
+|------|------|
+| `0x01` | CPU 0 only |
+| `0x02` | CPU 1 only |
+| `0x03` | CPU 0 and 1 |
+| `0x0f` | CPU 0-3 |
+| `0xff` | CPU 0-7 |
+
+### irqbalance Daemon
+
+The `irqbalance` daemon automatically distributes interrupts:
+
+```bash
+# Install and enable
+$ apt install irqbalance
+$ systemctl enable --now irqbalance
+
+# Configure (optional)
+# /etc/default/irqbalance
+IRQBALANCE_ARGS="--powerthresh=1"
+```
+
+## PREEMPT_RT and Threaded Interrupts
+
+The PREEMPT_RT patchset converts most interrupt handlers to kernel threads:
+
+```mermaid
+graph TD
+    subgraph "Standard Kernel"
+        HW1[Hardware IRQ] --> TOP1[Top Half — hardirq context]
+        TOP1 --> BH1[Bottom Half — softirq context]
+    end
+    subgraph "PREEMPT_RT Kernel"
+        HW2[Hardware IRQ] --> THREADED[Threaded IRQ Handler]
+        THREADED --> KTHREAD[Kernel Thread — schedulable]
+    end
+```
+
+With PREEMPT_RT:
+- Most hardirq handlers become threaded (schedulable, preemptible)
+- Softirqs run in per-CPU kernel threads
+- spinlocks become sleeping locks (rt_mutex)
+- Only truly time-critical handlers remain as hardirqs
+
+```bash
+# Check if PREEMPT_RT is active
+$ uname -v
+# Look for "PREEMPT_RT" in version string
+
+# Check preemption model
+$ cat /sys/kernel/debug/sched/preempt
+# Shows: full / voluntary / none
+```
+
+## Interrupt Statistics and Debugging
+
+### /proc/interrupts Deep Dive
+
+```bash
+$ cat /proc/interrupts
+           CPU0       CPU1       CPU2       CPU3
+  18:          0          0          0          0  IR-IO-APIC   timer
+  23:       1234       5678       9012       3456  IR-IO-APIC   ehci_hcd:usb1
+ NMI:          0          0          0          0   Non-maskable interrupts
+ LOC:   12345678   12345679   12345680   12345681   Local timer interrupts
+ SPU:          0          0          0          0   Spurious interrupts
+ PMI:          0          0          0          0   Performance monitoring interrupts
+ IWI:          0          0          0          0   IRQ work interrupts
+```
+
+| Column | Meaning |
+|--------|--------|
+| IRQ number | Interrupt line |
+| CPU0-N | Per-CPU interrupt count |
+| Type | Interrupt controller (IO-APIC, PCI-MSI, etc.) |
+| Name | Device or handler name |
+
+### /proc/softirqs
+
+```bash
+$ cat /proc/softirqs
+                    CPU0       CPU1       CPU2       CPU3
+          HI:          0          0          0          0
+       TIMER:    1234567    1234568    1234569    1234570
+      NET_TX:       1234       5678       9012       3456
+      NET_RX:     123456     234567     345678     456789
+       BLOCK:      12345      23456      34567      45678
+    IRQ_POLL:          0          0          0          0
+     TASKLET:      12345      23456      34567      45678
+       SCHED:    1234567    2345678    3456789    4567890
+     HRTIMER:          0          0          0          0
+         RCU:    1234567    2345678    3456789    4567890
+```
+
+### Interrupt Storm Detection
+
+An interrupt storm occurs when an interrupt fires excessively:
+
+```bash
+# Monitor interrupt rates
+$ watch -n 1 'cat /proc/interrupts | grep eth0'
+
+# Detect storms with perf
+$ sudo perf record -e irq:irq_handler_entry -a sleep 5
+$ sudo perf report
+
+# Disable problematic interrupt line
+$ echo 0 > /proc/irq/<irq>/smp_affinity
+
+# Or mask it entirely
+$ echo mask > /proc/irq/<irq>/effective_affinity
+```
+
+### Tracing Interrupt Handlers
+
+```bash
+# Trace IRQ entry/exit
+$ sudo trace-cmd record -e irq_handler_entry -e irq_handler_exit
+$ sudo trace-cmd report
+
+# Trace softirq execution
+$ sudo trace-cmd record -e softirq_entry -e softirq_exit
+
+# Measure IRQ latency
+$ sudo cyclictest -p 99 -i 1000 -l 10000
+```
+
+## ksoftirqd and Overload
+
+When softirqs are overloaded, the kernel defers to `ksoftirqd`:
+
+```bash
+# Check ksoftirqd activity
+$ ps aux | grep ksoftirq
+root         3  0.0  0.0      0     0 ?   S    Jan01   0:12 [ksoftirqd/0]
+root         7  0.0  0.0      0     0 ?   S    Jan01   0:08 [ksoftirqd/1]
+
+# If ksoftirqd is consuming high CPU, investigate:
+# 1. Network traffic volume
+# 2. Softirq distribution across CPUs
+# 3. IRQ affinity settings
+```
+
+## Cross-References
+
+- [Kernel APIs](../apis.md) — workqueues, timers, RCU
+- [Character Devices](../drivers/char-devices.md) — interrupt-driven device I/O
+- [sockmap](./sockmap.md) — BPF socket redirection in softirq context
+- [tcpip-suite](../../networking/tcpip-suite.md) — TCP/IP processing in softirq
+- [vpn](../../networking/vpn.md) — VPN packet processing
+
 ## Further Reading
 
 - [Linux kernel docs: Bottom halves](https://docs.kernel.org/core-api/local_ops.html) — Bottom half documentation

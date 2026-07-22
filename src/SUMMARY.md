@@ -84,6 +84,7 @@
 - [Seccomp Notify](./containers/seccomp-notify.md)
 - [Security](./containers/security.md)
 - [User Namespace Security](./containers/user-namespace-security.md)
+- [Crun](./containers/crun.md)
 
 ---
 
@@ -212,6 +213,7 @@
 - [Dentry](./kernel/filesystems/dentry.md)
 - [Devtmpfs](./kernel/filesystems/devtmpfs.md)
 - [Erofs](./kernel/filesystems/erofs.md)
+- [Erofs Guide](./kernel/filesystems/erofs-guide.md)
 - [Ext4](./kernel/filesystems/ext4.md)
 - [F2fs](./kernel/filesystems/f2fs.md)
 - [File Ops](./kernel/filesystems/file-ops.md)
@@ -291,6 +293,7 @@
 - [Wireless](./kernel/networking/wireless.md)
 - [Xdp](./kernel/networking/xdp.md)
 - [Xdp Advanced](./kernel/networking/xdp-advanced.md)
+- [Mptcp](./kernel/networking/mptcp.md)
 - [Overview](./kernel/overview.md)
 - [Cfs](./kernel/processes/cfs.md)
 - [Cgroups](./kernel/processes/cgroups.md)
@@ -469,6 +472,8 @@
 - [Elf](./sysprog/elf.md)
 - [Epoll](./sysprog/epoll.md)
 - [Event Driven](./sysprog/event-driven.md)
+- [Libevent Libev Libuv](./sysprog/libevent-libev.md)
+- [Protobuf Flatbuf](./sysprog/protobuf-flatbuf.md)
 - [File Io](./sysprog/file-io.md)
 - [Inline Asm](./sysprog/inline-asm.md)
 - [Io Uring](./sysprog/io-uring.md)
