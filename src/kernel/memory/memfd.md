@@ -496,6 +496,165 @@ zgrep CONFIG_TMPFS /proc/config.gz 2>/dev/null || \
   grep CONFIG_TMPFS /boot/config-$(uname -r)
 ```
 
+## Security Considerations
+
+### memfd Security Properties
+
+```bash
+# memfd provides several security properties:
+
+# 1. No filesystem namespace pollution
+#    - Other processes can't open by path
+#    - Only accessible via /proc/PID/fd/N or fd passing
+
+# 2. Sealing prevents modification after creation
+#    - Trust boundary: producer seals, consumer trusts
+#    - Used by Flatpak, D-Bus for safe data transfer
+
+# 3. MFD_CLOEXEC prevents fd leakage to children
+#    - Critical for setuid programs
+
+# 4. Memory accounting to creating process's cgroup
+#    - Subject to cgroup memory limits
+#    - OOM-killer can reclaim memfd memory
+```
+
+### memfd for Secure IPC
+
+```c
+/* Pattern: untrusted producer, trusted consumer */
+int producer(int sock) {
+    int fd = memfd_create("payload", MFD_CLOEXEC | MFD_ALLOW_SEALING);
+    write(fd, untrusted_data, data_len);
+
+    /* Seal to prevent modification before passing */
+    fcntl(fd, F_ADD_SEALS, F_SEAL_SHRINK | F_SEAL_GROW | F_SEAL_WRITE);
+    send_fd(sock, fd);
+    close(fd);
+}
+
+int consumer(int sock) {
+    int fd = recv_fd(sock);
+
+    /* Verify seals before trusting data */
+    int seals = fcntl(fd, F_GET_SEALS);
+    if (!(seals & F_SEAL_WRITE)) {
+        /* Reject — not sealed */
+        close(fd);
+        return -1;
+    }
+
+    /* Now safe to read — data is immutable */
+    void *addr = mmap(NULL, lseek(fd, 0, SEEK_END),
+                      PROT_READ, MAP_SHARED, fd, 0);
+    process_data(addr);
+}
+```
+
+## memfd and Huge Pages
+
+```c
+/* Create memfd backed by 2MB huge pages */
+int fd = memfd_create("huge", MFD_CLOEXEC | MFD_HUGETLB | MFD_HUGE_2MB);
+
+/* Or 1GB huge pages */
+int fd = memfd_create("gigantic", MFD_CLOEXEC | MFD_HUGETLB | MFD_HUGE_1GB);
+
+/* Huge page memfd use cases:
+ * - Large shared memory regions (reduced TLB pressure)
+ * - VM memory backing (KVM/QEMU)
+ * - In-memory databases
+ */
+
+/* Check huge page availability */
+cat /proc/meminfo | grep -i huge
+# HugePages_Total:    1024
+# HugePages_Free:      512
+# HugePages_Rsvd:      256
+# Hugepagesize:       2048 kB
+```
+
+## Debugging memfd Issues
+
+### Finding memfd Leaks
+
+```bash
+# List all memfds for a process
+ls -la /proc/$(pidof myapp)/fd/ | grep memfd
+# lrwx------ 1 user user 64 Jul 22 10:00 3 -> /memfd:shared_payload (deleted)
+
+# Count memfds per process
+for pid in /proc/[0-9]*/fd; do
+    count=$(ls -la $pid 2>/dev/null | grep -c memfd)
+    if [ $count -gt 0 ]; then
+        echo "$(echo $pid | cut -d/ -f3): $count memfds"
+    fi
+done | sort -t: -k2 -rn | head
+
+# Get memfd size
+stat /proc/$PID/fd/$FD
+```
+
+### memfd Memory Accounting
+
+```bash
+# memfd memory shows as shmem in /proc/meminfo
+cat /proc/meminfo | grep -i shmem
+# Shmem:              123456 kB
+
+# Per-process shmem (includes memfd)
+grep shmem /proc/$PID/statm
+
+# In cgroup v2
+cat /sys/fs/cgroup/app/memory.stat | grep shmem
+# shmem 1048576
+```
+
+### Troubleshooting Common Issues
+
+```bash
+# EMFILE: too many open files
+# Fix: increase RLIMIT_NOFILE
+ulimit -n 65536
+
+# ENOMEM: cannot allocate memfd
+# Cause: cgroup memory limit exceeded
+echo 4G > /sys/fs/cgroup/app/memory.max
+
+# ETXTBSY: write on sealed fd
+# Cause: F_SEAL_WRITE applied
+# Expected — remove seal or create new fd
+
+# EINVAL: invalid flags
+# Cause: kernel too old for requested flags
+uname -r  # Need >= 3.17, >= 4.14 for HUGETLB, >= 5.1 for F_SEAL_FUTURE_WRITE
+```
+
+## memfd vs Alternatives Decision Tree
+
+```mermaid
+graph TD
+    Q1{"Need file descriptor?"}
+    Q2{"Need filesystem visibility?"}
+    Q3{"Need sealing?"}
+    Q4{"Need huge pages?"}
+    Q5{"Cross-process sharing?"}
+    Q6{"Simple parent-child?"}
+
+    Q1 -->|Yes| Q2
+    Q1 -->|No| SHM["Shared memory (mmap)"]
+    Q2 -->|Yes| TMPFS["tmpfs file"]
+    Q2 -->|No| Q3
+    Q3 -->|Yes| MEMFD["memfd"]
+    Q3 -->|No| Q4
+    Q4 -->|Yes| MEMFD
+    Q4 -->|No| Q5
+    Q5 -->|Yes| Q6
+    Q5 -->|No| PIPE["pipe or socket"]
+    Q6 -->|Yes| MEMFD
+    Q6 -->|No| UNIX["Unix domain socket"]
+```
+
 ## Further Reading
 
 - [`memfd_create(2)` man page](https://man7.org/linux/man-pages/man2/memfd_create.2.html)
@@ -504,6 +663,7 @@ zgrep CONFIG_TMPFS /proc/config.gz 2>/dev/null || \
 - [LWN: File sealing in the GNU C library](https://lwn.net/Articles/594874/)
 - [D-Bus Specification — Unix FD Passing](https://dbus.freedesktop.org/doc/dbus-specification.html)
 - [QEMU source — `util/memfd.c`](https://github.com/qemu/qemu)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
 
 ## See Also
 
@@ -512,3 +672,4 @@ zgrep CONFIG_TMPFS /proc/config.gz 2>/dev/null || \
 - [Huge Pages](./huge-pages.md) — large page backing for memfd
 - [Namespaces](../networking/namespaces.md) — isolation context for IPC
 - [Pipe and Socket IPC](../sync/completions.md) — synchronization alternatives
+- [Message Queues](../../sysprog/ipc/message-queues.md) — alternative IPC mechanism
