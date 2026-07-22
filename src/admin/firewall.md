@@ -524,6 +524,8 @@ cat /proc/sys/net/netfilter/nf_conntrack_max  # Max tracked connections
 - [Netfilter documentation](https://www.netfilter.org/documentation.html)
 - [nftables wiki](https://wiki.nftables.org/wiki-nftables/index.php/Main_Page)
 - [ArchWiki: iptables](https://wiki.archlinux.org/title/Iptables)
+- [conntrack-tools documentation](https://conntrack-tools.netfilter.org/)
+- [nftables sets and maps](https://wiki.nftables.org/wiki-nftables/index.php/Sets)
 
 ## Related Topics
 

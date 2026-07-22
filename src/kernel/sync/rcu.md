@@ -428,6 +428,75 @@ $ ps -eo pid,comm | grep rcu
 
 It wakes up when a grace period is requested, waits for all CPUs to report quiescent states, then invokes callbacks registered with `call_rcu()`.
 
+### Expedited Grace Periods
+
+Standard grace periods rely on CPUs passing through quiescent states naturally (context switches, idle entry, user-space entry). **Expedited grace periods** force quiescent states by sending IPIs to all CPUs:
+
+```c
+/* Force all CPUs through a quiescent state (fast but disruptive) */
+synchronize_rcu_expedited();
+
+/* Global flag to make all grace periods expedited */
+rcu_expedite_gp();
+rcu_unexpedite_gp();
+
+/* Or boot with rcu_expedited on kernel command line */
+```
+
+Expedited grace periods complete in microseconds rather than milliseconds, but at the cost of interrupting every CPU. They are useful for latency-sensitive teardown paths (e.g., module unload, filesystem unmount).
+
+**Performance trade-off:**
+
+| Type | Typical Latency | CPU Disruption | Use Case |
+|------|----------------|----------------|----------|
+| Normal GP | 4–20 ms | None (natural QS) | General RCU usage |
+| Expedited GP | 10–100 µs | IPI to all CPUs | Module unload, unmount |
+
+### RCU Grace Period State Machine
+
+```mermaid
+stateDiagram-v2
+    [*] --> Idle: No pending callbacks
+    Idle --> GP_Start: call_rcu() / synchronize_rcu()
+    GP_Start --> Wait_QS: rcu_gp_kthread wakes
+    Wait_QS --> Wait_QS: CPUs reporting QS
+    Wait_QS --> GP_End: All CPUs passed QS
+    GP_End --> Invoke_CBs: Execute callbacks
+    Invoke_CBs --> Idle: All callbacks done
+    Invoke_CBs --> GP_Start: More callbacks pending
+```
+
+### Callback Offloading
+
+To reduce the overhead of invoking RCU callbacks on each CPU, the kernel supports **callback offloading**. This moves callback invocation to per-CPU rcuo kthreads, reducing jitter on the originating CPU:
+
+```bash
+# Enable callback offloading for all CPUs
+# Boot parameter: rcu_nocbs=0-15
+# Or per-CPU:
+for cpu in /sys/devices/system/cpu/cpu*/rcu; do
+    echo 1 > $cpu 2>/dev/null
+done
+
+# Check offloading status
+ps -eo pid,comm | grep rcuo
+# rcuop/0, rcuop/1, ...
+```
+
+Callback offloading is critical for real-time and low-latency workloads where RCU callback invocation on the target CPU would cause unacceptable jitter.
+
+### RCU Priority Boosting
+
+When a reader holds an RCU read-side lock for too long, grace periods are delayed. The kernel can **priority-boost** the offending task to expedite the grace period:
+
+```c
+/* CONFIG_RCU_BOOST=y enables priority boosting */
+/* Boosted tasks run at a higher RT priority */
+/* Controlled by /sys/module/rcupdate/parameters/rcu_kick_kthreads */
+```
+
+This is particularly important for `PREEMPT_RCU` configurations where readers can be preempted.
+
 ## RCU Performance Characteristics
 
 ### Read Side
@@ -488,6 +557,44 @@ $ sudo cat /sys/kernel/debug/rcu/rcu_preempt/rcudata
 CPU  0:  0  0  0  0  0  0  0  0  0  0  0  0  0  0  0  0
 ```
 
+### RCU sysfs and Kernel Parameters
+
+```bash
+# Kernel boot parameters for RCU tuning
+# rcupdate.rcu_self_test=1        — Run RCU self-tests at boot
+# rcupdate.rcu_cpu_stall_timeout=21 — Stall detection timeout (seconds)
+# rcu_nocbs=0-15                   — Offload callbacks to rcuo kthreads
+# rcu_expedited=1                  — Make all GPs expedited
+# rcu_normal=1                     — Never expedite (opposite of rcu_expedited)
+
+# Runtime sysctl controls
+sysctl kernel.rcu_task_stall_timeout  # Tasks RCU stall timeout
+sysctl kernel.rcu_expedited           # Global expedited flag
+sysctl kernel.rcu_normal              # Global normal-only flag
+
+# Per-flavor RCU stall timeout
+sysctl kernel.rcu_cpu_stall_timeout   # Default: 21 seconds
+```
+
+### RCU Diagnostic Tools
+
+```bash
+# Trace RCU grace periods
+trace-cmd record -e rcu -e rcu_utilization
+trace-cmd report | grep rcu
+
+# Monitor RCU callback queues
+cat /sys/kernel/debug/rcu/rcu_preempt/rcudata
+# Shows per-CPU: qlen (queued), qlen_last_fqs (at last FQS),
+#                 qovl (overflow), blimit (batch limit)
+
+# RCU stall warnings in dmesg
+dmesg | grep -i "rcu.*stall"
+
+# Check RCU callback processing rate
+perf stat -e 'rcu:rcu_utilization' -a sleep 5
+```
+
 ## When to Use RCU
 
 **Ideal for:**
@@ -499,6 +606,89 @@ CPU  0:  0  0  0  0  0  0  0  0  0  0  0  0  0  0  0  0
 - Write-heavy data structures (use spinlocks or mutexes)
 - Simple counters (use `atomic_t` or per-CPU variables)
 - Data that must be atomically updated with other data (use locks)
+
+## RCU in Practice: Common Patterns
+
+### Hash Table with RCU
+
+RCU is commonly used to protect hash tables where lookups vastly outnumber insertions/deletions:
+
+```c
+#include <linux/hashtable.h>
+#include <linux/rculist.h>
+
+DEFINE_HASHTABLE(my_ht, 10);  /* 1024 buckets */
+DEFINE_MUTEX(ht_mutex);
+
+struct ht_entry {
+    struct hlist_node node;\    struct rcu_head rcu;
+    int key;
+    int value;
+};
+
+/* Reader — lock-free lookup */
+int ht_lookup(int key)
+{
+    struct ht_entry *entry;
+    int result = -ENOENT;
+
+    rcu_read_lock();
+    hash_for_each_possible_rcu(my_ht, entry, node, key) {
+        if (entry->key == key) {
+            result = entry->value;
+            break;
+        }
+    }
+    rcu_read_unlock();
+    return result;
+}
+
+/* Writer — requires mutex */
+void ht_insert(int key, int value)
+{
+    struct ht_entry *entry = kmalloc(sizeof(*entry), GFP_KERNEL);
+    entry->key = key;
+    entry->value = value;
+    mutex_lock(&ht_mutex);
+    hash_add_rcu(my_ht, &entry->node, key);
+    mutex_unlock(&ht_mutex);
+}
+```
+
+### RCU-Protected Pointer Replacement (In-Place Update)
+
+For simple cases where only one pointer needs updating:
+
+```c
+static struct config __rcu *global_config;
+
+/* Reader */
+void read_config(void)
+{
+    struct config *cfg;
+
+    rcu_read_lock();
+    cfg = rcu_dereference(global_config);
+    if (cfg)
+        pr_info("value = %d\n", cfg->value);
+    rcu_read_unlock();
+}
+
+/* Writer */
+void update_config(int new_value)
+{
+    struct config *old, *new;
+
+    new = kmalloc(sizeof(*new), GFP_KERNEL);
+    new->value = new_value;
+
+    old = rcu_dereference_protected(global_config,
+                                     lock_is_held(&config_mutex));
+    rcu_assign_pointer(global_config, new);
+    synchronize_rcu();  /* Wait for old readers */
+    kfree(old);
+}
+```
 
 ## References
 
