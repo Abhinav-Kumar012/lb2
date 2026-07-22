@@ -394,6 +394,80 @@ struct ovl_inode {
 - https://lwn.net/Articles/612930/ — "Overlayfs: improvements and more"
 - https://docs.docker.com/storage/storagedriver/select-storage-driver/
 
+## Testing and Debugging
+
+### Verifying Overlay Mount
+
+```bash
+# Check overlay mount details
+$ mount | grep overlay
+overlay on /merged type overlay (rw,relatime,lowerdir=/lower,upperdir=/upper,workdir=/work)
+
+# View mount info with propagation
+$ findmnt -t overlay
+TARGET   SOURCE   FSTYPE OPTIONS
+/merged  overlay  overlay rw,relatime,lowerdir=/lower,upperdir=/upper,workdir=/work
+
+# Check file origin (upper vs lower)
+$ stat /merged/file.txt
+  File: /merged/file.txt
+  Size: 1024        Blocks: 8          IO Block: 4096   regular file
+  # If in upper: shows upper device/inode
+  # If in lower: shows lower device/inode
+```
+
+### Debugging Copy-Up
+
+```bash
+# Watch copy-up operations
+$ inotifywait -m /upper &
+echo "test" > /merged/newfile.txt
+# inotify shows CREATE event in /upper
+
+# Check whiteouts
+$ ls -la /upper/deleted_file
+c--------- 1 root root 0, 0 ... /upper/deleted_file  # Whiteout
+
+# Verify opaque directory
+$ getfattr -n trusted.overlay.opaque /upper/dir
+# file: upper/dir
+trusted.overlay.opaque="y"
+```
+
+### Common Issues
+
+| Problem | Cause | Solution |
+|---------|-------|----------|
+| EBUSY on mount | workdir not empty | Clean workdir or use fresh dir |
+| Files not visible | Whiteout hiding lower | Check for whiteout markers |
+| Stale file handles | Copy-up invalidates lower handles | Reopen files after modification |
+| Permission denied | Missing xattr support | Use filesystem with xattr support |
+| Performance slow | Many lower layers | Reduce layer count |
+
+## References
+
+- [OverlayFS kernel documentation](https://www.kernel.org/doc/html/latest/filesystems/overlayfs.html)
+- [Docker overlay2 storage driver](https://docs.docker.com/storage/storagedriver/overlayfs-driver/)
+- [OverlayFS design document](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/plain/Documentation/filesystems/overlayfs.rst)
+- [LWN: An union filesystem for Linux](https://lwn.net/Articles/396439/)
+- [LWN: Overlayfs improvements](https://lwn.net/Articles/612930/)
+
+## Further Reading
+
+- [The Linux Kernel Documentation](https://docs.kernel.org/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
+- [GNU Manuals](https://www.gnu.org/manual/manual.html)
+- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
+- [Planet GNU](https://planet.gnu.org/)
+- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
+
+- https://www.kernel.org/doc/html/latest/filesystems/overlayfs.html
+- https://docs.kernel.org/filesystems/overlayfs.html — Official kernel OverlayFS documentation
+- https://man7.org/linux/man-pages/man5/overlayfs.5.html (mount options)
+- https://lwn.net/Articles/396439/ — "An union filesystem for Linux"
+- https://lwn.net/Articles/612930/ — "Overlayfs: improvements and more"
+- https://docs.docker.com/storage/storagedriver/select-storage-driver/
+
 ## Related Topics
 
 - [tmpfs](./tmpfs.md) — Often used as the upper layer for ephemeral overlays
