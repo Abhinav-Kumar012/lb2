@@ -551,4 +551,368 @@ pahole -C task_struct vmlinux
 - [Andrii Nakryiko's CO-RE blog series](https://nakryiko.com/posts/bpf-core-reference-guide/)
 - [pahole tool](https://github.com/acmel/dwarves)
 - [bpftool documentation](https://www.kernel.org/doc/html/latest/bpf/bpftool.html)
+
+## CO-RE in Practice: Complete Examples
+
+### Example 1: Process Monitor
+
+A complete CO-RE program that monitors process creation:
+
+```c
+// process_monitor.bpf.c
+#include "vmlinux.h"
+#include <bpf/bpf_helpers.h>
+#include <bpf/bpf_core_read.h>
+
+struct event {
+    u32 pid;
+    u32 ppid;
+    char comm[16];
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_RINGBUF);
+    __uint(max_entries, 256 * 1024);
+} events SEC(".maps");
+
+SEC("tp/sched/sched_process_exec")
+int handle_exec(struct trace_event_raw_sched_process_exec *ctx)
+{
+    struct event *e;
+    struct task_struct *task = (void *)bpf_get_current_task();
+
+    e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    if (!e)
+        return 0;
+
+    e->pid = BPF_CORE_READ(task, pid);
+    e->ppid = BPF_CORE_READ(task, real_parent, tgid);
+    BPF_CORE_READ_INTO(&e->comm, task, comm);
+
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+char LICENSE[] SEC("license") = "GPL";
+```
+
+```c
+// process_monitor.c (user-space loader)
+#include <stdio.h>
+#include <unistd.h>
+#include <bpf/libbpf.h>
+#include "process_monitor.skel.h"
+
+static int handle_event(void *ctx, void *data, size_t len)
+{
+    struct event *e = data;
+    printf("PID=%d PPID=%d COMM=%s\n", e->pid, e->ppid, e->comm);
+    return 0;
+}
+
+int main(void)
+{
+    struct process_monitor_bpf *skel;
+    struct ring_buffer *rb;
+
+    skel = process_monitor_bpf__open_and_load();
+    process_monitor_bpf__attach(skel);
+
+    rb = ring_buffer__new(bpf_map__fd(skel->maps.events),
+                          handle_event, NULL, NULL);
+
+    while (1) {
+        ring_buffer__poll(rb, 100);
+    }
+
+    ring_buffer__free(rb);
+    process_monitor_bpf__destroy(skel);
+    return 0;
+}
+```
+
+### Example 2: File Access Tracer with CO-RE
+
+```c
+// file_tracer.bpf.c
+#include "vmlinux.h"
+#include <bpf/bpf_helpers.h>
+#include <bpf/bpf_core_read.h>
+
+struct file_event {
+    u32 pid;
+    u32 uid;
+    char comm[16];
+    char filename[256];
+    u64 timestamp;
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_RINGBUF);
+    __uint(max_entries, 1024 * 1024);
+} file_events SEC(".maps");
+
+SEC("kprobe/vfs_open")
+int BPF_KPROBE(vfs_open, struct path *file, struct dentry *dentry)
+{
+    struct file_event *e;
+    struct task_struct *task;
+    struct qstr name;
+
+    e = bpf_ringbuf_reserve(&file_events, sizeof(*e), 0);
+    if (!e)
+        return 0;
+
+    task = (void *)bpf_get_current_task();
+    e->pid = BPF_CORE_READ(task, pid);
+    e->uid = BPF_CORE_READ(task, cred, uid.val);
+    BPF_CORE_READ_INTO(&e->comm, task, comm);
+    e->timestamp = bpf_ktime_get_ns();
+
+    /* CO-RE: read dentry name across kernel versions */
+    BPF_CORE_READ_INTO(&name, dentry, d_name);
+    bpf_probe_read_kernel_str(&e->filename, sizeof(e->filename),
+                              name.name);
+
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+char LICENSE[] SEC("license") = "GPL";
+```
+
+### Example 3: Network Connection Tracker
+
+```c
+// net_tracker.bpf.c
+#include "vmlinux.h"
+#include <bpf/bpf_helpers.h>
+#include <bpf/bpf_core_read.h>
+
+struct conn_event {
+    u32 pid;
+    u32 saddr;
+    u32 daddr;
+    u16 sport;
+    u16 dport;
+    u8 proto;
+    char comm[16];
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_RINGBUF);
+    __uint(max_entries, 512 * 1024);
+} conn_events SEC(".maps");
+
+SEC("kprobe/tcp_connect")
+int BPF_KPROBE(tcp_connect, struct sock *sk)
+{
+    struct conn_event *e;
+    struct task_struct *task;
+
+    e = bpf_ringbuf_reserve(&conn_events, sizeof(*e), 0);
+    if (!e)
+        return 0;
+
+    task = (void *)bpf_get_current_task();
+    e->pid = BPF_CORE_READ(task, pid);
+    BPF_CORE_READ_INTO(&e->comm, task, comm);
+
+    /* CO-RE: read socket addresses */
+    e->saddr = BPF_CORE_READ(sk, __sk_common.skc_rcv_saddr);
+    e->daddr = BPF_CORE_READ(sk, __sk_common.skc_daddr);
+    e->sport = BPF_CORE_READ(sk, __sk_common.skc_num);
+    e->dport = BPF_CORE_READ(sk, __sk_common.skc_dport);
+    e->proto = BPF_CORE_READ(sk, sk_protocol);
+
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+char LICENSE[] SEC("license") = "GPL";
+```
+
+## CO-RE Debugging and Troubleshooting
+
+### Common CO-RE Errors
+
+```bash
+# Error: "CO-RE relocation failed"
+# Cause: Field not found in target kernel's BTF
+# Solution: Check if field exists
+bpftool btf dump file /sys/kernel/btf/vmlinux format c | grep "field_name"
+
+# Error: "type X not found"
+# Cause: Struct doesn't exist in target kernel
+# Solution: Use bpf_core_type_exists() to check at runtime
+
+# Error: "CO-RE relo result is zero"
+# Cause: Field offset is 0, which may be valid or indicate a relocation failure
+# Solution: Check with bpftool btf dump
+```
+
+### Debugging CO-RE Relocations
+
+```bash
+# Show relocation records in eBPF object
+llvm-objdump -S my_prog.bpf.o | grep -A5 "relo"
+
+# Use bpftool to show loaded program details
+bpftool prog show id 42
+# Look for: "relo_cnt" field
+
+# Enable libbpf debug output
+LIBBPF_LOG_LEVEL=debug ./my_prog
+
+# Check BTF availability on target
+bpftool feature probe kernel | grep -E "btf|core"
+```
+
+### CO-RE Feature Detection
+
+```bash
+# Comprehensive CO-RE support check
+bpftool feature probe kernel 2>&1 | grep -E "btf|core"
+
+# Check BTF for specific types
+bpftool btf dump file /sys/kernel/btf/vmlinux format c 2>&1 | \
+    grep -c "struct task_struct"
+
+# Check module BTFs (kernel 5.11+)
+ls /sys/kernel/btf/ | head -20
+```
+
+## CO-RE Performance Analysis
+
+### Load-Time Relocation Cost
+
+CO-RE relocations happen at load time, not runtime:
+
+```bash
+# Measure BPF program load time (includes CO-RE relocations)
+time ./my_prog
+# real    0m0.123s  ← includes CO-RE relocation
+# user    0m0.010s
+# sys     0m0.113s  ← kernel time for relocation + verification
+
+# Compare with BCC (compile-at-runtime)
+time python3 my_bcc_prog.py
+# real    0m2.456s  ← much slower due to runtime compilation
+```
+
+### Runtime Overhead
+
+CO-RE adds zero runtime overhead — relocations are patched at load time:
+
+| Phase | Without CO-RE | With CO-RE |
+|-------|--------------|-----------|
+| Compilation | Per-kernel | Once |
+| Load time | Fast (pre-resolved) | ~100ms (relocations) |
+| Runtime | None | None |
+| Memory | Per-kernel binary | Single binary |
+
+### Optimizing CO-RE Programs
+
+```c
+/* Avoid: Reading too many fields in hot path */
+SEC("kprobe/...")
+int handle_func(struct pt_regs *ctx)
+{
+    /* BAD: Multiple field reads = multiple relocations */
+    int a = BPF_CORE_READ(task, field_a);
+    int b = BPF_CORE_READ(task, field_b);
+    int c = BPF_CORE_READ(task, field_c);
+    /* ... */
+}
+
+/* Better: Read only what you need */
+SEC("kprobe/...")
+int handle_func(struct pt_regs *ctx)
+{
+    /* GOOD: Read only required fields */
+    int pid = BPF_CORE_READ(task, pid);
+    /* Filter early to reduce work */
+    if (pid != target_pid)
+        return 0;
+    /* ... */
+}
+```
+
+## CO-RE and Kernel Module BTF
+
+### Module BTF Support (Linux 5.11+)
+
+```bash
+# List all available BTF objects
+ls /sys/kernel/btf/
+# vmlinux         (main kernel)
+# nf_conntrack    (netfilter module)
+# ip_tables       (iptables module)
+# br_netfilter    (bridge module)
+# ...
+
+# Load eBPF program that attaches to module functions
+# CO-RE automatically finds the correct BTF for each module
+```
+
+### Writing CO-RE Programs for Kernel Modules
+
+```c
+// Probe a function in a kernel module
+SEC("kprobe/nf_conntrack_in")
+int BPF_KPROBE(nf_conntrack_in, struct net *net, struct sock *sk,
+               struct sk_buff *skb)
+{
+    /* CO-RE will use nf_conntrack module's BTF for field access */
+    u32 mark = BPF_CORE_READ(skb, mark);
+    /* ... */
+    return 0;
+}
+```
+
+## CO-RE Migration Guide
+
+### Migrating from BCC to CO-RE
+
+```python
+# BCC (Python, compile at runtime)
+from bcc import BPF
+
+bpf = BPF(text="""
+#include <uapi/linux/ptrace.h>
+int kprobe__sys_open(struct pt_regs *ctx) {
+    char filename[256];
+    bpf_probe_read_user(&filename, sizeof(filename),
+                        (void *)PT_REGS_PARM1(ctx));
+    bpf_trace_printk("open: %s\\n", filename);
+    return 0;
+}
+""")
+bpf.trace_print()
+```
+
+```c
+// CO-RE (C, compile once)
+#include "vmlinux.h"
+#include <bpf/bpf_helpers.h>
+#include <bpf/bpf_core_read.h>
+
+SEC("tracepoint/syscalls/sys_enter_openat")
+int handle_open(struct trace_event_raw_sys_enter *ctx)
+{
+    char filename[256];
+    bpf_probe_read_user_str(filename, sizeof(filename),
+                           (void *)ctx->args[1]);
+    bpf_printk("open: %s\n", filename);
+    return 0;
+}
+
+char LICENSE[] SEC("license") = "GPL";
+```
+
+**Key differences:**
+- BCC uses Python for the loader; CO-RE uses C with libbpf
+- BCC compiles at runtime; CO-RE compiles once
+- BCC uses `BPF.text` inline C; CO-RE uses separate `.bpf.c` file
+- CO-RE uses `vmlinux.h` instead of kernel headers
 - [eBPF CO-RE talk (eBPF Summit)](https://www.youtube.com/watch?v=118a1w3PTao)
