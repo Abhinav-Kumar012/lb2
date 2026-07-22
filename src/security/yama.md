@@ -511,6 +511,76 @@ int main(void) {
 # Fix: Check both Yama scope and seccomp filters
 ```
 
+## Appendix: Yama and Docker/Kubernetes
+
+```bash
+# Docker: Yama ptrace scope applies to containers
+docker run --rm alpine cat /proc/sys/kernel/yama/ptrace_scope
+# Shows host value (containers share kernel)
+
+# Docker with --cap-add=SYS_PTRACE
+# Allows ptrace inside container (if Yama scope allows)
+docker run --cap-add=SYS_PTRACE ...
+
+# Kubernetes: security context
+apiVersion: v1
+kind: Pod
+spec:
+  containers:
+  - name: debug
+    securityContext:
+      capabilities:
+        add:
+        - SYS_PTRACE  # Allow ptrace
+```
+
+### Container Escape Prevention
+
+```bash
+# Scope 3 prevents container escape via ptrace
+# Attacker cannot ptrace host processes from container
+
+echo 3 > /proc/sys/kernel/yama/ptrace_scope
+
+# Verify from container
+docker run --rm alpine sh -c 'cat /proc/sys/kernel/yama/ptrace_scope'
+# Output: 3
+```
+
+## Appendix: Yama and Debugging Tools
+
+| Tool | Scope 0 | Scope 1 | Scope 2 | Scope 3 |
+|------|---------|---------|---------|--------|
+| gdb (attach) | ✓ | ✗ | ✓ (root) | ✗ |
+| gdb (fork) | ✓ | ✓ | ✓ | ✗ |
+| strace -p | ✓ | ✗ | ✓ (root) | ✗ |
+| strace (child) | ✓ | ✓ | ✓ | ✗ |
+| ltrace -p | ✓ | ✗ | ✓ (root) | ✗ |
+| perf record | ✓ | ✗ | ✓ (root) | ✗ |
+| lldb (attach) | ✓ | ✗ | ✓ (root) | ✗ |
+| crash | ✓ | ✗ | ✓ (root) | ✗ |
+
+### Workarounds for Scope 2+
+
+```bash
+# Option 1: Use PR_SET_PTRACER in the target process
+# Add to application startup:
+prctl(PR_SET_PTRACER, debugger_pid, 0, 0, 0);
+
+# Option 2: Run debugger as root
+sudo strace -p <pid>
+
+# Option 3: Temporarily lower scope
+echo 1 > /proc/sys/kernel/yama/ptrace_scope
+# ... debug ...
+echo 2 > /proc/sys/kernel/yama/ptrace_scope
+
+# Option 4: Use crash handler with PR_SET_PTRACER_ANY
+prctl(PR_SET_PTRACER, PR_SET_PTRACER_ANY, 0, 0, 0);
+# ... crash ...
+crash_handler attaches and dumps core
+```
+
 ## Source Files
 
 - `security/yama/lsm.c` — complete Yama implementation
