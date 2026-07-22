@@ -532,3 +532,272 @@ explaining why the invariants are upheld.
 - [Kbuild](../kernel/kbuild.md) — kernel build system
 - [Kernel Modules](../kernel/modules.md) — loadable module infrastructure
 - [Container Security](../containers/security.md) — safety in systems software
+
+## Rust Ownership Model in Kernel Context
+
+Rust's ownership system is the key reason it's being adopted for the kernel. Here's how it maps to kernel concepts:
+
+### Ownership and Kernel Objects
+
+```rust
+// In C, you manually manage reference counts:
+//   kref_init(&obj->kref);
+//   kref_get(&obj->kref);
+//   kref_put(&obj->kref, my_release);
+
+// In Rust, ownership is automatic:
+let obj = KBox::new(MyObject::new()?, GFP_KERNEL)?;
+// obj is dropped when it goes out of scope — no manual kfree needed
+```
+
+### Borrowing for Kernel Data Access
+
+```rust
+fn process_data(data: &MyData) {
+    // Immutable borrow — can read, cannot modify
+    println!("value: {}", data.value);
+}
+
+fn modify_data(data: &mut MyData) {
+    // Mutable borrow — exclusive access
+    data.value += 1;
+}
+
+// The compiler ensures:
+// 1. No two mutable references exist simultaneously
+// 2. No mutable reference exists while immutable ones do
+// 3. References don't outlive the data they point to
+```
+
+### Lifetimes in Kernel Code
+
+```rust
+// Lifetimes prevent use-after-free
+fn get_buffer<'a>(data: &'a MyData) -> &'a [u8] {
+    &data.buffer
+    // The returned slice can't outlive 'data'
+}
+
+// In C, this would be a dangling pointer bug:
+// char *get_buffer(struct my_data *data) {
+//     return data->buffer;  // caller must know lifetime!
+// }
+```
+
+## Kernel Thread Safety with Rust
+
+### `Send` and `Sync` Traits
+
+```rust
+// Send: can be transferred between threads
+// Sync: can be shared between threads (via &T)
+
+// Most kernel types are Send + Sync
+// The compiler prevents sending non-Send types across threads
+
+// Example: KVec<u32> is Send but not Sync
+// (you need a lock to share it)
+
+// Mutex<T> is Send + Sync (if T is Send)
+let shared = Mutex::new(Vec::new());
+// Can be shared between threads safely
+```
+
+### SpinLock Example
+
+```rust
+use kernel::sync::SpinLock;
+
+struct DeviceState {
+    rx_count: u64,
+    tx_count: u64,
+}
+
+let state = SpinLock::new(DeviceState { rx_count: 0, tx_count: 0 });
+
+// In interrupt context (cannot sleep)
+let mut guard = state.lock();
+// guard derefs to DeviceState
+guard.rx_count += 1;
+// lock is automatically released when guard is dropped
+```
+
+### Mutex Example
+
+```rust
+use kernel::sync::Mutex;
+
+struct Config {
+    debug_level: u32,
+    max_connections: u32,
+}
+
+let config = Mutex::new(Config { debug_level: 0, max_connections: 100 });
+
+// In process context (can sleep)
+let mut cfg = config.lock();
+if cfg.debug_level > 0 {
+    pr_info!("debug enabled\n");
+}
+cfg.max_connections = 200;
+```
+
+## Workqueue and Timer Abstractions
+
+### Workqueues
+
+```rust
+use kernel::workqueue;
+
+// Queue work to be executed later in process context
+workqueue::queue_work(|| {
+    pr_info!("Deferred work executed\n");
+})?;
+
+// With custom workqueue
+let wq = workqueue::create_queue("my_wq")?;
+wq.queue_work(|| {
+    pr_info!("Work on custom queue\n");
+})?;
+```
+
+### Timers
+
+```rust
+use kernel::timer::Timer;
+
+let timer = Timer::new(|| {
+    pr_info!("Timer fired!\n");
+});
+
+// Schedule for 1 second from now
+timer.modify(jiffies::from_secs(1))?;
+```
+
+## Real-World Rust Kernel Modules
+
+### NVMe Driver (Experimental)
+
+The Rust NVMe driver is a proof-of-concept showing Rust can handle high-performance I/O:
+
+```rust
+// Simplified NVMe queue pair
+struct QueuePair {
+    submission: KBox<[NvmeCommand; 256]>,
+    completion: KBox<[NvmeCompletion; 256]>,
+    sq_tail: u32,
+    cq_head: u32,
+}
+
+impl QueuePair {
+    fn submit(&mut self, cmd: NvmeCommand) {
+        self.submission[self.sq_tail as usize] = cmd;
+        self.sq_tail = (self.sq_tail + 1) % 256;
+        // Ring doorbell
+        unsafe {
+            bindings::writel(self.sq_tail, self.doorbell);
+        }
+    }
+}
+```
+
+### Binder Driver (Android)
+
+The Android Binder IPC driver is being rewritten in Rust:
+
+- First major Rust driver in production use
+- Shows Rust can handle complex IPC patterns
+- Catches real bugs that existed in the C version
+
+### Apple AGX GPU Driver (Asahi Linux)
+
+The Asahi Linux project's GPU driver is written in Rust:
+
+- Complex hardware programming
+- Safety-critical (GPU can DMA anywhere)
+- Rust prevents DMA buffer misuse at compile time
+
+## Testing Rust Kernel Code
+
+### Unit Tests
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_buffer_alloc() {
+        let buf = KVec::new(GFP_KERNEL);
+        assert_eq!(buf.len(), 0);
+    }
+}
+```
+
+### Integration Tests
+
+```bash
+# Run kernel tests with Rust modules
+cd /usr/src/linux
+make KUNIT=1 M=samples/rust
+
+# Or with kselftest
+make TARGETS=rust kselftest
+```
+
+### Static Analysis
+
+```bash
+# Clippy lints for kernel code
+cargo clippy -- -D warnings
+
+# Format check
+cargo fmt --check
+
+# These are run automatically in CI for Rust for Linux patches
+```
+
+## Common Pitfalls and Solutions
+
+### String Handling
+
+```rust
+// Kernel strings are C strings (null-terminated)
+let msg = CStr::from_bytes_with_nul(b"hello\n")?;
+pr_info!("{}", msg);
+
+// Converting from Rust strings
+let s = String::try_from("hello")?;
+// String is a kernel heap-allocated string (like kstrdup)
+```
+
+### Error Code Conversion
+
+```rust
+// Kernel uses negative error codes
+fn fallible() -> Result<i32> {
+    if bad_condition {
+        return Err(code::EINVAL);
+    }
+    Ok(42)
+}
+
+// Map from C errno
+let err = Error::from_errno(-ENOMEM);
+```
+
+### Unsafe Code Guidelines
+
+```rust
+// Every unsafe block needs a SAFETY comment
+unsafe {
+    // SAFETY: We hold the device lock, so no concurrent access
+    bindings::writel(value, self.mmio_base + REG_OFFSET);
+}
+
+// Common unsafe patterns:
+// 1. Calling C functions (always unsafe)
+// 2. Raw pointer dereference
+// 3. Accessing mutable statics
+// 4. Implementing unsafe traits
+```
