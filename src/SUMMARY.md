@@ -97,6 +97,7 @@
 - [Gdb](./debugging/gdb.md)
 - [Kernel Debugging](./debugging/kernel-debugging.md)
 - [Kfence](./debugging/kfence.md)
+- [Libbpf](./debugging/libbpf.md)
 - [Kgdb](./debugging/kgdb.md)
 - [Overview](./debugging/overview.md)
 - [Perf](./debugging/perf.md)

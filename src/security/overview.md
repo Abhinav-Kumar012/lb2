@@ -477,16 +477,292 @@ sysctl net.ipv4.conf.all.accept_redirects         # Should be 0
 sysctl kernel.randomize_va_space                   # Should be 2
 ```
 
+## Kernel Lockdown Mode
+
+The **Lockdown LSM** (merged in Linux 5.4) restricts the kernel itself from being modified by user space, even by root. It protects against kernel compromise by blocking dangerous operations.
+
+### Lockdown Modes
+
+```bash
+# Check current lockdown status
+cat /sys/kernel/security/lockdown
+# [none] integrity confidentiality
+
+# Set lockdown mode via boot parameter
+# lockdown=integrity  — blocks kernel modification
+# lockdown=confidentiality — blocks kernel memory reading too
+
+# Runtime change (requires secure boot)
+echo integrity > /sys/kernel/security/lockdown
+```
+
+### What Lockdown Blocks
+
+| Mode | Blocks | Example |
+|------|--------|---------|
+| `none` | Nothing | Default without secure boot |
+| `integrity` | Kernel modification | Loading unsigned modules, kprobes, /dev/mem |
+| `confidentiality` | + kernel memory reading | /proc/kcore, eBPF map reading, kexec |
+
+```bash
+# In integrity mode, these are blocked:
+# - Loading unsigned kernel modules
+# - Writing to /dev/mem, /dev/kmem
+# - kexec_load() with unsigned kernel
+# - bpf() with certain program types
+# - Changing IMA policy
+```
+
+## Integrity Measurement Architecture (IMA)
+
+IMA measures and appraises file integrity at the kernel level:
+
+```bash
+# IMA measures file hashes into the TPM's Platform Configuration Registers (PCRs)
+# IMA appraisal can deny access to files that fail integrity checks
+
+# Check IMA status
+cat /sys/kernel/security/ima/policy
+# dont_appraise fsmagic=0x9fa0  # tmpfs
+# dont_appraise fsmagic=0x62656572  # sysfs
+# appraise fowner=0  # appraise files owned by root
+
+# IMA policy example (/etc/ima/ima-policy)
+# measure func=BPRM_CHECK
+# measure func=FILE_MMAP mask=MAY_EXEC
+# appraise func=BPRM_CHECK
+# appraise func=FILE_MMAP
+
+# View IMA measurements (TPM PCR values)
+cat /sys/kernel/security/ima/ascii_runtime_measurements
+# 10 <sha256-hash> ima-ng sha256:abc123... /usr/bin/sudo
+# 10 <sha256-hash> ima-ng sha256:def456... /usr/sbin/sshd
+```
+
+## Confidential Computing
+
+Linux supports hardware-based confidential computing to protect data in use:
+
+### AMD SEV (Secure Encrypted Virtualization)
+
+```bash
+# SEV encrypts VM memory with per-VM keys
+# The host kernel cannot read guest memory
+
+# Check SEV support
+grep -i sev /proc/cpuinfo
+# flags : ... sev sev_es sev_snp
+
+# QEMU with SEV
+qemu-system-x86_64 \
+  -object sev-guest,id=sev0,cbitpos=47,reduced-phys-bits=1 \
+  -machine memory-encryption=sev0 ...
+
+# KVM SEV configuration
+# /dev/sev — SEV device interface
+```
+
+### Intel TDX (Trust Domain Extensions)
+
+```bash
+# TDX provides hardware-isolated VMs (trust domains)
+# Similar to SEV but with different architecture
+
+# Check TDX support
+grep tdx /proc/cpuinfo
+# flags : ... tdx_guest
+
+# KVM TDX support requires kernel 6.2+
+```
+
+### AMD SEV-SNP and Intel TDX are the current generation:
+- Memory encryption per-VM
+- Attestation (prove what code is running)
+- Integrity protection (prevent host tampering)
+
+## Secure Boot Chain
+
+The full boot security chain from firmware to userspace:
+
+```mermaid
+graph TD
+    UEFI["UEFI Firmware<br/>Secure Boot"] --> SHIM["shim.efi<br/>First-stage bootloader"]
+    SHIM --> GRUB["GRUB2<br/>Second-stage"]
+    GRUB --> KERNEL["Linux Kernel<br/>Verified boot"]
+    KERNEL --> INITRAMFS["initramfs<br/>Verified modules"]
+    INITRAMFS --> ROOTFS["Root filesystem<br/>dm-verity"]
+    ROOTFS --> SYSTEMD["systemd<br/>Verified services"]
+
+    style UEFI fill:#e53e3e,color:#fff
+    style SHIM fill:#dd6b20,color:#fff
+    style GRUB fill:#d69e2e,color:#000
+    style KERNEL fill:#3182ce,color:#fff
+```
+
+### dm-verity
+
+`dm-verity` provides integrity verification for read-only block devices:
+
+```bash
+# dm-verity uses a Merkle tree of block hashes
+# Stored in the verity superblock at the end of the partition
+
+# Setup dm-verity
+veritysetup format /dev/sda2 /dev/sda2
+# Hash: sha256
+# Root hash: abc123def456...
+
+# Activate dm-verity
+dmsetup create rootfs \
+  --table '0 1234567 verity 1 /dev/sda2 /dev/sda2 4096 4096 123456 1 sha256 abc123def456...'
+
+# Check current dm-verity status
+dmsetup table rootfs
+
+# Used by: Android, ChromeOS, Fedora IoT, Ubuntu Core
+```
+
+## Supply Chain Security
+
+### Reproducible Builds
+
+```bash
+# Reproducible builds: same source produces identical binaries
+# Allows independent verification that binaries match source
+
+# Debian reproducible build status
+# https://tests.reproducible-builds.org/debian/reproducible.html
+
+# Verify a package
+# Install the 'reprotest' tool
+apt install reprotest
+reprotest --vary=-all build 'dpkg-buildpackage -b'
+```
+
+### Package Signing
+
+```bash
+# APT package signing
+apt-key list  # List trusted keys (deprecated)
+# Modern: /etc/apt/trusted.gpg.d/ and /usr/share/keyrings/
+
+# RPM package signing
+rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-fedora
+rpm -K package.rpm  # Verify signature
+
+# Container image signing (cosign)
+cosign verify --key cosign.pub myregistry.local/myapp:v1.0
+```
+
+### SBOM (Software Bill of Materials)
+
+```bash
+# Generate SBOM for containers
+syft myapp:latest -o spdx-json > sbom.json
+
+# Scan SBOM for vulnerabilities
+grype sbom:sbom.json
+
+# Docker/Podman SBOM support
+docker sbom myapp:latest
+```
+
+## CVE Handling Process
+
+### Linux Kernel CVE Process
+
+```bash
+# Monitor kernel CVEs
+# https://www.kernel.org/category/cves.html
+# https://cve.org/ (official CVE database)
+
+# Check kernel version for known vulnerabilities
+curl -s 'https://www.kernel.org/releases.json' | jq '.releases[0]'
+
+# Ubuntu CVE tracking
+https://ubuntu.com/security/cves
+
+# Red Hat CVE tracking
+https://access.redhat.com/security/cve/
+
+# Rapid7 vulnerability database
+https://www.rapid7.com/db/
+```
+
+### Responding to a Kernel CVE
+
+```bash
+# 1. Identify affected kernels
+# Check CVE description for affected versions
+
+# 2. Check if your kernel is affected
+uname -r
+# 5.15.0-78-generic
+
+# 3. Apply patches or update
+sudo apt update && sudo apt upgrade linux-image-$(uname -r)
+# Or: apply specific kernel patch
+
+# 4. Verify mitigation
+cat /sys/devices/system/cpu/vulnerabilities/*
+
+# 5. Reboot if kernel was updated
+sudo reboot
+```
+
+## Security Monitoring and Incident Response
+
+### Runtime Security Monitoring
+
+```bash
+# Falco — runtime security for containers and Linux
+# Detects anomalous behavior at runtime
+falco --rule /etc/falco/falco_rules.yaml
+
+# Example Falco rules:
+# - Shell spawned in container
+# - Read sensitive file (/etc/shadow)
+# - Outbound connection to unexpected IP
+# - Unexpected syscall
+
+# Auditd real-time monitoring
+sudo auditctl -a always,exit -F arch=b64 -S execve -k exec_log
+sudo ausearch -k exec_log --interpret
+
+# sysdig — system-level exploration
+sysdig -c topprocs_cpu
+sysdig -c spy_users
+sysdig 'fd.name=/etc/passwd and evt.type=open'
+```
+
+### Incident Response Checklist
+
+```bash
+# 1. Preserve evidence
+sudo dd if=/dev/sda of=/mnt/evidence/disk.img bs=4M status=progress
+sudo journalctl --since '2026-07-22 00:00:00' > /mnt/evidence/journal.log
+sudo ss -tlnp > /mnt/evidence/network.log
+sudo ps auxf > /mnt/evidence/processes.log
+
+# 2. Check for persistence
+crontab -l
+sudo crontab -l
+ls -la /etc/cron.d/
+systemctl list-unit-files --state=enabled
+
+# 3. Check for unauthorized access
+last -i
+sudo journalctl -u sshd | grep 'Failed\|Accepted'
+
+# 4. Check for rootkits
+sudo chkrootkit
+sudo rkhunter --check
+```
+
 ## References
 
 - [The Linux Kernel Documentation](https://docs.kernel.org/)
 - [LWN.net - Linux and free software news](https://lwn.net/)
-- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
-- [GNU Manuals](https://www.gnu.org/manual/manual.html)
-- [Free Software Directory](https://directory.fsf.org/wiki/Main_Page)
-- [Planet GNU](https://planet.gnu.org/)
-- [Free Software Books](https://www.gnu.org/doc/other-free-books.html)
-
 - Linux Kernel Documentation — Security: https://www.kernel.org/doc/html/latest/security/
 - Linux Security Module Framework: https://www.kernel.org/doc/html/latest/security/lsm.html
 - NIST SP 800-123 — Guide to General Server Security: https://csrc.nist.gov/publications/detail/sp/800-123/final
@@ -495,6 +771,10 @@ sysctl kernel.randomize_va_space                   # Should be 2
 - Ubuntu Security Documentation: https://ubuntu.com/security
 - Arch Linux Security Wiki: https://wiki.archlinux.org/title/Security
 - Linux Audit Project: https://people.redhat.com/sgrubb/audit/
+- [Confidential Computing Consortium](https://confidentialcomputing.io/)
+- [Linux IMA documentation](https://sourceforge.net/p/linux-ima/wiki/Home/)
+- [Falco runtime security](https://falco.org/)
+- [GNU Project Documentation](https://www.gnu.org/doc/doc.html)
 
 ## Related Topics
 
@@ -507,3 +787,4 @@ sysctl kernel.randomize_va_space                   # Should be 2
 - [Cryptography](./cryptography.md) — Kernel crypto, LUKS, dm-crypt
 - [Hardening](./hardening.md) — Practical hardening guide
 - [Secure Boot](./secure-boot.md) — UEFI Secure Boot chain
+- [Audit](../observability/audit.md) — Security audit framework
