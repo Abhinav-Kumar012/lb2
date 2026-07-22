@@ -364,13 +364,200 @@ bcachefs device list /mnt/bcachefs # Device status
 | Tiered storage   | Native        | No             | ZFS tiering    |
 | Maturity         | New           | Mature         | Very mature    |
 
-## Known Limitations (as of Linux 6.7)
+## B-Tree Locking Protocol
+
+Bcachefs uses a sophisticated locking protocol for concurrent btree access:
+
+### Six Lock Types
+
+Bcachefs defines six lock types for btree nodes, ordered by strength:
+
+```c
+enum btree_node_locked_type {
+    BTREE_NODE_UNLOCKED      = 0,
+    BTREE_NODE_READ_LOCKED   = 1,  /* Shared read lock */
+    BTREE_NODE_INTENT_LOCKED = 2,  /* Intent to modify (upgradeable) */
+    BTREE_NODE_WRITE_LOCKED  = 3,  /* Exclusive write lock */
+};
+```
+
+The intent lock is a key innovation — it signals "I intend to modify this node" without blocking other readers, allowing optimistic concurrency.
+
+### Sequence-Based Locking
+
+Each btree node has a `seq` counter. Readers read the seq before and after accessing node data to detect concurrent modifications:
+
+```c
+/* Simplified reader pattern */
+unsigned seq = READ_ONCE(b->seq);
+if (seq & 1)
+    goto retry;  /* Node is locked for writing */
+/* Read data ... */
+if (READ_ONCE(b->seq) != seq)
+    goto retry;  /* Node was modified, retry */
+```
+
+This seqlock approach allows lockless reads while maintaining consistency.
+
+## B-Tree Iterator Pattern
+
+The btree iterator is the primary interface for traversing and modifying the btree:
+
+```c
+struct btree_trans {
+    struct btree_iter    iters[BTREE_ITER_MAX];
+    unsigned             nr_iters;
+    struct journal_res   journal_res;
+    /* ... */
+};
+
+/* Example: iterate over inodes */
+for_each_btree_key(trans, iter, BTREE_ID_inodes,
+                   POS_MIN, 0, k, ret) {
+    struct bch_inode_unpacked inode;
+    bch2_inode_unpack(k, &inode);
+    /* Process inode ... */
+}
+```
+
+The iterator supports:
+- Forward and backward traversal
+- Automatic node splitting and merging
+- Journal-aware snapshotting (consistent reads)
+- Nested transactions for multi-key modifications
+
+## Filesystem Creation Internals
+
+When `bcachefs format` runs, it creates the initial on-disk layout:
+
+```
+Offset 0:      Superblock (with UUID, label, device info)
+After SB:      Journal (initial empty journal)
+Then:          B-tree root nodes (empty initial trees)
+Then:          Bucket allocation bitmap
+Then:          Data area (all buckets marked free)
+```
+
+The initial btree setup creates these empty trees:
+- `BTREE_ID_inodes` — inode tree
+- `BTREE_ID_dirents` — directory entry tree
+- `BTREE_ID_xattrs` — extended attribute tree
+- `BTREE_ID_extents` — file data extent tree
+- `BTREE_ID_alloc` — bucket allocation tree
+- `BTREE_ID_snapshots` — snapshot topology tree
+- `BTREE_ID_lru` — LRU tree (for GC)
+- `BTREE_ID_freespace` — free space tree
+- `BTREE_ID_need_discard` — discard queue tree
+- `BTREE_ID_backpointers` — backpointer tree
+- `BTREE_ID_subvolumes` — subvolume tree
+- `BTREE_ID_snapshot_trees` — snapshot tree metadata
+
+## Multi-Device Internals
+
+### Device Group and Target System
+
+Bcachefs organizes devices into groups identified by labels:
+
+```bash
+# Labels format: type.name
+--label=ssd.ssd1 /dev/nvme0n1
+--label=ssd.ssd2 /dev/nvme1n1
+--label=hdd.hdd1 /dev/sda
+```
+
+Target options control data placement:
+
+| Option | Default | Effect |
+|--------|---------|--------|
+| `foreground_target` | (auto) | Where new data writes go |
+| `background_target` | (none) | Where cold data migrates |
+| `promote_target` | (none) | Where hot data gets promoted |
+| `metadata_target` | (auto) | Where btree nodes go |
+
+### Replication Internals
+
+When replication is configured (`data_replicas=2`), each write is sent to multiple devices:
+
+```
+Write request
+  ├── Allocate extent on device A
+  ├── Allocate extent on device B (replica)
+  ├── Write data to both
+  └── Update btree with both pointers
+```
+
+The replicas entry in the btree records all device positions:
+
+```c
+struct bch_extent {
+    /* ... extent flags, checksum, compression ... */
+    struct bch_extent_ptr {
+        __le64 offset;
+        __u8   dev;
+        __u8   gen;
+    } ptrs[];  /* One per replica */
+};
+```
+
+### Erasure Coding
+
+Bcachefs implements Reed-Solomon erasure coding for space-efficient redundancy:
+
+```bash
+# Create filesystem with erasure coding (4 data + 2 parity = 6 devices)
+bcachefs format \
+    --data_replicas=1 \
+    --erasure_coding \
+    /dev/sda /dev/sdb /dev/sdc /dev/sdd /dev/sde /dev/sdf
+```
+
+Erasure coding stripes data across N devices with M parity devices, tolerating up to M device failures while using less space than full replication.
+
+## Journal Replay and Crash Recovery
+
+On mount after an unclean shutdown, bcachefs performs journal replay:
+
+1. **Read journal** — scan the journal area for valid entries (verified by checksum)
+2. **Find last checkpoint** — locate the most recent consistent journal entry
+3. **Replay entries** — apply all journal entries from the last checkpoint to the current end
+4. **Rebuild in-memory state** — reconstruct btree caches, allocator state, etc.
+
+```bash
+# The journal is automatically replayed on mount
+mount -t bcachefs /dev/sdb1 /mnt/bcachefs
+# Kernel logs show journal replay progress:
+# bcachefs: (sdb1): journal read done, replaying entries 1234-1250
+# bcachefs: (sdb1): starting with version 1250
+```
+
+If the journal itself is corrupted, bcachefs can attempt recovery:
+
+```bash
+# Force fsck with journal replay
+bcachefs fsck --journal-recovery /dev/sdb1
+```
+
+## Kernel Version History
+
+| Kernel | Release | Key Changes |
+|--------|---------|-------------|
+| 6.7    | Jan 2024 | Initial mainline merge |
+| 6.8    | Mar 2024 | Performance improvements, bug fixes |
+| 6.9    | May 2024 | Erasure coding, improved GC |
+| 6.10   | Jul 2024 | Snapshots improvements |
+| 6.11   | Sep 2024 | Send/receive groundwork, stability |
+| 6.12   | Nov 2024 | Multi-device improvements |
+| 6.13   | Jan 2025 | Performance optimizations |
+| 6.14   | Mar 2025 | Continued stability work |
+
+## Known Limitations (as of Linux 6.14)
 
 - **No online fsck**: repair requires unmounting
 - **No deduplication**: planned for future releases
 - **Limited tooling**: bcachefs-tools is still evolving
-- **No reflink/clone**: cross-file extent sharing not yet supported
+- **No send/receive**: incremental replication not yet implemented
 - **Upgrade path**: no in-place conversion from ext4/Btrfs
+- **No reflink/clone**: cross-file extent sharing not yet supported
 
 ## Troubleshooting
 
@@ -384,10 +571,16 @@ bcachefs fsck /dev/sdb1
 
 ```bash
 # Enable debug logging
-echo 'bcachefs:7' > /proc/sys/kernel/printk  # very verbose
+bcachefs set-option /mnt/bcachefs log_level=debug
 
 # Dump btree structure
 bcachefs dump /dev/sdb1
+
+# Check device status
+bcachefs device list /mnt/bcachefs
+
+# View filesystem errors
+bcachefs fs errors /mnt/bcachefs
 ```
 
 ### Common Issues
@@ -398,6 +591,9 @@ bcachefs dump /dev/sdb1
    rebuild in-memory state
 3. **ENOSPC on "free" space**: bcachefs reserves space for CoW operations;
    `bcachefs fs usage` shows the actual situation
+4. **"btree node needs repair"**: run `bcachefs fsck` offline
+5. **Device missing**: multi-device mount fails if a device is missing;
+   use `bcachefs device remove` to gracefully remove a device first
 
 ## Implementation Details
 
@@ -407,10 +603,13 @@ bcachefs dump /dev/sdb1
   - `btree.c` — B-tree operations
   - `btree_gc.c` — B-tree garbage collection
   - `btree_iter.c` — B-tree iterator
+  - `btree_trans.c` — Transaction management
+  - `btree_update.c` — B-tree modification operations
   - `buckets.c` — Bucket allocator
   - `checksum.c` — Checksumming
   - `compression.c` — Compression support
   - `dirent.c` — Directory entries
+  - `ec.c` — Erasure coding
   - `extents.c` — Extent management
   - `fs.c` — VFS interface
   - `inode.c` — Inode operations
@@ -422,6 +621,7 @@ bcachefs dump /dev/sdb1
   - `replicas.c` — Replica management
   - `snapshot.c` — Snapshot implementation
   - `super.c` — Superblock operations
+  - `subvolume.c` — Subvolume management
 
 ### B-Tree Node Format
 
@@ -522,6 +722,12 @@ bcachefs fs usage /mnt/bcachefs
 | Compression | Good | N/A | N/A | Good |
 | Snapshots | Good | N/A | N/A | Good |
 
+## Cross-References
+
+- [superblock](./superblock.md) — Bcachefs superblock operations and VFS integration
+- [zfs](./zfs.md) — Comparison filesystem with similar CoW and integrity features
+- [mounting](./mounting.md) — Mount API and filesystem registration
+
 ## References
 
 - [bcachefs kernel documentation](https://www.kernel.org/doc/html/latest/filesystems/bcachefs.html)
@@ -529,6 +735,7 @@ bcachefs fs usage /mnt/bcachefs
 - [LWN: A new filesystem for Linux](https://lwn.net/Articles/747355/)
 - [LWN: Bcachefs makes progress](https://lwn.net/Articles/934689/)
 - [Linux Plumbers Conference talk](https://lpc.events/event/16/contributions/1253/)
+- [bcachefs Principles of Operation (PDF)](https://bcachefs.org/bcachefs-principles-of-operation.pdf)
 
 ## Further Reading
 

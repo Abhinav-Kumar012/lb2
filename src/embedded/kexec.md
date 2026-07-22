@@ -513,6 +513,253 @@ kdump_post /usr/local/bin/kdump-notify.sh
 - `include/uapi/linux/kexec.h` — userspace API
 - `fs/proc/vmcore.c` — /proc/vmcore filesystem
 
+## kexec in Cloud and Container Environments
+
+### Cloud Provider Use
+
+Major cloud providers use kexec extensively for fast kernel updates:
+
+```bash
+# AWS: Fast kernel update with kexec (reduces downtime from minutes to seconds)
+# 1. Install new kernel
+sudo yum install kernel-5.14.0-362
+
+# 2. Load via kexec
+sudo kexec -l /boot/vmlinuz-5.14.0-362.el9_3.x86_64 \
+    --initrd=/boot/initramfs-5.14.0-362.el9_3.x86_64.img \
+    --command-line="$(cat /proc/cmdline)"
+
+# 3. Execute (takes 2-5 seconds vs 30-120 for full reboot)
+sudo kexec -e
+
+# Google Cloud: Uses kexec for live migration of VMs
+# Azure: Supports kexec-based fast reboot for kernel patches
+```
+
+### Kubernetes Node Updates
+
+```bash
+# kexec-based node drain and reboot strategy
+#!/bin/bash
+NODE=$(hostname)
+
+# Drain the node
+kubectl drain $NODE --ignore-daemonsets --delete-emptydir-data
+
+# Load new kernel
+kexec -l /boot/vmlinuz-$(uname -r) \
+    --initrd=/boot/initramfs-$(uname -r).img \
+    --command-line="$(cat /proc/cmdline)"
+
+# Reboot via kexec (fast)
+kexec -e
+
+# After reboot, uncordon
+kubectl uncordon $NODE
+```
+
+### Container Host Updates
+
+```bash
+# Docker/Podman host: fast kernel update
+# Containers restart quickly since BIOS POST is skipped
+
+# Before kexec: pause containers
+docker pause $(docker ps -q)
+
+# kexec reboot
+kexec -e
+
+# After reboot: containers automatically resume (if using restart policy)
+docker unpause $(docker ps -q)
+```
+
+## kexec-tools Package
+
+The userspace `kexec` tool is part of the kexec-tools package:
+
+```bash
+# Install
+sudo apt install kexec-tools       # Debian/Ubuntu
+sudo dnf install kexec-tools        # RHEL/Fedora
+sudo pacman -S kexec-tools          # Arch Linux
+
+# kexec-tools provides:
+# kexec       — Load and execute kernels
+# kdump       — Crash dump service
+# makedumpfile — Compressed/filtered crash dumps
+# vmcore-dmesg — Extract dmesg from vmcore
+# kdump-lib.sh — Helper functions for kdump scripts
+
+# Version
+kexec --version
+# kexec-tools 2.0.27
+```
+
+### kdump Configuration File
+
+```bash
+# /etc/kdump.conf
+
+# Local filesystem dump
+ext4 /dev/mapper/vg_data-lv_crash
+path /var/crash
+
+# Remote dump via SSH
+ssh user@dumpserver
+sshkey /root/.ssh/kdump_id_rsa
+path /var/crash
+
+# Remote dump via NFS
+nfs dumpserver:/exports/crash
+path /var/crash
+
+# Core collector with filtering
+core_collector makedumpfile -l -d 31 --message-level 1
+
+# Actions before/after dump
+kdump_pre /usr/local/bin/kdump-pre.sh
+kdump_post /usr/local/bin/kdump-post.sh
+
+# Extra modules to include in kdump initramfs
+extra_modules virtio_net
+
+# Debug shell access after crash
+# (for interactive debugging, only in non-production)
+# shell /bin/bash
+
+# Reboot after dump (default: reboot)
+default reboot
+# Or: default halt, poweroff, shell, mount_root_run_init
+```
+
+## makedumpfile Deep Dive
+
+makedumpfile creates filtered and compressed crash dumps, dramatically reducing dump size:
+
+```bash
+# Dump levels (bitmap filters):
+# Level 0: No filter (full dump)
+# Level 1: Exclude zero pages
+# Level 2: Exclude zero + cache pages (non-private)
+# Level 4: Exclude user process pages
+# Level 8: Exclude free pages
+# Level 16: Exclude reserved pages (hardware)
+# Level 31: All filters combined (most aggressive)
+
+# Typical dump size comparison (for 16GB RAM system):
+# Level 0 (no filter): ~16 GB
+# Level 1 (zero pages): ~12 GB
+# Level 31 (all filters): ~500 MB - 2 GB
+
+# Create filtered dump
+makedumpfile -l -d 31 /proc/vmcore /var/crash/vmcore.dump
+
+# Show dump file info
+makedumpfile --dump-dumpfile /var/crash/vmcore.dump
+
+# Extract dmesg from dump
+makedumpfile --dump-dmesg /proc/vmcore /var/crash/dmesg.txt
+
+# Split dump into multiple files (for size-limited storage)
+makedumpfile -l -d 31 --split /proc/vmcore /var/crash/vmcore
+
+# Reassemble split dump
+makedumpfile --reassemble /var/crash/vmcore.1 /var/crash/vmcore.2 /var/crash/vmcore.full
+```
+
+## Architecture Support
+
+kexec is supported on multiple architectures:
+
+| Architecture | kexec_load | kexec_file_load | Notes |
+|---|---|---|---|
+| x86_64 | ✅ | ✅ | Full support, most mature |
+| x86 (32-bit) | ✅ | ✅ | Legacy, still supported |
+| ARM64 | ✅ | ✅ | DTB required |
+| ARM (32-bit) | ✅ | ✅ | DTB required, zImage support |
+| s390x | ✅ | ✅ | IBM mainframe |
+| ppc64 | ✅ | ✅ | PowerPC |
+| RISC-V | ❌ | ✅ | Only file_load (newer arch) |
+| MIPS | ✅ | Partial | Various sub-architectures |
+
+```bash
+# ARM64 kexec requires DTB
+kexec -l /boot/Image \
+    --dtb=/boot/board.dtb \
+    --initrd=/boot/initramfs.img \
+    --command-line="console=ttyAMA0 root=/dev/mmcblk0p2"
+
+# s390x: kexec with IPL parameters
+kexec -l /boot/vmlinuz \
+    --command-line="root=/dev/sda1" \
+    --initrd=/boot/initrd
+```
+
+## Testing kexec
+
+### In a VM (Safe Testing)
+
+```bash
+# Test kexec in a QEMU VM
+qemu-system-x86_64 -m 2G -kernel /boot/vmlinuz \
+    -initrd /boot/initrd.img \
+    -append "root=/dev/sda1" \
+    -drive file=test.qcow2 \
+    -nographic
+
+# Inside the VM:
+kexec -l /boot/vmlinuz-new --initrd=/boot/initrd-new.img \
+    --command-line="root=/dev/sda1 console=ttyS0"
+kexec -e
+```
+
+### Testing kdump
+
+```bash
+# Trigger a kernel panic (CAUTION: crashes the system!)
+echo c > /proc/sysrq-trigger
+
+# Or use a kernel module that panics
+# (for testing kdump setup in a safe environment)
+
+# After crash, check if dump was saved
+ls -la /var/crash/
+# Should contain: vmcore, vmcore-dmesg.txt, kexec-dmesg
+
+# Verify dump
+crash /usr/lib/debug/boot/vmlinux-$(uname -r) /var/crash/vmcore
+```
+
+## Performance Benchmarks
+
+```bash
+# Typical kexec reboot times (measured on various hardware):
+# Full reboot (BIOS POST + kernel boot): 30-120 seconds
+# kexec reboot (kernel boot only):       2-10 seconds
+# Time saved: 80-95%
+
+# Factors affecting kexec speed:
+# - Kernel decompression time
+# - initramfs size and content
+# - Hardware re-initialization needs
+# - Filesystem mount time
+
+# Measure kexec time
+time kexec -e  # (measured from another terminal or serial console)
+```
+
+## Alternatives to kexec
+
+| Mechanism | Use Case | Limitation |
+|---|---|---|
+| kexec | Fast reboot, crash dumps | No firmware re-init |
+| `reboot` | Full reboot | Slow (BIOS POST) |
+| `systemctl kexec` | Fast reboot via systemd | Same as kexec |
+| hibernate/suspend | Save/restore state | Complex, hardware-dependent |
+| livepatch | Patch kernel without reboot | Limited to specific changes |
+| kexec_file_load | Secure kexec loading | Requires kernel support |
+
 ## Further Reading
 
 - **Documentation/admin-guide/kdump/kdump.rst** — comprehensive kdump documentation
@@ -532,3 +779,4 @@ kdump_post /usr/local/bin/kdump-notify.sh
 - [Boot Process](../boot/overview.md) — kernel boot sequence
 - [ACPI](../firmware/acpi.md) — ACPI table handling during kexec
 - [Secure Boot](../security/secure-boot.md) — secure boot and kexec
+
