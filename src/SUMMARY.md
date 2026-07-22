@@ -75,6 +75,7 @@
 - [Docker Internals](./containers/docker-internals.md)
 - [Kubernetes](./containers/kubernetes.md)
 - [Oci](./containers/oci.md)
+- [Runtime Internals](./containers/runtime-internals.md)
 - [Overlay Mount Options](./containers/overlay-mount-options.md)
 - [Overview](./containers/overview.md)
 - [Podman](./containers/podman.md)
@@ -271,6 +272,7 @@
 - [Zpool](./kernel/memory/zpool.md)
 - [Numa](./kernel/mm/numa.md)
 - [Page Allocation](./kernel/mm/page-allocation.md)
+- [Live Patching](./kernel/live-patching.md)
 - [Modules](./kernel/modules.md)
 - [Af Packet](./kernel/networking/af-packet.md)
 - [Bonding](./kernel/networking/bonding.md)
@@ -291,6 +293,7 @@
 - [Tls Offload](./kernel/networking/tls-offload.md)
 - [Vlans](./kernel/networking/vlans.md)
 - [Wireless](./kernel/networking/wireless.md)
+- [Bpf Networking](./kernel/networking/bpf-networking.md)
 - [Xdp](./kernel/networking/xdp.md)
 - [Xdp Advanced](./kernel/networking/xdp-advanced.md)
 - [Mptcp](./kernel/networking/mptcp.md)
@@ -355,6 +358,7 @@
 - [Tls](./networking/tls.md)
 - [Troubleshooting](./networking/troubleshooting.md)
 - [Vpn](./networking/vpn.md)
+- [Wireguard](./networking/wireguard.md)
 
 ---
 
@@ -428,6 +432,7 @@
 - [Secure Boot](./security/secure-boot.md)
 - [Security Model](./security/security-model.md)
 - [Selinux](./security/selinux.md)
+- [Selinux Programming](./security/selinux-programming.md)
 - [Yama](./security/yama.md)
 
 ---
