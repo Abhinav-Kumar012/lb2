@@ -494,8 +494,188 @@ epoll_ctl(epoll_fd, EPOLL_CTL_MOD, fd, &ev);  /* Re-arm */
 - [The C10K problem](http://www.kegel.com/c10k.html)
 - [epoll scalability](https://copyconstruct.medium.com/the-method-to-epolls-madness-d54f9d3a4db7)
 
+## Thread Pool with epoll
+
+For high-performance servers, combine epoll with a thread pool:
+
+```c
+#include <sys/epoll.h>
+#include <pthread.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define MAX_EVENTS 1024
+#define NUM_THREADS 4
+
+struct task {
+    int fd;
+    uint32_t events;
+};
+
+/* Lock-free task queue (simplified) */
+struct task_queue {
+    struct task items[MAX_EVENTS];
+    atomic_int head, tail;
+};
+
+static struct task_queue queue;
+static int epoll_fd;
+
+void *worker_thread(void *arg) {
+    struct epoll_event events[MAX_EVENTS];
+
+    while (1) {
+        int n = epoll_wait(epoll_fd, events, MAX_EVENTS, -1);
+        for (int i = 0; i < n; i++) {
+            int fd = events[i].data.fd;
+            uint32_t ev = events[i].events;
+
+            if (ev & EPOLLIN) {
+                char buf[4096];
+                ssize_t n = read(fd, buf, sizeof(buf));
+                if (n > 0) {
+                    write(fd, buf, n);  /* Echo */
+                } else {
+                    close(fd);
+                    epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, NULL);
+                }
+            }
+        }
+    }
+    return NULL;
+}
+
+/* Note: EPOLLEXCLUSIVE (Linux 4.5+) prevents thundering herd */
+/* Each thread calls epoll_wait, but only one wakes per event */
+```
+
+## Event Loop Patterns
+
+### Reactor Pattern
+
+The reactor pattern dispatches events to handlers:
+
+```c
+#include <sys/epoll.h>
+#include <string.h>
+
+typedef void (*handler_fn)(int fd, uint32_t events, void *arg);
+
+struct reactor {
+    int epoll_fd;
+    handler_fn handlers[MAX_EVENTS];
+    void *args[MAX_EVENTS];
+};
+
+void reactor_init(struct reactor *r) {
+    r->epoll_fd = epoll_create1(0);
+    memset(r->handlers, 0, sizeof(r->handlers));
+}
+
+void reactor_add(struct reactor *r, int fd, uint32_t events,
+                 handler_fn handler, void *arg) {
+    r->handlers[fd] = handler;
+    r->args[fd] = arg;
+    struct epoll_event ev = { .events = events, .data.fd = fd };
+    epoll_ctl(r->epoll_fd, EPOLL_CTL_ADD, fd, &ev);
+}
+
+void reactor_run(struct reactor *r) {
+    struct epoll_event events[64];
+    while (1) {
+        int n = epoll_wait(r->epoll_fd, events, 64, -1);
+        for (int i = 0; i < n; i++) {
+            int fd = events[i].data.fd;
+            if (r->handlers[fd])
+                r->handlers[fd](fd, events[i].events, r->args[fd]);
+        }
+    }
+}
+```
+
+### Proactor Pattern with io_uring
+
+For completion-based I/O (proactor), see [POSIX AIO](./aio.md) and
+io_uring, which submits I/O and processes completions rather than
+readiness notifications.
+
+## Debugging I/O Multiplexing
+
+### strace
+
+```bash
+# Trace epoll calls
+strace -e epoll_wait,epoll_ctl -p <pid>
+
+# Trace select calls
+strace -e select -p <pid>
+
+# Trace poll calls
+strace -e poll -p <pid>
+```
+
+### /proc Filesystem
+
+```bash
+# View open file descriptors
+ls -la /proc/<pid>/fd/
+
+# View epoll instances
+cat /proc/<pid>/fdinfo/<epoll_fd>
+# tfd: 5 events: 1 data: 5
+# tfd: 8 events: 1 data: 8
+
+# Count epoll watches
+grep -c "tfd" /proc/<pid>/fdinfo/<epoll_fd>
+```
+
+### Common Bugs
+
+| Bug | Symptom | Fix |
+|-----|---------|-----|
+| Edge-triggered without draining | Lost events | Read until `EAGAIN` |
+| Not setting nonblocking | Deadlock in ET mode | `fcntl(fd, F_SETFL, O_NONBLOCK)` |
+| FD leak | Too many open files | `epoll_ctl(DEL)` before `close()` |
+| select FD_SETSIZE overflow | Undefined behavior | Use `poll()` or `epoll()` |
+| Not checking POLLERR/POLLHUP | Missed disconnects | Always check error events |
+| Double `close()` | Race condition | Track fd lifetime carefully |
+
+## Performance Tuning
+
+### epoll Batch Size
+
+```c
+/* Tune MAX_EVENTS for your workload */
+/* Too small: extra epoll_wait calls */
+/* Too large: processing latency per batch */
+
+/* Rule of thumb: 256-1024 for high-connection servers */
+#define MAX_EVENTS 512
+
+struct epoll_event events[MAX_EVENTS];
+int n = epoll_wait(epoll_fd, events, MAX_EVENTS, timeout);
+/* Process all n events before calling epoll_wait again */
+```
+
+### SO_REUSEPORT with epoll
+
+For multi-threaded servers, use `SO_REUSEPORT` to let the kernel
+distribute connections across threads:
+
+```c
+int opt = 1;
+setsockopt(listen_fd, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt));
+
+/* Each thread creates its own epoll + listen socket */
+/* Kernel distributes incoming connections evenly */
+```
+
 ## Related Topics
 
 - [Event-Driven Programming](./event-driven.md) — reactor/proactor patterns built on top
 - [POSIX AIO](./aio.md) — async I/O alternatives
 - [Unix Domain Sockets](./ipc/unix-sockets.md) — local IPC with multiplexed I/O
+- [io_uring](./aio.md) — completion-based I/O on Linux 5.1+
+- [signalfd(2)](https://man7.org/linux/man-pages/man2/signalfd.2.html) — signal readiness with epoll
+- [timerfd(2)](https://man7.org/linux/man-pages/man2/timerfd_create.2.html) — timer readiness with epoll
+- [eventfd(2)](https://man7.org/linux/man-pages/man2/eventfd.2.html) — event notification fd
