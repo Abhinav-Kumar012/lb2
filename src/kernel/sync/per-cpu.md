@@ -635,6 +635,138 @@ cat /sys/kernel/debug/tracing/trace_pipe | grep "preempt_disable"
 | percpu_counter | ~5-10ns | ~1μs × CPUs | 4-8 × CPUs | Batched updates, approximate reads |
 | percpu_ref | ~5-10ns | ~1μs × CPUs | 4-8 × CPUs | Reference counting |
 
+## Per-CPU Variables in the Kernel: Case Studies
+
+### Network Device Statistics
+
+Every network device maintains per-CPU statistics to avoid contention:
+
+```c
+/* net/core/dev.c */
+DEFINE_PER_CPU(struct pcpu_sw_netstats, pcpu_stats);
+
+/* In the hot path (packet receive) */
+void dev_sw_netstats_rx_add(struct net_device *dev, unsigned int len) {
+    struct pcpu_sw_netstats *stats = this_cpu_ptr(&dev->pcpu_stats);
+
+    u64_stats_update_begin(&stats->syncp);
+    stats->rx_packets++;
+    stats->rx_bytes += len;
+    u64_stats_update_end(&stats->syncp);
+}
+
+/* Reading stats (cold path) */
+void dev_get_stats(struct net_device *dev,
+                   struct rtnl_link_stats64 *stats) {
+    int cpu;
+    for_each_possible_cpu(cpu) {
+        struct pcpu_sw_netstats *pstats;
+        unsigned int start;
+
+        pstats = per_cpu_ptr(dev->pcpu_stats, cpu);
+        do {
+            start = u64_stats_fetch_begin(&pstats->syncp);
+            stats->rx_packets += pstats->rx_packets;
+            stats->rx_bytes += pstats->rx_bytes;
+        } while (u64_stats_fetch_retry(&pstats->syncp, start));
+    }
+}
+```
+
+### Slab Allocator (SLUB)
+
+The SLUB allocator uses per-CPU caches for fast allocation:
+
+```c
+/* mm/slub.c */
+struct kmem_cache_cpu {
+    void **freelist;     /* Pointer to first free object */
+    unsigned long tid;   /* Transaction ID */
+    struct page *page;   /* Current page */
+    struct page *partial; /* Partial pages */
+};
+
+/* Per-CPU slab cache */
+DEFINE_PER_CPU(struct kmem_cache_cpu *, kmem_cache_cpu);
+
+/* Fast path: allocate from per-CPU freelist */
+static void *slab_alloc(struct kmem_cache *s, gfp_t gfpflags) {
+    struct kmem_cache_cpu *c = this_cpu_ptr(s->cpu_slab);
+    void *object;
+
+    object = c->freelist;
+    if (likely(object)) {
+        c->freelist = next_object(object);
+        return object;
+    }
+    /* Slow path: refill from partial list */
+    return __slab_alloc(s, gfpflags);
+}
+```
+
+### RCU (Read-Copy-Update)
+
+RCU uses per-CPU data for grace period tracking:
+
+```c
+/* kernel/rcu/tree.c */
+DEFINE_PER_CPU(struct rcu_data, rcu_data);
+
+struct rcu_data {
+    unsigned long gp_seq;        /* Grace period sequence */
+    unsigned long gp_seq_needed; /* When to report quiescent state */
+    struct rcu_head *nxtlist;    /* List of pending callbacks */
+    /* ... */
+};
+
+/* Each CPU reports quiescent states independently */
+void rcu_sched_clock_irq(int user) {
+    struct rcu_data *rdp = this_cpu_ptr(&rcu_data);
+
+    if (user || rcu_is_cpu_rrupt_from_idle()) {
+        /* Report quiescent state */
+        rcu_report_qs_rdp(rdp);
+    }
+}
+```
+
+## Per-CPU Variable Lifecycle
+
+### Initialization
+
+```mermaid
+flowchart TD
+    BOOT[Boot: __per_cpu_start section] --> STATIC[Static per-CPU variables
+placed in .data..percpu]
+    STATIC --> ALLOC[setup_per_cpu_areas()
+allocates per-CPU memory]
+    ALLOC --> COPY[Copy .data..percpu to
+each CPU's area]
+    COPY --> DYNAMIC[Dynamic: alloc_percpu()
+from vmalloc area]
+```
+
+### CPU Hotplug
+
+```c
+/* When a CPU comes online */
+static int percpu_cpu_online(unsigned int cpu) {
+    /* Initialize per-CPU data for this CPU */
+    struct my_data *data = per_cpu_ptr(&my_percpu_data, cpu);
+    data->count = 0;
+    data->active = true;
+    return 0;
+}
+
+/* When a CPU goes offline */
+static int percpu_cpu_offline(unsigned int cpu) {
+    /* Flush or migrate data */
+    struct my_data *data = per_cpu_ptr(&my_percpu_data, cpu);
+    migrate_data_to_another_cpu(data);
+    return 0;
+}
+```
+
 ## Related Topics
 
 - [Read-Write Locks](./rwlocks.md) — Alternative synchronization
