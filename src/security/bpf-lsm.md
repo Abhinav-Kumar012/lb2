@@ -669,6 +669,101 @@ mount -t bpf bpffs /sys/fs/bpf -o delegate_cmds=PROG_LOAD
 auditctl -a always,exit -F arch=b64 -S bpf -k bpf_load
 ```
 
+---
+
+## BPF LSM vs Traditional LSMs
+
+| Aspect | BPF LSM | SELinux | AppArmor |
+|--------|---------|---------|----------|
+| Policy language | C (eBPF) | Policy language | Profile language |
+| Runtime updates | Yes (load/unload) | No (requires reload) | Yes (profile reload) |
+| Granularity | Any kernel data | File/process labels | File paths, capabilities |
+| Complexity | High (C code) | Medium (policy rules) | Low (profiles) |
+| Performance | ~10-50ns per hook | ~50-200ns per hook | ~20-100ns per hook |
+| Container support | Native (cgroup-aware) | Labels (requires setup) | Profile per container |
+| Learning curve | Steep (BPF + security) | Moderate | Low |
+| Debugging | BPF verifier + tracing | audit2allow | aa-logprof |
+
+### When to Use BPF LSM
+
+**Use BPF LSM when:**
+- You need custom security logic not expressible in SELinux/AppArmor
+- You want runtime-deployable policies without reboot
+- You need per-container or per-pod security policies
+- You want to combine observability and enforcement
+- You're building a custom security product
+
+**Use traditional LSMs when:**
+- Standard MAC policies suffice (MLS, type enforcement)
+- You want well-tested, audited security policy
+- Compliance requires certified MAC (e.g., Common Criteria)
+- You don't want to write C code for policies
+
+---
+
+## BPF LSM Lifecycle Management
+
+### Program Lifecycle
+
+```mermaid
+stateDiagram-v2
+    [*] --> Loaded: bpftool prog load
+    Loaded --> Attached: bpftool link create
+    Attached --> Active: Policy enforced
+    Active --> Detached: bpftool link detach
+    Detached --> Loaded: Re-attach
+    Loaded --> Unloaded: bpftool prog unload
+    Attached --> Unloaded: Process exit (if not pinned)
+    Active --> Unloaded: Process exit (if not pinned)
+    Unloaded --> [*]
+```
+
+### Pinning and Persistence
+
+```bash
+# Pin program to bpffs (persists after process exit)
+bpftool prog load policy.bpf.o /sys/fs/bpf/my_lsm type lsm
+
+# Pin maps
+bpftool map pin id <map_id> /sys/fs/bpf/my_map
+
+# Load pinned program on boot (systemd)
+# /etc/systemd/system/bpf-lsm.service
+# ExecStart=/usr/local/bin/bpf-lsm-loader /sys/fs/bpf/my_lsm
+
+# Unpin
+rm /sys/fs/bpf/my_lsm
+rm /sys/fs/bpf/my_map
+```
+
+### BPF Token Delegation (Linux 6.9+)
+
+```bash
+# Create a BPF token for delegated BPF loading
+# Allows non-root users (with CAP_BPF) to load specific programs
+mount -t bpf bpffs /sys/fs/bpf/delegated \
+    -o delegate_type=Lsm,delegate_prog_type=Lsm
+
+# Users with CAP_BPF can now load LSM programs
+# to /sys/fs/bpf/delegated/
+```
+
+---
+
+## Common Pitfalls
+
+| Pitfall | Description | Solution |
+|---------|-------------|----------|
+| Missing LSM entry | BPF LSM not in `/sys/kernel/security/lsm` | Add `bpf` to `lsm=` boot parameter |
+| No BTF | Kernel lacks BTF data | Enable `CONFIG_DEBUG_INFO_BTF=y` |
+| Program detached | Process exit removes programs | Pin to bpffs |
+| Verifier rejection | Program too complex | Simplify logic, use tail calls |
+| TOCTOU races | Path changes between check and use | Use inode-based checks instead of path-based |
+| Hook signature mismatch | BPF program args don't match hook | Check `vmlinux.h` for correct types |
+| Missing GPL license | BPF LSM requires GPL | Add `char LICENSE[] SEC("license") = "GPL";` |
+
+---
+
 ## Further Reading
 
 - **Kernel documentation**: `Documentation/bpf/prog_lsm.rst`
