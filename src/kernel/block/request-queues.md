@@ -429,6 +429,471 @@ blk_mq_unquiesce_queue(q);
 
 Freezing is used during device removal, suspend, and reset paths.
 
+### Freeze vs Quiesce
+
+| Operation | New I/O | In-flight I/O | Use case |
+|---|---|---|---|
+| Freeze | Blocked (enters bypass) | Continues until drained | Device removal, suspend |
+| Quiesce | Queued (not dispatched) | Drains normally | Scheduler switch, reset |
+| Bypass | Direct dispatch (skip scheduler) | Continues | Emergency I/O |
+
+```mermaid
+stateDiagram-v2
+    [*] --> Running: Queue created
+    Running --> Frozen: blk_freeze_queue_start()
+    Frozen --> Running: blk_mq_unfreeze_queue()
+    Running --> Quiesced: blk_mq_quiesce_queue()
+    Quiesced --> Running: blk_mq_unquiesce_queue()
+    Running --> Bypass: blk_queue_bypass_start()
+    Bypass --> Running: blk_queue_bypass_end()
+```
+
+---
+
+## 12. Request Merging
+
+The block layer merges adjacent I/O requests to reduce overhead and improve throughput.
+Merging happens at two levels: **bio merging** (before a request is created) and
+**request merging** (combining an existing request with a new bio).
+
+### 12.1 Merge Types
+
+```mermaid
+graph LR
+    subgraph "Back Merge"
+        R1[Request: sectors 100-199] --> BM[Bio: sectors 200-299]
+        BM --> MR1[Merged: 100-299]
+    end
+    subgraph "Front Merge"
+        BM2[Bio: sectors 90-99] --> R2[Request: sectors 100-199]
+        MR2[Merged: 90-199]
+    end
+```
+
+| Merge Type | Description | Condition |
+|---|---|---|
+| Back merge | Bio extends the end of an existing request | `rq->sector + rq->nr_sectors == bio->sector` |
+| Front merge | Bio precedes the start of an existing request | `bio->sector + bio_sectors == rq->sector` |
+| Bio merge | Two bios are combined before request allocation | Adjacent sectors, within limits |
+
+### 12.2 Merge Heuristics
+
+```c
+/* block/blk-merge.c — attempt back merge */
+static bool blk_attempt_back_merge(struct request *rq, struct bio *bio)
+{
+    if (!blk_rq_merge_ok(rq, bio, GFP_KERNEL))
+        return false;
+
+    if (!ll_back_merge_fn(rq, bio))
+        return false;
+
+    /* Check segment and sector limits */
+    if (blk_rq_sectors(rq) + bio_sectors(bio) >
+        blk_queue_get_max_sectors(blk_rq_dir(rq), q))
+        return false;
+
+    bio_attempt_back_merge(rq, bio);
+    return true;
+}
+```
+
+### 12.3 Sysfs Merge Tunables
+
+```bash
+# Maximum number of segments after merging
+$ cat /sys/block/sda/queue/max_segments
+168
+
+# Maximum segment size (bytes)
+$ cat /sys/block/sda/queue/max_segment_size
+65536
+
+# Maximum sectors per request (after merging)
+$ cat /sys/block/sda/queue/max_sectors_kb
+1280
+
+# Minimum I/O size (used for alignment hints)
+$ cat /sys/block/sda/queue/minimum_io_size
+512
+
+# Optimal I/O size (e.g., RAID stripe width)
+$ cat /sys/block/sda/queue/optimal_io_size
+0
+```
+
+---
+
+## 13. Sysfs Queue Attributes
+
+The block layer exposes extensive runtime configuration through
+`/sys/block/<device>/queue/`. These files are backed by the
+`struct queue_sysfs_entry` infrastructure in `block/blk-sysfs.c`.
+
+### 13.1 Complete Attribute Reference
+
+| Attribute | R/W | Description |
+|---|---|---|
+| `nr_requests` | RW | Max requests in queue (scheduler-managed) |
+| `scheduler` | RW | Active I/O scheduler (e.g., `[mq-deadline] none`) |
+| `max_sectors_kb` | RW | Max request size in KiB |
+| `max_hw_sectors_kb` | RO | Hardware max request size |
+| `logical_block_size` | RO | Logical sector size (usually 512) |
+| `physical_block_size` | RO | Physical sector size (usually 4096) |
+| `max_segments` | RO | Max scatter-gather segments |
+| `max_segment_size` | RO | Max single segment bytes |
+| `rotational` | RW | 1 for HDD, 0 for SSD (affects scheduler) |
+| `nomerges` | RW | 0=merge, 1=no merge, 2=no simple merge |
+| `rq_affinity` | RW | 0=any CPU, 1=same CPU, 2=same CPU + force |
+| `io_poll` | RW | Polling mode for completions |
+| `io_poll_delay` | RW | Polling delay (µs), -1 for exclusive |
+| `wbt_lat_usec` | RW | Write-back throttling latency target |
+| `read_ahead_kb` | RW | Read-ahead window size |
+| `iostats` | RW | Enable/disable I/O statistics |
+| `random` | RW | 1 if device is random-access (SSD) |
+| `discard_*` | RO | Discard (TRIM/UNMAP) capabilities |
+| `write_*` | RO | Write-zeroes capabilities |
+| `zone_*` | RO | Zoned block device info |
+| `virt_boundary_mask` | RO | Memory boundary for SG |
+
+### 13.2 Reading and Modifying
+
+```bash
+# View all queue attributes
+ls -la /sys/block/nvme0n1/queue/
+
+# Check scheduler
+$ cat /sys/block/nvme0n1/queue/scheduler
+[mq-deadline] none
+
+# Switch scheduler
+$ echo none > /sys/block/nvme0n1/queue/scheduler
+$ cat /sys/block/nvme0n1/queue/scheduler
+[none] mq-deadline
+
+# Adjust queue depth
+$ echo 512 > /sys/block/nvme0n1/queue/nr_requests
+
+# Enable/disable merging
+$ echo 1 > /sys/block/nvme0n1/queue/nomerges  # disable all merging
+
+# Configure I/O polling for latency
+$ echo 1 > /sys/block/nvme0n1/queue/io_poll
+```
+
+### 13.3 Sysfs Internals
+
+```c
+/* block/blk-sysfs.c — sysfs attribute definition */
+static struct queue_sysfs_entry {
+    struct attribute attr;
+    ssize_t (*show)(struct request_queue *, char *);
+    ssize_t (*store)(struct request_queue *, const char *, size_t);
+};
+
+/* Example: scheduler attribute */
+static ssize_t queue_scheduler_show(struct request_queue *q, char *page)
+{
+    struct elevator_queue *e = q->elevator;
+    /* ... enumerate available schedulers, mark active ... */
+    return sprintf(page, "%s\n", str);
+}
+
+static ssize_t queue_scheduler_store(struct request_queue *q,
+                                     const char *page, size_t count)
+{
+    /* ... parse scheduler name, switch elevator ... */
+    /* Involves: blk_mq_quiesce_queue, elevator_switch, blk_mq_unquiesce */
+    return count;
+}
+```
+
+---
+
+## 14. I/O Scheduling Integration
+
+The request queue holds a reference to the active I/O scheduler (elevator).
+The scheduler is responsible for reordering requests to maximize throughput
+or minimize latency.
+
+### 14.1 Elevator Interface
+
+```c
+struct elevator_mq_ops {
+    /* Insert a request into the scheduler */
+    void (*insert_request)(struct blk_mq_hw_ctx *, struct request *,
+                           blk_insert_t flags);
+
+    /* Dispatch the next request to hardware */
+    struct request *(*dispatch_request)(struct blk_mq_hw_ctx *);
+
+    /* Called when a request finishes */
+    void (*completed_request)(struct request *, u64);
+
+    /* Requeue a request (e.g., after busy) */
+    void (*requeue_request)(struct request *);
+
+    /* Check if scheduler has work */
+    bool (*has_work)(struct blk_mq_hw_ctx *);
+
+    /* Initialize/exit per-hw-queue scheduler data */
+    int (*init_hctx)(struct blk_mq_hw_ctx *, unsigned int);
+    void (*exit_hctx)(struct blk_mq_hw_ctx *, unsigned int);
+
+    /* Initialize/exit elevator */
+    int (*init_sched)(struct request_queue *, struct elevator_type *);
+    void (*exit_sched)(struct elevator_queue *);
+};
+```
+
+### 14.2 Scheduler Switching at Runtime
+
+```mermaid
+sequenceDiagram
+    participant US as User
+    participant SYS as sysfs store
+    participant Q as request_queue
+    participant OLD as Old Scheduler
+    participant NEW as New Scheduler
+
+    US->>SYS: echo "bfq" > /sys/block/sda/queue/scheduler
+    SYS->>Q: blk_mq_quiesce_queue()
+    Q->>OLD: drain pending requests
+    SYS->>OLD: elevator_exit()
+    SYS->>NEW: elevator_init()
+    NEW->>Q: attach to queue
+    SYS->>Q: blk_mq_unquiesce_queue()
+    Q->>NEW: new requests go to new scheduler
+```
+
+---
+
+## 15. Write-Back Throttling (WBT)
+
+Write-back throttling (WBT) is a mechanism that automatically limits
+write I/O submission rate to prevent dirty page accumulation from
+overwhelming the device. It monitors completion latency and adjusts
+the write queue depth accordingly.
+
+```c
+/* block/blk-wbt.c — simplified */
+void wbt_issue(struct rq_wb *rwb, struct rq_qos *rqos,
+               struct request *rq)
+{
+    /* Record issue timestamp for latency measurement */
+    rq->wbt_flags |= WBT_ISSUED;
+}
+
+void wbt_done(struct rq_wb *rwb, struct rq_qos *rqos,
+              struct request *rq)
+{
+    /* Measure completion latency */
+    u64 lat = ktime_get_ns() - rq->io_start_time_ns;
+
+    /* Adjust scale based on latency vs target */
+    if (lat > rwb->min_lat_nsec)
+        scale = wbt_scale_down(rwb);  /* reduce write depth */
+    else
+        scale = wbt_scale_up(rwb);    /* increase write depth */
+}
+```
+
+### WBT Configuration
+
+```bash
+# Set latency target (microseconds)
+$ echo 2000 > /sys/block/sda/queue/wbt_lat_usec
+# Write-back throttling targets 2ms completion latency
+
+# Disable WBT
+$ echo 0 > /sys/block/sda/queue/wbt_lat_usec
+
+# Current WBT state (in kernel: rq_wb struct)
+# Traced via tracepoints:
+$ echo 1 > /sys/kernel/debug/tracing/events/block/block_rq_issue/enable
+```
+
+---
+
+## 16. Debugging and Tracing
+
+The block layer provides extensive tracing and debugging facilities.
+
+### 16.1 Block Tracepoints
+
+```bash
+# List all block tracepoints
+$ ls /sys/kernel/debug/tracing/events/block/
+block_bio_backmerge   block_bio_queue      block_rq_complete
+block_bio_bounce      block_rq_abort       block_rq_insert
+block_bio_complete    block_rq_issue       block_rq_remap
+block_bio_frontmerge  block_rq_requeue     block_split
+
+# Trace all block I/O
+$ echo 1 > /sys/kernel/debug/tracing/events/block/enable
+$ cat /sys/kernel/debug/tracing/trace_pipe
+# <...>-1234  [001] ....  1234.567890: block_rq_issue:
+#   259,0 R 0 () 123456 + 8 [cat]
+
+# Decode: major,minor READ offset + sectors [process]
+```
+
+### 16.2 blktrace / blkparse
+
+```bash
+# Capture block trace for /dev/sda
+$ blktrace -d /dev/sda -o - | blktrace -i - -d sda
+$ blkparse -i sda -o sda_parsed.txt
+
+# Or one-liner:
+$ blktrace -d /dev/sda -o - | blkparse -i -
+#   8,0    1        1     0.000000000  1234  A   R 123456 + 8 <- (8,0) 123456
+#   8,0    1        2     0.000012345  1234  Q   R 123456 + 8 [cat]
+#   8,0    1        3     0.000015000  1234  G   R 123456 + 8 [cat]
+#   8,0    1        4     0.000020000  1234  I   R 123456 + 8 [cat]
+#   8,0    1        5     0.000025000  1234  D   R 123456 + 8 [cat]
+#   8,0    1        6     0.000250000  1234  C   R 123456 + 8 [0]
+```
+
+### 16.3 blk-mq Debug Info
+
+```bash
+# Queue state in debugfs
+$ ls /sys/kernel/debug/block/sda/
+hctx0/  hctx1/  hctx2/  hctx3/
+
+$ cat /sys/kernel/debug/block/sda/hctx0/active
+# Shows active requests on this hardware context
+
+# Request allocation state
+$ cat /sys/kernel/debug/block/sda/hctx0/tags
+# Tag allocation bitmap
+
+# Scheduler-specific debug (e.g., mq-deadline)
+$ cat /sys/kernel/debug/block/sda/sched/
+starved  read_fifo_batch  write_fifo_batch  writes_starved
+```
+
+### 16.4 /proc/diskstats
+
+```bash
+$ cat /proc/diskstats
+#  major minor name reads_completed reads_merged sectors_read ...
+#    8     0 sda   1234567        89012    98765432  ...
+# Fields (per Documentation/admin-guide/iostats.rst):
+#  1  reads_completed    - total reads
+#  2  reads_merged       - merged reads
+#  3  sectors_read       - total sectors read
+#  4  read_time_ms       - time spent reading (ms)
+#  5  writes_completed   - total writes
+#  6  writes_merged      - merged writes
+#  7  sectors_written    - total sectors written
+#  8  write_time_ms      - time spent writing (ms)
+#  9  io_in_flight       - I/Os currently in progress
+# 10  io_time_ms         - time doing I/Os (ms)
+# 11  weighted_io_time_ms - weighted I/O time (ms)
+```
+
+### 16.5 /proc/sysvmem and /proc/buddyinfo
+
+```bash
+# Check block device allocation pressure
+$ cat /proc/buddyinfo
+# Node 0, zone      DMA      1      1      0      1      1 ...
+# Node 0, zone    DMA32    256    128     64     32     16 ...
+
+# Check if block layer is allocating memory
+$ grep -i "block" /proc/slabinfo | head -5
+# blkdev_requests   ...  # request pool
+# bio-0             ...  # bio pool
+```
+
+---
+
+## 17. Queue Teardown
+
+When a block device is removed, the queue must be torn down gracefully:
+
+```mermaid
+sequenceDiagram
+    participant D as Driver
+    participant Q as request_queue
+    participant BL as Block Layer
+    participant FS as Filesystem
+
+    D->>Q: del_gendisk()
+    Q->>BL: blk_set_dying(q)
+    Note over Q: QUEUE_FLAG_DYING set
+    BL->>FS: Return -ENXIO for new I/O
+    Q->>Q: blk_mq_freeze_queue()
+    Note over Q: Drain all in-flight requests
+    Q->>D: Wait for driver to complete
+    D->>Q: blk_cleanup_disk()
+    Note over Q: Queue and tag set freed
+```
+
+```c
+/* Driver removal sequence */
+static void my_remove(struct my_dev *dev)
+{
+    /* 1. Mark queue as dying — new I/O gets ENXIO */
+    del_gendisk(dev->disk);
+
+    /* 2. Freeze and drain in-flight requests */
+    blk_mq_freeze_queue(dev->queue);
+
+    /* 3. Stop hardware */
+    my_hw_stop(dev);
+
+    /* 4. Clean up disk and queue */
+    put_disk(dev->disk);
+
+    /* 5. Free tag set */
+    blk_mq_free_tag_set(&dev->tag_set);
+}
+```
+
+---
+
+## 18. Runtime PM Integration
+
+The block layer integrates with the kernel's runtime power management
+(RPM) framework to auto-suspend idle devices:
+
+```c
+/* block/blk-pm.c */
+void blk_pm_runtime_init(struct request_queue *q, struct device *dev)
+{
+    q->dev = dev;
+    q->rpm_status = RPM_ACTIVE;
+    /* ... */
+}
+
+/* Called when a request completes and queue becomes idle */
+void blk_post_runtime_resume(struct request_queue *q)
+{
+    /* ... resume queue, dispatch queued I/O ... */
+}
+```
+
+### Runtime PM Attributes
+
+```bash
+# Enable runtime PM for a block device
+$ echo auto > /sys/block/sda/device/power/control
+
+# Set autosuspend delay (ms)
+$ echo 5000 > /sys/block/sda/device/power/autosuspend_delay_ms
+
+# Check power state
+$ cat /sys/block/sda/device/power/runtime_status
+active
+
+# View PM statistics
+$ cat /sys/block/sda/device/power/runtime_active_time
+$ cat /sys/block/sda/device/power/runtime_suspended_time
+```
+
 ---
 
 ## Further Reading
