@@ -535,9 +535,150 @@ xl create hvm.cfg -F  # Force stub domain
 - [AWS and Xen](https://aws.amazon.com/ec2/faqs/)
 - [Xen Security Advisory Process](https://xenbits.xen.org/xsa/)
 
+## Xen on ARM
+
+Xen supports ARM architectures (ARMv7 and ARMv8/AArch64), where it leverages hardware virtualization extensions (ARM Virtualization Host Extensions, or VHE):
+
+```bash
+# Xen on ARM64 uses VHE (ARMv8.1+)
+# The hypervisor runs at EL2 (Exception Level 2)
+# dom0 and domU run at EL1 (Exception Level 1)
+
+# Key differences from x86:
+# - No QEMU device model required (PV I/O only)
+# - Uses GICv3/GICv4 for interrupt virtualization
+# - SMMU (System MMU) for DMA isolation
+# - No BIOS/UEFI — uses Device Tree or ACPI
+# - dom0 is typically a Linux or FreeBSD kernel
+
+# ARM64 Xen dom0 configuration (Device Tree):
+# xen,xen {
+#     compatible = "xen,xen";
+#     reg = <0x0 0x40000000 0x0 0x20000>;
+#     interrupts = <1 15 0xf08>;
+# };
+```
+
+### ARM Virtualization Features
+
+| Feature | Description |
+|---------|-------------|
+| VHE (Virtualization Host Extensions) | Efficient hypervisor context switching |
+| GICv3/GICv4 | Interrupt controller virtualization |
+| SMMU | DMA remapping and isolation |
+| Stage-2 page tables | Hardware-assisted memory virtualization |
+| PSCI | Power State Coordination Interface for CPU lifecycle |
+
+## Xen Disaggregation
+
+Xen's security model allows disaggregating system components into separate domains:
+
+```mermaid
+flowchart TB
+    subgraph "Monolithic dom0 (Traditional)"
+        D0_NET["Network Stack"]
+        D0_BLK["Block I/O"]
+        D0_USB["USB"]
+        D0_GPU["GPU"]
+        D0_TOOL["Toolstack"]
+    end
+    subgraph "Disaggregated (Security-focused)"
+        NETDOM["Network Domain<br>runs netback"]
+        BLKDOM["Block Domain<br>runs blkback"]
+        USBDOM["USB Domain<br>runs USB backend"]
+        STUB["Stub Domain<br>per HVM guest"]
+        TOOLDOM["Toolstack Domain<br>minimal privileges"]
+    end
+    direction TB
+    NETDOM --> D0_NET
+    BLKDOM --> D0_BLK
+```
+
+### Driver Domains
+
+```bash
+# Create a network driver domain
+xl create netdom.cfg
+# netdom.cfg:
+# name = "netdom"
+# type = "PV"
+# vcpus = 2
+# memory = 512
+# disk = ['phy:/dev/vg/netdom,xvda,w']
+# vif = ['bridge=xenbr0']
+
+# Assign physical NIC to the driver domain
+xl pci-assignable-add 0000:03:00.0
+xl pci-attach netdom 0000:03:00.0
+
+# Other domains now use netdom as their network backend
+# instead of dom0
+```
+
+## Credit2 Scheduler
+
+Credit2 is an improved version of the Credit scheduler with better NUMA awareness:
+
+```bash
+# Switch to Credit2 scheduler
+xl sched credit2
+
+# Set domain weight
+xl sched-credit2 -d domain-name -w 256
+
+# Credit2 improvements over Credit:
+# - Better NUMA node locality
+# - Per-CPU run queues (less lock contention)
+# - More fair CPU distribution
+# - Improved handling of overcommitted scenarios
+```
+
+## Xen Security Advisories (XSAs)
+
+Xen has a formal security advisory process:
+
+```bash
+# Check current XSAs
+# https://xenbits.xen.org/xsa/
+
+# Apply XSA patches
+# Patches are released as git commits on the Xen stable branch
+git clone https://xenbits.xen.org/git-http/xen.git
+cd xen
+git checkout stable-4.17
+# Apply XSA patches (e.g., XSA-444)
+git log --oneline | grep XSA
+
+# Check running Xen version for vulnerabilities
+xl info | grep xen_version
+# xen_version : 4.17.0
+
+# Subscribe to xen-announce mailing list for XSA notifications
+# https://lists.xenproject.org/
+```
+
+## Xen vs KVM: Detailed Comparison
+
+| Aspect | Xen | KVM |
+|--------|-----|-----|
+| Architecture | Standalone hypervisor | Linux kernel module |
+| dom0 | Required management domain | Host OS is the management domain |
+| PV support | Native | Via virtio |
+| HVM support | Via VT-x/AMD-V + QEMU | Via VT-x/AMD-V + QEMU |
+| PVH | ✅ | N/A |
+| Security model | dom0/domU separation | Linux namespaces/cgroups |
+| Use cases | Cloud (AWS), security-critical | General purpose, cloud (GCP) |
+| Community | Xen Project (Linux Foundation) | Linux kernel community |
+| ARM support | Yes (VHE) | Yes (VHE) |
+| Live migration | ✅ (mature) | ✅ (mature) |
+| Nested virtualization | Limited | Yes |
+| Device passthrough | PCI passthrough | VFIO |
+| Memory | Balloon, PoD, vNUMA | Balloon, KSM, vNUMA |
+
 ## Related Topics
 
 - [Virtualization Overview](./overview.md) — virtualization types and comparison
 - [KVM Internals](./kvm.md) — alternative kernel-based virtualization
 - [QEMU](./qemu.md) — device emulation used with Xen HVM
 - [Container Overview](../containers/overview.md) — alternative isolation mechanism
+

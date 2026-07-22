@@ -428,7 +428,94 @@ graph LR
 
 ---
 
-## 10. Basic Kernel Library Functions
+## 10. System Call Interface
+
+The system call interface is the primary boundary between user space and kernel space. Linux provides ~450 system calls on x86_64.
+
+### System Call Categories
+
+| Category | Examples | Purpose |
+|----------|---------|--------|
+| **Process** | `fork`, `exec`, `wait`, `exit`, `clone` | Process lifecycle |
+| **File I/O** | `open`, `read`, `write`, `close`, `stat` | File operations |
+| **Memory** | `mmap`, `brk`, `mprotect`, `munmap` | Address space management |
+| **Networking** | `socket`, `bind`, `listen`, `connect`, `send` | Network communication |
+| **Time** | `clock_gettime`, `nanosleep`, `timer_create` | Time and timers |
+| **Signals** | `kill`, `sigaction`, `sigprocmask` | Signal handling |
+| **IPC** | `pipe`, `shmget`, `msgget`, `semget` | Inter-process communication |
+| **Security** | `setuid`, `capset`, `seccomp` | Privilege management |
+| **Device** | `ioctl`, `mmap`, `read`, `write` | Device interaction |
+
+### System Call Invocation
+
+On x86_64, system calls use the `syscall` instruction:
+
+```asm
+; User-space syscall invocation (simplified)
+mov rax, 1        ; syscall number (1 = write)
+mov rdi, 1        ; arg1: fd (stdout)
+mov rsi, buf      ; arg2: buffer
+mov rdx, len      ; arg3: length
+syscall            ; enter kernel
+; rax contains return value
+```
+
+The kernel's entry point is `entry_SYSCALL_64` in `arch/x86/entry/entry_64.S`, which:
+1. Saves user-space registers
+2. Looks up the syscall number in the `sys_call_table`
+3. Calls the corresponding kernel function
+4. Restores registers and returns to user space
+
+### io_uring
+
+`io_uring` is a modern asynchronous I/O interface (Linux 5.1+) that uses shared memory rings between user space and the kernel:
+
+```c
+#include <liburing.h>
+
+struct io_uring ring;
+io_uring_queue_init(256, &ring, 0);
+
+/* Submit a read */
+struct io_uring_sqe *sqe = io_uring_get_sqe(&ring);
+io_uring_prep_read(sqe, fd, buf, len, offset);
+io_uring_submit(&ring);
+
+/* Wait for completion */
+struct io_uring_cqe *cqe;
+io_uring_wait_cqe(&ring, &cqe);
+int result = cqe->res;
+io_uring_cqe_seen(&ring, cqe);
+```
+
+io_uring advantages:
+- **Zero syscall overhead**: submission and completion via shared ring buffers
+- **Batching**: multiple I/O operations submitted in one `io_uring_enter()` call
+- **Polling mode**: eliminates syscall overhead entirely for high-throughput workloads
+
+### seccomp-bpf
+
+`seccomp-bpf` allows filtering system calls using BPF programs:
+
+```c
+#include <linux/seccomp.h>
+#include <linux/filter.h>
+#include <linux/audit.h>
+
+/* Allow read, write, exit; deny everything else */
+struct sock_filter filter[] = {
+    BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, nr)),
+    BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, __NR_read, 0, 1),
+    BPF_STMT(BPF_RET+BPF_K, SECCOMP_RET_ALLOW),
+    BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, __NR_write, 0, 1),
+    BPF_STMT(BPF_RET+BPF_K, SECCOMP_RET_ALLOW),
+    BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, __NR_exit, 0, 1),
+    BPF_STMT(BPF_RET+BPF_K, SECCOMP_RET_ALLOW),
+    BPF_STMT(BPF_RET+BPF_K, SECCOMP_RET_KILL),
+};
+```
+
+## 11. Basic Kernel Library Functions
 
 The kernel provides a set of **basic C library-like functions** that drivers and other kernel code can use. However, drivers **cannot** use standard C library functions (like those from `<string.h>` or `<stdlib.h>` in user space) — the kernel has its own implementations.
 
