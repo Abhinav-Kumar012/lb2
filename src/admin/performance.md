@@ -561,6 +561,60 @@ sadf -g -- -A > today.svg             # SVG graph
 
 ---
 
+## 17. Flame Graph Generation
+
+Flame graphs are the standard visualization for CPU profiling:
+
+```bash
+# Generate CPU flame graph with perf
+perf record -F 99 -a -g -- sleep 30
+perf script | stackcollapse-perf.pl | flamegraph.pl > cpu.svg
+
+# Generate off-CPU flame graph (shows blocking time)
+perf record -e sched:sched_switch -a -g -- sleep 30
+perf script | stackcollapse-perf.pl | flamegraph.pl --color=io > offcpu.svg
+
+# Generate memory allocation flame graph
+perf record -e kmem:kmalloc -a -g -- sleep 30
+perf script | stackcollapse-perf.pl | flamegraph.pl --color=mem > mem.svg
+
+# Differential flame graph (compare two profiles)
+perf script -i before.data | stackcollapse-perf.pl > before.folded
+perf script -i after.data | stackcollapse-perf.pl > after.folded
+difffolded.pl before.folded after.folded | flamegraph.pl > diff.svg
+```
+
+**Reading flame graphs:**
+- Width = percentage of total samples (wider = more time spent)
+- Height = call stack depth (taller = deeper call chain)
+- Plateaus = hot functions consuming significant CPU time
+
+## 18. Kernel Tracepoints for Admin Performance
+
+Key tracepoints for performance debugging:
+
+```bash
+# List available tracepoints
+perf list tracepoint
+
+# Trace scheduler latency
+perf trace -e sched:sched_switch,sched:sched_wakeup -p <pid> -- sleep 5
+
+# Trace block I/O latency
+perf trace -e block:block_rq_issue,block:block_rq_complete -a -- sleep 5
+
+# Trace page faults
+perf trace -e exceptions:page_fault_user -- sleep 5
+
+# Trace network TCP retransmits
+perf trace -e tcp:tcp_retransmit_skb -a -- sleep 10
+
+# Trace OOM killer
+perf trace -e oom:oom_score_adj_update -a -- sleep 30
+```
+
+---
+
 ## Further Reading
 
 - [Linux Performance Analysis — Brendan Gregg](https://www.brendangregg.com/linuxperf.html)
@@ -576,3 +630,16 @@ sadf -g -- -A > today.svg             # SVG graph
 - Gregg, B. *Systems Performance: Enterprise and the Cloud*, 2nd Edition (2020).
 - [USE Method — Brendan Gregg](https://www.brendangregg.com/usemethod.html)
 - [Linux Performance Analysis in 60 Seconds — Netflix](http://techblog.netflix.com/2015/11/linux-performance-analysis-in-60s.html)
+
+---
+
+## Related Topics
+
+- [NUMA Optimization](../performance/numa.md)
+- [Memory Performance](../performance/memory.md)
+- [I/O Performance](../performance/io.md)
+- [Network Performance](../performance/network.md)
+- [Kernel Tuning Parameters](../performance/kernel-params.md)
+- [Benchmarking](../performance/benchmarking.md)
+- [CPU Performance](../performance/cpu.md)
+- [Cache Statistics](../performance/cachestat.md)
