@@ -1,5 +1,4 @@
-// mermaid-init.js — loads mermaid from CDN and initializes
-(function () {
+document.addEventListener("DOMContentLoaded", () => {
     const script = document.createElement("script");
     script.src = "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js";
 
@@ -10,15 +9,14 @@
         });
 
         document.querySelectorAll("pre code.language-mermaid").forEach(code => {
-            const pre = code.parentElement;
             const div = document.createElement("div");
             div.className = "mermaid";
             div.textContent = code.textContent;
-            pre.replaceWith(div);
+            code.parentElement.replaceWith(div);
         });
 
         await mermaid.run();
     };
 
     document.head.appendChild(script);
-})();
+});
