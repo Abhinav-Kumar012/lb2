@@ -18,6 +18,7 @@ preferred-dark-theme = "navy"
 git-repository-url = "https://github.com/Abhinav-Kumar012/lb2"
 edit-url-template = "https://github.com/Abhinav-Kumar012/lb2/edit/dev/{path}"
 additional-css = ["custom.css"]
+additional-js = ["mermaid.min.js", "mermaid-init.js"]
 no-section-label = false
 
 [output.html.search]
