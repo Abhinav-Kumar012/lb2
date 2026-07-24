@@ -5,6 +5,9 @@ description = "A comprehensive, continuously growing reference for Linux, Unix i
 language = "en"
 src = "src"
 
+[preprocessor.mermaid]
+command = "mdbook-mermaid"
+
 [build]
 build-dir = "book"
 create-missing = true
@@ -15,7 +18,6 @@ preferred-dark-theme = "navy"
 git-repository-url = "https://github.com/Abhinav-Kumar012/lb2"
 edit-url-template = "https://github.com/Abhinav-Kumar012/lb2/edit/dev/{path}"
 additional-css = ["custom.css"]
-additional-js = ["custom.js"]
 no-section-label = false
 
 [output.html.search]
