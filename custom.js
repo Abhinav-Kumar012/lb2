@@ -16,24 +16,4 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         });
     });
-
-    // Render mermaid diagrams
-    var mermaidBlocks = document.querySelectorAll('pre code.language-mermaid');
-    if (mermaidBlocks.length > 0) {
-        var script = document.createElement('script');
-        script.src = 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js';
-        script.onload = function() {
-            mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'loose' });
-            mermaidBlocks.forEach(function(block) {
-                var pre = block.closest('pre');
-                var div = document.createElement('div');
-                div.className = 'mermaid';
-                div.textContent = block.textContent;
-                if (pre) { pre.replaceWith(div); }
-                else { block.replaceWith(div); }
-            });
-            mermaid.run();
-        };
-        document.head.appendChild(script);
-    }
 });
