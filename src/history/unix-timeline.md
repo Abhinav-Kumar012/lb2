@@ -190,7 +190,7 @@ By the late 1980s, Unix had fragmented into dozens of incompatible variants:
 
 ```mermaid
 graph TD
-    U[Original Unix] --> ATT[AT&T System V]
+    U[Original Unix] --> ATT["AT&T System V"]
     U --> BSD[Berkeley BSD]
     ATT --> SVR4[System V Release 4]
     ATT --> HP[HP-UX]
@@ -335,7 +335,7 @@ Modern Linux incorporates elements from all major Unix traditions:
 
 ```mermaid
 graph LR
-    ATT[AT&T System V] -->|IPC, ELF, init| L[Modern Linux]
+    ATT["AT&T System V"] -->|IPC, ELF, init| L[Modern Linux]
     BSD[Berkeley BSD] -->|sockets, FFS concepts| L
     GNU[GNU Project] -->|userland tools, GPL| L
     MINIX[MINIX] -->|inspiration, POSIX| L

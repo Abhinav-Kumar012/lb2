@@ -163,9 +163,9 @@ HTB is the most commonly used classful qdisc. It allows hierarchical bandwidth a
 
 ```mermaid
 graph TD
-    R[Root HTB 1:0<br>Rate: 100Mbit] --> C1[Class 1:1<br>Rate: 50Mbit, Ceil: 80Mbit]
-    R --> C2[Class 1:2<br>Rate: 30Mbit, Ceil: 50Mbit]
-    R --> C3[Class 1:3<br>Rate: 20Mbit, Ceil: 30Mbit]
+    R["Root HTB 1:0<br>Rate: 100Mbit"] --> C1["Class 1:1<br>Rate: 50Mbit, Ceil: 80Mbit"]
+    R --> C2["Class 1:2<br>Rate: 30Mbit, Ceil: 50Mbit"]
+    R --> C3["Class 1:3<br>Rate: 20Mbit, Ceil: 30Mbit"]
     C1 --> F1[Filter: dst port 80]
     C2 --> F2[Filter: dst port 22]
     C3 --> F3[Filter: default]

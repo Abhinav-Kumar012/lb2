@@ -27,13 +27,13 @@ flowchart TB
     end
 
     subgraph Allocators["Compressed Memory Allocators"]
-        ZBUD[ZBUD<br/>Max 2:1 ratio<br/>Simple, predictable]
-        Z3FOLD[Z3FOLD<br/>Max 3:1 ratio<br/>Good balance]
-        ZSMALLOC[zsmalloc<br/>~3.5:1+ ratio<br/>Best density]
+        ZBUD["ZBUD<br/>Max 2:1 ratio<br/>Simple, predictable"]
+        Z3FOLD["Z3FOLD<br/>Max 3:1 ratio<br/>Good balance"]
+        ZSMALLOC["zsmalloc<br/>~3.5:1+ ratio<br/>Best density"]
     end
 
     subgraph Hardware["Hardware"]
-        DISK[Swap Device<br/>Disk / SSD / zram]
+        DISK["Swap Device<br/>Disk / SSD / zram"]
     end
 
     APP -->|page out| SWAP

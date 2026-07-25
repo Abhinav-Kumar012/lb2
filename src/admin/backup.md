@@ -16,9 +16,9 @@ The 3-2-1 rule is the gold standard for backup strategy:
 
 ```mermaid
 graph LR
-    A[Primary Data] --> B[Local Backup<br/>Same media]
-    A --> C[Local Backup<br/>Different media]
-    A --> D[Offsite Backup<br/>Cloud / Remote]
+    A[Primary Data] --> B["Local Backup<br/>Same media"]
+    A --> C["Local Backup<br/>Different media"]
+    A --> D["Offsite Backup<br/>Cloud / Remote"]
     style A fill:#e74c3c,color:#fff
     style B fill:#3498db,color:#fff
     style C fill:#2ecc71,color:#fff

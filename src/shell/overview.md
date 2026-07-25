@@ -345,7 +345,7 @@ fi
 ```mermaid
 graph TD
     A[Login] --> B{Login Shell?}
-    B -->|Yes| C[/etc/profile]
+    B -->|Yes| C["/etc/profile"]
     C --> D[~/.bash_profile or ~/.profile]
     D --> E[~/.bashrc - if sourced by profile]
     B -->|No| F{Interactive?}

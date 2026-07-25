@@ -21,7 +21,7 @@ graph TD
     B --> I[Environment manipulation]
     
     C --> J[Loadable kernel modules]
-    C --> K[/dev/kmem modification]
+    C --> K["/dev/kmem modification"]
     C --> L[Syscall table patching]
     C --> M[VFS layer hooks]
     

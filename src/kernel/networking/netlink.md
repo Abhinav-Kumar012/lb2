@@ -11,17 +11,17 @@ Netlink replaces the older ioctl interface for network configuration with a mess
 ```mermaid
 graph TD
     subgraph "Userspace"
-        A[iproute2<br>ip, bridge, tc]
+        A["iproute2<br>ip, bridge, tc"]
         B[NetworkManager]
         C[Custom Applications]
         D[libnl]
     end
     subgraph "Kernel"
-        E[NETLINK_ROUTE<br>Routing, links, addrs]
-        F[NETLINK_GENERIC<br>Generic families]
-        G[NETLINK_NETFILTER<br>Netfilter/iptables]
-        H[NETLINK_SOCK_DIAG<br>Socket diagnostics]
-        I[NETLINK_KOBJECT_UEVENT<br>Device events]
+        E["NETLINK_ROUTE<br>Routing, links, addrs"]
+        F["NETLINK_GENERIC<br>Generic families"]
+        G["NETLINK_NETFILTER<br>Netfilter/iptables"]
+        H["NETLINK_SOCK_DIAG<br>Socket diagnostics"]
+        I["NETLINK_KOBJECT_UEVENT<br>Device events"]
     end
     
     A --> E

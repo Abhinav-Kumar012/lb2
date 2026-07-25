@@ -167,9 +167,9 @@ graph TB
         I99 --> I1[inode #1]
     end
     subgraph "LRU List (for reclaim)"
-        LRU_HEAD --> I_OLD[inode with i_count=0<br/>oldest access]
+        LRU_HEAD --> I_OLD["inode with i_count=0<br/>oldest access"]
         I_OLD --> I_MID[inode with i_count=0]
-        I_MID --> I_NEW[inode with i_count=0<br/>newest access]
+        I_MID --> I_NEW["inode with i_count=0<br/>newest access"]
     end
     subgraph "Superblock List"
         SB["super_block"] --> |s_inodes| I1

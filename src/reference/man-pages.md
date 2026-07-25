@@ -24,7 +24,7 @@ graph TD
     F --> G[Display with pager - less]
     
     H[man.conf / manpath.config] --> C
-    I[/etc/man_db.conf] --> B
+    I["/etc/man_db.conf"] --> B
     J[~/.manpath] --> C
 ```
 

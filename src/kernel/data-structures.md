@@ -32,8 +32,8 @@ graph LR
     end
 
     subgraph "Intrusive List (kernel)"
-        S1[struct my_data<br>list_head member] -->|next| S2[struct my_data<br>list_head member]
-        S2 -->|next| S3[struct my_data<br>list_head member]
+        S1["struct my_data<br>list_head member"] -->|next| S2["struct my_data<br>list_head member"]
+        S2 -->|next| S3["struct my_data<br>list_head member"]
         S3 -->|next| S1
     end
 ```
@@ -186,9 +186,9 @@ The `pprev` pointer points to the `next` (or `first`) pointer of the previous no
 
 ```mermaid
 graph LR
-    HEAD[hlist_head<br>first] --> N1[hlist_node<br>pprev=&HEAD.first]
-    N1 -->|next| N2[hlist_node<br>pprev=&N1.next]
-    N2 -->|next| N3[hlist_node<br>pprev=&N2.next]
+    HEAD["hlist_head<br>first"] --> N1["hlist_node<br>pprev=&HEAD.first"]
+    N1 -->|next| N2["hlist_node<br>pprev=&N1.next"]
+    N2 -->|next| N3["hlist_node<br>pprev=&N2.next"]
     N3 -->|next| NULL[NULL]
 ```
 

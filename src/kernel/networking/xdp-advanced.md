@@ -587,11 +587,11 @@ int xdp_frag_handler(struct xdp_md *ctx)
 ```mermaid
 graph LR
     subgraph "XDP (Fast Path)"
-        XDP_PROG[XDP Program<br/>Early filtering]
+        XDP_PROG["XDP Program<br/>Early filtering"]
     end
 
     subgraph "TC (Slow Path)"
-        TC_PROG[TC BPF Program<br/>Complex classification]
+        TC_PROG["TC BPF Program<br/>Complex classification"]
     end
 
     subgraph "Actions"

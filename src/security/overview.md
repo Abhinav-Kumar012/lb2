@@ -24,7 +24,7 @@ graph TB
         K1[Seccomp BPF]
         K2[Capabilities]
         K3[LSM - SELinux / AppArmor]
-        K4[Namespaces & Cgroups]
+        K4["Namespaces & Cgroups"]
         K5[Crypto Subsystem]
     end
 

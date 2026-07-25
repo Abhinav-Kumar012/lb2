@@ -13,25 +13,25 @@ WireGuard's design philosophy is radical simplicity: fixed cryptographic primiti
 ```mermaid
 graph TB
     subgraph "Userspace"
-        WG_QUICK[wg-quick<br>Configuration tool]
-        WG_CLI[wg<br>Configuration CLI]
+        WG_QUICK["wg-quick<br>Configuration tool"]
+        WG_CLI["wg<br>Configuration CLI"]
         APP[Applications]
     end
 
     subgraph "Kernel (net/wireguard/)"
-        WG_DEV[wg_device<br>Virtual interface]
-        WG_PEER[wg_peer<br>Remote endpoint]
-        WG_NOISE[noise_protocol<br>Crypto state machine]
-        WG_QUEUE[send/recv queues<br>Packet processing]
-        WG_COOKIE[cookie.c<br>DoS mitigation]
-        WG_NETLINK[netlink.c<br>Userspace API]
+        WG_DEV["wg_device<br>Virtual interface"]
+        WG_PEER["wg_peer<br>Remote endpoint"]
+        WG_NOISE["noise_protocol<br>Crypto state machine"]
+        WG_QUEUE["send/recv queues<br>Packet processing"]
+        WG_COOKIE["cookie.c<br>DoS mitigation"]
+        WG_NETLINK["netlink.c<br>Userspace API"]
     end
 
     subgraph "Crypto"
-        CURVE[Curve25519<br>Key exchange]
-        CHACHA[ChaCha20-Poly1305<br>Encryption]
-        BLAKE[BLAKE2s<br>Hashing]
-        SIPHASH[SipHash24<br>Cookie MAC]
+        CURVE["Curve25519<br>Key exchange"]
+        CHACHA["ChaCha20-Poly1305<br>Encryption"]
+        BLAKE["BLAKE2s<br>Hashing"]
+        SIPHASH["SipHash24<br>Cookie MAC"]
     end
 
     APP --> WG_DEV
@@ -182,7 +182,7 @@ WireGuard's routing model is fundamentally different from traditional VPNs. Inst
 ```mermaid
 graph TB
     subgraph "WireGuard Interface (wg0)"
-        LOCAL[Local Private Key<br>x25519_secret]
+        LOCAL["Local Private Key<br>x25519_secret"]
     end
 
     subgraph "Cryptokey Routing Table"
@@ -418,8 +418,8 @@ graph TB
     end
 
     subgraph "Mechanism"
-        RECV[Receive packet] --> UPDATE[Update endpoint<br>to source IP:port]
-        UPDATE --> SEND[Reply to new<br>source address]
+        RECV[Receive packet] --> UPDATE["Update endpoint<br>to source IP:port"]
+        UPDATE --> SEND["Reply to new<br>source address"]
     end
 
     style PHONE2 fill:#4CAF50
@@ -568,9 +568,9 @@ graph LR
     end
 
     subgraph "CPU Usage"
-        WG_CPU[WireGuard: Low<br>(ChaCha20 SIMD)]
-        IPSEC_CPU[IPsec: Medium<br>(AES-NI)]
-        OPENVPN_CPU[OpenVPN: High<br>(OpenSSL overhead)]
+        WG_CPU["WireGuard: Low<br>(ChaCha20 SIMD)"]
+        IPSEC_CPU["IPsec: Medium<br>(AES-NI)"]
+        OPENVPN_CPU["OpenVPN: High<br>(OpenSSL overhead)"]
     end
 
     style WG fill:#4CAF50
@@ -626,10 +626,10 @@ AllowedIPs = 10.0.0.2/32
 
 ```mermaid
 graph TB
-    HUB[Hub Server<br>10.0.0.1<br>Public IP]
-    SPOKE1[Spoke A<br>10.0.0.2]
-    SPOKE2[Spoke B<br>10.0.0.3]
-    SPOKE3[Spoke C<br>10.0.0.4]
+    HUB["Hub Server<br>10.0.0.1<br>Public IP"]
+    SPOKE1["Spoke A<br>10.0.0.2"]
+    SPOKE2["Spoke B<br>10.0.0.3"]
+    SPOKE3["Spoke C<br>10.0.0.4"]
 
     HUB --> SPOKE1
     HUB --> SPOKE2
@@ -648,10 +648,10 @@ graph TB
 
 ```mermaid
 graph TB
-    N1[Node 1<br>10.0.0.1]
-    N2[Node 2<br>10.0.0.2]
-    N3[Node 3<br>10.0.0.3]
-    N4[Node 4<br>10.0.0.4]
+    N1["Node 1<br>10.0.0.1"]
+    N2["Node 2<br>10.0.0.2"]
+    N3["Node 3<br>10.0.0.3"]
+    N4["Node 4<br>10.0.0.4"]
 
     N1 --- N2
     N1 --- N3

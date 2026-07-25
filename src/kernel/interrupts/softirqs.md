@@ -227,11 +227,11 @@ static void run_timer_softirq(struct softirq_action *h)
 
 ```mermaid
 graph TD
-    TW[Timer Wheel] --> L0[Level 0: 0-255 jiffies<br/>256 slots, 1 jiffy each]
-    TW --> L1[Level 1: 256-65535 jiffies<br/>64 slots, 256 jiffies each]
-    TW --> L2[Level 2: 65536-16M jiffies<br/>64 slots, 65536 jiffies each]
-    TW --> L3[Level 3: 16M-4G jiffies<br/>64 slots, 16M jiffies each]
-    TW --> L4[Level 4: >4G jiffies<br/>64 slots, 4G jiffies each]
+    TW[Timer Wheel] --> L0["Level 0: 0-255 jiffies<br/>256 slots, 1 jiffy each"]
+    TW --> L1["Level 1: 256-65535 jiffies<br/>64 slots, 256 jiffies each"]
+    TW --> L2["Level 2: 65536-16M jiffies<br/>64 slots, 65536 jiffies each"]
+    TW --> L3["Level 3: 16M-4G jiffies<br/>64 slots, 16M jiffies each"]
+    TW --> L4["Level 4: >4G jiffies<br/>64 slots, 4G jiffies each"]
 ```
 
 ### NET_TX_SOFTIRQ

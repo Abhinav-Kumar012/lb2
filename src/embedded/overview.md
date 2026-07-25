@@ -11,17 +11,17 @@ Building an Embedded Linux system requires understanding hardware constraints, c
 ```mermaid
 graph TB
     subgraph Desktop/Server Linux
-        DSK_KERNEL[Linux Kernel<br/>Generic config, all drivers]
+        DSK_KERNEL["Linux Kernel<br/>Generic config, all drivers"]
         DSK_INIT[systemd / SysVinit]
-        DSK_PKG[Package Manager<br/>apt, yum, pacman]
+        DSK_PKG["Package Manager<br/>apt, yum, pacman"]
         DSK_USER[Multiple users, login]
         DSK_STORAGE[GB of storage]
         DSK_RAM[GB of RAM]
     end
     subgraph Embedded Linux
-        EMB_KERNEL[Linux Kernel<br/>Minimal config, needed drivers only]
+        EMB_KERNEL["Linux Kernel<br/>Minimal config, needed drivers only"]
         EMB_INIT[BusyBox init / systemd-minimal]
-        EMB_ROOTFS[Read-only rootfs<br/>Custom-built]
+        EMB_ROOTFS["Read-only rootfs<br/>Custom-built"]
         EMB_SINGLE[Single-purpose appliance]
         EMB_STORAGE["MB of storage (flash)"]
         EMB_RAM[MB of RAM]
@@ -114,12 +114,12 @@ A BSP is the collection of software that enables Linux to run on a specific hard
 ```mermaid
 graph TB
     subgraph BSP Components
-        BOOTLOADER[U-Boot / Barebox<br/>First-stage bootloader]
-        TFW[ARM Trusted Firmware<br/>Secure Monitor]
-        KERNEL[Linux Kernel<br/>Board-specific config]
-        DTB[Device Tree Blob<br/>Hardware description]
-        ROOTFS[Root Filesystem<br/>Board-specific tools]
-        DRIVERS[Board Drivers<br/>GPIO, I2C, SPI, display]
+        BOOTLOADER["U-Boot / Barebox<br/>First-stage bootloader"]
+        TFW["ARM Trusted Firmware<br/>Secure Monitor"]
+        KERNEL["Linux Kernel<br/>Board-specific config"]
+        DTB["Device Tree Blob<br/>Hardware description"]
+        ROOTFS["Root Filesystem<br/>Board-specific tools"]
+        DRIVERS["Board Drivers<br/>GPIO, I2C, SPI, display"]
     end
 ```
 

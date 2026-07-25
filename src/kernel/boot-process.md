@@ -249,11 +249,11 @@ $ objdump -h /boot/vmlinuz-6.1.0-23-amd64 | head -10
 
 ```mermaid
 graph TB
-    COMPRESSED[Compressed Kernel<br>bzImage]
-    STUB[Decompression Stub<br>arch/x86/boot/compressed/]
+    COMPRESSED["Compressed Kernel<br>bzImage"]
+    STUB["Decompression Stub<br>arch/x86/boot/compressed/"]
     GZIP[gunzip / bzip2 / xz / lz4 / zstd]
-    VMLINUX[vmlinux<br>Uncompressed ELF]
-    START[Startup Code<br>arch/x86/boot/header.S]
+    VMLINUX["vmlinux<br>Uncompressed ELF"]
+    START["Startup Code<br>arch/x86/boot/header.S"]
 
     COMPRESSED --> STUB
     STUB --> GZIP

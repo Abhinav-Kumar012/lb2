@@ -371,7 +371,7 @@ graph TD
     C --> H[Custom WQ with WQ_UNBOUND]
     
     D --> I[Concurrency Managed]
-    I --> J[Kernel auto-manages<br>thread count based on load]
+    I --> J["Kernel auto-manages<br>thread count based on load"]
 ```
 
 | Workqueue | Description | Use Case |
@@ -537,7 +537,7 @@ static int my_net_poll(struct napi_struct *napi, int budget)
 
 ```mermaid
 graph TD
-    A[Need to defer work<br>from interrupt?] --> B{Must it sleep?}
+    A["Need to defer work<br>from interrupt?"] --> B{Must it sleep?}
     B -->|Yes| C[Workqueue]
     B -->|No| D{How latency-sensitive?}
     D -->|Very| E[Softirq]

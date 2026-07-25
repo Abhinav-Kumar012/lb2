@@ -406,7 +406,7 @@ graph LR
     subgraph "User-Space Interface"
         SYSCALL[syscalls]
         IOCTL[ioctl]
-        PROC[/proc, /sys/]
+        PROC["/proc, /sys/"]
     end
     subgraph "Kernel API Surface"
         VFS[VFS / file_operations]

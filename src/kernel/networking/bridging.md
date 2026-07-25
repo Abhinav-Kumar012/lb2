@@ -160,7 +160,7 @@ graph LR
         B1 --- D1[Host D]
     end
     subgraph "After STP"
-        A2[Bridge A<br>Root] --- B2[Bridge B]
+        A2["Bridge A<br>Root"] --- B2[Bridge B]
         A2 --- C2[Bridge C]
         B2 -.->|Blocked| C2
         B2 --- D2[Host D]

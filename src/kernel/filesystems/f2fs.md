@@ -254,7 +254,7 @@ F2FS supports two victim selection policies:
 ```mermaid
 graph TD
     A[Select victim segment] --> B{Selection policy}
-    B -->|Cost-benefit| C[Segment with most garbage<br/>and least valid blocks]
+    B -->|Cost-benefit| C["Segment with most garbage<br/>and least valid blocks"]
     B -->|Greedy| D[Segment with most garbage]
     C --> E[Read valid blocks from victim]
     D --> E

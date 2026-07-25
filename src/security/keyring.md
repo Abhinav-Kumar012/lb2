@@ -234,7 +234,7 @@ graph TD
     C --> D[fork]
     D --> E[Child inherits session keyring]
     E --> F[exec]
-    F --> G[New process keyring<br>Session keyring inherited]
+    F --> G["New process keyring<br>Session keyring inherited"]
     
     H[clone with CLONE_NEWUSER] --> I[New user keyring]
     I --> J[Isolated keyring namespace]

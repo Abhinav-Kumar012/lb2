@@ -11,15 +11,15 @@ System V shared memory is part of the broader System V IPC family, which also in
 ```mermaid
 graph TD
     subgraph "Kernel"
-        SHM[Shared Memory Segment<br>shmid_kernel struct]
+        SHM["Shared Memory Segment<br>shmid_kernel struct"]
         PAGE[Physical Page Frame]
     end
     subgraph "Process A (Attaching Process)"
-        VA_A[Virtual Address<br>0x7f0000000000]
+        VA_A["Virtual Address<br>0x7f0000000000"]
         PTE_A[Page Table Entry]
     end
     subgraph "Process B (Attaching Process)"
-        VA_B[Virtual Address<br>0x7f0000000000]
+        VA_B["Virtual Address<br>0x7f0000000000"]
         PTE_B[Page Table Entry]
     end
     

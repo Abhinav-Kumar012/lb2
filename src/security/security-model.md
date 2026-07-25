@@ -68,9 +68,9 @@ Every process has **four** user IDs, not just one:
 ```mermaid
 graph LR
     subgraph "Process User IDs"
-        RUID[Real UID<br/>Who launched the process]
-        EUID[Effective UID<br/>Used for permission checks]
-        SUID[Saved Set-UID<br/>Can switch back to EUID]
+        RUID["Real UID<br/>Who launched the process"]
+        EUID["Effective UID<br/>Used for permission checks"]
+        SUID["Saved Set-UID<br/>Can switch back to EUID"]
         FSUID["Filesystem UID<br/>Used for FS checks (Linux-specific)"]
     end
 
@@ -328,17 +328,17 @@ The **umask** controls the default permissions for newly created files and direc
 ```mermaid
 graph LR
     subgraph "Default Maximum"
-        FM[Files: 666<br/>rw-rw-rw-]
-        DM[Directories: 777<br/>rwxrwxrwx]
+        FM["Files: 666<br/>rw-rw-rw-"]
+        DM["Directories: 777<br/>rwxrwxrwx"]
     end
 
     subgraph "Umask"
-        UM[umask: 022<br/>----w--w-]
+        UM["umask: 022<br/>----w--w-"]
     end
 
     subgraph "Result"
-        FR[Files: 644<br/>rw-r--r--]
-        DR[Directories: 755<br/>rwxr-xr-x]
+        FR["Files: 644<br/>rw-r--r--"]
+        DR["Directories: 755<br/>rwxr-xr-x"]
     end
 
     FM --> UM --> FR
@@ -452,7 +452,7 @@ setfacl -m m::rwx myfile
 ```mermaid
 flowchart TD
     A[Process requests access to file] --> B{Is process root<br/>EUID = 0?}
-    B -->|Yes| GRANT[Access granted<br/>bypass DAC checks]
+    B -->|Yes| GRANT["Access granted<br/>bypass DAC checks"]
     B -->|No| C{Owner match?<br/>EUID = file UID?}
     C -->|Yes| D[Check owner permission bits]
     C -->|No| E{Group match?<br/>EGID = file GID?}

@@ -344,10 +344,10 @@ mount --make-slave /mnt
 ```mermaid
 graph TD
     subgraph "Host Mount Namespace"
-        HOST_MNT[/mnt host]
+        HOST_MNT["/mnt host"]
     end
     subgraph "Container Mount Namespace"
-        CONT_MNT[/mnt container]
+        CONT_MNT["/mnt container"]
     end
     
     HOST_MNT -->|shared| CONT_MNT

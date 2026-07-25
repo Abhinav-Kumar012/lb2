@@ -13,7 +13,7 @@ the host controller initiates all transfers.
 graph TD
     subgraph "Host"
         CPU[CPU]
-        HC[Host Controller<br>xHCI/EHCI]
+        HC["Host Controller<br>xHCI/EHCI"]
         CORE[USB Core]
         DRV[USB Driver]
     end

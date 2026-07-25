@@ -11,12 +11,12 @@ Each architecture defines its own calling convention, documented in the **Applic
 ```mermaid
 graph LR
     subgraph "Calling Convention Defines"
-        ARGS[Argument Passing<br/>Registers or stack?]
-        RETURN[Return Values<br/>Which register?]
-        STACK[Stack Management<br/>Caller or callee cleanup?]
-        REGS[Register Preservation<br/>Which are saved?]
-        ALIGN[Stack Alignment<br/>8 or 16 bytes?]
-        TLS[TLS Access<br/>Which register?]
+        ARGS["Argument Passing<br/>Registers or stack?"]
+        RETURN["Return Values<br/>Which register?"]
+        STACK["Stack Management<br/>Caller or callee cleanup?"]
+        REGS["Register Preservation<br/>Which are saved?"]
+        ALIGN["Stack Alignment<br/>8 or 16 bytes?"]
+        TLS["TLS Access<br/>Which register?"]
     end
     
     subgraph "Affected Areas"

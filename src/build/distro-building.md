@@ -16,16 +16,16 @@ graph TB
         KERNEL[Linux Kernel]
         GLIBC[glibc / musl / uclibc]
         BUSYBOX[Busybox / GNU Coreutils]
-        INIT[Init System<br/>systemd / OpenRC / runit]
-        PKG[Package Manager<br/>dpkg / rpm / pacman]
-        SHELL[Shell<br/>bash / dash / zsh]
-        BOOT[Bootloader<br/>GRUB / systemd-boot / U-Boot]
-        NETWORK[Networking<br/>NetworkManager / systemd-networkd]
+        INIT["Init System<br/>systemd / OpenRC / runit"]
+        PKG["Package Manager<br/>dpkg / rpm / pacman"]
+        SHELL["Shell<br/>bash / dash / zsh"]
+        BOOT["Bootloader<br/>GRUB / systemd-boot / U-Boot"]
+        NETWORK["Networking<br/>NetworkManager / systemd-networkd"]
     end
     
     subgraph "Optional Desktop"
-        DISPLAY[Display Server<br/>X11 / Wayland]
-        DE[Desktop Environment<br/>GNOME / KDE / Xfce]
+        DISPLAY["Display Server<br/>X11 / Wayland"]
+        DE["Desktop Environment<br/>GNOME / KDE / Xfce"]
         APPS[Applications]
     end
     

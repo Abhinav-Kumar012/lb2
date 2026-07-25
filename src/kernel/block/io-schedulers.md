@@ -31,9 +31,9 @@ scheduler exists.
 ```mermaid
 graph TD
     subgraph "blk-mq"
-        SQ[Software Queues<br/>per-CPU]
-        SCHED[I/O Scheduler<br/>elevator]
-        HQ[Hardware Queues<br/>per-device]
+        SQ["Software Queues<br/>per-CPU"]
+        SCHED["I/O Scheduler<br/>elevator"]
+        HQ["Hardware Queues<br/>per-device"]
     end
     SQ -->|insert| SCHED
     SCHED -->|dispatch| HQ
@@ -87,9 +87,9 @@ of throughput and latency guarantees.
 ```mermaid
 graph LR
     subgraph "mq-deadline queues"
-        RQ[Sorted Read Queue<br/>by sector]
-        WQ[Sorted Write Queue<br/>by sector]
-        DF[Dispatch FIFO<br/>deadline expired]
+        RQ["Sorted Read Queue<br/>by sector"]
+        WQ["Sorted Write Queue<br/>by sector"]
+        DF["Dispatch FIFO<br/>deadline expired"]
     end
     RQ -->|expire after 500ms| DF
     WQ -->|expire after 5000ms| DF
@@ -143,9 +143,9 @@ interactivity and fairness matter more than raw throughput.
 ```mermaid
 graph TD
     subgraph "BFQ Internals"
-        P1[Process 1<br/>budget=4 sectors]
-        P2[Process 2<br/>budget=4 sectors]
-        P3[Process 3<br/>budget=4 sectors]
+        P1["Process 1<br/>budget=4 sectors"]
+        P2["Process 2<br/>budget=4 sectors"]
+        P3["Process 3<br/>budget=4 sectors"]
     end
     P1 -->|round-robin| ACTIVE[Active Queue]
     P2 -->|round-robin| ACTIVE
@@ -202,8 +202,8 @@ CPU overhead of BFQ.
 ```mermaid
 graph TD
     subgraph "Kyber Token System"
-        RT[Read Tokens<br/>target: latency]
-        WT[Write Tokens<br/>target: latency]
+        RT["Read Tokens<br/>target: latency"]
+        WT["Write Tokens<br/>target: latency"]
     end
     REQ[Incoming Request] -->|Read?| RT
     REQ -->|Write?| WT
@@ -414,7 +414,7 @@ graph TD
     D --> F{Budget exhausted?}
     F -- No --> G[Dispatch from queue]
     F -- Yes --> H[Deactivate queue]
-    H --> I[Select next queue<br/>by service delivered]
+    H --> I["Select next queue<br/>by service delivered"]
     I --> E
     G --> J{Device idle?}
     J -- Yes --> K[Wait slice_idle µs

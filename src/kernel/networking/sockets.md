@@ -669,7 +669,7 @@ graph TB
 
     subgraph "System Limits"
         MAXMEM[net.core.rmem_max]
-        SYSMEM[/proc/sys/net/core/rmem_default]
+        SYSMEM["/proc/sys/net/core/rmem_default"]
     end
 
     RMEM -->|Exceeds| RBUF

@@ -28,17 +28,17 @@ CXL is governed by the CXL Consortium (founded 2019 by Intel, Google, Microsoft,
 ```mermaid
 graph TB
     subgraph "CXL Type 1 — Accelerator Cache"
-        CPU1[CPU] <-->|CXL.cache| ACC1[Accelerator<br/>FPGA/GPU]
+        CPU1[CPU] <-->|CXL.cache| ACC1["Accelerator<br/>FPGA/GPU"]
         ACC1 -->|Cache coherent| MEM1[Host Memory]
     end
 
     subgraph "CXL Type 2 — Accelerator + Memory"
-        CPU2[CPU] <-->|CXL.cache + CXL.mem| ACC2[Accelerator<br/>with local DRAM]
+        CPU2[CPU] <-->|CXL.cache + CXL.mem| ACC2["Accelerator<br/>with local DRAM"]
         ACC2 <-->|CXL.cache| CPU2
     end
 
     subgraph "CXL Type 3 — Memory Expander"
-        CPU3[CPU] -->|CXL.mem| MEM3[CXL Memory Device<br/>DRAM / PMem]
+        CPU3[CPU] -->|CXL.mem| MEM3["CXL Memory Device<br/>DRAM / PMem"]
     end
 ```
 
@@ -57,12 +57,12 @@ graph TB
 ```mermaid
 graph TB
     subgraph "CXL Kernel Subsystem"
-        BUS[CXL Bus Driver<br/>drivers/cxl/cxl_bus.c]
-        PORT[CXL Port Driver<br/>drivers/cxl/cxl_port.c]
-        MEM[CXL Memory Driver<br/>drivers/cxl/cxl_mem.c]
-        PCI[CXL PCI Driver<br/>drivers/cxl/cxl_pci.c]
-        ACPI[CXL ACPI Support<br/>drivers/cxl/cxl_acpi.c]
-        CORE[CXL Core<br/>drivers/cxl/core/]
+        BUS["CXL Bus Driver<br/>drivers/cxl/cxl_bus.c"]
+        PORT["CXL Port Driver<br/>drivers/cxl/cxl_port.c"]
+        MEM["CXL Memory Driver<br/>drivers/cxl/cxl_mem.c"]
+        PCI["CXL PCI Driver<br/>drivers/cxl/cxl_pci.c"]
+        ACPI["CXL ACPI Support<br/>drivers/cxl/cxl_acpi.c"]
+        CORE["CXL Core<br/>drivers/cxl/core/"]
     end
 
     subgraph "PCIe Layer"
@@ -129,10 +129,10 @@ graph TB
     end
 
     subgraph "Memory Pool"
-        MEM1[CXL Memory Device 1<br/>64 GB]
-        MEM2[CXL Memory Device 2<br/>64 GB]
-        MEM3[CXL Memory Device 3<br/>64 GB]
-        MEM4[CXL Memory Device 4<br/>64 GB]
+        MEM1["CXL Memory Device 1<br/>64 GB"]
+        MEM2["CXL Memory Device 2<br/>64 GB"]
+        MEM3["CXL Memory Device 3<br/>64 GB"]
+        MEM4["CXL Memory Device 4<br/>64 GB"]
     end
 
     CPU1 --> RCH1 --> SW1
@@ -314,9 +314,9 @@ CXL 3.0 introduces a new coherency model where devices can also serve as "home a
 ```mermaid
 graph TB
     subgraph "CXL 3.0 Coherency"
-        H2D[Host-to-Device<br/>Back-invalidate]
-        D2H[Device-to-Host<br/>Snoop]
-        P2P[Peer-to-Peer<br/>Device cache sharing]
+        H2D["Host-to-Device<br/>Back-invalidate"]
+        D2H["Device-to-Host<br/>Snoop"]
+        P2P["Peer-to-Peer<br/>Device cache sharing"]
     end
 
     H2D -->|Device eviction| D2H
@@ -335,9 +335,9 @@ CXL 2.0+ defines a security model using IDE (Interoperable Data Encryption) for 
 ```mermaid
 graph TB
     subgraph "CXL Security Layers"
-        IDE[IDE — Link Encryption<br/>PCIe Integrity & Encryption]
-        TSP[TSP — Transport Security<br/>Device-level encryption]
-        SEC[Security Manager<br/>Key management]
+        IDE["IDE — Link Encryption<br/>PCIe Integrity & Encryption"]
+        TSP["TSP — Transport Security<br/>Device-level encryption"]
+        SEC["Security Manager<br/>Key management"]
     end
 
     IDE --> TSP
@@ -588,8 +588,8 @@ graph TB
         end
 
         subgraph "Memory Pool"
-            POOL1[Pool Node 1<br/>512 GB DRAM]
-            POOL2[Pool Node 2<br/>512 GB DRAM]
+            POOL1["Pool Node 1<br/>512 GB DRAM"]
+            POOL2["Pool Node 2<br/>512 GB DRAM"]
         end
     end
 

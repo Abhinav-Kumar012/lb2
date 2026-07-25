@@ -193,9 +193,9 @@ struct radix_pte {
 graph TB
     subgraph "OPAL Firmware Stack"
         HW[Hardware]
-        SKIBOOT[Skiboot<br/>OPAL firmware<br/>Runs on host CPUs]
-        SKIBOOT_HW[Skiboot<br/>Hardware Init]
-        OPAL_RT[OPAL Runtime<br/>Services]
+        SKIBOOT["Skiboot<br/>OPAL firmware<br/>Runs on host CPUs"]
+        SKIBOOT_HW["Skiboot<br/>Hardware Init"]
+        OPAL_RT["OPAL Runtime<br/>Services"]
         
         HW --> SKIBOOT_HW
         SKIBOOT_HW --> SKIBOOT
@@ -203,7 +203,7 @@ graph TB
     end
     
     subgraph "Linux"
-        OPAL_DRV[opal.ko<br/>OPAL driver]
+        OPAL_DRV["opal.ko<br/>OPAL driver"]
         KERNEL[Linux Kernel]
         OPAL_DRV --> KERNEL
     end

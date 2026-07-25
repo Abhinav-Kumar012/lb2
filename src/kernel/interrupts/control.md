@@ -386,9 +386,9 @@ spin_unlock_bh(&lock);
 
 ```mermaid
 graph TD
-    A[Data shared between<br>process context and softirq?] -->|Yes| B[Use spin_lock_bh]
+    A["Data shared between<br>process context and softirq?"] -->|Yes| B[Use spin_lock_bh]
     A -->|No| C[Use spin_lock]
-    D[Data shared between<br>process context and hardirq?] -->|Yes| E[Use spin_lock_irqsave]
+    D["Data shared between<br>process context and hardirq?"] -->|Yes| E[Use spin_lock_irqsave]
     D -->|No| F{Only shared<br>between CPUs?}
     F -->|Yes| G[Use spin_lock]
     F -->|No| H[No lock needed]

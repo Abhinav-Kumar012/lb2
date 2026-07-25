@@ -562,9 +562,9 @@ graph TB
     end
 
     subgraph "sysfs Representation"
-        SYSFS_BUS[/sys/bus/]
-        SYSFS_DEV[/sys/devices/]
-        SYSFS_CLASS[/sys/class/]
+        SYSFS_BUS["/sys/bus/"]
+        SYSFS_DEV["/sys/devices/"]
+        SYSFS_CLASS["/sys/class/"]
     end
 
     KOBJ --> KSET

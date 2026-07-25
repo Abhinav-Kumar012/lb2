@@ -23,7 +23,7 @@ graph TD
         CS[Constraints System]
     end
     subgraph "Regulator Provider Drivers"
-        P1[PMIC Driver<br>e.g., TPS65217]
+        P1["PMIC Driver<br>e.g., TPS65217"]
         P2[GPIO Regulator]
         P3[Fixed Regulator]
     end

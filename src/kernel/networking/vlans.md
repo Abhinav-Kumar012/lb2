@@ -17,7 +17,7 @@ graph LR
         DMAC2[6B DMAC] --> SMAC2[6B SMAC] --> TAG[4B VLAN Tag] --> ETHER2[2B Type] --> DATA2[46-1500B] --> FCS2[4B FCS]
     end
     subgraph "VLAN Tag (4 bytes)"
-        TPID[2B TPID<br>0x8100] --> TCI[2B TCI]
+        TPID["2B TPID<br>0x8100"] --> TCI[2B TCI]
     end
     subgraph "TCI (2 bytes)"
         PRI[3b Priority] --> DEI[1b DEI] --> VID[12b VLAN ID]

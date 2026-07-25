@@ -32,8 +32,8 @@ graph TD
     RQ --> OPS[blk_mq_ops]
     RQ --> ELEV[elevator_queue]
     RQ --> LIM[queue_limits]
-    TAG --> HW[blk_mq_hw_ctx<br/>per hardware queue]
-    HW --> SQ[blk_mq_ctx<br/>per-CPU software queue]
+    TAG --> HW["blk_mq_hw_ctx<br/>per hardware queue"]
+    HW --> SQ["blk_mq_ctx<br/>per-CPU software queue"]
     SQ --> REQ[request]
 ```
 

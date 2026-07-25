@@ -419,10 +419,10 @@ unsigned long copy_from_user(void *to, const void __user *from, unsigned long n)
 
 ```mermaid
 graph TD
-    A[Faulting instruction<br/>e.g., mov from user addr] --> B{Page fault or GPF}
+    A["Faulting instruction<br/>e.g., mov from user addr"] --> B{Page fault or GPF}
     B --> C[Exception handler]
     C --> D{Search __ex_table<br/>for instruction address}
-    D -->|Found| E[Jump to fixup code<br/>e.g., return -EFAULT]
+    D -->|Found| E["Jump to fixup code<br/>e.g., return -EFAULT"]
     D -->|Not found| F[Oops / Panic]
     E --> G[Return error to caller]
 ```

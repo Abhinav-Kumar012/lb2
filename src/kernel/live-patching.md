@@ -15,11 +15,11 @@ graph TB
     subgraph "Live Patch Workflow"
         CVE[Security Advisory / Bug Fix] --> DIFF[Kernel Source Diff]
         DIFF --> KPATCH[kpatch-build tool]
-        KPATCH --> KO[Live Patch Module<br>(.ko)]
+        KPATCH --> KO["Live Patch Module<br>(.ko)"]
         KO --> LOAD[insmod / modprobe]
-        LOAD --> FTRACE[Ftrace Hook<br>Redirect function]
+        LOAD --> FTRACE["Ftrace Hook<br>Redirect function"]
         FTRACE --> NEW[New Function Code]
-        NEW --> DONE[Patch Applied<br>No Reboot]
+        NEW --> DONE["Patch Applied<br>No Reboot"]
     end
 
     subgraph "Running Kernel"
@@ -295,15 +295,15 @@ graph TB
         SRC_OLD[Old kernel source]
         SRC_NEW[New kernel source]
         DIFF[diff -u old new]
-        ANALYSIS[ELF analysis<br>(kpatch-elf.c)]
+        ANALYSIS["ELF analysis<br>(kpatch-elf.c)"]
         CREATE_KO[Generate .ko module]
     end
 
     subgraph "Generated Module"
-        PATCH_DATA[Patch metadata<br>(klp_patch struct)]
-        NEW_FUNCS[New function code<br>(compiled)]
-        RELA[Relocations<br>(fix up references)]
-        SYMTAB[Symbol table<br>(old & new symbols)]
+        PATCH_DATA["Patch metadata<br>(klp_patch struct)"]
+        NEW_FUNCS["New function code<br>(compiled)"]
+        RELA["Relocations<br>(fix up references)"]
+        SYMTAB["Symbol table<br>(old & new symbols)"]
     end
 
     SRC_OLD --> DIFF
@@ -580,10 +580,10 @@ Multiple live patches can be stacked — each patch applies on top of previous o
 ```mermaid
 graph TB
     subgraph "Stacked Patches"
-        P3[Patch 3<br>CVE-2024-3333<br>Applied last]
-        P2[Patch 2<br>CVE-2024-2222<br>Applied second]
-        P1[Patch 1<br>CVE-2024-1111<br>Applied first]
-        BASE[Base Kernel<br>v5.15.0]
+        P3["Patch 3<br>CVE-2024-3333<br>Applied last"]
+        P2["Patch 2<br>CVE-2024-2222<br>Applied second"]
+        P1["Patch 1<br>CVE-2024-1111<br>Applied first"]
+        BASE["Base Kernel<br>v5.15.0"]
     end
 
     P3 --> P2

@@ -20,12 +20,12 @@ graph TD
     C --> D[make - compile kernel]
     D --> E[vmlinuz - bootable kernel]
     C --> F[make modules_install]
-    F -> G[/lib/modules/KVER/]
+    F -> G["/lib/modules/KVER/"]
     
-    H[Running kernel] --> I[/proc/config.gz]
+    H[Running kernel] --> I["/proc/config.gz"]
     I --> J[Current .config]
     
-    K[Distribution default] --> L[/boot/config-KVER]
+    K[Distribution default] --> L["/boot/config-KVER"]
     L --> C
 ```
 

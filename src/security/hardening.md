@@ -10,12 +10,12 @@ This chapter covers practical hardening techniques organized into categories: ke
 
 ```mermaid
 graph TD
-    A[Baseline System] --> B[Inventory & Minimize]
+    A[Baseline System] --> B["Inventory & Minimize"]
     B --> C[Apply Kernel Hardening]
     C --> D[Harden Services]
     D --> E[Network Hardening]
     E --> F[Compiler/Runtime Hardening]
-    F --> G[Enable Audit & Monitoring]
+    F --> G["Enable Audit & Monitoring"]
     G --> H[Validate against CIS/STIG]
     H --> I[Continuous Monitoring]
     I -->|New threats| B

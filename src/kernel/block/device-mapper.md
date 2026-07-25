@@ -35,8 +35,8 @@ graph TD
         RAID[raid]
     end
     subgraph "Lower Devices"
-        D1[/dev/sda1]
-        D2[/dev/sdb1]
+        D1["/dev/sda1"]
+        D2["/dev/sdb1"]
     end
     DMSETUP --> DM
     LVM --> DM
@@ -142,8 +142,8 @@ graph LR
         S1[Odd stripes → sdb]
     end
     subgraph "Physical"
-        D1[/dev/sda]
-        D2[/dev/sdb]
+        D1["/dev/sda"]
+        D2["/dev/sdb"]
     end
     V --> S0 --> D1
     V --> S1 --> D2
@@ -207,9 +207,9 @@ echo "0 2097152 mirror core 2 128 /dev/sda 0 /dev/sdb 0" \
 ```mermaid
 graph TD
     BIO[Write bio] --> MIRROR[dm mirror]
-    MIRROR --> D1[/dev/sda<br/>primary]
-    MIRROR --> D2[/dev/sdb<br/>secondary]
-    D1 --> DONE[completion when<br/>both done]
+    MIRROR --> D1["/dev/sda<br/>primary"]
+    MIRROR --> D2["/dev/sdb<br/>secondary"]
+    D1 --> DONE["completion when<br/>both done"]
     D2 --> DONE
 ```
 
@@ -238,12 +238,12 @@ dmsetup create my_thin \
 ```mermaid
 graph TD
     subgraph "Thin Pool"
-        META[Metadata Device<br/>block mappings]
-        DATA[Data Device<br/>block storage]
+        META["Metadata Device<br/>block mappings"]
+        DATA["Data Device<br/>block storage"]
     end
     subgraph "Thin Volumes"
-        V1[Thin Vol 1<br/>allocated on demand]
-        V2[Thin Vol 2<br/>shares pool]
+        V1["Thin Vol 1<br/>allocated on demand"]
+        V2["Thin Vol 2<br/>shares pool"]
         V3[Thin Vol 3]
     end
     V1 --> META
@@ -526,11 +526,11 @@ understanding the mechanism is valuable.
 graph TD
     subgraph "Snapshot Volume"
         SNAP[dm snapshot target]
-        COW[COW device<br/>stores original data]
+        COW["COW device<br/>stores original data"]
     end
     subgraph "Origin Volume"
         ORIG[dm snapshot-origin target]
-        DATA[Data device<br/>current data]
+        DATA["Data device<br/>current data"]
     end
     SNAP --> COW
     SNAP --> DATA

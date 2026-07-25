@@ -41,7 +41,7 @@ graph LR
     A[Kernel Source] --> B[pahole tool]
     B --> C[DWARF debug info]
     C --> D[BTF encoding]
-    D --> E[/sys/kernel/btf/vmlinux]
+    D --> E["/sys/kernel/btf/vmlinux"]
     E --> F[eBPF loader]
     F --> G[Field relocation]
 ```

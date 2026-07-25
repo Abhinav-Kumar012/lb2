@@ -18,18 +18,18 @@ graph TB
         MLS[MLS/MCS Constraints]
         TE[Type Enforcement Rules]
         RBAC[RBAC Rules]
-        COND[Conditional Rules<br>(Booleans)]
+        COND["Conditional Rules<br>(Booleans)"]
     end
 
     subgraph "Policy Modules"
-        BASE[base-policy<br>(core kernel types)]
-        MOD1[module: httpd<br>(web server policy)]
-        MOD2[module: postgresql<br>(database policy)]
-        MOD3[module: custom-app<br>(your policy)]
+        BASE["base-policy<br>(core kernel types)"]
+        MOD1["module: httpd<br>(web server policy)"]
+        MOD2["module: postgresql<br>(database policy)"]
+        MOD3["module: custom-app<br>(your policy)"]
     end
 
     subgraph "Compiled Policy"
-        POLICY[policy.33<br>(loaded into kernel)]
+        POLICY["policy.33<br>(loaded into kernel)"]
     end
 
     BASE --> POLICY
@@ -444,7 +444,7 @@ flowchart TB
     AUDIT --> REVIEW[Review generated rules]
     REVIEW --> SAFE{Are rules safe?}
     SAFE -->|Yes| COMPILE[Compile into module]
-    SAFE -->|No| FIX[Fix file contexts<br>or booleans instead]
+    SAFE -->|No| FIX["Fix file contexts<br>or booleans instead"]
     COMPILE --> INSTALL[semodule -i myapp.pp]
     INSTALL --> ENFORCE[setenforce 1]
     FIX --> ENFORCE
@@ -885,9 +885,9 @@ static struct security_hook_list selinux_hooks[] = {
 
 ```mermaid
 flowchart LR
-    PLAN[Plan domains<br>and types] --> WRITE[Write .te/.fc/.if]
+    PLAN["Plan domains<br>and types"] --> WRITE[Write .te/.fc/.if]
     WRITE --> COMPILE[Compile module]
-    COMPILE --> TEST[Install & test]
+    COMPILE --> TEST["Install & test"]
     TEST --> DENIALS{Denials?}
     DENIALS -->|Yes| DEBUG[audit2allow + review]
     DEBUG --> FIX{Fix type?}

@@ -27,15 +27,15 @@ RISC-V Design Goals
 ```mermaid
 graph LR
     subgraph "CISC"
-        X86[x86_64<br/>~1500 instructions<br/>Variable length<br/>Closed/proprietary]
+        X86["x86_64<br/>~1500 instructions<br/>Variable length<br/>Closed/proprietary"]
     end
     
     subgraph "RISC (Proprietary)"
-        ARM[ARM/AArch64<br/>~1000 instructions<br/>Fixed/variable length<br/>Licensed]
+        ARM["ARM/AArch64<br/>~1000 instructions<br/>Fixed/variable length<br/>Licensed"]
     end
     
     subgraph "RISC (Open)"
-        RISCV[RISC-V<br/>~100 base instructions<br/>Fixed length<br/>Open/Free]
+        RISCV["RISC-V<br/>~100 base instructions<br/>Fixed length<br/>Open/Free"]
     end
     
     X86 --> PERF1[High perf, complex decode]

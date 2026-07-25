@@ -305,8 +305,8 @@ graph TD
     B --> C["Calls madvise(MADV_MERGEABLE)"]
     C --> D[Times write to page]
     D --> E{Fast write?}
-    E -->|"Yes (no COW fault)"| F[Page was merged<br/>→ victim has identical content]
-    E -->|"No (COW fault)"| G[Page was not merged<br/>→ victim has different content]
+    E -->|"Yes (no COW fault)"| F["Page was merged<br/>→ victim has identical content"]
+    E -->|"No (COW fault)"| G["Page was not merged<br/>→ victim has different content"]
 ```
 
 This can be used to:

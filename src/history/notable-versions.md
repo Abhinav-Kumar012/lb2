@@ -239,7 +239,7 @@ graph LR
     end
     
     subgraph "O(1) Scheduler (2.6.0)"
-        BITMAP[Priority Bitmap<br/>find first bit] --> QUEUE["Per-CPU Run Queue<br/>O(1) enqueue/dequeue"]
+        BITMAP["Priority Bitmap<br/>find first bit"] --> QUEUE["Per-CPU Run Queue<br/>O(1) enqueue/dequeue"]
     end
     
     subgraph "CFS Scheduler (2.6.23+)"
@@ -345,12 +345,12 @@ Code size: ~25,000,000 lines
 ```mermaid
 graph LR
     subgraph "Before KPTI (Vulnerable)"
-        UKERN[User Space] -->|page table| KMAP[Kernel mapped<br/>in user page table]
-        KMAP -->|Meltdown attack| LEAK[Read kernel memory<br/>from user space]
+        UKERN[User Space] -->|page table| KMAP["Kernel mapped<br/>in user page table"]
+        KMAP -->|Meltdown attack| LEAK["Read kernel memory<br/>from user space"]
     end
     
     subgraph "After KPTI (Mitigated)"
-        UKERN2[User Space] -->|page table| NOMAP[Kernel NOT mapped<br/>in user page table]
+        UKERN2[User Space] -->|page table| NOMAP["Kernel NOT mapped<br/>in user page table"]
         KERN2[Kernel Space] -->|separate page table| FULLMAP[Full kernel mapping]
     end
     
@@ -429,7 +429,7 @@ Linux 6.0 Highlights
 ```mermaid
 graph TD
     C["C Language<br/>Since 1991"] --> PRO1[Fast, low-level control]
-    C --> CON1[Memory safety bugs<br/>~70% of CVEs]
+    C --> CON1["Memory safety bugs<br/>~70% of CVEs"]
     C --> CON2[Use-after-free, buffer overflows]
     
     RUST["Rust Language<br/>Since 6.0 (2022)"] --> PRO2[Memory safety guaranteed]

@@ -488,13 +488,13 @@ graph TB
     subgraph "APT Layer"
         RESOLVER[Dependency Resolver]
         FETCHER[Package Fetcher]
-        CACHE[Package Cache<br/>/var/cache/apt/archives/]
-        SOURCES[Sources<br/>/etc/apt/sources.list]
+        CACHE["Package Cache<br/>/var/cache/apt/archives/"]
+        SOURCES["Sources<br/>/etc/apt/sources.list"]
     end
     subgraph "dpkg Layer"
         DPKG[dpkg]
-        DB[(dpkg database<br/>/var/lib/dpkg/)]
-        SCRIPTS[Maintainer Scripts<br/>preinst, postinst, prerm, postrm]
+        DB["(dpkg database<br/>/var/lib/dpkg/)"]
+        SCRIPTS["Maintainer Scripts<br/>preinst, postinst, prerm, postrm"]
     end
     subgraph "Repositories"
         REPO1[Official Repos]

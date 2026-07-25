@@ -28,8 +28,8 @@ graph TD
         F[Applications: Browsers, Editors, Servers]
         G[Package Managers: apt, dnf, pacman]
         H[Distributions: Ubuntu, Fedora, Arch, Debian]
-        I[Cloud & Containers: Kubernetes, Docker]
-        J[Embedded & IoT: Yocto, Buildroot]
+        I["Cloud & Containers: Kubernetes, Docker"]
+        J["Embedded & IoT: Yocto, Buildroot"]
 
         A --> B
         B --> C
@@ -100,7 +100,7 @@ Use the **search function** (press `S` or click the search icon) to find any top
 graph LR
     subgraph "Foundation Layer"
         A[Part I: Foundations]
-        B[Part XVIII: History & Culture]
+        B["Part XVIII: History & Culture"]
     end
 
     subgraph "Kernel Layer"
@@ -110,7 +110,7 @@ graph LR
 
     subgraph "Development Layer"
         E[Part III: System Programming]
-        F[Part IV: Shell & Scripting]
+        F["Part IV: Shell & Scripting"]
         G[Part XII: Compiler Toolchains]
         H[Part XVII: Build Systems]
     end
@@ -128,7 +128,7 @@ graph LR
     end
 
     subgraph "Analysis Layer"
-        O[Part XI: Debugging & Tracing]
+        O["Part XI: Debugging & Tracing"]
         P[Part XIV: Storage]
         Q[Part XV: Performance Tuning]
         R[Part XVI: Observability]
@@ -203,8 +203,8 @@ graph TB
         VFS --> EXT4[ext4]
         VFS --> XFS[XFS]
         VFS --> BTRFS[Btrfs]
-        VFS --> PROC[/proc]
-        VFS --> SYSFS[/sys]
+        VFS --> PROC["/proc"]
+        VFS --> SYSFS["/sys"]
 
         BLOCK --> IO_SCHED[I/O Schedulers]
         BLOCK --> DM[Device Mapper]
@@ -531,7 +531,7 @@ The kernel follows a time-based release cycle of approximately **9-10 weeks**:
 
 ```mermaid
 graph LR
-    A[Merge Window<br/>~2 weeks] --> B[rc1]
+    A["Merge Window<br/>~2 weeks"] --> B[rc1]
     B --> C[rc2]
     C --> D[rc3]
     D --> E[rc4]

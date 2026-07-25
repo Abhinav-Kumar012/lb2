@@ -373,13 +373,13 @@ sudo cyclictest --osnoise
 ```mermaid
 flowchart TD
     subgraph Isolated CPUs 2-3
-        RT_THREAD[RT Control Thread<br/>SCHED_FIFO prio 80]
-        IRQ_THREAD[IRQ Thread<br/>Pinned to CPU 2]
+        RT_THREAD["RT Control Thread<br/>SCHED_FIFO prio 80"]
+        IRQ_THREAD["IRQ Thread<br/>Pinned to CPU 2"]
     end
     subgraph General CPUs 0-1
-        MONITOR[Monitoring Thread<br/>SCHED_OTHER]
-        LOG[Logging Thread<br/>SCHED_OTHER]
-        NET[Network Thread<br/>SCHED_OTHER]
+        MONITOR["Monitoring Thread<br/>SCHED_OTHER"]
+        LOG["Logging Thread<br/>SCHED_OTHER"]
+        NET["Network Thread<br/>SCHED_OTHER"]
     end
     IRQ_THREAD -->|shared memory| RT_THREAD
     RT_THREAD -->|ring buffer| MONITOR

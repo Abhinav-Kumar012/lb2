@@ -726,10 +726,10 @@ graph TB
         AUR["AUR<br/>(PKGBUILDs)"]
     end
     subgraph "Local System"
-        DB[(Package DB<br/>/var/lib/pacman/)]
-        CACHE[(Package Cache<br/>/var/cache/pacman/pkg/)]
+        DB["(Package DB<br/>/var/lib/pacman/)"]
+        CACHE["(Package Cache<br/>/var/cache/pacman/pkg/)"]
         INSTALLED[(Installed Files)]
-        HOOKS[Hooks<br/>/etc/pacman.d/hooks/]
+        HOOKS["Hooks<br/>/etc/pacman.d/hooks/"]
     end
     subgraph "Build System"
         PKGBUILD[PKGBUILD]

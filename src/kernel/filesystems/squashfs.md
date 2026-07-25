@@ -95,8 +95,8 @@ SquashFS has specialized inodes for different file types:
 ```mermaid
 flowchart TD
     A[File data] --> B{Size > fragment threshold?}
-    B -->|Yes| C[Store in data blocks<br/>(compressed, up to 1MB each)]
-    B -->|No| D[Store in fragment block<br/>(packed with other small files)]
+    B -->|Yes| C["Store in data blocks<br/>(compressed, up to 1MB each)"]
+    B -->|No| D["Store in fragment block<br/>(packed with other small files)"]
     C --> E[Block index stored in inode]
     D --> F[Fragment block + offset stored in inode]
 ```

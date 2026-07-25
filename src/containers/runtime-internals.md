@@ -68,7 +68,7 @@ The runtime spec defines the contract between high-level and low-level runtimes:
 ```mermaid
 flowchart LR
     subgraph "OCI Runtime Spec"
-        BUNDLE[Container Bundle<br>(config.json + rootfs)]
+        BUNDLE["Container Bundle<br>(config.json + rootfs)"]
         CREATE[create]
         START[start]
         KILL[kill]
@@ -426,7 +426,7 @@ graph TB
         CONTAINER_MGR[container/ — Container lifecycle]
         NAMESPACES[namespaces/ — Namespace setup]
         CGROUPS[cgroups/ — Cgroup management]
-        ROOTFS[rootfs/ — Rootfs setup & pivot_root]
+        ROOTFS["rootfs/ — Rootfs setup & pivot_root"]
         SECCOMP_Y[seccomp/ — Seccomp BPF filter]
         USERNS[user_namespace.rs — UID/GID mapping]
         TTY[tty.rs — Terminal handling]
@@ -760,11 +760,11 @@ execve("/bin/bash", args, envp);
 ```mermaid
 graph TB
     subgraph "Cgroup v1 (Legacy)"
-        V1_ROOT[/sys/fs/cgroup/]
-        V1_CPU[/cpu/mycontainer/]
-        V1_MEM[/memory/mycontainer/]
-        V1_PIDS[/pids/mycontainer/]
-        V1_BLKIO[/blkio/mycontainer/]
+        V1_ROOT["/sys/fs/cgroup/"]
+        V1_CPU["/cpu/mycontainer/"]
+        V1_MEM["/memory/mycontainer/"]
+        V1_PIDS["/pids/mycontainer/"]
+        V1_BLKIO["/blkio/mycontainer/"]
 
         V1_ROOT --> V1_CPU
         V1_ROOT --> V1_MEM
@@ -773,8 +773,8 @@ graph TB
     end
 
     subgraph "Cgroup v2 (Unified)"
-        V2_ROOT[/sys/fs/cgroup/]
-        V2_UNIFIED[/sys/fs/cgroup/mycontainer/]
+        V2_ROOT["/sys/fs/cgroup/"]
+        V2_UNIFIED["/sys/fs/cgroup/mycontainer/"]
         V2_PROCS[cgroup.procs]
         V2_CPU_MAX[cpu.max]
         V2_MEM_MAX[memory.max]
@@ -861,7 +861,7 @@ graph TB
     subgraph "Rootless Container Setup"
         USER[Unprivileged User]
         USERNS[User Namespace]
-        UID_MAP[UID Mapping<br>0→100000<br>65536 range]
+        UID_MAP["UID Mapping<br>0→100000<br>65536 range"]
         MOUNT_NS[Mount Namespace]
         PID_NS[PID Namespace]
         CGROUP_USER[User Cgroup v2]

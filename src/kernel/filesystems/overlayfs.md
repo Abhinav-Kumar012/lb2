@@ -15,7 +15,7 @@ OverlayFS uses three directories on the underlying filesystem:
 ```mermaid
 graph TB
     subgraph "OverlayFS Mount (/merged)"
-        M[Merged View<br/>read-write]
+        M["Merged View<br/>read-write"]
     end
     subgraph "Upper Layer (read-write)"
         U["upper/<br/>Only modified/new files"]

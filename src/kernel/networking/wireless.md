@@ -11,19 +11,19 @@ Understanding Linux wireless requires familiarity with the 802.11 standard, regu
 ```mermaid
 graph TD
     subgraph "Userspace"
-        U1[wpa_supplicant<br>Authentication, roaming]
-        U2[iw<br>Configuration]
-        U3[NetworkManager<br>High-level management]
-        U4[hostapd<br>AP mode]
+        U1["wpa_supplicant<br>Authentication, roaming"]
+        U2["iw<br>Configuration"]
+        U3["NetworkManager<br>High-level management"]
+        U4["hostapd<br>AP mode"]
     end
     subgraph "Kernel"
-        N1[nl80211<br>Netlink API]
-        C1[cfg80211<br>Configuration]
-        M1[mac80211<br>802.11 MAC layer]
-        D1[Wireless Driver<br>iwlwifi, ath9k, etc.]
+        N1["nl80211<br>Netlink API"]
+        C1["cfg80211<br>Configuration"]
+        M1["mac80211<br>802.11 MAC layer"]
+        D1["Wireless Driver<br>iwlwifi, ath9k, etc."]
     end
     subgraph "Hardware"
-        HW[Wireless NIC<br>Firmware]
+        HW["Wireless NIC<br>Firmware"]
     end
     
     U1 --> N1

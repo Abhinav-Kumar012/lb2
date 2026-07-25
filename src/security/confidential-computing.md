@@ -23,16 +23,16 @@ All three share a common architectural pattern: the CPU creates an encrypted, is
 ```mermaid
 graph TB
     subgraph "Traditional VM"
-        HYPERVISOR1[Hypervisor<br/>Full access to VM memory]
-        VM1[Guest VM<br/>Data exposed]
+        HYPERVISOR1["Hypervisor<br/>Full access to VM memory"]
+        VM1["Guest VM<br/>Data exposed"]
         HW1[Hardware]
         VM1 --> HYPERVISOR1
         HYPERVISOR1 --> HW1
     end
 
     subgraph "Confidential VM"
-        HYPERVISOR2[Hypervisor<br/>Cannot access VM memory]
-        VM2[Guest VM<br/>Data protected]
+        HYPERVISOR2["Hypervisor<br/>Cannot access VM memory"]
+        VM2["Guest VM<br/>Data protected"]
         HW2[Hardware Encryption]
         CPU2[CPU: Isolated Execution]
         VM2 -->|Encrypted| HW2
@@ -66,12 +66,12 @@ graph TB
     subgraph "Intel TDX Architecture"
         subgraph "TDX Module (SEAM)"
             TD_OWNER[TD Owner Module]
-            TDX_MOD[TDX Module<br/>Runs in SEAM mode]
+            TDX_MOD["TDX Module<br/>Runs in SEAM mode"]
         end
 
         subgraph "Trust Domain"
-            TD_VM[TD VM<br/>Guest OS + Applications]
-            TD_MEM[Encrypted TD Memory<br/>AES-128-XTS per TD]
+            TD_VM["TD VM<br/>Guest OS + Applications"]
+            TD_MEM["Encrypted TD Memory<br/>AES-128-XTS per TD"]
         end
 
         subgraph "Host"
@@ -80,7 +80,7 @@ graph TB
         end
 
         subgraph "Hardware"
-            MKTME[MKTME Engine<br/>Memory Encryption]
+            MKTME["MKTME Engine<br/>Memory Encryption"]
             PKG[CPU Package]
         end
     end
@@ -183,10 +183,10 @@ graph TB
     end
 
     subgraph "SEV-SNP Architecture"
-        PSP[AMD PSP/ASP<br/>Secure Processor]
+        PSP["AMD PSP/ASP<br/>Secure Processor"]
         HV[Hypervisor]
         VM[Encrypted VM]
-        RMP[Reverse Map Table<br/>Page Ownership]
+        RMP["Reverse Map Table<br/>Page Ownership"]
         CTK[Per-VM AES Key]
 
         PSP --> CTK
@@ -306,11 +306,11 @@ ARM CCA introduces **Realms** — a new security state alongside the existing Se
 graph TB
     subgraph "ARM CCA Security Model"
         subgraph "Root World"
-            RM[Realm Manager<br/>EL3 Firmware]
+            RM["Realm Manager<br/>EL3 Firmware"]
         end
 
         subgraph "Secure World"
-            SEC[Secure OS<br/>OP-TEE / Trusty]
+            SEC["Secure OS<br/>OP-TEE / Trusty"]
         end
 
         subgraph "Normal World"
@@ -319,8 +319,8 @@ graph TB
         end
 
         subgraph "Realm World"
-            REALM[Realm Guest<br/>EL1/EL2]
-            RMM[Realm Management Monitor<br/>EL2]
+            REALM["Realm Guest<br/>EL1/EL2"]
+            RMM["Realm Management Monitor<br/>EL2"]
             REALM_MEM[Encrypted Realm Memory]
         end
     end
@@ -346,15 +346,15 @@ graph TB
 ```mermaid
 graph LR
     subgraph "Physical Memory"
-        NS[Non-Secure<br/>Normal World]
-        SEC_M[Secure<br/>Secure World]
-        RM_M[Realm<br/>Realm World]
-        ROOT[Root<br/>Root World]
+        NS["Non-Secure<br/>Normal World"]
+        SEC_M["Secure<br/>Secure World"]
+        RM_M["Realm<br/>Realm World"]
+        ROOT["Root<br/>Root World"]
     end
 
     NS -->|NS-PA| NS_MEM[Host Memory]
     SEC_M -->|S-PA| SEC_MEM[Secure Memory]
-    RM_M -->|R-PA| REALM_MEM[Realm Memory<br/>Encrypted by RMM]
+    RM_M -->|R-PA| REALM_MEM["Realm Memory<br/>Encrypted by RMM"]
     ROOT -->|RT-PA| ROOT_MEM[Root Memory]
 ```
 

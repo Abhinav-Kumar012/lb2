@@ -23,13 +23,13 @@ graph TD
     subgraph "Block Layer"
         BIO[bio structures]
         Q[Request Queue]
-        SCHED[I/O Scheduler<br>mq-deadline/BFQ/kyber]
+        SCHED["I/O Scheduler<br>mq-deadline/BFQ/kyber"]
     end
     subgraph "Device Driver"
-        DRV[Block Driver<br>NVMe/SCSI/virtio]
+        DRV["Block Driver<br>NVMe/SCSI/virtio"]
     end
     subgraph "Hardware"
-        HW[Storage Device<br>SSD/HDD/NVMe]
+        HW["Storage Device<br>SSD/HDD/NVMe"]
     end
     
     APP --> VFS
@@ -307,7 +307,7 @@ graph TD
     A["write() syscall"] --> B[VFS: write to page cache]
     B --> C[Page marked dirty]
     C --> D{Write-back trigger?}
-    D -->|No| E[Return to application<br>Data NOT on disk yet]
+    D -->|No| E["Return to application<br>Data NOT on disk yet"]
     D -->|Yes: dirty ratio/timeout| F[kwriteback thread]
     F --> G[Write bio to disk]
     G --> H[Completion]
