@@ -1,39 +1,28 @@
-// This Source Code Form is subject to the terms of the Mozilla Public
-// License, v. 2.0. If a copy of the MPL was not distributed with this
-// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+// mermaid-init.js — decode HTML entities then render mermaid diagrams
+(function() {
+  function decodeEntities(str) {
+    var ta = document.createElement('textarea');
+    ta.innerHTML = str;
+    return ta.value;
+  }
 
-(() => {
-    const darkThemes = ['ayu', 'navy', 'coal'];
-    const lightThemes = ['light', 'rust'];
+  function initMermaid() {
+    // Decode HTML entities in all mermaid <pre> blocks
+    var blocks = document.querySelectorAll('pre.mermaid');
+    blocks.forEach(function(block) {
+      block.textContent = decodeEntities(block.innerHTML);
+    });
+    mermaid.initialize({ startOnLoad: true, theme: 'default', securityLevel: 'loose' });
+  }
 
-    const classList = document.getElementsByTagName('html')[0].classList;
-
-    let lastThemeWasLight = true;
-    for (const cssClass of classList) {
-        if (darkThemes.includes(cssClass)) {
-            lastThemeWasLight = false;
-            break;
-        }
-    }
-
-    const theme = lastThemeWasLight ? 'default' : 'dark';
-    mermaid.initialize({ startOnLoad: true, theme });
-
-    // Simplest way to make mermaid re-render the diagrams in the new theme is via refreshing the page
-
-    for (const darkTheme of darkThemes) {
-        document.getElementById(darkTheme).addEventListener('click', () => {
-            if (lastThemeWasLight) {
-                window.location.reload();
-            }
-        });
-    }
-
-    for (const lightTheme of lightThemes) {
-        document.getElementById(lightTheme).addEventListener('click', () => {
-            if (!lastThemeWasLight) {
-                window.location.reload();
-            }
-        });
-    }
+  var script = document.createElement('script');
+  script.src = '../mermaid.min.js';
+  script.onload = initMermaid;
+  script.onerror = function() {
+    var s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js';
+    s.onload = initMermaid;
+    document.head.appendChild(s);
+  };
+  document.head.appendChild(script);
 })();
