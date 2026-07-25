@@ -348,15 +348,15 @@ grep -r "PermitRootLogin\|PasswordAuthentication" /etc/ssh/
 
 ```mermaid
 graph TD
-    Admin["System Administration"] --> Install["Installation &<br/>Configuration"]
-    Admin --> Users["User & Access<br/>Management"]
-    Admin --> Security["Security<br/>& Hardening"]
-    Admin --> Monitor["Monitoring &<br/>Alerting"]
-    Admin --> Backup["Backup &<br/>Recovery"]
-    Admin --> Perf["Performance<br/>Tuning"]
-    Admin --> Net["Network<br/>Management"]
-    Admin --> Storage["Storage &<br/>Disk Management"]
-    Admin --> Service["Service<br/>Management"]
+    Admin["System Administration"] --> Install["Installation &amp;<br>Configuration"]
+    Admin --> Users["User &amp; Access<br>Management"]
+    Admin --> Security["Security<br>&amp; Hardening"]
+    Admin --> Monitor["Monitoring &amp;<br>Alerting"]
+    Admin --> Backup["Backup &amp;<br>Recovery"]
+    Admin --> Perf["Performance<br>Tuning"]
+    Admin --> Net["Network<br>Management"]
+    Admin --> Storage["Storage &amp;<br>Disk Management"]
+    Admin --> Service["Service<br>Management"]
     
     Install --> Pkg["Package Management"]
     Install --> Boot["Boot Config"]
@@ -749,9 +749,9 @@ Understanding the distribution landscape helps with cross-platform administratio
 
 ```mermaid
 graph LR
-    Junior["Junior Admin<br/>Basic troubleshooting<br/>User management<br/>Monitoring"] --> Senior["Senior Admin<br/>Automation<br/>Security hardening<br/>Performance tuning"]
-    Senior --> SRE["SRE / DevOps<br/>Infrastructure as Code<br/>CI/CD pipelines<br/>Cloud architecture"]
-    SRE --> Architect["Infrastructure Architect<br/>Design systems<br/>Capacity planning<br/>Strategy"]
+    Junior["Junior Admin<br>Basic troubleshooting<br>User management<br>Monitoring"] --> Senior["Senior Admin<br>Automation<br>Security hardening<br>Performance tuning"]
+    Senior --> SRE["SRE / DevOps<br>Infrastructure as Code<br>CI/CD pipelines<br>Cloud architecture"]
+    SRE --> Architect["Infrastructure Architect<br>Design systems<br>Capacity planning<br>Strategy"]
     
     style Junior fill:#38a169,color:#fff
     style Senior fill:#3182ce,color:#fff

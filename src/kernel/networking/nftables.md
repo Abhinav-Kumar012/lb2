@@ -22,7 +22,7 @@ flowchart TD
     end
 
     subgraph Kernel["Kernel (net/netfilter/)"]
-        NETLINK["Netlink API<br/>(nf_tables_api.c)"]
+        NETLINK["Netlink API<br>(nf_tables_api.c)"]
         TABLE["nft_table"]
         CHAIN["nft_chain"]
         RULE["nft_rule"]
@@ -157,10 +157,10 @@ flowchart LR
         R4["reg 4 (data)"]
     end
 
-    EXPR1["payload<br/>extract header field"] --> R1
-    EXPR2["cmp<br/>compare R1 with value"] --> R0
-    EXPR3["counter<br/>increment counters"] --> R3
-    EXPR4["accept<br/>set verdict ACCEPT"] --> R0
+    EXPR1["payload<br>extract header field"] --> R1
+    EXPR2["cmp<br>compare R1 with value"] --> R0
+    EXPR3["counter<br>increment counters"] --> R3
+    EXPR4["accept<br>set verdict ACCEPT"] --> R0
 ```
 
 ### Expression Types
@@ -474,7 +474,7 @@ nftables **flowtables** provide a fast-path for established connections by bypas
 ```mermaid
 flowchart TD
     A["Packet arrives"] --> B{"Is flow in flowtable?"}
-    B -->|Yes| C["Fast path: direct forward<br/>(skip rule evaluation)"]
+    B -->|Yes| C["Fast path: direct forward<br>(skip rule evaluation)"]
     B -->|No| D["Slow path: evaluate rules"]
     D --> E{"Accept?"}
     E -->|Yes| F["Add to flowtable"]

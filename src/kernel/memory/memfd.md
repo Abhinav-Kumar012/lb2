@@ -432,10 +432,10 @@ This technique is used by:
 
 ```mermaid
 flowchart LR
-    A["Process A<br/>creates memfd"] --> B["Process A<br/>writes data + seals"]
-    B --> C["Pass fd via<br/>Unix socket"]
-    C --> D["Process B<br/>receives fd"]
-    D --> E["Process B<br/>mmaps and reads"]
+    A["Process A<br>creates memfd"] --> B["Process A<br>writes data + seals"]
+    B --> C["Pass fd via<br>Unix socket"]
+    C --> D["Process B<br>receives fd"]
+    D --> E["Process B<br>mmaps and reads"]
 
     style A fill:#3182ce,color:#fff
     style B fill:#d69e2e,color:#000

@@ -46,15 +46,15 @@ sequenceDiagram
 graph TB
     subgraph "User Space"
         APP["Application"]
-        VERBS["libibverbs<br/>(Verbs API)"]
+        VERBS["libibverbs<br>(Verbs API)"]
     end
     subgraph "Kernel Space"
-        RDMA_SUB["RDMA Subsystem<br/>drivers/infiniband/"]
-        CM["Connection Manager<br/>(rdma_cm)"]
+        RDMA_SUB["RDMA Subsystem<br>drivers/infiniband/"]
+        CM["Connection Manager<br>(rdma_cm)"]
         IB_CORE["IB Core"]
     end
     subgraph "Hardware"
-        RNIC["RDMA NIC<br/>(HCA/RNIC)"]
+        RNIC["RDMA NIC<br>(HCA/RNIC)"]
         subgraph "On-NIC Resources"
             QP["Queue Pairs"]
             CQ["Completion Queues"]
@@ -130,7 +130,7 @@ sequenceDiagram
     participant Remote_CQ as Remote CQ
 
     Note over Remote_Memory: rkey grants write access
-    Writer->>W_QP: Post RDMA WRITE WR<br/>(remote addr + rkey)
+    Writer->>W_QP: Post RDMA WRITE WR<br>(remote addr + rkey)
     W_QP->>Remote_Memory: Direct DMA write
     W_QP->>Writer: CQ completion (local)
     Note over Remote_Memory: Remote CPU NOT involved
@@ -193,15 +193,15 @@ graph TB
         RDMA_CM_U["rdma_cm (userspace)"]
     end
     subgraph "Kernel"
-        IB_CORE["IB Core<br/>drivers/infiniband/core/"]
-        RDMA_CM_K["rdma_cm<br/>drivers/infiniband/core/cma.c"]
-        IB_UVERBS["ib_uverbs<br/>(/dev/infiniband/uverbs*)"]
+        IB_CORE["IB Core<br>drivers/infiniband/core/"]
+        RDMA_CM_K["rdma_cm<br>drivers/infiniband/core/cma.c"]
+        IB_UVERBS["ib_uverbs<br>(/dev/infiniband/uverbs*)"]
         subgraph "HW Drivers"
-            MLX5["mlx5_ib<br/>(ConnectX-4/5/6/7)"]
-            MLX4["mlx4_ib<br/>(ConnectX-3)"]
-            BNXT["bnxt_re<br/>(Broadcom)"]
-            EFA["efa<br/>(AWS)"]
-            SIW["siw<br/>(Software iWARP)"]
+            MLX5["mlx5_ib<br>(ConnectX-4/5/6/7)"]
+            MLX4["mlx4_ib<br>(ConnectX-3)"]
+            BNXT["bnxt_re<br>(Broadcom)"]
+            EFA["efa<br>(AWS)"]
+            SIW["siw<br>(Software iWARP)"]
         end
     end
     subgraph "Hardware"

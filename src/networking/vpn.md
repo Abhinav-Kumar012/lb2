@@ -9,14 +9,14 @@ A **Virtual Private Network (VPN)** creates an encrypted tunnel over a public ne
 ```mermaid
 graph TB
     subgraph "VPN Types"
-        S2S["<b>Site-to-Site</b><br/>Connect two networks<br/>Router-to-router"]
-        R2S["<b>Remote Access</b><br/>Client connects to network<br/>Road warrior"]
-        MESH["<b>Mesh</b><br/>Every node connects<br/>to every other node"]
+        S2S["<b>Site-to-Site</b><br>Connect two networks<br>Router-to-router"]
+        R2S["<b>Remote Access</b><br>Client connects to network<br>Road warrior"]
+        MESH["<b>Mesh</b><br>Every node connects<br>to every other node"]
     end
 
-    S2S -->|"Example"| S2S_EX["Branch office ↔ HQ<br/>Data center ↔ DR site"]
-    R2S -->|"Example"| R2S_EX["Employee laptop ↔ Corp VPN<br/>Admin SSH via VPN"]
-    MESH -->|"Example"| MESH_EX["Zero-trust overlay<br/>Cloud service mesh"]
+    S2S -->|"Example"| S2S_EX["Branch office ↔ HQ<br>Data center ↔ DR site"]
+    R2S -->|"Example"| R2S_EX["Employee laptop ↔ Corp VPN<br>Admin SSH via VPN"]
+    MESH -->|"Example"| MESH_EX["Zero-trust overlay<br>Cloud service mesh"]
 ```
 
 ## WireGuard
@@ -42,17 +42,17 @@ graph LR
     subgraph "Site A (10.0.1.0/24)"
         A1["Host 10.0.1.10"]
         A2["Host 10.0.1.11"]
-        AWG["wg0: 10.10.0.1<br/>Endpoint: 203.0.113.1:51820<br/>PublicKey: AAAA..."]
+        AWG["wg0: 10.10.0.1<br>Endpoint: 203.0.113.1:51820<br>PublicKey: AAAA..."]
     end
 
     subgraph "WireGuard Tunnel (UDP)"
-        T["Encrypted UDP<br/>ChaCha20-Poly1305"]
+        T["Encrypted UDP<br>ChaCha20-Poly1305"]
     end
 
     subgraph "Site B (10.0.2.0/24)"
         B1["Host 10.0.2.10"]
         B2["Host 10.0.2.11"]
-        BWG["wg0: 10.10.0.2<br/>Endpoint: 198.51.100.1:51820<br/>PublicKey: BBBB..."]
+        BWG["wg0: 10.10.0.2<br>Endpoint: 198.51.100.1:51820<br>PublicKey: BBBB..."]
     end
 
     A1 --> AWG --> T --> BWG --> B1
@@ -327,16 +327,16 @@ $ systemctl start openvpn@client
 ```mermaid
 graph TB
     subgraph "IPsec Protocol Suite"
-        IKE["<b>IKEv2</b><br/>Key exchange, SA negotiation<br/>UDP 500/4500"]
-        ESP["<b>ESP</b><br/>Encapsulation Security Payload<br/>Protocol 50"]
-        AH["<b>AH</b><br/>Authentication Header<br/>Protocol 51 (rarely used)"]
-        NATT["<b>NAT-T</b><br/>NAT Traversal<br/>UDP 4500"]
+        IKE["<b>IKEv2</b><br>Key exchange, SA negotiation<br>UDP 500/4500"]
+        ESP["<b>ESP</b><br>Encapsulation Security Payload<br>Protocol 50"]
+        AH["<b>AH</b><br>Authentication Header<br>Protocol 51 (rarely used)"]
+        NATT["<b>NAT-T</b><br>NAT Traversal<br>UDP 4500"]
     end
 
     IKE -->|"Establishes"| SA["Security Associations"]
     SA -->|"Defines"| ESP
-    ESP -->|"Modes"| TRANSPORT["Transport Mode<br/>(encrypt payload only)"]
-    ESP -->|"Modes"| TUNNEL["Tunnel Mode<br/>(encrypt entire packet)"]
+    ESP -->|"Modes"| TRANSPORT["Transport Mode<br>(encrypt payload only)"]
+    ESP -->|"Modes"| TUNNEL["Tunnel Mode<br>(encrypt entire packet)"]
 ```
 
 ### IPsec with strongSwan

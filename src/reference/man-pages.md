@@ -655,15 +655,15 @@ For a Linux beginner, read these man pages in order:
 
 ```mermaid
 graph LR
-    A[bash — shell basics] --> B[ls — listing files]
-    B --> C[cp/mv/rm — file operations]
-    C --> D[grep — searching text]
-    D --> E[find — finding files]
-    E --> F[chmod — permissions]
-    F --> G[ps — processes]
-    G --> H[ssh — remote access]
-    H --> I[systemctl — services]
-    I --> J[man — meta: reading docs]
+    A[bash -- shell basics] --> B[ls -- listing files]
+    B --> C[cp/mv/rm -- file operations]
+    C --> D[grep -- searching text]
+    D --> E[find -- finding files]
+    E --> F[chmod -- permissions]
+    F --> G[ps -- processes]
+    G --> H[ssh -- remote access]
+    H --> I[systemctl -- services]
+    I --> J[man -- meta: reading docs]
 ```
 
 ---

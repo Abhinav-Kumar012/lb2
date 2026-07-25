@@ -405,7 +405,7 @@ graph TB
         ALLOC["kernel::alloc"]
         SYNC["kernel::sync"]
         FILE["kernel::file"]
-        BINDINGS["kernel::bindings<br/>(bindgen-generated)"]
+        BINDINGS["kernel::bindings<br>(bindgen-generated)"]
     end
 
     subgraph "Kernel C APIs"
@@ -464,9 +464,9 @@ graph TB
 
 ```mermaid
 flowchart LR
-    A["rust_module.rs"] --> B["rustc<br/>--emit=dep-info,ir,obj"]
+    A["rust_module.rs"] --> B["rustc<br>--emit=dep-info,ir,obj"]
     B --> C[".o object file"]
-    C --> D["ld -r<br/>(module linking)"]
+    C --> D["ld -r<br>(module linking)"]
     D --> E[".ko kernel module"]
 
     F["include/linux/*.h"] --> G["bindgen"]

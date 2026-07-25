@@ -27,13 +27,13 @@ flowchart TB
     end
 
     subgraph Allocators["Compressed Memory Allocators"]
-        ZBUD["ZBUD<br/>Max 2:1 ratio<br/>Simple, predictable"]
-        Z3FOLD["Z3FOLD<br/>Max 3:1 ratio<br/>Good balance"]
-        ZSMALLOC["zsmalloc<br/>~3.5:1+ ratio<br/>Best density"]
+        ZBUD["ZBUD<br>Max 2:1 ratio<br>Simple, predictable"]
+        Z3FOLD["Z3FOLD<br>Max 3:1 ratio<br>Good balance"]
+        ZSMALLOC["zsmalloc<br>~3.5:1+ ratio<br>Best density"]
     end
 
     subgraph Hardware["Hardware"]
-        DISK["Swap Device<br/>Disk / SSD / zram"]
+        DISK["Swap Device<br>Disk / SSD / zram"]
     end
 
     APP -->|page out| SWAP
@@ -213,13 +213,13 @@ zsmalloc is generally the best choice for zswap when density is the priority, th
 flowchart TD
     subgraph zsmalloc["zsmalloc Allocator"]
         ZSPOOL["zs_pool"]
-        SIZE_CLASS["Size Classes<br/>(e.g., 32B, 48B, 64B, ... 4032B)"]
+        SIZE_CLASS["Size Classes<br>(e.g., 32B, 48B, 64B, ... 4032B)"]
     end
 
     subgraph SizeClass["Size Class (e.g., 128B)"]
-        ZSPAGE1["zspage 1<br/>(4 pages, 31 objects)"]
-        ZSPAGE2["zspage 2<br/>(2 pages, 15 objects)"]
-        ZSPAGE3["zspage 3<br/>(8 pages, 63 objects)"]
+        ZSPAGE1["zspage 1<br>(4 pages, 31 objects)"]
+        ZSPAGE2["zspage 2<br>(2 pages, 15 objects)"]
+        ZSPAGE3["zspage 3<br>(8 pages, 63 objects)"]
     end
 
     subgraph zspage["zspage Internal Structure"]

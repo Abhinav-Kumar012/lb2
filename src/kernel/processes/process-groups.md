@@ -18,11 +18,11 @@ A **session** is a collection of process groups, typically associated with a log
 
 ```mermaid
 graph TD
-    SESSION["Session (SID=1000)<br/>Controlling terminal: /dev/pts/0"]
-    SESSION --> FG["Foreground Process Group<br/>PGID=1000"]
-    SESSION --> BG1["Background Process Group<br/>PGID=1050"]
-    SESSION --> BG2["Background Process Group<br/>PGID=1060"]
-    FG --> Shell["bash (SID=1000, PGID=1000)<br/>Session leader"]
+    SESSION["Session (SID=1000)<br>Controlling terminal: /dev/pts/0"]
+    SESSION --> FG["Foreground Process Group<br>PGID=1000"]
+    SESSION --> BG1["Background Process Group<br>PGID=1050"]
+    SESSION --> BG2["Background Process Group<br>PGID=1060"]
+    FG --> Shell["bash (SID=1000, PGID=1000)<br>Session leader"]
     FG --> Vim["vim (PGID=1000)"]
     BG1 --> Make["make -j4 (PGID=1050)"]
     BG1 --> Gcc1["gcc (PGID=1050)"]
@@ -166,14 +166,14 @@ The **controlling terminal** is the terminal device associated with a session. I
 
 ```mermaid
 graph LR
-    User["User types Ctrl+C"] --> TTY["Controlling Terminal<br/>/dev/pts/0"]
+    User["User types Ctrl+C"] --> TTY["Controlling Terminal<br>/dev/pts/0"]
     TTY --> Kernel["Kernel"]
-    Kernel --> FG["Foreground Process Group<br/>Gets SIGINT"]
-    Kernel --> BG["Background Groups<br/>NOT affected"]
+    Kernel --> FG["Foreground Process Group<br>Gets SIGINT"]
+    Kernel --> BG["Background Groups<br>NOT affected"]
     
     User2["User types Ctrl+\\"] --> TTY2["Terminal"]
     TTY2 --> Kernel2["Kernel"]
-    Kernel2 --> FG2["Foreground Group<br/>Gets SIGQUIT"]
+    Kernel2 --> FG2["Foreground Group<br>Gets SIGQUIT"]
 
     style User fill:#e53e3e,color:#fff
     style Kernel fill:#3182ce,color:#fff

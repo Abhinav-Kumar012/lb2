@@ -796,8 +796,8 @@ cat /proc/fs/cifs/DebugData | grep -i channel
 ```mermaid
 flowchart LR
     subgraph Client["CIFS Client"]
-        C1["Channel 1<br/>NIC1 -> Server NIC1"]
-        C2["Channel 2<br/>NIC2 -> Server NIC2"]
+        C1["Channel 1<br>NIC1 -> Server NIC1"]
+        C2["Channel 2<br>NIC2 -> Server NIC2"]
     end
     subgraph Server["SMB Server"]
         S1["NIC1"]

@@ -12,19 +12,19 @@ Linux on MIPS has a long history, with support dating back to the early 1990s. T
 
 ```mermaid
 graph LR
-    MIPS1["MIPS I<br/>(1985)<br/>R2000/R3000"] --> MIPS2["MIPS II<br/>(1988)<br/>R6000"]
-    MIPS2 --> MIPS3["MIPS III<br/>(1991)<br/>R4000 (64-bit)"]
-    MIPS3 --> MIPS4["MIPS IV<br/>(1994)<br/>R8000/R10000"]
-    MIPS4 --> MIPS5["MIPS V<br/>(1996)<br/>R12000"]
-    MIPS5 --> MIPS32["MIPS32<br/>(1999)<br/>32-bit standard"]
-    MIPS5 --> MIPS64["MIPS64<br/>(1999)<br/>64-bit standard"]
-    MIPS32 --> MIPS32R6["MIPS32 Release 6<br/>(2014)"]
-    MIPS64 --> MIPS64R6["MIPS64 Release 6<br/>(2014)"]
+    MIPS1["MIPS I<br>(1985)<br>R2000/R3000"] --> MIPS2["MIPS II<br>(1988)<br>R6000"]
+    MIPS2 --> MIPS3["MIPS III<br>(1991)<br>R4000 (64-bit)"]
+    MIPS3 --> MIPS4["MIPS IV<br>(1994)<br>R8000/R10000"]
+    MIPS4 --> MIPS5["MIPS V<br>(1996)<br>R12000"]
+    MIPS5 --> MIPS32["MIPS32<br>(1999)<br>32-bit standard"]
+    MIPS5 --> MIPS64["MIPS64<br>(1999)<br>64-bit standard"]
+    MIPS32 --> MIPS32R6["MIPS32 Release 6<br>(2014)"]
+    MIPS64 --> MIPS64R6["MIPS64 Release 6<br>(2014)"]
     
-    MIPS32 --> LOONGSON["Loongson<br/>(MIPS-compatible)"]
+    MIPS32 --> LOONGSON["Loongson<br>(MIPS-compatible)"]
     MIPS64 --> LOONGSON
     
-    MIPS32 --> MIPSEL["MIPS Open<br/>(2018)"]
+    MIPS32 --> MIPSEL["MIPS Open<br>(2018)"]
     
     style MIPS32 fill:#f96,stroke:#333,stroke-width:2px
     style MIPS64 fill:#bbf,stroke:#333,stroke-width:2px
@@ -133,11 +133,11 @@ EBase       1    Exception base address
 ```mermaid
 graph LR
     subgraph "5-Stage MIPS Pipeline"
-        IF["IF<br/>Instruction<br/>Fetch"]
-        ID["ID<br/>Instruction<br/>Decode"]
-        EX["EX<br/>Execute"]
-        MEM["MEM<br/>Memory<br/>Access"]
-        WB["WB<br/>Write<br/>Back"]
+        IF["IF<br>Instruction<br>Fetch"]
+        ID["ID<br>Instruction<br>Decode"]
+        EX["EX<br>Execute"]
+        MEM["MEM<br>Memory<br>Access"]
+        WB["WB<br>Write<br>Back"]
     end
     
     IF --> ID --> EX --> MEM --> WB
@@ -208,9 +208,9 @@ __asm__ __volatile__(
 ```mermaid
 graph TB
     subgraph "MIPS Privilege Levels"
-        KERN["Kernel Mode<br/>(KSU=00, EXL=1, ERL=1)<br/>Full access to all resources"]
-        SUP["Supervisor Mode<br/>(KSU=01)<br/>Limited system access"]
-        USER["User Mode<br/>(KSU=10)<br/>Restricted access"]
+        KERN["Kernel Mode<br>(KSU=00, EXL=1, ERL=1)<br>Full access to all resources"]
+        SUP["Supervisor Mode<br>(KSU=01)<br>Limited system access"]
+        USER["User Mode<br>(KSU=10)<br>Restricted access"]
     end
     
     KERN --> SUP --> USER

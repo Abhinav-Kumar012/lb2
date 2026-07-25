@@ -29,12 +29,12 @@ flowchart TD
     end
     
     subgraph "Senior Maintainers"
-        S1[Andrew Morton — mm tree]
-        S2["Greg KH — stable / staging"]
-        S3[Arnd Bergmann — asm-generic]
+        S1[Andrew Morton -- mm tree]
+        S2["Greg KH -- stable / staging"]
+        S3[Arnd Bergmann -- asm-generic]
     end
     
-    L[Linus Torvalds — mainline]
+    L[Linus Torvalds -- mainline]
     
     C1 -->|patches| M1
     C1 -->|patches| M2

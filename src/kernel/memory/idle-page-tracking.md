@@ -131,13 +131,13 @@ with open('/sys/kernel/mm/page_idle/bitmap', 'r+b') as f:
 
 ```mermaid
 flowchart TD
-    A[Start] --> B["Read /proc/<pid>/pagemap<br/>to get PFNs"]
-    B --> C["Write idle bits to<br/>page_idle/bitmap"]
-    C --> D["Sleep (observation window)<br/>e.g., 60 seconds"]
+    A[Start] --> B["Read /proc/<pid>/pagemap<br>to get PFNs"]
+    B --> C["Write idle bits to<br>page_idle/bitmap"]
+    C --> D["Sleep (observation window)<br>e.g., 60 seconds"]
     D --> E["Read page_idle/bitmap back"]
     E --> F{Bit still set?}
-    F -->|Yes| G["Page was NOT accessed<br/>(cold page)"]
-    F -->|No| H["Page WAS accessed<br/>(hot page)"]
+    F -->|Yes| G["Page was NOT accessed<br>(cold page)"]
+    F -->|No| H["Page WAS accessed<br>(hot page)"]
     G --> I[Consider demotion/reclaim]
     H --> J[Keep in fast tier]
 ```
@@ -280,19 +280,19 @@ directly.
 ```mermaid
 flowchart TD
     subgraph DAMON["DAMON Subsystem"]
-        OPS["Operations Set<br/>(vaddr or paddr)"]
-        SAMPLE["Sampling Engine<br/>(sample_us intervals)"]
-        AGG["Aggregation Engine<br/>(aggr_us intervals)"]
-        REGIONS["Region Management<br/>(split/merge based on access)"]
-        SCHEMES["Schemes Engine<br/>(apply actions)"]
+        OPS["Operations Set<br>(vaddr or paddr)"]
+        SAMPLE["Sampling Engine<br>(sample_us intervals)"]
+        AGG["Aggregation Engine<br>(aggr_us intervals)"]
+        REGIONS["Region Management<br>(split/merge based on access)"]
+        SCHEMES["Schemes Engine<br>(apply actions)"]
     end
 
     subgraph Actions["DAMOS Actions"]
-        PAGEOUT["pageout — reclaim cold pages"]
-        LRUPRIO["lru_prio — prioritize in LRU"]
-        LRUDPRIV["lru_deprivio — deprioritize in LRU"]
-        MIGRATE["migrate — move to different tier"]
-        NOOP["noop — no action"]
+        PAGEOUT["pageout -- reclaim cold pages"]
+        LRUPRIO["lru_prio -- prioritize in LRU"]
+        LRUDPRIV["lru_deprivio -- deprioritize in LRU"]
+        MIGRATE["migrate -- move to different tier"]
+        NOOP["noop -- no action"]
     end
 
     OPS --> SAMPLE
@@ -323,9 +323,9 @@ DAMON monitors access patterns by sampling page-table Accessed bits at the
 flowchart TD
     subgraph Regions["DAMON Region Tracking"]
         direction TB
-        R1["Region A (hot):<br/>accessed frequently<br/>→ keep in DRAM"]
-        R2["Region B (warm):<br/>accessed occasionally<br/>→ monitor"]
-        R3["Region C (cold):<br/>no access for N intervals<br/>→ candidate for demotion"]
+        R1["Region A (hot):<br>accessed frequently<br>→ keep in DRAM"]
+        R2["Region B (warm):<br>accessed occasionally<br>→ monitor"]
+        R3["Region C (cold):<br>no access for N intervals<br>→ candidate for demotion"]
     end
 
     R1 -->|promote| DRAM["DRAM (fast tier)"]
@@ -427,11 +427,11 @@ enables **demotion** of cold pages to slower, cheaper tiers:
 ```mermaid
 flowchart TD
     subgraph FastTier["DRAM (Hot Tier)"]
-        ACTIVE["Active pages<br/>frequently accessed"]
+        ACTIVE["Active pages<br>frequently accessed"]
     end
 
     subgraph SlowTier["CXL / PMEM (Cold Tier)"]
-        COLD["Cold pages<br/>rarely accessed"]
+        COLD["Cold pages<br>rarely accessed"]
     end
 
     subgraph Tracking["Idle Tracking"]

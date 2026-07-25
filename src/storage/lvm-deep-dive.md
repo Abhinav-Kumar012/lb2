@@ -71,8 +71,8 @@ Every PV has a header at the start of the device:
 ```mermaid
 graph LR
     subgraph "Physical Volume Layout"
-        HEADER["PV Header<br/>Sector 0"]
-        MDA["Metadata Area<br/>(MDA)"]
+        HEADER["PV Header<br>Sector 0"]
+        MDA["Metadata Area<br>(MDA)"]
         PE0["PE 0"]
         PE1["PE 1"]
         PE2["PE 2"]
@@ -330,10 +330,10 @@ Thin provisioning allows you to overallocate storage—create LVs that are large
 ```mermaid
 graph TD
     subgraph "Volume Group (100 GiB)"
-        TP["Thin Pool (80 GiB)<br/>Data: 60 GiB used<br/>Meta: 128 MiB"]
-        LV_T1["Thin LV 1 (50 GiB)<br/>Used: 30 GiB"]
-        LV_T2["Thin LV 2 (50 GiB)<br/>Used: 20 GiB"]
-        LV_T3["Thin LV 3 (40 GiB)<br/>Used: 10 GiB"]
+        TP["Thin Pool (80 GiB)<br>Data: 60 GiB used<br>Meta: 128 MiB"]
+        LV_T1["Thin LV 1 (50 GiB)<br>Used: 30 GiB"]
+        LV_T2["Thin LV 2 (50 GiB)<br>Used: 20 GiB"]
+        LV_T3["Thin LV 3 (40 GiB)<br>Used: 10 GiB"]
         FREE["Free: 20 GiB"]
     end
 
@@ -397,10 +397,10 @@ LVM caching uses a fast device (SSD/NVMe) as a cache tier for a slower device (H
 graph LR
     subgraph "Cached LV"
         subgraph "Cache Layer (dm-cache)"
-            SSD["Fast Device<br/>(SSD/NVMe)<br/>Cache"]
-            HDD["Slow Device<br/>(HDD)<br/>Origin"]
+            SSD["Fast Device<br>(SSD/NVMe)<br>Cache"]
+            HDD["Slow Device<br>(HDD)<br>Origin"]
         end
-        LV["Logical Volume<br/>(/dev/vg0/cached_lv)"]
+        LV["Logical Volume<br>(/dev/vg0/cached_lv)"]
     end
     LV --> SSD
     LV --> HDD

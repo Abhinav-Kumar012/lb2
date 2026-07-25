@@ -11,16 +11,16 @@ Since its inclusion in Linux 2.6.14 (2005), FUSE has enabled an enormous ecosyst
 ```mermaid
 graph TB
     subgraph "User Process"
-        UP["Application<br/>read/write/readdir"]
+        UP["Application<br>read/write/readdir"]
     end
     subgraph "Kernel"
         VFS[VFS Layer]
-        FM["FUSE Module<br/>fuse.ko"]
+        FM["FUSE Module<br>fuse.ko"]
         FD["/dev/fuse"]
     end
     subgraph "FUSE Daemon (userspace)"
-        FDaemon["FUSE Daemon<br/>libfuse / fusermount3"]
-        BE["Backend<br/>disk/network/memory"]
+        FDaemon["FUSE Daemon<br>libfuse / fusermount3"]
+        BE["Backend<br>disk/network/memory"]
     end
 
     UP -->|syscall| VFS
@@ -386,7 +386,7 @@ sequenceDiagram
     Daemon->>Kernel: mount (fusermount3)
     Kernel->>Daemon: FUSE_INIT request
     Daemon->>Kernel: FUSE_INIT response (capabilities)
-    Note over Daemon,Kernel: Connection established<br/>Daemon enters request loop
+    Note over Daemon,Kernel: Connection established<br>Daemon enters request loop
     loop Request Processing
         Kernel->>Daemon: FUSE request (e.g., READ)
         Daemon->>Kernel: FUSE response (data)

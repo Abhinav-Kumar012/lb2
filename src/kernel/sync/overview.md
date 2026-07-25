@@ -37,7 +37,7 @@ sequenceDiagram
     CPU0->>Memory: counter = 6
     CPU1->>Memory: counter = 6
 
-    Note over Memory: Expected: 7, Got: 6 — DATA LOST!
+    Note over Memory: Expected: 7, Got: 6 -- DATA LOST!
 ```
 
 This is a **race condition**: the outcome depends on the timing of concurrent operations, and the result is incorrect.
@@ -267,11 +267,11 @@ sequenceDiagram
     participant LockA
     participant LockB
 
-    CPU0->>LockA: spin_lock(&lock_a) ✓
-    CPU1->>LockB: spin_lock(&lock_b) ✓
-    CPU0->>LockB: spin_lock(&lock_b) → BLOCKS
-    CPU1->>LockA: spin_lock(&lock_a) → BLOCKS
-    Note over CPU0,CPU1: DEADLOCK — neither can proceed
+    CPU0->>LockA: spin_lock(&amp;lock_a) ✓
+    CPU1->>LockB: spin_lock(&amp;lock_b) ✓
+    CPU0->>LockB: spin_lock(&amp;lock_b) → BLOCKS
+    CPU1->>LockA: spin_lock(&amp;lock_a) → BLOCKS
+    Note over CPU0,CPU1: DEADLOCK -- neither can proceed
 ```
 
 **Solution**: Always acquire locks in the same global order. If the order is always A→B, the deadlock cannot occur.

@@ -12,21 +12,21 @@ Linux on PowerPC has a long and robust history. The architecture's open firmware
 
 ```mermaid
 graph TD
-    POWER["IBM POWER Architecture<br/>(1990)"]
-    POWER --> PPC1["PowerPC 601<br/>(1993) — First PowerPC"]
-    POWER --> PPC2["PowerPC 603/604<br/>(1994-95) — Desktop"]
-    POWER --> PPC3["PowerPC 750 (G3)<br/>(1997) — Apple"]
-    POWER --> PPC4["PowerPC 7400 (G4)<br/>(1999) — AltiVec SIMD"]
-    POWER --> PPC5["PowerPC 970 (G5)<br/>(2003) — 64-bit Apple"]
-    POWER --> POWER4["POWER4<br/>(2001) — Server"]
-    POWER --> POWER5["POWER5<br/>(2004) — SMT"]
-    POWER --> POWER7["POWER7<br/>(2010) — 8 cores"]
-    POWER --> POWER8["POWER8<br/>(2014) — NVLink"]
-    POWER --> POWER9["POWER9<br/>(2017) — OpenPOWER"]
-    POWER --> POWER10["POWER10<br/>(2021) — PCIe5, DDR5"]
+    POWER["IBM POWER Architecture<br>(1990)"]
+    POWER --> PPC1["PowerPC 601<br>(1993) -- First PowerPC"]
+    POWER --> PPC2["PowerPC 603/604<br>(1994-95) -- Desktop"]
+    POWER --> PPC3["PowerPC 750 (G3)<br>(1997) -- Apple"]
+    POWER --> PPC4["PowerPC 7400 (G4)<br>(1999) -- AltiVec SIMD"]
+    POWER --> PPC5["PowerPC 970 (G5)<br>(2003) -- 64-bit Apple"]
+    POWER --> POWER4["POWER4<br>(2001) -- Server"]
+    POWER --> POWER5["POWER5<br>(2004) -- SMT"]
+    POWER --> POWER7["POWER7<br>(2010) -- 8 cores"]
+    POWER --> POWER8["POWER8<br>(2014) -- NVLink"]
+    POWER --> POWER9["POWER9<br>(2017) -- OpenPOWER"]
+    POWER --> POWER10["POWER10<br>(2021) -- PCIe5, DDR5"]
     
-    PPC3 --> CELL["Cell Broadband Engine<br/>(2006) — PS3"]
-    PPC4 --> EMBEDDED["Embedded: NXP/Freescale<br/>QorIQ, MPC8xxx"]
+    PPC3 --> CELL["Cell Broadband Engine<br>(2006) -- PS3"]
+    PPC4 --> EMBEDDED["Embedded: NXP/Freescale<br>QorIQ, MPC8xxx"]
     
     style POWER10 fill:#f96,stroke:#333,stroke-width:2px
     style EMBEDDED fill:#bbf,stroke:#333
@@ -101,9 +101,9 @@ VR0-VR31 — 128-bit SIMD registers
 ```mermaid
 graph TB
     subgraph "PowerPC Privilege Levels"
-        HV["Hypervisor State<br/>(HV bit in MSR)<br/>KVM / PowerVM"]
-        SUP["Supervisor State<br/>(PR bit = 0)<br/>Linux kernel"]
-        PRB["Problem State<br/>(PR bit = 1)<br/>Applications"]
+        HV["Hypervisor State<br>(HV bit in MSR)<br>KVM / PowerVM"]
+        SUP["Supervisor State<br>(PR bit = 0)<br>Linux kernel"]
+        PRB["Problem State<br>(PR bit = 1)<br>Applications"]
     end
     
     HV --> SUP --> PRB
@@ -193,9 +193,9 @@ struct radix_pte {
 graph TB
     subgraph "OPAL Firmware Stack"
         HW[Hardware]
-        SKIBOOT["Skiboot<br/>OPAL firmware<br/>Runs on host CPUs"]
-        SKIBOOT_HW["Skiboot<br/>Hardware Init"]
-        OPAL_RT["OPAL Runtime<br/>Services"]
+        SKIBOOT["Skiboot<br>OPAL firmware<br>Runs on host CPUs"]
+        SKIBOOT_HW["Skiboot<br>Hardware Init"]
+        OPAL_RT["OPAL Runtime<br>Services"]
         
         HW --> SKIBOOT_HW
         SKIBOOT_HW --> SKIBOOT
@@ -203,7 +203,7 @@ graph TB
     end
     
     subgraph "Linux"
-        OPAL_DRV["opal.ko<br/>OPAL driver"]
+        OPAL_DRV["opal.ko<br>OPAL driver"]
         KERNEL[Linux Kernel]
         OPAL_DRV --> KERNEL
     end
@@ -431,9 +431,9 @@ PowerPC uses the **Open PIC** (or XICS for POWER, XIVE for POWER9+):
 ```mermaid
 graph TD
     subgraph "XIVE Components"
-        IC["IC (Interrupt Controller)<br/>Source routing"]
-        IVT["IVT (Virtual Table)<br/>Target CPU mapping"]
-        END["END (Event Notification)<br/>Delivery to vCPU"]
+        IC["IC (Interrupt Controller)<br>Source routing"]
+        IVT["IVT (Virtual Table)<br>Target CPU mapping"]
+        END["END (Event Notification)<br>Delivery to vCPU"]
     end
     DEV["PCIe Device"] -->|"MSI-X"| IC
     IC --> IVT

@@ -22,7 +22,7 @@ flowchart TD
     E --> F[Page is now dirty in page cache]
     F --> G{Dirty ratio threshold?}
     G -->|Below| H[Process continues]
-    G -->|Above| I[Balance dirty pages — throttle writer]
+    G -->|Above| I[Balance dirty pages -- throttle writer]
 ```
 
 ### Dirty Page Lifecycle
@@ -105,7 +105,7 @@ When reclaim needs to free dirty pages, it forces writeback first:
 ```mermaid
 flowchart TD
     A[Reclaim needs to free dirty page] --> B[PageDirty?]
-    B -->|Yes| C[pageout — write to disk]
+    B -->|Yes| C[pageout -- write to disk]
     C --> D[Wait for writeback to complete]
     D --> E[Page is now clean]
     E --> F[Free page]
@@ -185,7 +185,7 @@ sequenceDiagram
     participant Flush as Flusher Thread
     participant Disk as Storage
 
-    Writer->>BP: write() — dirty page
+    Writer->>BP: write() -- dirty page
     BP->>BP: Check dirty page count
     alt Below background threshold
         BP-->>Writer: Continue writing
@@ -388,8 +388,8 @@ flowchart TD
     A[Reclaim needs pages] --> B{Page dirty?}
     B -->|No| C[Free immediately]
     B -->|Yes| D{Under dirty_background_ratio?}
-    D -->|Yes| E[Writeback in background — reclaim continues]
-    D -->|No| F[Forced writeback — reclaim blocks]
+    D -->|Yes| E[Writeback in background -- reclaim continues]
+    D -->|No| F[Forced writeback -- reclaim blocks]
     F --> G[Wait for writeback to complete]
     G --> C
 ```
@@ -878,7 +878,7 @@ sequenceDiagram
     participant BLK as Block Layer
     participant DEV as Device
 
-    App->>PC: write() — copy to page cache
+    App->>PC: write() -- copy to page cache
     Note over App,PC: ~1-10 µs (memory copy)
     PC->>PC: Mark page dirty
     alt Background writeback

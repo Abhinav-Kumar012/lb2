@@ -358,7 +358,7 @@ flowchart TD
     PPC --> DEFCONFIG_E["ARCH=powerpc defconfig"]
     
     DEFCONFIG_A --> CONFIG[menuconfig / customconfig]
-    CONFIG --> BUILD["make -j$(nproc)<br/>ARCH=... CROSS_COMPILE=..."]
+    CONFIG --> BUILD["make -j$(nproc)<br>ARCH=... CROSS_COMPILE=..."]
     BUILD --> OUTPUT[Image / zImage / bzImage]
     OUTPUT --> DEPLOY[Deploy to Target]
     DEPLOY --> TEST[Test on Hardware / QEMU]

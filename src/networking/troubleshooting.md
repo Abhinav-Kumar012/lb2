@@ -9,13 +9,13 @@ Network troubleshooting is one of the most critical skills for Linux system admi
 ```mermaid
 graph TB
     subgraph "Systematic Network Troubleshooting"
-        A["1. <b>Define the Problem</b><br/>What exactly isn't working?"]
-        B["2. <b>Check Physical (L1)</b><br/>Cable connected? Link up?"]
-        C["3. <b>Check Data Link (L2)</b><br/>MAC address? VLAN correct?"]
-        D["4. <b>Check Network (L3)</b><br/>IP assigned? Can ping gateway?"]
-        E["5. <b>Check Transport (L4)</b><br/>Port open? Firewall blocking?"]
-        F["6. <b>Check Application (L7)</b><br/>Service running? DNS resolving?"]
-        G["7. <b>Verify the Fix</b><br/>Does it work now?"]
+        A["1. <b>Define the Problem</b><br>What exactly isn't working?"]
+        B["2. <b>Check Physical (L1)</b><br>Cable connected? Link up?"]
+        C["3. <b>Check Data Link (L2)</b><br>MAC address? VLAN correct?"]
+        D["4. <b>Check Network (L3)</b><br>IP assigned? Can ping gateway?"]
+        E["5. <b>Check Transport (L4)</b><br>Port open? Firewall blocking?"]
+        F["6. <b>Check Application (L7)</b><br>Service running? DNS resolving?"]
+        G["7. <b>Verify the Fix</b><br>Does it work now?"]
     end
 
     A --> B --> C --> D --> E --> F --> G
@@ -462,22 +462,22 @@ $ conntrack -E   # Real-time events
 
 ```mermaid
 graph TD
-    START["Can't reach service"] --> L1{"ip link show<br/>LOWER_UP?"}
-    L1 -->|No| FIX_L1["Fix physical:<br/>cable, switch port"]
-    L1 -->|Yes| L2{"Can ping<br/>default gateway?"}
-    L2 -->|No| CHECK_ARP{"ip neigh show<br/>Gateway in ARP?"}
-    CHECK_ARP -->|No| ARP_FIX["Check VLAN, subnet,<br/>switch config"]
-    CHECK_ARP -->|Yes| ROUTE_FIX["ip route show<br/>Fix routing"]
-    L2 -->|Yes| L3{"Can ping<br/>remote host?"}
-    L3 -->|No| TRACEROUTE["traceroute to destination<br/>Find where it drops"]
-    L3 -->|Yes| L4{"nc -zv host port<br/>Port open?"}
-    L4 -->|No| FW_CHECK{"iptables -L -n<br/>Firewall blocking?"}
-    FW_CHECK -->|Yes| FW_FIX["Add firewall rule<br/>or check host firewall"]
-    FW_CHECK -->|No| SVC_CHECK{"ss -tlnp<br/>Service listening?"}
+    START["Can't reach service"] --> L1{"ip link show<br>LOWER_UP?"}
+    L1 -->|No| FIX_L1["Fix physical:<br>cable, switch port"]
+    L1 -->|Yes| L2{"Can ping<br>default gateway?"}
+    L2 -->|No| CHECK_ARP{"ip neigh show<br>Gateway in ARP?"}
+    CHECK_ARP -->|No| ARP_FIX["Check VLAN, subnet,<br>switch config"]
+    CHECK_ARP -->|Yes| ROUTE_FIX["ip route show<br>Fix routing"]
+    L2 -->|Yes| L3{"Can ping<br>remote host?"}
+    L3 -->|No| TRACEROUTE["traceroute to destination<br>Find where it drops"]
+    L3 -->|Yes| L4{"nc -zv host port<br>Port open?"}
+    L4 -->|No| FW_CHECK{"iptables -L -n<br>Firewall blocking?"}
+    FW_CHECK -->|Yes| FW_FIX["Add firewall rule<br>or check host firewall"]
+    FW_CHECK -->|No| SVC_CHECK{"ss -tlnp<br>Service listening?"}
     SVC_CHECK -->|No| SVC_FIX["Start/restart service"]
-    SVC_CHECK -->|Yes| CONN_CHECK{"ss -tn dst host<br/>Connection established?"}
-    L4 -->|Yes| L7{"curl -v URL<br/>Application OK?"}
-    L7 -->|No| APP_DEBUG["Check app logs,<br/>DNS, TLS, config"]
+    SVC_CHECK -->|Yes| CONN_CHECK{"ss -tn dst host<br>Connection established?"}
+    L4 -->|Yes| L7{"curl -v URL<br>Application OK?"}
+    L7 -->|No| APP_DEBUG["Check app logs,<br>DNS, TLS, config"]
     L7 -->|Yes| DONE["Issue resolved! ✅"]
 ```
 

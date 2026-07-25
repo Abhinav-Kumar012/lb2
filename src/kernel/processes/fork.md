@@ -652,7 +652,7 @@ static int copy_files(unsigned long clone_flags, struct task_struct *tsk)
 
 ```mermaid
 graph TD
-    subgraph "fork() — CLONE_FILES not set"
+    subgraph "fork() -- CLONE_FILES not set"
         P1[Parent: files_struct refcount=1] --> D1[Child: new files_struct]
         D1 --> FD1[fd 0 → stdin]
         D1 --> FD2[fd 1 → stdout]

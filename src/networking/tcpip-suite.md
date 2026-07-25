@@ -196,7 +196,7 @@ TCP uses a sliding window for flow control:
 ```mermaid
 flowchart LR
     subgraph "Sender Window"
-        SENT["Sent & ACKed"]
+        SENT["Sent &amp; ACKed"]
         SENT2[Sent, Not ACKed]
         SEND[Can Send]
         WAIT[Cannot Send]
@@ -489,10 +489,10 @@ flowchart TB
         NIC["Network Interface"] --> NAPI["NAPI Polling"]
         NAPI --> SKB["sk_buff Creation"]
         SKB --> NETFILTER_IN["Netfilter (PREROUTING)"]
-        NETFILTER_IN --> IP_RECV["ip_rcv() — IP Layer"]
-        IP_RECV --> IP_ROUTE["ip_route_input() — Routing"]
+        NETFILTER_IN --> IP_RECV["ip_rcv() -- IP Layer"]
+        IP_RECV --> IP_ROUTE["ip_route_input() -- Routing"]
         IP_ROUTE --> NETFILTER_IN2["Netfilter (INPUT)"]
-        NETFILTER_IN2 --> TCP_RECV["tcp_v4_rcv() — TCP Layer"]
+        NETFILTER_IN2 --> TCP_RECV["tcp_v4_rcv() -- TCP Layer"]
         TCP_RECV --> SOCK_QUEUE["Socket Receive Queue"]
         SOCK_QUEUE --> APP_RECV["Application recv()"]
     end
@@ -501,13 +501,13 @@ flowchart TB
 ```mermaid
 flowchart TB
     subgraph "Egress Path"
-        APP_SEND["Application send()"] --> SENDMSG["tcp_sendmsg() — TCP Layer"]
+        APP_SEND["Application send()"] --> SENDMSG["tcp_sendmsg() -- TCP Layer"]
         SENDMSG --> TCP_QUEUE["TCP Write Queue"]
-        TCP_QUEUE --> IP_OUTPUT["ip_output() — IP Layer"]
+        TCP_QUEUE --> IP_OUTPUT["ip_output() -- IP Layer"]
         IP_OUTPUT --> NETFILTER_OUT["Netfilter (OUTPUT)"]
         NETFILTER_OUT --> NETFILTER_FWD["Netfilter (POSTROUTING)"]
-        NETFILTER_FWD --> NEIGH_SEND["neigh_output() — ARP/Neighbor"]
-        NEIGH_SEND --> DEV_QUEUE["dev_queue_xmit() — Device"]
+        NETFILTER_FWD --> NEIGH_SEND["neigh_output() -- ARP/Neighbor"]
+        NEIGH_SEND --> DEV_QUEUE["dev_queue_xmit() -- Device"]
         DEV_QUEUE --> NIC_OUT["Network Interface"]
     end
 ```

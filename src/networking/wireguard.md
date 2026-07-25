@@ -355,7 +355,7 @@ sequenceDiagram
         WG->>NOISE: noise_decrypt()
         NOISE->>WG: Decrypted inner packet
         WG->>WG: Check allowedips (reverse lookup)
-        WG->>NET: netif_rx() — inject into stack
+        WG->>NET: netif_rx() -- inject into stack
         NET->>APP: Deliver to application
     end
 ```

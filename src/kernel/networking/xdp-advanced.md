@@ -20,15 +20,15 @@ XDP programs that use `bpf_redirect` can forward packets to other interfaces, to
 ```mermaid
 graph TB
     subgraph "Redirection Targets"
-        NIC["bpf_redirect(ifindex, flags)<br/>Redirect to another NIC"]
-        MAP["bpf_redirect_map(&map, key, flags)<br/>Redirect via BPF map"]
+        NIC["bpf_redirect(ifindex, flags)<br>Redirect to another NIC"]
+        MAP["bpf_redirect_map(&amp;map, key, flags)<br>Redirect via BPF map"]
     end
 
     subgraph "Map-Based Targets"
-        DEVMAP["BPF_MAP_TYPE_DEVMAP<br/>Interface redirection"]
-        CPUMAP["BPF_MAP_TYPE_CPUMAP<br/>CPU redirection"]
-        XSKMAP["BPF_MAP_TYPE_XSKMAP<br/>AF_XDP socket"]
-        DEVMAP_HASH["BPF_MAP_TYPE_DEVMAP_HASH<br/>Hash-based interface"]
+        DEVMAP["BPF_MAP_TYPE_DEVMAP<br>Interface redirection"]
+        CPUMAP["BPF_MAP_TYPE_CPUMAP<br>CPU redirection"]
+        XSKMAP["BPF_MAP_TYPE_XSKMAP<br>AF_XDP socket"]
+        DEVMAP_HASH["BPF_MAP_TYPE_DEVMAP_HASH<br>Hash-based interface"]
     end
 
     NIC --> NIC2[Target NIC]
@@ -155,10 +155,10 @@ graph TB
     end
 
     subgraph "Per-CPU Processing"
-        CPU0_PROG["CPU 0 eBPF prog<br/>→ AF_XDP socket"]
-        CPU1_PROG["CPU 1 eBPF prog<br/>→ TC classifier"]
-        CPU2_PROG["CPU 2 eBPF prog<br/>→ Packet counter"]
-        CPU3_PROG["CPU 3 eBPF prog<br/>→ Stack pass"]
+        CPU0_PROG["CPU 0 eBPF prog<br>→ AF_XDP socket"]
+        CPU1_PROG["CPU 1 eBPF prog<br>→ TC classifier"]
+        CPU2_PROG["CPU 2 eBPF prog<br>→ Packet counter"]
+        CPU3_PROG["CPU 3 eBPF prog<br>→ Stack pass"]
     end
 
     XDP0 -->|bpf_redirect_map| CPU0_KEY
@@ -280,18 +280,18 @@ graph TB
     end
 
     subgraph "AF_XDP Socket (Kernel)"
-        FILL["Fill Ring<br/>User → Kernel"]
-        COMP["Completion Ring<br/>Kernel → User"]
-        RX_DESC["RX Ring<br/>Kernel → User"]
-        TX_DESC["TX Ring<br/>User → Kernel"]
+        FILL["Fill Ring<br>User → Kernel"]
+        COMP["Completion Ring<br>Kernel → User"]
+        RX_DESC["RX Ring<br>Kernel → User"]
+        TX_DESC["TX Ring<br>User → Kernel"]
     end
 
     subgraph "UMEM (Shared Memory)"
-        FRAMES["UMEM Frames<br/>Zero-copy DMA target"]
+        FRAMES["UMEM Frames<br>Zero-copy DMA target"]
     end
 
     subgraph "Userspace Application"
-        APP["Packet Processing<br/>(DPDK-like)"]
+        APP["Packet Processing<br>(DPDK-like)"]
     end
 
     DMA -->|Zero-copy| FRAMES
@@ -587,11 +587,11 @@ int xdp_frag_handler(struct xdp_md *ctx)
 ```mermaid
 graph LR
     subgraph "XDP (Fast Path)"
-        XDP_PROG["XDP Program<br/>Early filtering"]
+        XDP_PROG["XDP Program<br>Early filtering"]
     end
 
     subgraph "TC (Slow Path)"
-        TC_PROG["TC BPF Program<br/>Complex classification"]
+        TC_PROG["TC BPF Program<br>Complex classification"]
     end
 
     subgraph "Actions"

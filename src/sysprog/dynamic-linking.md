@@ -14,15 +14,15 @@ On Linux, the dynamic linker is `ld-linux.so` (also known as `ld-linux-x86-64.so
 graph TD
     subgraph "Compile Time"
         SRC["Source code"] --> CC["Compiler (gcc/cc1)"]
-        CC --> OBJ["Object file (.o)<br/>with undefined symbols"]
+        CC --> OBJ["Object file (.o)<br>with undefined symbols"]
     end
     subgraph "Link Time"
         OBJ --> LD["Linker (ld)"]
-        LD --> EXEC["Executable<br/>with PLT/GOT entries"]
+        LD --> EXEC["Executable<br>with PLT/GOT entries"]
     end
     subgraph "Load Time"
         EXEC --> KERNEL["Kernel (execve)"]
-        KERNEL --> LDLINUX["ld-linux.so<br/>(dynamic linker)"]
+        KERNEL --> LDLINUX["ld-linux.so<br>(dynamic linker)"]
         LDLINUX --> LOAD["Load shared libraries"]
         LOAD --> RELOC["Process relocations"]
         RELOC --> ENTRY["Jump to _start"]

@@ -27,15 +27,15 @@ RISC-V Design Goals
 ```mermaid
 graph LR
     subgraph "CISC"
-        X86["x86_64<br/>~1500 instructions<br/>Variable length<br/>Closed/proprietary"]
+        X86["x86_64<br>~1500 instructions<br>Variable length<br>Closed/proprietary"]
     end
     
     subgraph "RISC (Proprietary)"
-        ARM["ARM/AArch64<br/>~1000 instructions<br/>Fixed/variable length<br/>Licensed"]
+        ARM["ARM/AArch64<br>~1000 instructions<br>Fixed/variable length<br>Licensed"]
     end
     
     subgraph "RISC (Open)"
-        RISCV["RISC-V<br/>~100 base instructions<br/>Fixed length<br/>Open/Free"]
+        RISCV["RISC-V<br>~100 base instructions<br>Fixed length<br>Open/Free"]
     end
     
     X86 --> PERF1[High perf, complex decode]
@@ -180,9 +180,9 @@ fib:
 ```mermaid
 graph TB
     subgraph "RISC-V Privilege Levels"
-        M["M-Mode (Machine)<br/>Highest privilege<br/>Boot ROM, firmware<br/>Power management"]
-        S["S-Mode (Supervisor)<br/>Linux kernel<br/>Memory management<br/>Interrupt handling"]
-        U["U-Mode (User)<br/>Applications<br/>Restricted access"]
+        M["M-Mode (Machine)<br>Highest privilege<br>Boot ROM, firmware<br>Power management"]
+        S["S-Mode (Supervisor)<br>Linux kernel<br>Memory management<br>Interrupt handling"]
+        U["U-Mode (User)<br>Applications<br>Restricted access"]
     end
     
     M --> S --> U
@@ -257,20 +257,20 @@ Supervisor-mode CSRs:
 
 ```mermaid
 graph TD
-    BASE["RV64I<br/>Base Integer ISA<br/>(47 instructions)"]
+    BASE["RV64I<br>Base Integer ISA<br>(47 instructions)"]
     
-    BASE --> M["M Extension<br/>Multiply/Divide"]
-    BASE --> A["A Extension<br/>Atomics"]
-    BASE --> F["F Extension<br/>Single-Float"]
-    BASE --> D["D Extension<br/>Double-Float"]
-    BASE --> C["C Extension<br/>Compressed (16-bit)"]
+    BASE --> M["M Extension<br>Multiply/Divide"]
+    BASE --> A["A Extension<br>Atomics"]
+    BASE --> F["F Extension<br>Single-Float"]
+    BASE --> D["D Extension<br>Double-Float"]
+    BASE --> C["C Extension<br>Compressed (16-bit)"]
     
-    BASE --> V["V Extension<br/>Vector SIMD"]
-    BASE --> B["B Extension<br/>Bit Manipulation"]
-    BASE --> ZICSR["Zicsr<br/>CSR access"]
-    BASE --> ZIFENCEI["Zifencei<br/>Instruction fence"]
+    BASE --> V["V Extension<br>Vector SIMD"]
+    BASE --> B["B Extension<br>Bit Manipulation"]
+    BASE --> ZICSR["Zicsr<br>CSR access"]
+    BASE --> ZIFENCEI["Zifencei<br>Instruction fence"]
     
-    M --> RVA["RV64GCV<br/>Typical server config"]
+    M --> RVA["RV64GCV<br>Typical server config"]
     A --> RVA
     F --> RVA
     D --> RVA

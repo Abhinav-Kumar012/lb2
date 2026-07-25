@@ -13,7 +13,7 @@ graph TD
     subgraph "Without Multipath"
         S1["Server HBA 0"] --> SW1["Switch A"]
         SW1 --> C1["Controller A"]
-        C1 --> LUN1["LUN 0<br/>/dev/sdb"]
+        C1 --> LUN1["LUN 0<br>/dev/sdb"]
         S1 -.->|"Single point of failure"| C1
     end
     subgraph "With Multipath"
@@ -21,7 +21,7 @@ graph TD
         S3["Server HBA 1"] --> SW3["Switch B"]
         SW2 --> C2["Controller A"]
         SW3 --> C3["Controller B"]
-        C2 --> LUN2["LUN 0<br/>/dev/mapper/mpatha"]
+        C2 --> LUN2["LUN 0<br>/dev/mapper/mpatha"]
         C3 --> LUN2
     end
 ```
@@ -33,13 +33,13 @@ Without multipath, a single cable failure, HBA failure, or switch failure can se
 ```mermaid
 graph TD
     APP[Application] --> FS[Filesystem]
-    FS --> DMP["dm-multipath<br/>/dev/mapper/mpatha"]
+    FS --> DMP["dm-multipath<br>/dev/mapper/mpatha"]
     DMP --> PS["Path Selector"]
     PS --> PATH1["Path 1: /dev/sdb"]
     PS --> PATH2["Path 2: /dev/sdc"]
     PS --> PATH3["Path 3: /dev/sdd"]
     PS --> PATH4["Path 4: /dev/sde"]
-    PATH1 --> SAN["SAN Storage<br/>LUN 0"]
+    PATH1 --> SAN["SAN Storage<br>LUN 0"]
     PATH2 --> SAN
     PATH3 --> SAN
     PATH4 --> SAN
@@ -199,8 +199,8 @@ ALUA is a SCSI feature that allows storage controllers to report the preferred p
 graph TD
     subgraph "ALUA Active-Passive"
         LUN["LUN 0"]
-        CA["Controller A<br/>Active/Optimized<br/>TPGS: 1"]
-        CB["Controller B<br/>Active/Non-optimized<br/>TPGS: 1"]
+        CA["Controller A<br>Active/Optimized<br>TPGS: 1"]
+        CB["Controller B<br>Active/Non-optimized<br>TPGS: 1"]
         LUN --> CA
         LUN --> CB
     end
@@ -573,8 +573,8 @@ devices {
 graph TD
     subgraph "Active-Active Configuration"
         MP["/dev/mapper/mpatha"]
-        PG1["Path Group 1 (prio=50)<br/>Active/Optimized"]
-        PG2["Path Group 2 (prio=10)<br/>Active/Non-optimized"]
+        PG1["Path Group 1 (prio=50)<br>Active/Optimized"]
+        PG2["Path Group 2 (prio=10)<br>Active/Non-optimized"]
         MP --> PG1
         MP --> PG2
         PG1 --> P1["Path 1: /dev/sdb"]

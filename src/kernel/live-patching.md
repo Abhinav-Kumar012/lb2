@@ -303,7 +303,7 @@ graph TB
         PATCH_DATA["Patch metadata<br>(klp_patch struct)"]
         NEW_FUNCS["New function code<br>(compiled)"]
         RELA["Relocations<br>(fix up references)"]
-        SYMTAB["Symbol table<br>(old & new symbols)"]
+        SYMTAB["Symbol table<br>(old &amp; new symbols)"]
     end
 
     SRC_OLD --> DIFF

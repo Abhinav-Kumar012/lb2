@@ -13,16 +13,16 @@ Modern servers with multiple CPU sockets, AMD EPYC chiplets, and even Intel's hy
 ```mermaid
 graph TB
     subgraph "NUMA Node 0"
-        CPU0["CPU 0-15<br/>(Cores 0-15)"]
-        MEM0["Local Memory<br/>64GB DDR5"]
+        CPU0["CPU 0-15<br>(Cores 0-15)"]
+        MEM0["Local Memory<br>64GB DDR5"]
         CPU0 --- MEM0
     end
     subgraph "NUMA Node 1"
-        CPU1["CPU 16-31<br/>(Cores 16-31)"]
-        MEM1["Local Memory<br/>64GB DDR5"]
+        CPU1["CPU 16-31<br>(Cores 16-31)"]
+        MEM1["Local Memory<br>64GB DDR5"]
         CPU1 --- MEM1
     end
-    MEM0 <-->|"Interconnect<br/>(QPI/UPI/Infinity Fabric<br/>~150-300ns latency)"| MEM1
+    MEM0 <-->|"Interconnect<br>(QPI/UPI/Infinity Fabric<br>~150-300ns latency)"| MEM1
 
     style MEM0 fill:#38a169,color:#fff
     style MEM1 fill:#38a169,color:#fff
@@ -95,11 +95,11 @@ Modern CPUs exhibit NUMA characteristics even within a single socket:
 graph TB
     subgraph "AMD EPYC Single Socket (4 CCDs)"
         subgraph "NUMA Node 0 (CCD 0-1)"
-            C0["Cores 0-15<br/>L3: 32MB"]
+            C0["Cores 0-15<br>L3: 32MB"]
             M0["Memory Channel 0-1"]
         end
         subgraph "NUMA Node 1 (CCD 2-3)"
-            C1["Cores 16-31<br/>L3: 32MB"]
+            C1["Cores 16-31<br>L3: 32MB"]
             M1["Memory Channel 2-3"]
         end
         C0 <-->|"Infinity Fabric"| C1
@@ -128,11 +128,11 @@ The Linux scheduler organizes CPUs into a hierarchy of **scheduling domains**. E
 
 ```mermaid
 graph TD
-    NUMA["NUMA Domain<br/>All CPUs in system<br/>Slowest migration"]
-    NUMA --> MC0["MC Domain Node 0<br/>CPUs 0-15 on socket 0<br/>Medium migration"]
-    NUMA --> MC1["MC Domain Node 1<br/>CPUs 16-31 on socket 1<br/>Medium migration"]
-    MC0 --> SMT0["SMT Domain<br/>Hyper-thread pairs<br/>Fastest migration"]
-    MC1 --> SMT1["SMT Domain<br/>Hyper-thread pairs<br/>Fastest migration"]
+    NUMA["NUMA Domain<br>All CPUs in system<br>Slowest migration"]
+    NUMA --> MC0["MC Domain Node 0<br>CPUs 0-15 on socket 0<br>Medium migration"]
+    NUMA --> MC1["MC Domain Node 1<br>CPUs 16-31 on socket 1<br>Medium migration"]
+    MC0 --> SMT0["SMT Domain<br>Hyper-thread pairs<br>Fastest migration"]
+    MC1 --> SMT1["SMT Domain<br>Hyper-thread pairs<br>Fastest migration"]
 
     style NUMA fill:#d69e2e,color:#fff
     style MC0 fill:#2b6cb0,color:#fff
@@ -322,9 +322,9 @@ The scan period adapts based on observed NUMA behavior:
 
 ```mermaid
 graph TD
-    SCAN["Scan task memory"] --> FAULT{"How many NUMA<br/>hinting faults?"}
-    FAULT -->|"Few faults<br/>(stable placement)"| SLOWER["Increase scan period<br/>Scan less often"]
-    FAULT -->|"Many faults<br/>(unstable placement)"| FASTER["Decrease scan period<br/>Scan more often"]
+    SCAN["Scan task memory"] --> FAULT{"How many NUMA<br>hinting faults?"}
+    FAULT -->|"Few faults<br>(stable placement)"| SLOWER["Increase scan period<br>Scan less often"]
+    FAULT -->|"Many faults<br>(unstable placement)"| FASTER["Decrease scan period<br>Scan more often"]
     SLOWER --> SCAN
     FASTER --> SCAN
 ```
@@ -486,11 +486,11 @@ Modern systems with multiple memory tiers (DRAM + CXL/persistent memory) use NUM
 ```mermaid
 graph TB
     subgraph "Fast Tier (DRAM)"
-        N0["NUMA Node 0<br/>DRAM: 128GB<br/>Latency: ~80ns"]
-        N1["NUMA Node 1<br/>DRAM: 128GB<br/>Latency: ~80ns"]
+        N0["NUMA Node 0<br>DRAM: 128GB<br>Latency: ~80ns"]
+        N1["NUMA Node 1<br>DRAM: 128GB<br>Latency: ~80ns"]
     end
     subgraph "Slow Tier (CXL/PMEM)"
-        N2["NUMA Node 2<br/>CXL Memory: 512GB<br/>Latency: ~300ns"]
+        N2["NUMA Node 2<br>CXL Memory: 512GB<br>Latency: ~300ns"]
     end
     N0 <-->|"Hot pages stay"| N0
     N1 <-->|"Hot pages stay"| N1
@@ -535,7 +535,7 @@ echo $PID > /sys/fs/cgroup/numa_node0/cgroup.procs
 ```mermaid
 graph LR
     subgraph "Cgroup: db_server"
-        PROC["PostgreSQL<br/>PID 1234"]
+        PROC["PostgreSQL<br>PID 1234"]
     end
     PROC -->|"cpuset.cpus = 0-15"| CPU["NUMA Node 0 CPUs"]
     PROC -->|"cpuset.mems = 0"| MEM["NUMA Node 0 Memory"]
@@ -615,14 +615,14 @@ numastat -c | head -20
 ```mermaid
 graph TD
     subgraph "Pattern 1: Partitioned Workers"
-        W1["Worker 0<br/>allocates on Node 0<br/>runs on CPU 0-7"]
-        W2["Worker 1<br/>allocates on Node 1<br/>runs on CPU 8-15"]
+        W1["Worker 0<br>allocates on Node 0<br>runs on CPU 0-7"]
+        W2["Worker 1<br>allocates on Node 1<br>runs on CPU 8-15"]
     end
     subgraph "Pattern 2: First-Touch"
-        FT["Thread 0 allocates → Node 0 local<br/>Thread 1 allocates → Node 1 local<br/>(default Linux policy)"]
+        FT["Thread 0 allocates → Node 0 local<br>Thread 1 allocates → Node 1 local<br>(default Linux policy)"]
     end
     subgraph "Pattern 3: Interleaved Shared"
-        SH["Shared buffer<br/>interleave=all<br/>spreads across nodes"]
+        SH["Shared buffer<br>interleave=all<br>spreads across nodes"]
     end
 ```
 
@@ -654,13 +654,13 @@ When a task wakes up, the scheduler considers NUMA topology:
 
 ```mermaid
 graph TD
-    WAKE["Task wakes up"] --> PREV{"Previous CPU<br/>idle?"}
-    PREV -->|Yes| RUNPREV["Run on previous CPU<br/>(cache warm)"]
-    PREV -->|No| SAME{"Same NUMA node<br/>idle CPU available?"}
-    SAME -->|Yes| RUNLOCAL["Run on same node<br/>(memory local)"]
-    SAME -->|No| OTHER{"Other node<br/>idle CPU available?"}
-    OTHER -->|Yes| RUNREMOTE["Run on other node<br/>(memory remote)"]
-    OTHER -->|No| BALANCE["Load balancer picks<br/>least loaded CPU"]
+    WAKE["Task wakes up"] --> PREV{"Previous CPU<br>idle?"}
+    PREV -->|Yes| RUNPREV["Run on previous CPU<br>(cache warm)"]
+    PREV -->|No| SAME{"Same NUMA node<br>idle CPU available?"}
+    SAME -->|Yes| RUNLOCAL["Run on same node<br>(memory local)"]
+    SAME -->|No| OTHER{"Other node<br>idle CPU available?"}
+    OTHER -->|Yes| RUNREMOTE["Run on other node<br>(memory remote)"]
+    OTHER -->|No| BALANCE["Load balancer picks<br>least loaded CPU"]
 
     style RUNPREV fill:#38a169,color:#fff
     style RUNLOCAL fill:#3182ce,color:#fff

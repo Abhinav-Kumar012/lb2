@@ -425,11 +425,11 @@ void _exit(int status);     /* Kernel: immediate termination */
 
 ```mermaid
 graph TD
-    A["exit(status)"] --> B["Call atexit() handlers<br/>(in reverse order)"]
+    A["exit(status)"] --> B["Call atexit() handlers<br>(in reverse order)"]
     B --> C["Call __cxa_atexit() handlers"]
     C --> D["Flush and close stdio streams"]
     D --> E["_exit(status)"]
-    E --> F["Exit group syscall<br/>do_exit_group()"]
+    E --> F["Exit group syscall<br>do_exit_group()"]
     F --> G["Release resources"]
     G --> H["Notify parent (SIGCHLD)"]
     H --> I["Become zombie"]
@@ -535,7 +535,7 @@ int main(void)
 graph TD
     A["Original Process"] -->|fork #1| B["Child 1"]
     A -->|exit| DEAD1["Parent exits"]
-    B -->|setsid()| C["Session leader<br/>(no controlling terminal)"]
+    B -->|setsid()| C["Session leader<br>(no controlling terminal)"]
     C -->|fork #2| D["Child 2 (daemon)"]
     C -->|exit| DEAD2["Child 1 exits"]
     D --> E["umask(0)"]
@@ -651,7 +651,7 @@ int clone(int (*fn)(void *), void *stack, int flags, void *arg, ...);
 graph LR
     A["fork()"] --> B["clone(SIGCHLD)"]
     C["vfork()"] --> D["clone(CLONE_VM|CLONE_VFORK)"]
-    E["pthread_create()"] --> F["clone(CLONE_VM|CLONE_FILES|<br/>CLONE_SIGHAND|CLONE_THREAD)"]
+    E["pthread_create()"] --> F["clone(CLONE_VM|CLONE_FILES|<br>CLONE_SIGHAND|CLONE_THREAD)"]
 ```
 
 ## References

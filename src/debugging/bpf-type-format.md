@@ -18,11 +18,11 @@ Before BTF, eBPF programs had to be compiled against specific kernel headers, ma
 ```mermaid
 graph LR
     subgraph "Without BTF (pre-5.2)"
-        OLD1["eBPF compiled<br/>on kernel 5.4"] -->|"❌"| RUN1["Crashes on<br/>kernel 5.10"]
-        OLD2["eBPF compiled<br/>on kernel 5.10"] -->|"❌"| RUN2["Crashes on<br/>kernel 5.4"]
+        OLD1["eBPF compiled<br>on kernel 5.4"] -->|"❌"| RUN1["Crashes on<br>kernel 5.10"]
+        OLD2["eBPF compiled<br>on kernel 5.10"] -->|"❌"| RUN2["Crashes on<br>kernel 5.4"]
     end
     subgraph "With BTF + CO-RE"
-        NEW["eBPF compiled<br/>once (BTF)"] -->|"✅"| R1["Runs on 5.4"]
+        NEW["eBPF compiled<br>once (BTF)"] -->|"✅"| R1["Runs on 5.4"]
         NEW -->|"✅"| R2["Runs on 5.10"]
         NEW -->|"✅"| R3["Runs on 6.1"]
     end
@@ -150,12 +150,12 @@ bpftool btf dump file /sys/kernel/btf/vmlinux format c | \
 
 ```mermaid
 flowchart TD
-    SRC["eBPF C Source<br/>(uses kernel types)"] --> COMPILE["Clang + BTF<br/>compile"]
-    COMPILE --> BPF[".bpf.o<br/>(with CO-RE relocations)"]
+    SRC["eBPF C Source<br>(uses kernel types)"] --> COMPILE["Clang + BTF<br>compile"]
+    COMPILE --> BPF[".bpf.o<br>(with CO-RE relocations)"]
     BPF --> LOAD["libbpf loader"]
-    LOAD --> BTF_CHECK["Read kernel BTF<br/>(/sys/kernel/btf/vmlinux)"]
-    BTF_CHECK --> RELOC["Apply CO-RE relocations<br/>(adjust offsets/sizes)"]
-    RELOC --> RUN["Run on any kernel<br/>with BTF enabled"]
+    LOAD --> BTF_CHECK["Read kernel BTF<br>(/sys/kernel/btf/vmlinux)"]
+    BTF_CHECK --> RELOC["Apply CO-RE relocations<br>(adjust offsets/sizes)"]
+    RELOC --> RUN["Run on any kernel<br>with BTF enabled"]
 
     style SRC fill:#3182ce,color:#fff
     style RELOC fill:#e53e3e,color:#fff

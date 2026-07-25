@@ -773,14 +773,14 @@ graph TD
     B -->|"Network"| E["tcpconnlat"]
     B -->|"Lock"| F["bpftrace mutex"]
     C --> G{"p99 > 1ms?"}
-    G -->|Yes| H["CPU contention:<br/>taskset, nice, cgroup"]
+    G -->|Yes| H["CPU contention:<br>taskset, nice, cgroup"]
     G -->|No| I["Normal scheduling"]
     D --> J{"HDD or SSD?"}
-    J -->|"HDD > 10ms"| K["Replace with SSD,<br/>tune readahead"]
-    J -->|"SSD > 1ms"| L["Check queue depth,<br/>scheduler, NVMe"]
+    J -->|"HDD > 10ms"| K["Replace with SSD,<br>tune readahead"]
+    J -->|"SSD > 1ms"| L["Check queue depth,<br>scheduler, NVMe"]
     E --> M{"RTT > target?"}
-    M -->|Yes| N["Check network path,<br/>buffer sizes, Nagle"]
-    F --> O["Identify lock,<br/>reduce contention"]
+    M -->|Yes| N["Check network path,<br>buffer sizes, Nagle"]
+    F --> O["Identify lock,<br>reduce contention"]
 
     style A fill:#e53e3e,color:#fff
     style H fill:#3182ce,color:#fff

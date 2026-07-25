@@ -36,12 +36,12 @@ The SRH is a new IPv6 Routing Header (type 4) defined in RFC 8754.
 ```mermaid
 graph TD
     subgraph "IPv6 Packet with SRH"
-        IP6["IPv6 Header<br/>Next Header: SRH (43)"]
+        IP6["IPv6 Header<br>Next Header: SRH (43)"]
         SRH["SRH Header"]
-        SEG0["Segments[0]<br/>(active segment)"]
+        SEG0["Segments[0]<br>(active segment)"]
         SEG1["Segments[1]"]
-        SEG2["Segments[2]<br/>(last segment)"]
-        PAYLOAD["Payload<br/>(TCP/UDP/etc.)"]
+        SEG2["Segments[2]<br>(last segment)"]
+        PAYLOAD["Payload<br>(TCP/UDP/etc.)"]
     end
 
     IP6 --> SRH
@@ -274,13 +274,13 @@ segment-routing
 graph LR
     subgraph "PE1 (Ingress)"
         CE1["CE1"] --> VRF1["VRF 100"]
-        VRF1 --> ENCAP["SRv6 Encap<br/>SID: End.DT6@PE2"]
+        VRF1 --> ENCAP["SRv6 Encap<br>SID: End.DT6@PE2"]
     end
     subgraph "Transit"
-        ENCAP --> CORE["Core Network<br/>(SRv6 forwarding)"]
+        ENCAP --> CORE["Core Network<br>(SRv6 forwarding)"]
     end
     subgraph "PE2 (Egress)"
-        CORE --> DECAP["End.DT6<br/>Decapsulate"]
+        CORE --> DECAP["End.DT6<br>Decapsulate"]
         DECAP --> VRF2["VRF 100"]
         VRF2 --> CE2["CE2"]
     end
@@ -397,9 +397,9 @@ To understand SRv6 fully, trace a packet through a multi-hop SRv6 path:
 
 ```mermaid
 graph LR
-    SRC["Source<br/>2001:db8:src::"] -->|"SRv6 encap<br/>segs: A,B,DST"| A["Node A<br/>2001:db8:a::1"]
-    A --> B["Node B<br/>2001:db8:b::1"]
-    B --> DST["Destination<br/>2001:db8:dst::1"]
+    SRC["Source<br>2001:db8:src::"] -->|"SRv6 encap<br>segs: A,B,DST"| A["Node A<br>2001:db8:a::1"]
+    A --> B["Node B<br>2001:db8:b::1"]
+    B --> DST["Destination<br>2001:db8:dst::1"]
 ```
 
 ### Step-by-Step Packet Processing
@@ -506,9 +506,9 @@ graph TD
         S2["Spine 2"]
     end
     subgraph "Leaf Layer"
-        L1["Leaf 1<br/>2001:db8:l1::"]
-        L2["Leaf 2<br/>2001:db8:l2::"]
-        L3["Leaf 3<br/>2001:db8:l3::"]
+        L1["Leaf 1<br>2001:db8:l1::"]
+        L2["Leaf 2<br>2001:db8:l2::"]
+        L3["Leaf 3<br>2001:db8:l3::"]
     end
     subgraph "Servers"
         H1["Host A"] --> L1
@@ -669,7 +669,7 @@ graph TD
         UPF --> DN["Data Network"]
     end
     subgraph "SRv6 Transport"
-        GNB -->|"SRv6 encap<br/>End.DT4@UPF"| TRANSIT["Transit Router"]
+        GNB -->|"SRv6 encap<br>End.DT4@UPF"| TRANSIT["Transit Router"]
         TRANSIT --> UPF
     end
     

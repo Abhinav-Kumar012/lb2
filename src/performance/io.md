@@ -13,10 +13,10 @@ This chapter covers `iostat` for device-level metrics, `blktrace` for request-le
 ```mermaid
 graph TD
     subgraph "Key I/O Metrics"
-        IOPS["IOPS<br/>I/O Operations Per Second"]
-        BW["Bandwidth<br/>MB/s or GB/s"]
-        LAT["Latency<br/>Time per I/O (μs or ms)"]
-        QUEUE["Queue Depth<br/>Outstanding I/Os"]
+        IOPS["IOPS<br>I/O Operations Per Second"]
+        BW["Bandwidth<br>MB/s or GB/s"]
+        LAT["Latency<br>Time per I/O (μs or ms)"]
+        QUEUE["Queue Depth<br>Outstanding I/Os"]
     end
 ```
 
@@ -34,7 +34,7 @@ graph TD
     IOPS["IOPS"] --- BW["Bandwidth"]
     BW --- LAT["Latency"]
     LAT --- IOPS
-    NOTE["At any given queue depth:<br/>IOPS × Block Size = Bandwidth<br/>Higher queue depth → higher IOPS<br/>→ higher latency"]
+    NOTE["At any given queue depth:<br>IOPS × Block Size = Bandwidth<br>Higher queue depth → higher IOPS<br>→ higher latency"]
 ```
 
 ## iostat
@@ -237,10 +237,10 @@ fio --name=test --ioengine=sync --direct=1 --bs=4k --rw=randread
 ```mermaid
 graph LR
     subgraph "Sequential I/O"
-        SQ["Block 0 → Block 1 → Block 2 → Block 3<br/>Large transfers, high bandwidth"]
+        SQ["Block 0 → Block 1 → Block 2 → Block 3<br>Large transfers, high bandwidth"]
     end
     subgraph "Random I/O"
-        RD["Block 100 → Block 5 → Block 999 → Block 42<br/>Small transfers, high IOPS"]
+        RD["Block 100 → Block 5 → Block 999 → Block 42<br>Small transfers, high IOPS"]
     end
 ```
 

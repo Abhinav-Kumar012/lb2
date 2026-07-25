@@ -371,7 +371,7 @@ sequenceDiagram
     
     Core->>Driver: enter(state)
     Driver->>HW: MWAIT instruction (Intel)
-    Note over HW: CPU enters C-state<br/>Clock gated, voltage reduced
+    Note over HW: CPU enters C-state<br>Clock gated, voltage reduced
     
     HW->>Driver: Interrupt arrives
     Driver->>Core: Return from enter()

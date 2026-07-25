@@ -19,10 +19,10 @@ NVMe replaces the legacy AHCI/SATA interface with a design that leverages parall
 ```mermaid
 flowchart TD
     subgraph Host["Linux Host"]
-        NVME_CORE["nvme-core<br/>(generic NVMe logic)"]
-        NVME_PCI["nvme-pci<br/>(PCIe transport)"]
-        NVME_FABRICS["nvme-fabrics<br/>(NVMe-oF: RDMA/TCP)"]
-        BLK_MQ["blk-mq<br/>(block multi-queue)"]
+        NVME_CORE["nvme-core<br>(generic NVMe logic)"]
+        NVME_PCI["nvme-pci<br>(PCIe transport)"]
+        NVME_FABRICS["nvme-fabrics<br>(NVMe-oF: RDMA/TCP)"]
+        BLK_MQ["blk-mq<br>(block multi-queue)"]
     end
 
     subgraph Controller["NVMe Controller"]
@@ -30,7 +30,7 @@ flowchart TD
         IO_Q1["I/O Queue 1 (CPU 0)"]
         IO_Q2["I/O Queue 2 (CPU 1)"]
         IO_QN["I/O Queue N (CPU N-1)"]
-        REGS["PCI Registers<br/>(BAR0)"]
+        REGS["PCI Registers<br>(BAR0)"]
     end
 
     subgraph Storage["Storage"]
@@ -96,14 +96,14 @@ static int nvme_create_queue(struct nvme_queue *nvmeq, int qid)
 ```mermaid
 block-beta
     columns 1
-    block:sq["Submission Queue (SQ) — 64-byte commands"]
+    block:sq["Submission Queue (SQ) -- 64-byte commands"]
         columns 4
-        CMD0["CMD 0<br/>opcode, nsid, lba, ..."] CMD1["CMD 1"] CMD2["CMD 2"] CMD3["..."]
+        CMD0["CMD 0<br>opcode, nsid, lba, ..."] CMD1["CMD 1"] CMD2["CMD 2"] CMD3["..."]
     end
     space
-    block:cq["Completion Queue (CQ) — 16-byte entries"]
+    block:cq["Completion Queue (CQ) -- 16-byte entries"]
         columns 4
-        CQE0["CQE 0<br/>status, sq_id, command_id"] CQE1["CQE 1"] CQE2["CQE 2"] CQE3["..."]
+        CQE0["CQE 0<br>status, sq_id, command_id"] CQE1["CQE 1"] CQE2["CQE 2"] CQE3["..."]
     end
 ```
 

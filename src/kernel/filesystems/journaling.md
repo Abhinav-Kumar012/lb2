@@ -50,7 +50,7 @@ graph LR
     subgraph "ext4 Filesystem Layout"
         SB["Superblock"]
         BG["Block Groups"]
-        J["Journal<br/>(inode 8)<br/>128MB default"]
+        J["Journal<br>(inode 8)<br>128MB default"]
         DATA["Data Blocks"]
     end
 ```
@@ -67,12 +67,12 @@ The journal consists of:
 ```mermaid
 graph TD
     subgraph "Journal Layout"
-        JSB["Journal Superblock<br/>sequence=100, start=block 1"]
-        D1["Descriptor Block<br/>→ fs block 5000, 5001, 5002"]
-        D2["Descriptor Block<br/>→ fs block 8000"]
-        CB1["Commit Block<br/>sequence=100"]
-        D3["Descriptor Block<br/>→ fs block 3000"]
-        CB2["Commit Block<br/>sequence=101"]
+        JSB["Journal Superblock<br>sequence=100, start=block 1"]
+        D1["Descriptor Block<br>→ fs block 5000, 5001, 5002"]
+        D2["Descriptor Block<br>→ fs block 8000"]
+        CB1["Commit Block<br>sequence=100"]
+        D3["Descriptor Block<br>→ fs block 3000"]
+        CB2["Commit Block<br>sequence=101"]
         FREE["Free Journal Blocks..."]
         JSB --> D1 --> D2 --> CB1 --> D3 --> CB2 --> FREE
     end
@@ -593,14 +593,11 @@ before the filesystem is mounted:
 ```mermaid
 flowchart TD
     A["Boot after crash"] --> B["ext4_fill_super()"]
-    B --> C{"Journal has
-uncommitted transactions?"}
+    B --> C{"Journal has<br>uncommitted transactions?"}
     C -->|No| D["Normal mount"]
     C -->|Yes| E["jbd2_journal_recover()"]
-    E --> F["Scan journal for
-complete transactions"]
-    F --> G["Replay each transaction
-(write metadata to final locations)"]
+    E --> F["Scan journal for<br>complete transactions"]
+    F --> G["Replay each transaction<br>(write metadata to final locations)"]
     G --> H["Mark journal as clean"]
     H --> D
 ```

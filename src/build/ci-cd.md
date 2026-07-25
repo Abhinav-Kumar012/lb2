@@ -11,10 +11,10 @@ This chapter covers the major CI/CD systems used by the kernel community, from I
 ```mermaid
 graph TB
     subgraph "Automated Testing"
-        ZDAY["0-Day Bot<br/>Intel"] -->|builds & tests| REPORT1[Email reports to LKML]
-        KCI["KernelCI<br/>Community"] -->|multi-arch builds| REPORT2[Dashboard]
-        LAVA["LAVA<br/>Linaro"] -->|hardware testing| REPORT3[Test results]
-        SYZKALLER["syzkaller<br/>Google"] -->|fuzzing| BUGS[Bug reports]
+        ZDAY["0-Day Bot<br>Intel"] -->|builds &amp; tests| REPORT1[Email reports to LKML]
+        KCI["KernelCI<br>Community"] -->|multi-arch builds| REPORT2[Dashboard]
+        LAVA["LAVA<br>Linaro"] -->|hardware testing| REPORT3[Test results]
+        SYZKALLER["syzkaller<br>Google"] -->|fuzzing| BUGS[Bug reports]
     end
     
     subgraph "Manual Testing"
@@ -146,11 +146,11 @@ Funding: Linux Foundation, Collabora, Google, ARM
 ```mermaid
 graph LR
     SRC[Kernel Source] --> BUILD[Build Service]
-    BUILD --> ARTIFACTS["Build Artifacts<br/>kernel + rootfs + DTBs"]
+    BUILD --> ARTIFACTS["Build Artifacts<br>kernel + rootfs + DTBs"]
     ARTIFACTS --> LAVA[LAVA Lab]
     ARTIFACTS --> OTHER[Other Labs]
     
-    LAVA --> HW["Physical Hardware<br/>ARM, RISC-V, x86"]
+    LAVA --> HW["Physical Hardware<br>ARM, RISC-V, x86"]
     HW --> RESULTS[Test Results]
     RESULTS --> API[KernelCI API]
     API --> DASHBOARD[Dashboard]

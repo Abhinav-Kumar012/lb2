@@ -12,12 +12,12 @@ Tracepoints are the backbone of Linux observability—tools like `perf`, `bpftra
 graph TD
     subgraph "Kernel Source"
         TP_DEF["TRACE_EVENT(name, proto, args, struct, assign, print)"]
-        TP_DEF --> HEADER["Generated headers<br/>include/trace/events/*.h"]
+        TP_DEF --> HEADER["Generated headers<br>include/trace/events/*.h"]
     end
     subgraph "Runtime"
-        HEADER --> ENABLE["Enable/Disable<br/>/sys/kernel/debug/tracing/events/"]
-        ENABLE --> CONSUMER["Consumers:<br/>ftrace, perf, bpftrace, trace-cmd"]
-        CONSUMER --> OUTPUT["Output:<br/>ring buffer, perf.data, stdout"]
+        HEADER --> ENABLE["Enable/Disable<br>/sys/kernel/debug/tracing/events/"]
+        ENABLE --> CONSUMER["Consumers:<br>ftrace, perf, bpftrace, trace-cmd"]
+        CONSUMER --> OUTPUT["Output:<br>ring buffer, perf.data, stdout"]
     end
 ```
 
@@ -34,14 +34,14 @@ graph TD
 ```mermaid
 graph TB
     subgraph "Tracing Mechanisms"
-        TP["Tracepoints<br/>Static, stable, low-overhead<br/>Defined in kernel source<br/>Structured data"]
-        KP["kprobes<br/>Dynamic, any kernel function<br/>Breakpoint-based<br/>Function arguments"]
-        UP["uprobes<br/>Dynamic, userspace functions<br/>Breakpoint-based<br/>Function arguments"]
+        TP["Tracepoints<br>Static, stable, low-overhead<br>Defined in kernel source<br>Structured data"]
+        KP["kprobes<br>Dynamic, any kernel function<br>Breakpoint-based<br>Function arguments"]
+        UP["uprobes<br>Dynamic, userspace functions<br>Breakpoint-based<br>Function arguments"]
     end
 
-    TP -->|"Best for"| TP_USE["Known kernel events<br/>Block I/O, scheduler, network"]
-    KP -->|"Best for"| KP_USE["Kernel internals<br/>Any function entry/return"]
-    UP -->|"Best for"| UP_USE["Application tracing<br/>Library calls, syscalls"]
+    TP -->|"Best for"| TP_USE["Known kernel events<br>Block I/O, scheduler, network"]
+    KP -->|"Best for"| KP_USE["Kernel internals<br>Any function entry/return"]
+    UP -->|"Best for"| UP_USE["Application tracing<br>Library calls, syscalls"]
 ```
 
 | Feature | Tracepoints | kprobes | uprobes |

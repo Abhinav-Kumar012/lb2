@@ -57,9 +57,9 @@ Since `task_struct` pointers are aligned to at least 8 bytes (often
 ```mermaid
 graph LR
     subgraph "owner field layout (64-bit)"
-        A["Bits 63-3:<br/>task_struct pointer"] --> B["Bit 2:<br/>MUTEX_FLAG_PICKUP"]
-        B --> C["Bit 1:<br/>MUTEX_FLAG_HANDOFF"]
-        C --> D["Bit 0:<br/>MUTEX_FLAG_WAITERS"]
+        A["Bits 63-3:<br>task_struct pointer"] --> B["Bit 2:<br>MUTEX_FLAG_PICKUP"]
+        B --> C["Bit 1:<br>MUTEX_FLAG_HANDOFF"]
+        C --> D["Bit 0:<br>MUTEX_FLAG_WAITERS"]
     end
 ```
 
@@ -136,11 +136,11 @@ current lock state:
 
 ```mermaid
 graph TD
-    A["mutex_lock()"] --> B{"Fast path:<br/>cmpxchg owner == 0?"}
+    A["mutex_lock()"] --> B{"Fast path:<br>cmpxchg owner == 0?"}
     B -->|"Success"| C["Acquired! (1 atomic op)"]
-    B -->|"Fail: owner exists"| D{"Mid path:<br/>Can optimistic spin?"}
-    D -->|"Yes"| E["Optimistic spin<br/>(MCS queue)"]
-    D -->|"No: owner sleeping / RT task / need_resched"| F["Slow path:<br/>Sleep on wait_list"]
+    B -->|"Fail: owner exists"| D{"Mid path:<br>Can optimistic spin?"}
+    D -->|"Yes"| E["Optimistic spin<br>(MCS queue)"]
+    D -->|"No: owner sleeping / RT task / need_resched"| F["Slow path:<br>Sleep on wait_list"]
     E -->|"Acquired during spin"| C
     E -->|"Spin failed"| F
     F --> G["schedule() → context switch"]
@@ -224,14 +224,14 @@ optimistic spin uses an **MCS queue** (Mellor-Crummey and Scott, 1991):
 ```mermaid
 graph TD
     subgraph "MCS Optimistic Spin Queue"
-        A["Task A<br/>(holds MCS node, spinning on owner)"]
-        B["Task B<br/>(spinning on A's MCS node)"]
-        C["Task C<br/>(spinning on B's MCS node)"]
+        A["Task A<br>(holds MCS node, spinning on owner)"]
+        B["Task B<br>(spinning on A's MCS node)"]
+        C["Task C<br>(spinning on B's MCS node)"]
         A --> B --> C
     end
 
     subgraph "Key Property"
-        D["Each task spins on its OWN local variable<br/>→ No cache-line bouncing during spin"]
+        D["Each task spins on its OWN local variable<br>→ No cache-line bouncing during spin"]
     end
 ```
 
@@ -354,7 +354,7 @@ sequenceDiagram
     Owner->>Waiter: wake_up_process()
     Note over Waiter: Wakes up, becomes new owner
 
-    Note over Spinner: Spinner sees owner changed,<br/>re-evaluates spin conditions
+    Note over Spinner: Spinner sees owner changed,<br>re-evaluates spin conditions
     Waiter->>Waiter: Clear MUTEX_FLAG_PICKUP
     Waiter->>Waiter: Set owner = self
 ```
@@ -392,8 +392,8 @@ the highest priority for ownership transfer.
 ```mermaid
 stateDiagram-v2
     [*] --> Enqueue: mutex_lock() slow path
-    Enqueue --> Waiting: Added to wait_list,<br/>set TASK_UNINTERRUPTIBLE
-    Waiting --> Woken: Owner calls unlock,<br/>wake_up_process()
+    Enqueue --> Waiting: Added to wait_list,<br>set TASK_UNINTERRUPTIBLE
+    Waiting --> Woken: Owner calls unlock,<br>wake_up_process()
     Woken --> Acquire: Try to acquire lock
     Acquire --> [*]: Lock acquired
     Acquire --> Enqueue: Failed (stolen by spinner)

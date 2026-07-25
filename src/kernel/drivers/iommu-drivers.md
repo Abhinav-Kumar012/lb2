@@ -16,9 +16,9 @@ graph TD
     end
 
     subgraph "Kernel Subsystems"
-        DMA_API["DMA API<br/>dma_map_single / dma_alloc_coherent"]
+        DMA_API["DMA API<br>dma_map_single / dma_alloc_coherent"]
         BUS["Bus Layer (PCI, platform)"]
-        IOMMU_API["IOMMU Core API<br/>drivers/iommu/iommu.c"]
+        IOMMU_API["IOMMU Core API<br>drivers/iommu/iommu.c"]
         IOMMU_GROUPS["IOMMU Groups"]
         IOMMU_DOMAINS["IOMMU Domains"]
     end
@@ -647,12 +647,12 @@ graph TD
     end
 
     subgraph "Device with PASID"
-        DEVICE["Device DMA<br/>PASID=42, IOVA=0x7fff0000"]
+        DEVICE["Device DMA<br>PASID=42, IOVA=0x7fff0000"]
     end
 
     subgraph "IOMMU"
         PASID_TABLE["PASID Table"]
-        PASID_TABLE -->|"PASID 42"| PROC_PGT["Process Page Tables<br/>(shared with CPU)"]
+        PASID_TABLE -->|"PASID 42"| PROC_PGT["Process Page Tables<br>(shared with CPU)"]
     end
 
     DEVICE --> PASID_TABLE

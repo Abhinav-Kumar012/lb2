@@ -28,18 +28,18 @@ graph TD
         FILE_FREE["file_free_security"]
     end
     subgraph "IMA Subsystem"
-        MEASURE["IMA Measure<br/>→ PCR extend + log"]
-        APPRAISE["IMA Appraise<br/>→ verify hash/signature"]
-        AUDIT["IMA Audit<br/>→ security audit log"]
+        MEASURE["IMA Measure<br>→ PCR extend + log"]
+        APPRAISE["IMA Appraise<br>→ verify hash/signature"]
+        AUDIT["IMA Audit<br>→ security audit log"]
     end
     subgraph "EVM Subsystem"
-        EVM_VERIFY["EVM Verify<br/>→ check metadata HMAC"]
-        EVM_PROTECT["EVM Protect<br/>→ HMAC over xattrs"]
+        EVM_VERIFY["EVM Verify<br>→ check metadata HMAC"]
+        EVM_PROTECT["EVM Protect<br>→ HMAC over xattrs"]
     end
     subgraph "Trust Anchors"
-        TPM["TPM Chip<br/>PCR registers"]
-        KEYRING[".ima keyring<br/>trusted keys"]
-        XATTR["security.ima<br/>file xattr"]
+        TPM["TPM Chip<br>PCR registers"]
+        KEYRING[".ima keyring<br>trusted keys"]
+        XATTR["security.ima<br>file xattr"]
     end
 
     EXEC --> BPRM_CHECK
@@ -155,13 +155,13 @@ IMA appraisal enforces integrity by verifying file hashes or digital signatures 
 ```mermaid
 graph TD
     subgraph "Appraisal Modes"
-        LOG["log<br/>Default: measure + log failures"]
-        ENFORCE["enforce<br/>Block access if integrity check fails"]
-        FIX["fix<br/>Measure + write security.ima xattr"]
+        LOG["log<br>Default: measure + log failures"]
+        ENFORCE["enforce<br>Block access if integrity check fails"]
+        FIX["fix<br>Measure + write security.ima xattr"]
     end
-    LOG -->|"ima_appraise=log"| LOGDESC["Logs tampering,<br/>doesn't block"]
-    ENFORCE -->|"ima_appraise=enforce"| ENFDESC["Blocks tampered files,<br/>requires signed files"]
-    FIX -->|"ima_appraise=fix"| FIXDESC["Auto-generates<br/>integrity labels"]
+    LOG -->|"ima_appraise=log"| LOGDESC["Logs tampering,<br>doesn't block"]
+    ENFORCE -->|"ima_appraise=enforce"| ENFDESC["Blocks tampered files,<br>requires signed files"]
+    FIX -->|"ima_appraise=fix"| FIXDESC["Auto-generates<br>integrity labels"]
 
     style ENFORCE fill:#e53e3e,color:#fff
     style LOG fill:#d69e2e,color:#000
@@ -224,17 +224,17 @@ EVM computes an HMAC over these metadata fields and stores it in the `security.e
 ```mermaid
 graph TD
     subgraph "Protected Metadata"
-        MODE["st_mode<br/>permissions"]
-        UID["st_uid / st_gid<br/>ownership"]
-        MTIME["st_mtime<br/>modification time"]
-        XATTRS["security.ima<br/>IMA hash/signature"]
-        CAPS["security.capability<br/>file capabilities"]
+        MODE["st_mode<br>permissions"]
+        UID["st_uid / st_gid<br>ownership"]
+        MTIME["st_mtime<br>modification time"]
+        XATTRS["security.ima<br>IMA hash/signature"]
+        CAPS["security.capability<br>file capabilities"]
     end
     subgraph "EVM HMAC"
         HMAC["HMAC(key, metadata + IMA hash)"]
     end
     subgraph "Storage"
-        EVMA["security.evm<br/>HMAC stored in xattr"]
+        EVMA["security.evm<br>HMAC stored in xattr"]
     end
 
     MODE --> HMAC
@@ -330,10 +330,10 @@ evmctl import signing_cert.der
 
 ```mermaid
 graph TD
-    ROOT[".ima keyring<br/>(IMA trusted keys)"]
-    SECONDARY[".evm keyring<br/>(EVM trusted keys)"]
-    PLATFORM[".platform keyring<br/>(firmware keys)"]
-    TRUST["Trusted Keys<br/>(TPM-sealed)"]
+    ROOT[".ima keyring<br>(IMA trusted keys)"]
+    SECONDARY[".evm keyring<br>(EVM trusted keys)"]
+    PLATFORM[".platform keyring<br>(firmware keys)"]
+    TRUST["Trusted Keys<br>(TPM-sealed)"]
 
     ROOT --> SECONDARY
     PLATFORM --> ROOT
@@ -523,8 +523,8 @@ graph TD
     FW["Firmware (UEFI Secure Boot)"] --> GRUB["GRUB (verified)"]
     GRUB --> KERNEL["Kernel (signed)"]
     KERNEL --> INITRD["initrd (signed)"]
-    INITRD --> SYSTEM["System binaries<br/>(IMA appraised)"]
-    SYSTEM --> USER["User applications<br/>(IMA appraised)"]
+    INITRD --> SYSTEM["System binaries<br>(IMA appraised)"]
+    SYSTEM --> USER["User applications<br>(IMA appraised)"]
 
     style FW fill:#e53e3e,color:#fff
     style KERNEL fill:#3182ce,color:#fff

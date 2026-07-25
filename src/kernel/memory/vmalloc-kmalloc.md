@@ -238,17 +238,17 @@ graph TB
     subgraph "kmalloc"
         KMALLOC["kmalloc(size)"]
         SLUB["SLUB Allocator"]
-        PAGE_K["Page Allocator<br/>(contiguous pages)"]
-        PHYS_K["Physical Memory<br/>(contiguous)"]
+        PAGE_K["Page Allocator<br>(contiguous pages)"]
+        PHYS_K["Physical Memory<br>(contiguous)"]
         KMALLOC --> SLUB --> PAGE_K --> PHYS_K
     end
 
     subgraph "vmalloc"
         VMALLOC["vmalloc(size)"]
-        VMAP["vm_struct<br/>(virtual range)"]
-        PAGE_V["Page Allocator<br/>(individual pages)"]
-        PTE["Page Tables<br/>(map scattered pages)"]
-        PHYS_V["Physical Memory<br/>(scattered)"]
+        VMAP["vm_struct<br>(virtual range)"]
+        PAGE_V["Page Allocator<br>(individual pages)"]
+        PTE["Page Tables<br>(map scattered pages)"]
+        PHYS_V["Physical Memory<br>(scattered)"]
         VMALLOC --> VMAP --> PAGE_V
         VMAP --> PTE
         PAGE_V --> PHYS_V
@@ -339,8 +339,8 @@ graph TB
     end
 
     subgraph "Internal Allocators"
-        SLUB["SLUB Allocator<br/>(kmem_cache)"]
-        BUDDY["Buddy System<br/>(page allocator)"]
+        SLUB["SLUB Allocator<br>(kmem_cache)"]
+        BUDDY["Buddy System<br>(page allocator)"]
         PCP["Per-CPU Page Cache"]
     end
 
@@ -402,17 +402,17 @@ graph TB
 ```mermaid
 graph TD
     START["Need kernel memory?"]
-    Q1{"Size known and small<br/>(< 8 KiB)?"}
-    Q2{"Need physical contiguity?<br/>(DMA, hardware)?"}
-    Q3{"Can sleep?<br/>(not in interrupt/atomic)?"}
-    Q4{"Size > PAGE_SIZE<br/>and no DMA needed?"}
+    Q1{"Size known and small<br>(< 8 KiB)?"}
+    Q2{"Need physical contiguity?<br>(DMA, hardware)?"}
+    Q3{"Can sleep?<br>(not in interrupt/atomic)?"}
+    Q4{"Size > PAGE_SIZE<br>and no DMA needed?"}
 
-    A1["Use kmalloc()<br/>GFP_KERNEL or GFP_ATOMIC"]
-    A2["Use kmem_cache_alloc()<br/>(if pooling objects)"]
-    A3["Use vmalloc()<br/>(virtually contiguous)"]
-    A4["Use kvmalloc()<br/>(try kmalloc, fallback vmalloc)"]
-    A5["Use alloc_pages()<br/>(raw pages, any GFP)"]
-    A6["Use GFP_ATOMIC<br/>(cannot reclaim)"]
+    A1["Use kmalloc()<br>GFP_KERNEL or GFP_ATOMIC"]
+    A2["Use kmem_cache_alloc()<br>(if pooling objects)"]
+    A3["Use vmalloc()<br>(virtually contiguous)"]
+    A4["Use kvmalloc()<br>(try kmalloc, fallback vmalloc)"]
+    A5["Use alloc_pages()<br>(raw pages, any GFP)"]
+    A6["Use GFP_ATOMIC<br>(cannot reclaim)"]
 
     START --> Q1
     Q1 -->|Yes| Q2

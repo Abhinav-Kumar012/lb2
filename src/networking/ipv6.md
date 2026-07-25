@@ -43,18 +43,18 @@ An IPv6 address is **128 bits**, written as eight groups of four hexadecimal dig
 ```mermaid
 graph TB
     subgraph "IPv6 Address Types"
-        UA["<b>Unicast</b><br/>One-to-one"]
-        MA["<b>Multicast</b><br/>One-to-many"]
-        AA["<b>Anycast</b><br/>One-to-nearest"]
+        UA["<b>Unicast</b><br>One-to-one"]
+        MA["<b>Multicast</b><br>One-to-many"]
+        AA["<b>Anycast</b><br>One-to-nearest"]
     end
 
-    UA --> GUA["Global Unicast<br/>2000::/3"]
-    UA --> LLA["Link-Local<br/>fe80::/10"]
-    UA --> ULA["Unique Local<br/>fc00::/7"]
+    UA --> GUA["Global Unicast<br>2000::/3"]
+    UA --> LLA["Link-Local<br>fe80::/10"]
+    UA --> ULA["Unique Local<br>fc00::/7"]
 
     MA --> ASM["All-Nodes: ff02::1"]
     MA --> RSM["All-Routers: ff02::2"]
-    MA --> SNM["Solicited-Node:<br/>ff02::1:ff00:0/104"]
+    MA --> SNM["Solicited-Node:<br>ff02::1:ff00:0/104"]
 
     style GUA fill:#4CAF50,color:#fff
     style LLA fill:#2196F3,color:#fff
@@ -168,11 +168,11 @@ sequenceDiagram
     participant Host
     participant Router
 
-    Host->>Router: Router Solicitation (RS)<br/>ICMPv6 Type 133
-    Router->>Host: Router Advertisement (RA)<br/>ICMPv6 Type 134<br/>Prefix: 2001:db8::/64<br/>Flags: A (autonomous)
-    Note over Host: Combine prefix + interface ID<br/>→ 2001:db8::a00:27ff:fe4e:66a1
-    Host->>Host: Duplicate Address Detection (DAD)<br/>Send NS to solicited-node mcast
-    Note over Host: No response → address is unique<br/>Mark as TENTATIVE → PREFERRED
+    Host->>Router: Router Solicitation (RS)<br>ICMPv6 Type 133
+    Router->>Host: Router Advertisement (RA)<br>ICMPv6 Type 134<br>Prefix: 2001:db8::/64<br>Flags: A (autonomous)
+    Note over Host: Combine prefix + interface ID<br>→ 2001:db8::a00:27ff:fe4e:66a1
+    Host->>Host: Duplicate Address Detection (DAD)<br>Send NS to solicited-node mcast
+    Note over Host: No response → address is unique<br>Mark as TENTATIVE → PREFERRED
 ```
 
 **Interface Identifier Generation:**
@@ -301,19 +301,19 @@ For networks that cannot deploy native IPv6, several transition mechanisms exist
 ```mermaid
 graph TB
     subgraph "Transition Mechanisms"
-        DS["<b>Dual-Stack</b><br/>Run both IPv4+IPv6<br/>Preferred approach"]
-        TUN["<b>Tunneling</b><br/>Encapsulate IPv6 in IPv4"]
-        XLAT["<b>Translation</b><br/>Convert between IPv4↔IPv6"]
+        DS["<b>Dual-Stack</b><br>Run both IPv4+IPv6<br>Preferred approach"]
+        TUN["<b>Tunneling</b><br>Encapsulate IPv6 in IPv4"]
+        XLAT["<b>Translation</b><br>Convert between IPv4↔IPv6"]
     end
 
-    TUN --> 6in4["6in4 (manual)<br/>Protocol 41"]
-    TUN --> 6to4["6to4<br/>192.88.99.1"]
-    TUN --> TERO["Teredo<br/>UDP 3544"]
+    TUN --> 6in4["6in4 (manual)<br>Protocol 41"]
+    TUN --> 6to4["6to4<br>192.88.99.1"]
+    TUN --> TERO["Teredo<br>UDP 3544"]
     TUN --> GRE["GRE Tunnel"]
-    TUN --> YMAP["6rd<br/>Rapid Deployment"]
+    TUN --> YMAP["6rd<br>Rapid Deployment"]
 
     XLAT --> NAT64["NAT64/DNS64"]
-    XLAT --> SIIT["SIIT<br/>Stateless Translation"]
+    XLAT --> SIIT["SIIT<br>Stateless Translation"]
     XLAT --> MAP["MAP-E / MAP-T"]
 ```
 

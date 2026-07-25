@@ -39,14 +39,14 @@ Linux defines 64 signals on most architectures (31 standard + 33 real-time):
 ```mermaid
 graph TD
     subgraph "Signals by Source"
-        HW["Hardware-generated<br/>SIGFPE, SIGILL, SIGSEGV, SIGBUS"]
-        KERN["Kernel-generated<br/>SIGCHLD, SIGPIPE, SIGALRM"]
-        USER["User-generated<br/>SIGINT, SIGQUIT, SIGKILL, SIGTERM"]
-        JOB["Job control<br/>SIGTSTP, SIGTTIN, SIGTTOU, SIGCONT"]
+        HW["Hardware-generated<br>SIGFPE, SIGILL, SIGSEGV, SIGBUS"]
+        KERN["Kernel-generated<br>SIGCHLD, SIGPIPE, SIGALRM"]
+        USER["User-generated<br>SIGINT, SIGQUIT, SIGKILL, SIGTERM"]
+        JOB["Job control<br>SIGTSTP, SIGTTIN, SIGTTOU, SIGCONT"]
     end
     subgraph "By Behavior"
-        CATCH["Catchable<br/>(most signals)"]
-        NOCATCH["Uncatchable<br/>SIGKILL, SIGSTOP"]
+        CATCH["Catchable<br>(most signals)"]
+        NOCATCH["Uncatchable<br>SIGKILL, SIGSTOP"]
     end
     CATCH --> HANDLER["User handler"]
     NOCATCH --> KERNEL["Kernel default action"]
@@ -347,10 +347,10 @@ sequenceDiagram
     participant H as signal handler
     participant MT as malloc internals
 
-    M->>MT: malloc(100) — lock acquired
+    M->>MT: malloc(100) -- lock acquired
     Note over M: Signal arrives!
     M->>H: ← interrupt
-    H->>MT: malloc(200) — tries lock → DEADLOCK
+    H->>MT: malloc(200) -- tries lock → DEADLOCK
     Note over H: Hangs forever
 ```
 

@@ -562,10 +562,10 @@ The block I/O controller (blkcg) allows per-cgroup I/O bandwidth limiting, prior
 ```mermaid
 graph TD
     subgraph "blkcg Hierarchy"
-        ROOT["Root cgroup<br/>blkio root"]
-        CG1["cgroup: app1<br/>weight=500"]
-        CG2["cgroup: app2<br/>weight=200"]
-        CG3["cgroup: app3<br/>weight=300"]
+        ROOT["Root cgroup<br>blkio root"]
+        CG1["cgroup: app1<br>weight=500"]
+        CG2["cgroup: app2<br>weight=200"]
+        CG3["cgroup: app3<br>weight=300"]
     end
     subgraph "Block Devices"
         DEV1["/dev/sda"]

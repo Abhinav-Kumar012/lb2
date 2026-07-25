@@ -385,16 +385,16 @@ Key changes in `PREEMPT_RT`:
 ```mermaid
 graph TD
     subgraph "Priority 0-99 (Real-Time)"
-        DL["SCHED_DEADLINE<br/>(highest)"]
+        DL["SCHED_DEADLINE<br>(highest)"]
         RT99["RT 99"]
         RT50["RT 50"]
         RT1["RT 1"]
     end
 
     subgraph "Priority 100-139 (Normal)"
-        NICE_NEG20["nice -20<br/>(prio 100)"]
-        NICE_0["nice 0<br/>(prio 120)"]
-        NICE_19["nice 19<br/>(prio 139)"]
+        NICE_NEG20["nice -20<br>(prio 100)"]
+        NICE_0["nice 0<br>(prio 120)"]
+        NICE_19["nice 19<br>(prio 139)"]
     end
 
     subgraph "Priority 140 (Idle)"

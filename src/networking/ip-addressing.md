@@ -32,11 +32,11 @@ The original Internet addressing scheme divided IPv4 into five classes:
 ```mermaid
 graph TB
     subgraph "IPv4 Address Classes"
-        A["<b>Class A</b><br/>0.0.0.0 – 127.255.255.255<br/>Mask: /8 (255.0.0.0)<br/>16,777,214 hosts/network<br/>128 networks"]
-        B["<b>Class B</b><br/>128.0.0.0 – 191.255.255.255<br/>Mask: /16 (255.255.0.0)<br/>65,534 hosts/network<br/>16,384 networks"]
-        C["<b>Class C</b><br/>192.0.0.0 – 223.255.255.255<br/>Mask: /24 (255.255.255.0)<br/>254 hosts/network<br/>2,097,152 networks"]
-        D["<b>Class D (Multicast)</b><br/>224.0.0.0 – 239.255.255.255<br/>Not for host addressing"]
-        E["<b>Class E (Reserved)</b><br/>240.0.0.0 – 255.255.255.255<br/>Experimental"]
+        A["<b>Class A</b><br>0.0.0.0 - 127.255.255.255<br>Mask: /8 (255.0.0.0)<br>16,777,214 hosts/network<br>128 networks"]
+        B["<b>Class B</b><br>128.0.0.0 - 191.255.255.255<br>Mask: /16 (255.255.0.0)<br>65,534 hosts/network<br>16,384 networks"]
+        C["<b>Class C</b><br>192.0.0.0 - 223.255.255.255<br>Mask: /24 (255.255.255.0)<br>254 hosts/network<br>2,097,152 networks"]
+        D["<b>Class D (Multicast)</b><br>224.0.0.0 - 239.255.255.255<br>Not for host addressing"]
+        E["<b>Class E (Reserved)</b><br>240.0.0.0 - 255.255.255.255<br>Experimental"]
     end
 ```
 
@@ -111,10 +111,10 @@ Subnetting divides a large network into smaller, more manageable subnetworks. It
 
 ```mermaid
 graph TB
-    A["192.168.1.0/24<br/>256 addresses"] --> B["192.168.1.0/26<br/>Subnet 1<br/>62 hosts"]
-    A --> C["192.168.1.64/26<br/>Subnet 2<br/>62 hosts"]
-    A --> D["192.168.1.128/26<br/>Subnet 3<br/>62 hosts"]
-    A --> E["192.168.1.192/26<br/>Subnet 4<br/>62 hosts"]
+    A["192.168.1.0/24<br>256 addresses"] --> B["192.168.1.0/26<br>Subnet 1<br>62 hosts"]
+    A --> C["192.168.1.64/26<br>Subnet 2<br>62 hosts"]
+    A --> D["192.168.1.128/26<br>Subnet 3<br>62 hosts"]
+    A --> E["192.168.1.192/26<br>Subnet 4<br>62 hosts"]
 ```
 
 **Calculation:**
@@ -220,11 +220,11 @@ graph LR
     end
 
     subgraph "NAT Router"
-        NAT["iptables MASQUERADE<br/>or SNAT"]
+        NAT["iptables MASQUERADE<br>or SNAT"]
     end
 
     subgraph "Internet"
-        S1["Web Server<br/>93.184.216.34"]
+        S1["Web Server<br>93.184.216.34"]
     end
 
     H1 --> NAT
@@ -600,14 +600,14 @@ $ cat /proc/net/igmp
 
 ```mermaid
 flowchart LR
-    DHCP_DISCOVER["DHCP Discover<br/>(broadcast)"] --> DHCP_OFFER["DHCP Offer<br/>(server offers IP)"]
-    DHCP_OFFER --> DHCP_REQUEST["DHCP Request<br/>(client accepts)"]
-    DHCP_REQUEST --> DHCP_ACK["DHCP Ack<br/>(server confirms)"]
-    DHCP_ACK --> BOUND["Bound<br/>(IP in use)"]
-    BOUND --> RENEW["Renewal<br/>(T1 timer)"]
-    RENEW --> REBIND["Rebind<br/>(T2 timer)"]
+    DHCP_DISCOVER["DHCP Discover<br>(broadcast)"] --> DHCP_OFFER["DHCP Offer<br>(server offers IP)"]
+    DHCP_OFFER --> DHCP_REQUEST["DHCP Request<br>(client accepts)"]
+    DHCP_REQUEST --> DHCP_ACK["DHCP Ack<br>(server confirms)"]
+    DHCP_ACK --> BOUND["Bound<br>(IP in use)"]
+    BOUND --> RENEW["Renewal<br>(T1 timer)"]
+    RENEW --> REBIND["Rebind<br>(T2 timer)"]
     REBIND --> DHCP_REQUEST
-    BOUND --> RELEASE["Release<br/>(client releases IP)"]
+    BOUND --> RELEASE["Release<br>(client releases IP)"]
 ```
 
 **DHCP on Linux:**

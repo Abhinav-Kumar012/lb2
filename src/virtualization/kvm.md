@@ -76,7 +76,7 @@ stateDiagram-v2
     VMXOFF --> VMXON: VMXON instruction
     VMXON --> VMCS_LAUNCH: VMLAUNCH
     VMCS_LAUNCH --> GUEST_RUNNING: VM Entry
-    GUEST_RUNNING --> VMCS_LAUNCH: VM Exit (handle & resume)
+    GUEST_RUNNING --> VMCS_LAUNCH: VM Exit (handle &amp; resume)
     GUEST_RUNNING --> VMXOFF: VMXOFF instruction
     VMXOFF --> [*]
 ```
@@ -1033,11 +1033,11 @@ grep -c vmx /proc/cpuinfo  # Should show > 0
 flowchart TB
     subgraph L0_Host["L0 Host"]
         L0_KVM[KVM Module]
-        L0_VMCS[L0 VMCS — runs L1]
+        L0_VMCS[L0 VMCS -- runs L1]
     end
     subgraph L1_VM__Nested_Hypervisor["L1 VM (Nested Hypervisor)"]
         L1_KVM[KVM Module]
-        L1_VMCB[L1 Virtual VMCS — describes L2]
+        L1_VMCB[L1 Virtual VMCS -- describes L2]
         L1_VM[L2 VM]
         L1_KVM --> L1_VM
     end

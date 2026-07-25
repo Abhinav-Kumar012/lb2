@@ -13,10 +13,10 @@ graph TD
     Apps["Applications"] -->|"fprintf/syslog()"| Syslog["syslog API"]
     Kernel["Linux Kernel"] -->|"/dev/kmsg"| Journald["systemd-journald"]
     Syslog --> Journald
-    Journald --> Journal["Journal Files<br/>/var/log/journal/"]
+    Journald --> Journal["Journal Files<br>/var/log/journal/"]
     Journald -->|"ForwardToSyslog=yes"| Rsyslog["rsyslog"]
-    Rsyslog --> TextLogs["Text Log Files<br/>/var/log/"]
-    Rsyslog -->|"Remote"| Remote["Remote Syslog Server<br/>logstash, papertrail"]
+    Rsyslog --> TextLogs["Text Log Files<br>/var/log/"]
+    Rsyslog -->|"Remote"| Remote["Remote Syslog Server<br>logstash, papertrail"]
     Apps -->|"sd_journal_print()"| Journald
     
     style Journald fill:#3182ce,color:#fff
@@ -408,9 +408,9 @@ graph LR
         S2["DB Server"] -->|"rsyslog/fluentd"| LB
         S3["App Server"] -->|"rsyslog/fluentd"| LB
     end
-    LB --> ES["Elasticsearch<br/>Index & Search"]
-    ES --> Kibana["Kibana<br/>Visualization"]
-    LB -->|"Alert rules"| Alert["Alerting<br/>(PagerDuty, email)"]
+    LB --> ES["Elasticsearch<br>Index &amp; Search"]
+    ES --> Kibana["Kibana<br>Visualization"]
+    LB -->|"Alert rules"| Alert["Alerting<br>(PagerDuty, email)"]
     
     style ES fill:#3182ce,color:#fff
     style Kibana fill:#38a169,color:#fff

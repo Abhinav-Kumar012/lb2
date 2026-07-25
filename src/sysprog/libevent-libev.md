@@ -37,12 +37,12 @@ careful management of timers, signals, and edge cases. Event loop libraries abst
 ```mermaid
 graph TB
     subgraph "Application Layer"
-        APP["Application Code<br/>Callbacks & Handlers"]
+        APP["Application Code<br>Callbacks &amp; Handlers"]
     end
     subgraph "Event Library"
-        LOOP["Event Loop Core<br/>Timer heap + fd watcher"]
-        BACKEND["Backend Abstraction<br/>epoll / kqueue / poll / select"]
-        EXTRA["Extra Modules<br/>DNS, HTTP, SSL, filesystem"]
+        LOOP["Event Loop Core<br>Timer heap + fd watcher"]
+        BACKEND["Backend Abstraction<br>epoll / kqueue / poll / select"]
+        EXTRA["Extra Modules<br>DNS, HTTP, SSL, filesystem"]
     end
     subgraph "Kernel"
         EPOLL["epoll (Linux)"]
@@ -171,10 +171,10 @@ Key features:
 graph LR
     subgraph "libev Core"
         EV["ev_run() loop"]
-        IO["ev_io<br/>fd watchers"]
-        TIMER["ev_timer<br/>timeout watchers"]
-        SIG["ev_signal<br/>signal watchers"]
-        IDLE["ev_idle/prepare<br/>loop hooks"]
+        IO["ev_io<br>fd watchers"]
+        TIMER["ev_timer<br>timeout watchers"]
+        SIG["ev_signal<br>signal watchers"]
+        IDLE["ev_idle/prepare<br>loop hooks"]
     end
     EV --> IO
     EV --> TIMER
@@ -308,12 +308,12 @@ Key features:
 ```mermaid
 graph TB
     subgraph "libuv"
-        LOOP["Event Loop<br/>uv_run()"]
-        IO["Async I/O<br/>epoll/kqueue"]
-        FS["Filesystem<br/>threadpool"]
-        DNS["DNS<br/>threadpool"]
-        PROC["Process<br/>spawn/manage"]
-        THREAD["Thread Pool<br/>libuv workers"]
+        LOOP["Event Loop<br>uv_run()"]
+        IO["Async I/O<br>epoll/kqueue"]
+        FS["Filesystem<br>threadpool"]
+        DNS["DNS<br>threadpool"]
+        PROC["Process<br>spawn/manage"]
+        THREAD["Thread Pool<br>libuv workers"]
     end
     LOOP --> IO
     LOOP --> FS
@@ -554,13 +554,13 @@ Memory per idle connection (approximate):
 
 ```mermaid
 graph TD
-    START["Need an event loop?"] --> Q1{"Need async<br/>filesystem I/O?"}
+    START["Need an event loop?"] --> Q1{"Need async<br>filesystem I/O?"}
     Q1 -->|Yes| LIBUV["libuv"]
-    Q1 -->|No| Q2{"Need built-in<br/>HTTP/DNS?"}
+    Q1 -->|No| Q2{"Need built-in<br>HTTP/DNS?"}
     Q2 -->|Yes| LIBEVENT["libevent"]
-    Q2 -->|No| Q3{"Need maximum<br/>performance?"}
+    Q2 -->|No| Q3{"Need maximum<br>performance?"}
     Q3 -->|Yes| LIBEV["libev"]
-    Q3 -->|No| Q4{"Cross-platform<br/>Windows support?"}
+    Q3 -->|No| Q4{"Cross-platform<br>Windows support?"}
     Q4 -->|Yes| LIBUV
     Q4 -->|No| LIBEV
 
@@ -780,16 +780,16 @@ libuv's threadpool for filesystem operations:
 ```mermaid
 graph TD
     subgraph "libevent"
-        LE["Full-featured<br/>HTTP, DNS, SSL<br/>~200KB"]
+        LE["Full-featured<br>HTTP, DNS, SSL<br>~200KB"]
     end
     subgraph "libev"
-        LV["Minimal & fast<br/>Pure event loop<br/>~20KB"]
+        LV["Minimal &amp; fast<br>Pure event loop<br>~20KB"]
     end
     subgraph "libuv"
-        LU["Complete platform<br/>FS, DNS, threads<br/>~300KB"]
+        LU["Complete platform<br>FS, DNS, threads<br>~300KB"]
     end
-    LE ---|"Trade features<br/>for speed"| LV
-    LV ---|"Trade size<br/>for features"| LU
+    LE ---|"Trade features<br>for speed"| LV
+    LV ---|"Trade size<br>for features"| LU
     style LE fill:#3182ce,color:#fff
     style LV fill:#d69e2e,color:#000
     style LU fill:#38a169,color:#fff

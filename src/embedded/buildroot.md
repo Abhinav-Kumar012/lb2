@@ -327,7 +327,7 @@ BR2_ROOTFS_POST_IMAGE_SCRIPT="board/mycompany/myboard/post_image.sh"
 ```mermaid
 flowchart TD
     A[".config / menuconfig"] --> B["Download Sources"]
-    B --> C["Extract & Patch"]
+    B --> C["Extract &amp; Patch"]
     C --> D["Configure (./configure / cmake)"]
     D --> E["Cross-Compile"]
     E --> F["Install to staging/"]

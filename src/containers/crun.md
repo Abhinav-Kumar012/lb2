@@ -55,10 +55,10 @@ graph TB
         YOUKI["youki"]
     end
     subgraph "crun Internals"
-        LIBCRUN["libcrun<br/>C library"]
-        LINUX["linux.c<br/>namespace/cgroup setup"]
-        CONTAINER["container.c<br/>lifecycle management"]
-        WASM["wasm.c<br/>WebAssembly support"]
+        LIBCRUN["libcrun<br>C library"]
+        LINUX["linux.c<br>namespace/cgroup setup"]
+        CONTAINER["container.c<br>lifecycle management"]
+        WASM["wasm.c<br>WebAssembly support"]
     end
     subgraph "Kernel"
         NS["Namespaces"]
@@ -255,7 +255,7 @@ Time to create + start + delete an Alpine container (1000 iterations):
 graph LR
     subgraph "Container Lifecycle Time (ms)"
         direction TB
-        RUNC["runc: 68ms<br/>████████████████████████████████████"]
+        RUNC["runc: 68ms<br>████████████████████████████████████"]
         CRUN["crun: 20ms<br�██████████"]
     end
     style RUNC fill:#3182ce,color:#fff

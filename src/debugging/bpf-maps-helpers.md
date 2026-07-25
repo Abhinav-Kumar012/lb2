@@ -19,16 +19,16 @@ graph TD
         LIBBPF["libbpf"]
         BCC["BCC"]
         BPFTOOL["bpftool"]
-        APP["Application<br/>(BPF_MAP_* syscalls)"]
+        APP["Application<br>(BPF_MAP_* syscalls)"]
     end
     subgraph "Kernel Space"
-        MAP_CORE["map_create()<br/>(kernel/bpf/syscall.c)"]
-        MAP_OPS["map->ops<br/>(per-type operations)"]
+        MAP_CORE["map_create()<br>(kernel/bpf/syscall.c)"]
+        MAP_OPS["map->ops<br>(per-type operations)"]
         MAP_IMPL["Map Implementation"]
-        TYPES["Array | Hash | Ringbuf<br/>PerCPU | LRU | Bloom<br/>LPMTrie | SkStorage | ..."]
+        TYPES["Array | Hash | Ringbuf<br>PerCPU | LRU | Bloom<br>LPMTrie | SkStorage | ..."]
     end
     subgraph "BPF Program"
-        HELPER["bpf_map_lookup_elem()<br/>bpf_map_update_elem()<br/>bpf_map_delete_elem()"]
+        HELPER["bpf_map_lookup_elem()<br>bpf_map_update_elem()<br>bpf_map_delete_elem()"]
     end
     
     LIBBPF --> MAP_CORE
@@ -475,11 +475,11 @@ graph LR
         PROG["BPF code"]
     end
     subgraph "Kernel"
-        KFUNC["kfunc<br/>(EXPORT_SYMBOL_BTF)"]
+        KFUNC["kfunc<br>(EXPORT_SYMBOL_BTF)"]
         BTF["BTF info"]
-        VERIFIER["BPF Verifier<br/>(kfunc validation)"]
+        VERIFIER["BPF Verifier<br>(kfunc validation)"]
     end
-    PROG -->|"call via<br/>instruction"| KFUNC
+    PROG -->|"call via<br>instruction"| KFUNC
     BTF -->|"type info"| VERIFIER
     VERIFIER -->|"allowed?"| KFUNC
 ```
@@ -618,15 +618,15 @@ Format) information to adjust field accesses at load time, making programs porta
 ```mermaid
 graph LR
     subgraph "Build Time"
-        SRC["BPF Source<br/>(.bpf.c)"]
-        CLANG["Clang + BTF<br/>relocation records"]
-        OBJ["BPF Object<br/>(.bpf.o)"]
+        SRC["BPF Source<br>(.bpf.c)"]
+        CLANG["Clang + BTF<br>relocation records"]
+        OBJ["BPF Object<br>(.bpf.o)"]
     end
     subgraph "Load Time"
         LOADER["libbpf loader"]
-        VMLINUX["vmlinux BTF<br/>(/sys/kernel/btf/vmlinux)"]
-        RELOC["CO-RE<br/>relocations"]
-        JIT["JIT compiled<br/>BPF program"]
+        VMLINUX["vmlinux BTF<br>(/sys/kernel/btf/vmlinux)"]
+        RELOC["CO-RE<br>relocations"]
+        JIT["JIT compiled<br>BPF program"]
     end
     
     SRC --> CLANG

@@ -361,12 +361,12 @@ struct rw_semaphore {
 
 ```mermaid
 graph TD
-    Q1{"Can critical section<br/>sleep?"}
+    Q1{"Can critical section<br>sleep?"}
     Q1 -->|No| Q2{"Interrupt context?"}
     Q1 -->|Yes| RWSEM["Use rw_semaphore"]
-    Q2 -->|Yes| RWLOCK["Use rwlock_t<br/>with IRQ variants"]
-    Q2 -->|No| Q3{"Read-heavy<br/>and read-mostly?"}
-    Q3 -->|Yes| RCU["Consider RCU<br/>(if data rarely changes)"]
+    Q2 -->|Yes| RWLOCK["Use rwlock_t<br>with IRQ variants"]
+    Q2 -->|No| Q3{"Read-heavy<br>and read-mostly?"}
+    Q3 -->|Yes| RCU["Consider RCU<br>(if data rarely changes)"]
     Q3 -->|No| RWLOCK2["Use rwlock_t"]
     
     style RWLOCK fill:#3182ce,color:#fff

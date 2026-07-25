@@ -18,21 +18,21 @@ data structures, and subsystem logic that are not exposed to user space.
 ```mermaid
 graph TD
     subgraph "Development Machine"
-        KUNIT_TOOL["kunit.py<br/>(command-line harness)"]
-        QEMU["QEMU / UML<br/>(test runner)"]
+        KUNIT_TOOL["kunit.py<br>(command-line harness)"]
+        QEMU["QEMU / UML<br>(test runner)"]
     end
 
     subgraph "Kernel (under test)"
-        KUNIT_CORE["KUnit Core<br/>(lib/kunit/)"]
-        TEST_SUITE["Test Suites<br/>(kunit_suite)"]
-        TEST_CASE["Test Cases<br/>(kunit_case)"]
-        ASSERTIONS["Assertions<br/>(KUNIT_EXPECT_*, KUNIT_ASSERT_*)"]
-        KTAP["KTAP Output<br/>(/dev/kmsg or debugfs)"]
+        KUNIT_CORE["KUnit Core<br>(lib/kunit/)"]
+        TEST_SUITE["Test Suites<br>(kunit_suite)"]
+        TEST_CASE["Test Cases<br>(kunit_case)"]
+        ASSERTIONS["Assertions<br>(KUNIT_EXPECT_*, KUNIT_ASSERT_*)"]
+        KTAP["KTAP Output<br>(/dev/kmsg or debugfs)"]
     end
 
     subgraph "Test Types"
-        BUILTIN["Built-in tests<br/>(run at boot)"]
-        MODULE["Module tests<br/>(loadable)"]
+        BUILTIN["Built-in tests<br>(run at boot)"]
+        MODULE["Module tests<br>(loadable)"]
     end
 
     KUNIT_TOOL -->|"configures, builds, runs"| QEMU

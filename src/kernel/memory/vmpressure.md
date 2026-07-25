@@ -215,7 +215,7 @@ sequenceDiagram
     Kswapd->>VMP: vmpressure(scanned, reclaimed)
     VMP->>VMP: Accumulate tree_scanned, tree_reclaimed
     VMP->>VMP: Check window size
-    VMP->>WQ: schedule_work(&vmpr->work)
+    VMP->>WQ: schedule_work(&amp;vmpr->work)
     WQ->>WQ: vmpressure_work_fn()
     WQ->>WQ: Calculate pressure ratio
     WQ->>WQ: Determine level (low/medium/critical)
@@ -515,7 +515,7 @@ flowchart TD
     F -->|No| H["/proc/pressure/memory"]
     D --> I{Need per-cgroup?}
     I -->|Yes| J["memory.pressure_level (cgroup v1)"]
-    I -->|No| K[Not available — use /proc/meminfo polling]
+    I -->|No| K[Not available -- use /proc/meminfo polling]
 ```
 
 ---

@@ -21,21 +21,21 @@ graph TB
     subgraph "InfiniBand Network"
         subgraph "Subnet"
             subgraph "End Nodes"
-                HCA1["HCA (Host Channel Adapter)<br/>Compute Node 1"]
-                HCA2["HCA (Host Channel Adapter)<br/>Compute Node 2"]
-                HCA3["HCA (Host Channel Adapter)<br/>Storage Node"]
+                HCA1["HCA (Host Channel Adapter)<br>Compute Node 1"]
+                HCA2["HCA (Host Channel Adapter)<br>Compute Node 2"]
+                HCA3["HCA (Host Channel Adapter)<br>Storage Node"]
             end
             subgraph "Switches"
-                SW1["IB Switch<br/>(Leaf/Spine)"]
-                SW2["IB Switch<br/>(Spine)"]
+                SW1["IB Switch<br>(Leaf/Spine)"]
+                SW2["IB Switch<br>(Spine)"]
             end
             subgraph "Subnet Management"
-                SM["Subnet Manager<br/>(OpenSM)"]
+                SM["Subnet Manager<br>(OpenSM)"]
                 SA["Subnet Administration"]
             end
         end
         subgraph "Router"
-            RTR["IB Router<br/>(Connects subnets)"]
+            RTR["IB Router<br>(Connects subnets)"]
         end
     end
 
@@ -154,8 +154,8 @@ graph TB
         IBV["libibverbs (Verbs API)"]
     end
     subgraph "Kernel"
-        IB_CORE["IB Core<br/>drivers/infiniband/core/"]
-        RDMA_SUB["RDMA Subsystem<br/>drivers/rdma/"]
+        IB_CORE["IB Core<br>drivers/infiniband/core/"]
+        RDMA_SUB["RDMA Subsystem<br>drivers/rdma/"]
         subgraph "Hardware Drivers"
             MLX5["mlx5_ib (ConnectX-4/5/6/7)"]
             MLX4["mlx4_ib (ConnectX-3)"]

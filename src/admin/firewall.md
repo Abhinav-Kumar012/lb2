@@ -18,16 +18,16 @@ All Linux firewalls are built on **Netfilter**, a kernel framework that provides
 
 ```mermaid
 graph TD
-    IN["Network Interface<br/>(packet arrives)"] --> PREROUTING["PREROUTING<br/>(DNAT, connection tracking)"]
-    PREROUTING --> ROUTE1{"Route decision<br/>local or forward?"}
-    ROUTE1 -->|"Local delivery"| INPUT["INPUT<br/>(filter for local process)"]
-    ROUTE1 -->|"Forward"| FORWARD["FORWARD<br/>(filter forwarded packets)"]
+    IN["Network Interface<br>(packet arrives)"] --> PREROUTING["PREROUTING<br>(DNAT, connection tracking)"]
+    PREROUTING --> ROUTE1{"Route decision<br>local or forward?"}
+    ROUTE1 -->|"Local delivery"| INPUT["INPUT<br>(filter for local process)"]
+    ROUTE1 -->|"Forward"| FORWARD["FORWARD<br>(filter forwarded packets)"]
     INPUT --> LOCAL["Local Process"]
-    LOCAL --> OUTPUT["OUTPUT<br/>(filter locally generated)"]
+    LOCAL --> OUTPUT["OUTPUT<br>(filter locally generated)"]
     OUTPUT --> ROUTE2{"Route decision"}
-    FORWARD --> POSTROUTING["POSTROUTING<br/>(SNAT, MASQUERADE)"]
+    FORWARD --> POSTROUTING["POSTROUTING<br>(SNAT, MASQUERADE)"]
     ROUTE2 --> POSTROUTING
-    POSTROUTING --> OUT["Network Interface<br/>(packet leaves)"]
+    POSTROUTING --> OUT["Network Interface<br>(packet leaves)"]
     
     style PREROUTING fill:#e53e3e,color:#fff
     style INPUT fill:#3182ce,color:#fff

@@ -291,7 +291,7 @@ sequenceDiagram
     Note over TL: Both CPUs want to run it
     
     CPU0->>TL: Runs tasklet on CPU 0
-    Note over CPU1: Cannot run — waits
+    Note over CPU1: Cannot run -- waits
     
     TL-->>CPU0: Complete
     CPU1->>TL: Now runs on CPU 1
@@ -604,12 +604,12 @@ The PREEMPT_RT patchset converts most interrupt handlers to kernel threads:
 ```mermaid
 graph TD
     subgraph "Standard Kernel"
-        HW1[Hardware IRQ] --> TOP1[Top Half — hardirq context]
-        TOP1 --> BH1[Bottom Half — softirq context]
+        HW1[Hardware IRQ] --> TOP1[Top Half -- hardirq context]
+        TOP1 --> BH1[Bottom Half -- softirq context]
     end
     subgraph "PREEMPT_RT Kernel"
         HW2[Hardware IRQ] --> THREADED[Threaded IRQ Handler]
-        THREADED --> KTHREAD[Kernel Thread — schedulable]
+        THREADED --> KTHREAD[Kernel Thread -- schedulable]
     end
 ```
 

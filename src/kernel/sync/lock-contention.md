@@ -17,23 +17,23 @@ Understanding lock contention is critical because:
 ```mermaid
 graph TD
     subgraph "Spinlock Family"
-        SPINLOCK["spinlock_t<br/>Busy-wait, non-sleepable"]
-        RAW_SPINLOCK["raw_spinlock_t<br/>No RT preemption"]
-        RWLOCK["rwlock_t<br/>Read-write spinlock"]
+        SPINLOCK["spinlock_t<br>Busy-wait, non-sleepable"]
+        RAW_SPINLOCK["raw_spinlock_t<br>No RT preemption"]
+        RWLOCK["rwlock_t<br>Read-write spinlock"]
     end
     subgraph "Sleeping Locks"
-        MUTEX["struct mutex<br/>Sleep, single-owner"]
-        SEMAPHORE["struct semaphore<br/>Sleep, count-based"]
-        RWSEM["struct rw_semaphore<br/>Read-write sleeping lock"]
+        MUTEX["struct mutex<br>Sleep, single-owner"]
+        SEMAPHORE["struct semaphore<br>Sleep, count-based"]
+        RWSEM["struct rw_semaphore<br>Read-write sleeping lock"]
     end
     subgraph "Special"
-        RCU["RCU<br/>Read-mostly, no locks"]
-        PERCPU["Per-CPU variables<br/>No sharing"]
-        SEQLOCK["seqlock_t<br/>Optimistic reads"]
+        RCU["RCU<br>Read-mostly, no locks"]
+        PERCPU["Per-CPU variables<br>No sharing"]
+        SEQLOCK["seqlock_t<br>Optimistic reads"]
     end
 
-    SPINLOCK -->|"contention"| BUSY["Busy-wait<br/>wastes CPU cycles"]
-    MUTEX -->|"contention"| SLEEP["Sleep<br/>context switch cost"]
+    SPINLOCK -->|"contention"| BUSY["Busy-wait<br>wastes CPU cycles"]
+    MUTEX -->|"contention"| SLEEP["Sleep<br>context switch cost"]
 
     style SPINLOCK fill:#e53e3e,color:#fff
     style MUTEX fill:#3182ce,color:#fff
@@ -96,9 +96,9 @@ lock_stat version 0.4
 
 ```mermaid
 graph LR
-    HIGH["High contentions<br/>+ High waittime"] -->|"Problem"| HOT["Hot lock<br/>Needs mitigation"]
-    LOW["Low contentions<br/>+ Low waittime"] -->|"OK"| FINE["Acceptable"]
-    MED["Medium contentions<br/>+ High holdtime"] -->|"Problem"| LONG["Long critical section<br/>Reduce hold time"]
+    HIGH["High contentions<br>+ High waittime"] -->|"Problem"| HOT["Hot lock<br>Needs mitigation"]
+    LOW["Low contentions<br>+ Low waittime"] -->|"OK"| FINE["Acceptable"]
+    MED["Medium contentions<br>+ High holdtime"] -->|"Problem"| LONG["Long critical section<br>Reduce hold time"]
 
     style HOT fill:#e53e3e,color:#fff
     style FINE fill:#38a169,color:#fff
@@ -218,7 +218,7 @@ sequenceDiagram
     GlobalLock-->>CPU1: granted
     CPU1->>GlobalLock: release()
     GlobalLock-->>CPU2: granted
-    Note over CPU0,CPU3: Serialized execution —<br/>only 1 CPU works at a time
+    Note over CPU0,CPU3: Serialized execution --<br>only 1 CPU works at a time
 ```
 
 **Solution: Per-CPU or per-node data structures**
@@ -244,7 +244,7 @@ void update_stats(int value)
 
 ```mermaid
 graph TD
-    RW["rw_semaphore<br/>1000 readers, 100 writers/sec"] --> PROBLEM["Writers starve readers<br/>Readers block on writer"]
+    RW["rw_semaphore<br>1000 readers, 100 writers/sec"] --> PROBLEM["Writers starve readers<br>Readers block on writer"]
     PROBLEM --> SOL1["Solution 1: RCU for reads"]
     PROBLEM --> SOL2["Solution 2: Reduce write frequency"]
     PROBLEM --> SOL3["Solution 3: Per-CPU counters"]
@@ -445,10 +445,10 @@ void writer(struct data new_data)
 ```mermaid
 graph TD
     subgraph "MCS Lock Chain"
-        T0["Thread 0<br/>(lock holder)"]
-        T1["Thread 1<br/>→ spins on own node"]
-        T2["Thread 2<br/>→ spins on own node"]
-        T3["Thread 3<br/>→ spins on own node"]
+        T0["Thread 0<br>(lock holder)"]
+        T1["Thread 1<br>→ spins on own node"]
+        T2["Thread 2<br>→ spins on own node"]
+        T3["Thread 3<br>→ spins on own node"]
     end
     T0 -->|"next"| T1
     T1 -->|"next"| T2

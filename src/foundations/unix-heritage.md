@@ -412,7 +412,7 @@ In practice, most people say "Linux" when referring to the operating system and 
 
 ```mermaid
 graph TD
-    ATT["AT&T Unix (1969)"]
+    ATT["AT&amp;T Unix (1969)"]
     ATT --> V7["Unix V7 (1979)"]
     ATT --> SVR4["System V Release 4 (1988)"]
 

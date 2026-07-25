@@ -82,18 +82,18 @@ static const struct sched_class fair_sched_class __section("__sched_classes") = 
 
 ```mermaid
 graph TD
-    SCHED[Scheduler] --> CFS["Completely Fair Scheduler<br/>SCHED_NORMAL"]
-    SCHED --> RT["Real-Time Scheduler<br/>SCHED_FIFO, SCHED_RR"]
-    SCHED --> DL["Deadline Scheduler<br/>SCHED_DEADLINE"]
-    SCHED --> IDLE["Idle Scheduler<br/>SCHED_IDLE"]
+    SCHED[Scheduler] --> CFS["Completely Fair Scheduler<br>SCHED_NORMAL"]
+    SCHED --> RT["Real-Time Scheduler<br>SCHED_FIFO, SCHED_RR"]
+    SCHED --> DL["Deadline Scheduler<br>SCHED_DEADLINE"]
+    SCHED --> IDLE["Idle Scheduler<br>SCHED_IDLE"]
     
     CFS -->|default for| USERS[User processes]
     RT -->|for| AUDIO[Audio, Industrial]
     DL -->|for| MEDIA[Media processing]
     
-    CFS --> RB["Red-Black Tree<br/>O(log n) scheduling"]
-    RT --> BITMAP["Priority Bitmap<br/>O(1) scheduling"]
-    DL --> RBPLUS["Red-Black Tree<br/>Earliest Deadline"]
+    CFS --> RB["Red-Black Tree<br>O(log n) scheduling"]
+    RT --> BITMAP["Priority Bitmap<br>O(1) scheduling"]
+    DL --> RBPLUS["Red-Black Tree<br>Earliest Deadline"]
     
     style SCHED fill:#f96,stroke:#333,stroke-width:2px
 ```
@@ -577,7 +577,7 @@ graph LR
     FS[Filesystems] --> BLOCK[Block Layer]
     FS --> MM
     VIRT[KVM] --> ARCH[Architecture]
-    DRIVERS[Drivers] --> BUS["Bus subsystems<br/>PCI, USB, I2C"]
+    DRIVERS[Drivers] --> BUS["Bus subsystems<br>PCI, USB, I2C"]
     SECURITY[Security] --> FS
     SECURITY --> NET
     CRYPTO[Crypto] --> NET

@@ -93,11 +93,11 @@ sequenceDiagram
     participant IRQ as Hard IRQ
     participant Lock
 
-    CPU0->>Lock: spin_lock(&shared_lock) ✓
+    CPU0->>Lock: spin_lock(&amp;shared_lock) ✓
     Note over CPU0: Working with shared data...
     IRQ->>CPU0: Hardware interrupt fires!
-    IRQ->>Lock: spin_lock(&shared_lock) → SPINS FOREVER
-    Note over CPU0,Lock: DEADLOCK — IRQ waits for lock held by interrupted code on same CPU
+    IRQ->>Lock: spin_lock(&amp;shared_lock) → SPINS FOREVER
+    Note over CPU0,Lock: DEADLOCK -- IRQ waits for lock held by interrupted code on same CPU
 ```
 
 ### spin_lock_irqsave / spin_unlock_irqrestore
@@ -243,7 +243,7 @@ graph TD
         CPU0_TAS[CPU0 spins]
         CPU1_TAS[CPU1 spins]
         CPU2_TAS[CPU2 spins]
-        CacheLine_TAS[Shared cache line — bottleneck!]
+        CacheLine_TAS[Shared cache line -- bottleneck!]
         CPU0_TAS --> CacheLine_TAS
         CPU1_TAS --> CacheLine_TAS
         CPU2_TAS --> CacheLine_TAS

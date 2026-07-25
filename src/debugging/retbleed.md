@@ -11,19 +11,19 @@ Retbleed is particularly significant because it **bypasses retpoline**, the stan
 ```mermaid
 graph TD
     subgraph "Phase 1: Attacker Preparation"
-        A1["Attacker process<br/>runs on same CPU core"]
-        A2["Executes many 'call'<br/>instructions to fill RSB"]
-        A3["RSB now contains<br/>attacker-controlled addresses"]
+        A1["Attacker process<br>runs on same CPU core"]
+        A2["Executes many 'call'<br>instructions to fill RSB"]
+        A3["RSB now contains<br>attacker-controlled addresses"]
     end
     subgraph "Phase 2: Context Switch"
-        B1["Scheduler switches<br/>to victim (kernel)"]
-        B2["RSB is NOT cleared<br/>(per-core, not per-process)"]
+        B1["Scheduler switches<br>to victim (kernel)"]
+        B2["RSB is NOT cleared<br>(per-core, not per-process)"]
     end
     subgraph "Phase 3: Speculative Execution"
         C1["Victim executes 'ret'"]
-        C2["CPU speculatively jumps<br/>to attacker's RSB entry"]
-        C3["Speculative code accesses<br/>secret data"]
-        C4["Secret data leaves<br/>cache side-channel"]
+        C2["CPU speculatively jumps<br>to attacker's RSB entry"]
+        C3["Speculative code accesses<br>secret data"]
+        C4["Secret data leaves<br>cache side-channel"]
     end
     subgraph "Phase 4: Data Exfiltration"
         D1["Attacker regains CPU"]
@@ -53,14 +53,14 @@ The RSB (also called RAS — Return Address Stack) is a small hardware stack tha
 graph LR
     subgraph "Return Stack Buffer (RSB)"
         direction TB
-        R1["Entry 0: 0xffffffff81001234<br/>(kernel return addr)"]
-        R2["Entry 1: 0x7fff56789abc<br/>(user return addr)"]
-        R3["Entry 2: 0xffffffff81005678<br/>(kernel return addr)"]
+        R1["Entry 0: 0xffffffff81001234<br>(kernel return addr)"]
+        R2["Entry 1: 0x7fff56789abc<br>(user return addr)"]
+        R3["Entry 2: 0xffffffff81005678<br>(kernel return addr)"]
         R4["Entry 3: ..."]
     end
     subgraph "Key Properties"
         P1["Per-core, NOT per-process"]
-        P2["Not flushed on context switch<br/>(on most CPUs)"]
+        P2["Not flushed on context switch<br>(on most CPUs)"]
         P3["Typically 16-32 entries deep"]
     end
     R1 --> R2 --> R3 --> R4
@@ -271,15 +271,15 @@ graph TD
     BOOT["Boot: detect CPU"] --> DETECT{"CPU Vendor?"}
     DETECT -->|AMD| AMD{"Zen generation?"}
     DETECT -->|Intel| INTEL{"Generation?"}
-    DETECT -->|Hygon| HYGON["IBPB on kernel entry<br/>+ RSB fill"]
+    DETECT -->|Hygon| HYGON["IBPB on kernel entry<br>+ RSB fill"]
 
-    AMD -->|Zen 1/2| AMD_OLD["Unreturn thunk<br/>+ IBPB on kernel entry<br/>+ RSB fill"]
-    AMD -->|Zen 3+| AMD_NEW["None needed<br/>(hardware mitigation)"]
+    AMD -->|Zen 1/2| AMD_OLD["Unreturn thunk<br>+ IBPB on kernel entry<br>+ RSB fill"]
+    AMD -->|Zen 3+| AMD_NEW["None needed<br>(hardware mitigation)"]
 
-    INTEL -->|Pre-Skylake| INTEL_OLD["Retpoline<br/>+ RSB fill"]
+    INTEL -->|Pre-Skylake| INTEL_OLD["Retpoline<br>+ RSB fill"]
     INTEL -->|Skylake+| INTEL_SKL{"eIBRS available?"}
-    INTEL_SKL -->|Yes| INTEL_EIBRS["eIBRS<br/>(hardware)"]
-    INTEL_SKL -->|No| INTEL_IBRS["IBRS<br/>(software)"]
+    INTEL_SKL -->|Yes| INTEL_EIBRS["eIBRS<br>(hardware)"]
+    INTEL_SKL -->|No| INTEL_IBRS["IBRS<br>(software)"]
 ```
 
 ## Kernel Configuration
@@ -507,13 +507,13 @@ grep -E "RETPOLINE|MITIGATION" /boot/config-$(uname -r)
 
 ```mermaid
 graph TD
-    SPECTRE_V2["CVE-2017-5715<br/>Spectre v2<br/>(indirect branch)"] --> RETPOLINE["Retpoline<br/>mitigation"]
-    RETPOLINE --> RETBLEED["CVE-2022-29900/1<br/>Retbleed<br/>(return instruction)"]
-    RETBLEED --> IBPB["IBPB<br/>mitigation"]
-    RETBLEED --> UNRETURN["Unreturn thunk<br/>mitigation"]
-    RETBLEED --> INCEPTION["CVE-2023-20569<br/>Inception<br/>(Zen 3/4)"]
-    SPECTRE_V2 --> SPECTRE_V1["CVE-2017-5753<br/>Spectre v1<br/>(bounds check)"]
-    SPECTRE_V2 --> MELTDOWN["CVE-2017-5754<br/>Meltdown<br/>(out-of-order)"]
+    SPECTRE_V2["CVE-2017-5715<br>Spectre v2<br>(indirect branch)"] --> RETPOLINE["Retpoline<br>mitigation"]
+    RETPOLINE --> RETBLEED["CVE-2022-29900/1<br>Retbleed<br>(return instruction)"]
+    RETBLEED --> IBPB["IBPB<br>mitigation"]
+    RETBLEED --> UNRETURN["Unreturn thunk<br>mitigation"]
+    RETBLEED --> INCEPTION["CVE-2023-20569<br>Inception<br>(Zen 3/4)"]
+    SPECTRE_V2 --> SPECTRE_V1["CVE-2017-5753<br>Spectre v1<br>(bounds check)"]
+    SPECTRE_V2 --> MELTDOWN["CVE-2017-5754<br>Meltdown<br>(out-of-order)"]
 ```
 
 ## The Story Behind Retbleed

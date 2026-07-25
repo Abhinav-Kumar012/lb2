@@ -611,7 +611,7 @@ When the CPU scheduler has no runnable tasks for a CPU, the special "idle" task 
 
 ```mermaid
 flowchart TD
-    A[CPU idle — no tasks] --> B[Governor selects idle state]
+    A[CPU idle -- no tasks] --> B[Governor selects idle state]
     B --> C[Driver enters idle state]
     C --> D[Hardware in low-power state]
     D --> E["Wakeup event (timer, interrupt)"]

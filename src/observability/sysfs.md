@@ -32,9 +32,9 @@ ls /sys/
 ```mermaid
 graph TB
     subgraph "Virtual Filesystems"
-        SYSFS["/sys<br/>Device model<br/>Hardware attributes<br/>Driver bindings"]
-        PROCFS["/proc<br/>Process info<br/>System stats<br/>Kernel params"]
-        DEVTMPFS["/dev<br/>Device nodes<br/>Block/char devices<br/>Access via major:minor"]
+        SYSFS["/sys<br>Device model<br>Hardware attributes<br>Driver bindings"]
+        PROCFS["/proc<br>Process info<br>System stats<br>Kernel params"]
+        DEVTMPFS["/dev<br>Device nodes<br>Block/char devices<br>Access via major:minor"]
     end
 
     SYSFS -->|"Device state"| KERNEL["Linux Kernel"]

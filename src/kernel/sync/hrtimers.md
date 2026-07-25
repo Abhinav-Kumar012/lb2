@@ -24,15 +24,15 @@ graph TD
     end
 
     subgraph "hrtimer Subsystem"
-        CLOCK_BASES["hrtimer_clock_base[]<br/>(MONOTONIC, REALTIME, BOOTTIME, TAI)"]
-        RB_TREE["Red-Black Tree<br/>(sorted by expiry)"]
+        CLOCK_BASES["hrtimer_clock_base[]<br>(MONOTONIC, REALTIME, BOOTTIME, TAI)"]
+        RB_TREE["Red-Black Tree<br>(sorted by expiry)"]
         HRTIMER["struct hrtimer"]
         CALLBACK["hrtimer callback function"]
     end
 
     subgraph "Clock Event Device"
-        CLOCK_EVT["clock_event_device<br/>(hardware timer)"]
-        TICK_EVT["tick_sched<br/>(tick emulation)"]
+        CLOCK_EVT["clock_event_device<br>(hardware timer)"]
+        TICK_EVT["tick_sched<br>(tick emulation)"]
     end
 
     subgraph "Hardware"

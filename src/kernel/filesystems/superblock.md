@@ -177,8 +177,8 @@ sequenceDiagram
     U->>VFS: umount("/mnt/data")
     VFS->>VFS: Check for busy inodes/dentries
     VFS->>SB: s_active decremented
-    SB->>FS: sync_fs(sb, 1) — flush all dirty data
-    SB->>FS: put_super(sb) — release FS-specific info
+    SB->>FS: sync_fs(sb, 1) -- flush all dirty data
+    SB->>FS: put_super(sb) -- release FS-specific info
     SB->>VFS: Free s_fs_info, block device
     SB->>VFS: Remove from super_blocks list
     VFS->>U: Success

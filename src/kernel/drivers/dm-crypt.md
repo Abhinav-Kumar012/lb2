@@ -331,12 +331,12 @@ systemd-cryptenroll /dev/sda1 --pkcs11-token-uri=auto
 ```mermaid
 flowchart TD
     subgraph Attacks["dm-crypt Attack Surface"]
-        COLD["Cold boot attack<br/>(RAM freeze + read)"]
-        EVIL["Evil maid attack<br/>(modify boot chain)"]
-        DMA["DMA attack<br/>(Thunderbolt, FireWire)"]
-        TIMING["Timing side-channel<br/>(IV reuse patterns)"]
-        SUSPEND["Suspend-to-RAM<br/>(LUKS wipe bug CVE-2024)"]
-        KEY_LEAK["Key material leak<br/>(core dump, swap)"]
+        COLD["Cold boot attack<br>(RAM freeze + read)"]
+        EVIL["Evil maid attack<br>(modify boot chain)"]
+        DMA["DMA attack<br>(Thunderbolt, FireWire)"]
+        TIMING["Timing side-channel<br>(IV reuse patterns)"]
+        SUSPEND["Suspend-to-RAM<br>(LUKS wipe bug CVE-2024)"]
+        KEY_LEAK["Key material leak<br>(core dump, swap)"]
     end
 
     subgraph Mitigations["Mitigations"]
@@ -515,8 +515,8 @@ static struct target_type crypt_target = {
 ```mermaid
 flowchart TD
     subgraph WQ["dm-crypt Workqueues"]
-        IOQ["io_queue<br/>(I/O submission)"]
-        CQ["crypt_queue<br/>(per-CPU encryption)"]
+        IOQ["io_queue<br>(I/O submission)"]
+        CQ["crypt_queue<br>(per-CPU encryption)"]
     end
 
     BIO["Incoming bio"] --> IOQ

@@ -777,7 +777,7 @@ graph TB
     end
 
     subgraph "FFI Layer (bindgen)"
-        BINDINGS["kernel::bindings<br/>(auto-generated)"]
+        BINDINGS["kernel::bindings<br>(auto-generated)"]
     end
 
     subgraph "Kernel C APIs"

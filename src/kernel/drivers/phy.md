@@ -398,9 +398,9 @@ graph LR
         USB["USB 2.0/3.0"]
     end
     subgraph "Alt Modes"
-        USB_MODE["USB Mode<br/>SS TX/RX"]
-        DP_MODE["DisplayPort<br/>4 lanes"]
-        TB_MODE["Thunderbolt<br/>4 lanes"]
+        USB_MODE["USB Mode<br>SS TX/RX"]
+        DP_MODE["DisplayPort<br>4 lanes"]
+        TB_MODE["Thunderbolt<br>4 lanes"]
     end
     USB_MODE --> USB
     DP_MODE --> DP

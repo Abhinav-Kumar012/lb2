@@ -52,13 +52,13 @@ graph TB
         CP[Checkpoint]
         SIT["SIT (Segment Info Table)"]
         SSA["SSA (Segment Summary Area)"]
-        subgraph "Main Area — Six Logs"
-            HOT_NODE["Hot Node Log<br/>Frequently updated inodes"]
-            WARM_NODE["Warm Node Log<br/>Normal inodes"]
-            COLD_NODE["Cold Node Log<br/>Rarely updated inodes"]
-            HOT_DATA["Hot Data Log<br/>Directory data"]
-            WARM_DATA["Warm Data Log<br/>Regular file data"]
-            COLD_DATA["Cold Data Log<br/>Multimedia, logs"]
+        subgraph "Main Area -- Six Logs"
+            HOT_NODE["Hot Node Log<br>Frequently updated inodes"]
+            WARM_NODE["Warm Node Log<br>Normal inodes"]
+            COLD_NODE["Cold Node Log<br>Rarely updated inodes"]
+            HOT_DATA["Hot Data Log<br>Directory data"]
+            WARM_DATA["Warm Data Log<br>Regular file data"]
+            COLD_DATA["Cold Data Log<br>Multimedia, logs"]
         end
     end
 ```
@@ -214,7 +214,7 @@ sequenceDiagram
     FS->>LOG: Write new data blocks
     FS->>LOG: Write node blocks (inodes)
     FS->>CP: Write checkpoint (atomic update)
-    Note over CP: Checkpoint includes:<br/>- Next free segment<br/>- Valid block counts<br/>- NAT/SIT root pointers<br/>- CRC32 for integrity
+    Note over CP: Checkpoint includes:<br>- Next free segment<br>- Valid block counts<br>- NAT/SIT root pointers<br>- CRC32 for integrity
 
     alt Crash before checkpoint
         Note over FS: Roll back to previous checkpoint
@@ -254,7 +254,7 @@ F2FS supports two victim selection policies:
 ```mermaid
 graph TD
     A[Select victim segment] --> B{Selection policy}
-    B -->|Cost-benefit| C["Segment with most garbage<br/>and least valid blocks"]
+    B -->|Cost-benefit| C["Segment with most garbage<br>and least valid blocks"]
     B -->|Greedy| D[Segment with most garbage]
     C --> E[Read valid blocks from victim]
     D --> E

@@ -41,12 +41,12 @@ duration timing. It works by:
 ```mermaid
 graph TD
     subgraph "function_graph Tracer Flow"
-        A["Function Entry<br/>graph_ent_handler()"] --> B["Push return address<br/>onto per-CPU stack"]
-        B --> C["Replace return address<br/>with graph_ret_handler()"]
+        A["Function Entry<br>graph_ent_handler()"] --> B["Push return address<br>onto per-CPU stack"]
+        B --> C["Replace return address<br>with graph_ret_handler()"]
         C --> D["Execute original function"]
-        D --> E["Function returns to<br/>graph_ret_handler()"]
-        E --> F["Record duration<br/>Pop return stack"]
-        F --> G["Jump to real<br/>return address"]
+        D --> E["Function returns to<br>graph_ret_handler()"]
+        E --> F["Record duration<br>Pop return stack"]
+        F --> G["Jump to real<br>return address"]
     end
 ```
 
@@ -174,11 +174,11 @@ reduces overhead for high-frequency events.
 ```mermaid
 graph LR
     subgraph "Histogram Trigger Pipeline"
-        E["Tracepoint Event"] --> F["Filter<br/>(optional)"]
-        F --> H["Histogram<br/>Accumulator"]
+        E["Tracepoint Event"] --> F["Filter<br>(optional)"]
+        F --> H["Histogram<br>Accumulator"]
         H --> K["Key: field(s)"]
         H --> V["Value: count/sum/min/max"]
-        K --> OUT["/sys/kernel/tracing/<br/>events/.../hist"]
+        K --> OUT["/sys/kernel/tracing/<br>events/.../hist"]
     end
 ```
 
@@ -400,10 +400,10 @@ own ring buffer, set of events, and tracer configuration.
 ```mermaid
 graph TD
     subgraph "Trace Instances Architecture"
-        ROOT["Root Instance<br/>/sys/kernel/tracing"]
-        I1["Instance 1<br/>instances/network"]
-        I2["Instance 2<br/>instances/io"]
-        I3["Instance 3<br/>instances/sched"]
+        ROOT["Root Instance<br>/sys/kernel/tracing"]
+        I1["Instance 1<br>instances/network"]
+        I2["Instance 2<br>instances/io"]
+        I3["Instance 3<br>instances/sched"]
         
         B0["Root Ring Buffer"]
         B1["Ring Buffer 1"]

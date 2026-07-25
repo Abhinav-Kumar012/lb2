@@ -15,10 +15,10 @@ OverlayFS uses three directories on the underlying filesystem:
 ```mermaid
 graph TB
     subgraph "OverlayFS Mount (/merged)"
-        M["Merged View<br/>read-write"]
+        M["Merged View<br>read-write"]
     end
     subgraph "Upper Layer (read-write)"
-        U["upper/<br/>Only modified/new files"]
+        U["upper/<br>Only modified/new files"]
     end
     subgraph "Lower Layer(s) (read-only)"
         L1["lower1/ (base)"]
@@ -26,7 +26,7 @@ graph TB
         L3["lower3/ (optional overlay)"]
     end
     subgraph "Work Directory"
-        W["work/<br/>Temporary state for atomic operations"]
+        W["work/<br>Temporary state for atomic operations"]
     end
 
     M --> U
@@ -124,7 +124,7 @@ sequenceDiagram
     OFS->>Lower: Find "data.txt" in lower
     Lower-->>OFS: Found (with metadata)
     OFS->>Upper: Copy-up: create "data.txt" in upper
-    Note over Upper: Full file data copied<br/>Metadata copied (uid, gid, mode, xattrs)
+    Note over Upper: Full file data copied<br>Metadata copied (uid, gid, mode, xattrs)
     OFS->>Upper: Apply write to upper copy
     Upper-->>OFS: Write complete
     OFS-->>App: Write success

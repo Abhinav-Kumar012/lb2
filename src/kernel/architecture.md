@@ -370,10 +370,10 @@ graph TB
     end
 
     subgraph "VFS Layer"
-        INODE[inode — file metadata]
-        DENTRY[dentry — directory entry cache]
-        FILE[struct file — open file instance]
-        SB[super_block — filesystem instance]
+        INODE[inode -- file metadata]
+        DENTRY[dentry -- directory entry cache]
+        FILE[struct file -- open file instance]
+        SB[super_block -- filesystem instance]
     end
 
     subgraph "Filesystem Implementations"
@@ -385,7 +385,7 @@ graph TB
     end
 
     subgraph "Block Layer"
-        BIO[bio — block I/O request]
+        BIO[bio -- block I/O request]
         BDI[backing_dev_info]
         IOSCHED[I/O Scheduler]
     end
@@ -542,9 +542,9 @@ The Linux device model provides a unified view of all devices through **sysfs**:
 ```mermaid
 graph TB
     subgraph "Device Model Core"
-        KOBJ[kobject — reference-counted object]
-        KSET[kset — collection of kobjects]
-        KTYPE[ktype — object type operations]
+        KOBJ[kobject -- reference-counted object]
+        KSET[kset -- collection of kobjects]
+        KTYPE[ktype -- object type operations]
     end
 
     subgraph "Bus / Device / Driver Model"
@@ -617,14 +617,14 @@ graph TB
 
     subgraph "Top Half (Hard IRQ)"
         DESC[irq_desc]
-        HANDLER[irq handler — quick acknowledgment]
+        HANDLER[irq handler -- quick acknowledgment]
         ACK[Disable/acknowledge IRQ]
     end
 
     subgraph "Bottom Half Mechanisms"
-        SOFTIRQ[softirq — ksoftirqd]
-        TASKLET[tasklet — deprecated in 6.x]
-        WORKQ[workqueue — most common]
+        SOFTIRQ[softirq -- ksoftirqd]
+        TASKLET[tasklet -- deprecated in 6.x]
+        WORKQ[workqueue -- most common]
         THREADED[Threaded IRQs]
     end
 
@@ -717,7 +717,7 @@ The configuration system uses a hierarchy of `Kconfig` files:
 
 ```mermaid
 graph TB
-    KCONFIG_ROOT[Kconfig — root]
+    KCONFIG_ROOT[Kconfig -- root]
     INIT_K[init/Kconfig]
     MM_K[mm/Kconfig]
     NET_K[net/Kconfig]
@@ -788,7 +788,7 @@ sequenceDiagram
     NIC->>IRQ: Hardware interrupt
     IRQ->>IRQ: Acknowledge IRQ
     IRQ->>NAPI: napi_schedule()
-    NAPI->>NAPI: napi_poll() — receive packets
+    NAPI->>NAPI: napi_poll() -- receive packets
     NAPI->>IP: netif_receive_skb()
     IP->>IP: Route lookup
     IP->>IP: Netfilter hooks

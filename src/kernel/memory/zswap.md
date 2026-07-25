@@ -232,10 +232,10 @@ When the pool is full, zswap's shrink worker evicts entries to the real swap dev
 flowchart TD
     A[Pool size > max_pool_percent] --> B[Wake shrink_worker]
     B --> C[Take oldest entry from LRU]
-    C --> D[zpool_map_handle — read compressed data]
+    C --> D[zpool_map_handle -- read compressed data]
     D --> E[Decompress to swap cache page]
     E --> F[Write page to real swap device]
-    F --> G[zpool_free — release compressed storage]
+    F --> G[zpool_free -- release compressed storage]
     G --> H{Pool still full?}
     H -->|Yes| C
     H -->|No| I[Done]
@@ -440,7 +440,7 @@ flowchart TD
     H -->|Yes| I[zswap_store]
     H -->|No| J[Write to swap device]
     I --> K{Compress + store in pool}
-    K -->|Success| L[Done — page in RAM]
+    K -->|Success| L[Done -- page in RAM]
     K -->|Pool full| M[Shrink: evict LRU to swap]
     M --> K
     K -->|Compress poor| J

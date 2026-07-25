@@ -194,10 +194,10 @@ make dtbs_clean
 
 ```mermaid
 graph TD
-    BASE["arm64-base.dtsi<br/>(CPU, memory, timer)"]
-    SOC["bcm2711.dtsi<br/>(SoC peripherals)"]
-    BOARD["bcm2711-rpi-4-b.dts<br/>(board-specific)"]
-    OVERLAY["rpi-4-poe.dtbo<br/>(overlay)"]
+    BASE["arm64-base.dtsi<br>(CPU, memory, timer)"]
+    SOC["bcm2711.dtsi<br>(SoC peripherals)"]
+    BOARD["bcm2711-rpi-4-b.dts<br>(board-specific)"]
+    OVERLAY["rpi-4-poe.dtbo<br>(overlay)"]
 
     BASE --> SOC
     SOC --> BOARD
@@ -324,8 +324,8 @@ Overlays are small DTB fragments that modify the base device tree at runtime. Th
 
 ```mermaid
 graph TD
-    BASE["Base DTB<br/>(board.dtb)"] -->|"fdtoverlay"| COMBINED["Combined DTB<br/>(used by kernel)"]
-    OVERLAY["Overlay DTBO<br/>(add-on.dtbo)"] -->|"fdtoverlay"| COMBINED
+    BASE["Base DTB<br>(board.dtb)"] -->|"fdtoverlay"| COMBINED["Combined DTB<br>(used by kernel)"]
+    OVERLAY["Overlay DTBO<br>(add-on.dtbo)"] -->|"fdtoverlay"| COMBINED
 
     style BASE fill:#3182ce,color:#fff
     style OVERLAY fill:#d69e2e,color:#000
@@ -577,8 +577,8 @@ MODULE_DESCRIPTION("Example OF driver");
 
 ```mermaid
 graph LR
-    DT["DT Node:<br/>compatible = 'vendor,my-device'"] --> MATCH{"of_match_table"}
-    MATCH -->|"matches"| DRIVER["my_driver<br/>.compatible = 'vendor,my-device'"]
+    DT["DT Node:<br>compatible = 'vendor,my-device'"] --> MATCH{"of_match_table"}
+    MATCH -->|"matches"| DRIVER["my_driver<br>.compatible = 'vendor,my-device'"]
     MATCH -->|"no match"| NEXT["Next driver"]
 
     style DT fill:#3182ce,color:#fff

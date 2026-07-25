@@ -23,19 +23,19 @@ graph TB
         VFS["Virtual Filesystem"]
         BLK["Block Layer"]
         SCSI["SCSI Mid-layer"]
-        ISCSI_INIT["iSCSI Initiator<br/>(libiscsi / open-iscsi)"]
+        ISCSI_INIT["iSCSI Initiator<br>(libiscsi / open-iscsi)"]
         TCP_CLI["TCP/IP Stack"]
         NIC_CLI["Ethernet NIC"]
     end
     subgraph "IP Network"
-        SWITCH["Ethernet Switch<br/>(1/10/25/100 GbE)"]
+        SWITCH["Ethernet Switch<br>(1/10/25/100 GbE)"]
     end
     subgraph "Target (Storage Server)"
         NIC_SRV["Ethernet NIC"]
         TCP_SRV["TCP/IP Stack"]
-        ISCSI_TGT["iSCSI Target<br/>(LIO / targetcli)"]
+        ISCSI_TGT["iSCSI Target<br>(LIO / targetcli)"]
         SCSI_TGT["SCSI Target Core"]
-        BLOCK["Block Devices<br/>(LVM, RAID, NVMe, files)"]
+        BLOCK["Block Devices<br>(LVM, RAID, NVMe, files)"]
     end
 
     APP --> VFS --> BLK --> SCSI --> ISCSI_INIT --> TCP_CLI --> NIC_CLI
@@ -63,7 +63,7 @@ graph TB
         APP["Application I/O"]
     end
     subgraph "iSCSI Layer"
-        CDB["SCSI CDB<br/>(Command Descriptor Block)"]
+        CDB["SCSI CDB<br>(Command Descriptor Block)"]
         IH["iSCSI Header"]
         DATA["Data Segment"]
     end
@@ -126,12 +126,12 @@ sequenceDiagram
     T->>I: Login Response (success)
 
     I->>T: Login Request (Operational Negotiation)
-    Note over I,T: Negotiate: MaxRecvDataSegmentLength,<br/>MaxBurstLength, header/data digests,<br/>error recovery level, etc.
+    Note over I,T: Negotiate: MaxRecvDataSegmentLength,<br>MaxBurstLength, header/data digests,<br>error recovery level, etc.
     T->>I: Login Response (parameters accepted)
 
     I->>T: Login Request (Full Feature Phase)
     T->>I: Login Response
-    Note over I,T: Session established — SCSI commands flow
+    Note over I,T: Session established -- SCSI commands flow
 ```
 
 ### Full Feature Phase
@@ -152,17 +152,17 @@ The Linux kernel's SCSI target framework is **LIO** (Linux-IO), accessible via t
 graph TB
     subgraph "LIO Target Architecture"
         TC["targetcli (userspace)"]
-        TCM["Target Core Module<br/>(target_core_mod)"]
+        TCM["Target Core Module<br>(target_core_mod)"]
         subgraph "Fabric Modules"
-            ISCSI_FAB["iscsi_target_mod<br/>(iSCSI)"]
-            FC_FAB["tcm_fc<br/>(Fibre Channel)"]
-            SRP_FAB["ib_srpt<br/>(SRP/RDMA)"]
+            ISCSI_FAB["iscsi_target_mod<br>(iSCSI)"]
+            FC_FAB["tcm_fc<br>(Fibre Channel)"]
+            SRP_FAB["ib_srpt<br>(SRP/RDMA)"]
         end
         subgraph "Backstores"
-            IBLOCK["iblock<br/>(Block devices)"]
-            FILEIO["fileio<br/>(File-backed)"]
-            PSCSI["pscsi<br/>(Passthrough SCSI)"]
-            USER["user<br/>(Userspace via TCMU)"]
+            IBLOCK["iblock<br>(Block devices)"]
+            FILEIO["fileio<br>(File-backed)"]
+            PSCSI["pscsi<br>(Passthrough SCSI)"]
+            USER["user<br>(Userspace via TCMU)"]
         end
     end
 

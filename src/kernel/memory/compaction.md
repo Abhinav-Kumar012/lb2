@@ -30,12 +30,12 @@ Traditional reclaim (page eviction to swap or filesystem writeback) frees indivi
 ```mermaid
 block-beta
     columns 12
-    block:zone["Zone — Before Compaction"]
+    block:zone["Zone -- Before Compaction"]
         A["Alloc"] B["Free"] C["Alloc"] D["Free"] E["Alloc"] F["Free"]
         G["Alloc"] H["Free"] I["Alloc"] J["Free"] K["Alloc"] L["Free"]
     end
     space
-    block:zone2["Zone — After Compaction"]
+    block:zone2["Zone -- After Compaction"]
         A2["Alloc"] B2["Alloc"] C2["Alloc"] D2["Alloc"] E2["Alloc"] F2["Alloc"]
         G2["Free"] H2["Free"] I2["Free"] J2["Free"] K2["Free"] L2["Free"]
     end
@@ -127,7 +127,7 @@ flowchart TD
     B --> D[free_pfn = zone_end_pfn]
 
     C --> E{migrate_pfn < free_pfn?}
-    E -->|No| F[Compaction Complete — scanners met]
+    E -->|No| F[Compaction Complete -- scanners met]
     E -->|Yes| G[Migration scanner: find movable page at migrate_pfn]
     G --> H{Found movable page?}
     H -->|No| I[Advance migrate_pfn forward]

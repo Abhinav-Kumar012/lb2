@@ -29,16 +29,16 @@ EROFS is built around three core principles:
 ```mermaid
 graph LR
     subgraph "Traditional Read-Write FS"
-        EXT4["ext4<br/>journal + bitmap + tree<br/>Complex, mutable"]
+        EXT4["ext4<br>journal + bitmap + tree<br>Complex, mutable"]
     end
     subgraph "SquashFS"
-        SQ["SquashFS<br/>compression blocks<br/>Read amplification on random I/O"]
+        SQ["SquashFS<br>compression blocks<br>Read amplification on random I/O"]
     end
     subgraph "EROFS"
-        EROFS["EROFS<br/>fixed-size output<br/>O(1) random access"]
+        EROFS["EROFS<br>fixed-size output<br>O(1) random access"]
     end
-    EXT4 -->|"Too complex<br/>for read-only"| SQ
-    SQ -->|"Read amplification<br/>problem"| EROFS
+    EXT4 -->|"Too complex<br>for read-only"| SQ
+    SQ -->|"Read amplification<br>problem"| EROFS
     style EROFS fill:#38a169,color:#fff
     style SQ fill:#d69e2e,color:#000
     style EXT4 fill:#3182ce,color:#fff
@@ -235,10 +235,10 @@ Compression benchmark (Android system partition, ~2.1GB):
 graph LR
     subgraph "Compression Ratio vs Speed"
         direction TB
-        LZ4["LZ4: 2.1x ratio<br/>7800 MB/s decompress"]
-        LZ4HC["LZ4HC: 2.3x ratio<br/>7800 MB/s decompress"]
-        DEFLATE["DEFLATE: 2.5x ratio<br/>1200 MB/s decompress"]
-        LZMA["LZMA: 3.5x ratio<br/>80 MB/s decompress"]
+        LZ4["LZ4: 2.1x ratio<br>7800 MB/s decompress"]
+        LZ4HC["LZ4HC: 2.3x ratio<br>7800 MB/s decompress"]
+        DEFLATE["DEFLATE: 2.5x ratio<br>1200 MB/s decompress"]
+        LZMA["LZMA: 3.5x ratio<br>80 MB/s decompress"]
     end
     LZ4 -->|"Better ratio"| LZ4HC
     LZ4HC -->|"Better ratio"| DEFLATE
@@ -391,11 +391,11 @@ Random 4KB reads from compressed 2GB image (NVMe SSD):
 graph LR
     subgraph "Random 4KB Read IOPS"
         direction TB
-        EXT4["ext4: 85,000<br/>████████████████████████"]
-        EROFS_LZ4["EROFS LZ4: 72,000<br/>██████████████████"]
-        SQ_LZ4["SquashFS LZ4: 18,000<br/>████"]
+        EXT4["ext4: 85,000<br>████████████████████████"]
+        EROFS_LZ4["EROFS LZ4: 72,000<br>██████████████████"]
+        SQ_LZ4["SquashFS LZ4: 18,000<br>████"]
         EROFS_LZMA["EROFS LZMA: 3,200<br█"]
-        SQ_LZMA["SquashFS LZMA: 1,800<br/>▏"]
+        SQ_LZMA["SquashFS LZMA: 1,800<br>▏"]
     end
     style EXT4 fill:#3182ce,color:#fff
     style EROFS_LZ4 fill:#38a169,color:#fff
@@ -507,9 +507,9 @@ mount -t overlay overlay \
 ```mermaid
 graph TB
     subgraph "Container Layers"
-        UPPER["Upper (writable)<br/>ext4 / tmpfs"]
-        LOWER["Lower (EROFS)<br/>Compressed, read-only"]
-        MERGED["Merged View<br/>OverlayFS"]
+        UPPER["Upper (writable)<br>ext4 / tmpfs"]
+        LOWER["Lower (EROFS)<br>Compressed, read-only"]
+        MERGED["Merged View<br>OverlayFS"]
     end
     MERGED --> UPPER
     MERGED --> LOWER

@@ -20,7 +20,7 @@ memory). PSI distinguishes these cases.
 ```mermaid
 graph TD
     subgraph "Per-CPU Accounting"
-        RQ["runqueue<br/>(struct rq)"]
+        RQ["runqueue<br>(struct rq)"]
         PSI_CPU["psi_cpu_change()"]
         PSI_MEM["psi_memstall_enter/exit()"]
         PSI_IO["psi_io_start/end()"]
@@ -32,9 +32,9 @@ graph TD
     end
 
     subgraph "PSI Core (kernel/sched/psi.c)"
-        WINDOW["Window tracking<br/>(2s, 10s, 30s)"]
-        TRIGGERS["PSI triggers<br/>(threshold monitors)"]
-        AGGREGATION["PSI aggregation<br/>(system + cgroup)"]
+        WINDOW["Window tracking<br>(2s, 10s, 30s)"]
+        TRIGGERS["PSI triggers<br>(threshold monitors)"]
+        AGGREGATION["PSI aggregation<br>(system + cgroup)"]
     end
 
     subgraph "User Space Interface"

@@ -16,11 +16,11 @@ Additionally, the I/O scheduler has its own priority system via `ionice`.
 
 ```mermaid
 graph TD
-    SCHED["Linux Scheduling Classes"] --> DL["SCHED_DEADLINE<br/>Earliest Deadline First<br/>Priority: highest"]
-    DL --> RT["SCHED_FIFO / SCHED_RR<br/>Fixed Priority (1-99)"]
-    RT --> NORMAL["SCHED_OTHER<br/>CFS/EEVDF + Nice (-20 to 19)"]
-    NORMAL --> BATCH["SCHED_BATCH<br/>Batch-oriented scheduling"]
-    BATCH --> IDLE["SCHED_IDLE<br/>Runs only when idle"]
+    SCHED["Linux Scheduling Classes"] --> DL["SCHED_DEADLINE<br>Earliest Deadline First<br>Priority: highest"]
+    DL --> RT["SCHED_FIFO / SCHED_RR<br>Fixed Priority (1-99)"]
+    RT --> NORMAL["SCHED_OTHER<br>CFS/EEVDF + Nice (-20 to 19)"]
+    NORMAL --> BATCH["SCHED_BATCH<br>Batch-oriented scheduling"]
+    BATCH --> IDLE["SCHED_IDLE<br>Runs only when idle"]
 
     style DL fill:#e53e3e,color:#fff
     style RT fill:#dd6b20,color:#fff
@@ -89,9 +89,9 @@ static inline int weight_to_nice(int weight)
 ```mermaid
 graph LR
     subgraph "CPU Time Distribution"
-        A["Task A<br/>nice=0, weight=1024"]
-        B["Task B<br/>nice=10, weight=110"]
-        C["Task C<br/>nice=-10, weight=9548"]
+        A["Task A<br>nice=0, weight=1024"]
+        B["Task B<br>nice=10, weight=110"]
+        C["Task C<br>nice=-10, weight=9548"]
     end
 
     TOTAL["Total weight: 10682"]
@@ -170,10 +170,10 @@ The relationship between priority values:
 ```mermaid
 graph LR
     subgraph "Priority Scales"
-        NP["Normal Prio<br/>100-139<br/>(nice -20 to 19)"]
-        RP["RT Prio<br/>0-99<br/>(rt_priority 99-1)"]
+        NP["Normal Prio<br>100-139<br>(nice -20 to 19)"]
+        RP["RT Prio<br>0-99<br>(rt_priority 99-1)"]
     end
-    NP -->|"Lower number = higher priority"| KERNEL["Kernel Scheduling<br/>prio 0 = highest"]
+    NP -->|"Lower number = higher priority"| KERNEL["Kernel Scheduling<br>prio 0 = highest"]
     RP -->|"Lower number = higher priority"| KERNEL
 
     style RP fill:#e53e3e,color:#fff
@@ -229,7 +229,7 @@ static struct task_struct *pick_next_task_rt(struct rq *rq)
 ```mermaid
 graph TD
     subgraph "RT Priority Array (per CPU)"
-        BM["Bitmap: ...000101100...<br/>Bit 50 and 90 set"]
+        BM["Bitmap: ...000101100...<br>Bit 50 and 90 set"]
         Q90["Queue[90]: Task A → Task B"]
         Q50["Queue[50]: Task C"]
     end
@@ -427,11 +427,11 @@ echo 950000 > /proc/sys/kernel/sched_rt_runtime_us
 
 ```mermaid
 graph TD
-    RT["RT task runs"] --> CHECK{"runtime_us exceeded<br/>in this period?"}
+    RT["RT task runs"] --> CHECK{"runtime_us exceeded<br>in this period?"}
     CHECK -->|No| CONT["Continue running"]
-    CHECK -->|Yes| THROTTLE["Throttle RT class<br/>Stop all RT tasks"]
+    CHECK -->|Yes| THROTTLE["Throttle RT class<br>Stop all RT tasks"]
     THROTTLE --> TIMER["Wait for period reset"]
-    TIMER --> UNTHROTTLE["Unthrottle<br/>Reset runtime counter"]
+    TIMER --> UNTHROTTLE["Unthrottle<br>Reset runtime counter"]
 ```
 
 The throttling applies to **all RT tasks collectively** on a CPU, not individually. If multiple RT tasks share a CPU, their combined runtime is tracked.
@@ -546,14 +546,14 @@ A task is **eligible** when its `vruntime` ≤ the minimum `vruntime` of the run
 ```mermaid
 graph TD
     subgraph "EEVDF Selection"
-        T1["Task A<br/>vruntime=10, deadline=12<br/>ELIGIBLE"]
-        T2["Task B<br/>vruntime=8, deadline=15<br/>ELIGIBLE"]
-        T3["Task C<br/>vruntime=20, deadline=11<br/>NOT ELIGIBLE<br/>(vruntime > min)"]
+        T1["Task A<br>vruntime=10, deadline=12<br>ELIGIBLE"]
+        T2["Task B<br>vruntime=8, deadline=15<br>ELIGIBLE"]
+        T3["Task C<br>vruntime=20, deadline=11<br>NOT ELIGIBLE<br>(vruntime > min)"]
     end
-    SELECT["Pick earliest deadline<br/>among eligible tasks"]
+    SELECT["Pick earliest deadline<br>among eligible tasks"]
     T1 --> SELECT
     T2 --> SELECT
-    SELECT --> RUN["Task A runs<br/>(deadline 12 < 15)"]
+    SELECT --> RUN["Task A runs<br>(deadline 12 < 15)"]
 
     style T3 fill:#e53e3e,color:#fff
     style RUN fill:#38a169,color:#fff

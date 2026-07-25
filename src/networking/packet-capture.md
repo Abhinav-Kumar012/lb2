@@ -11,11 +11,11 @@ Packet capture is the art of intercepting and analyzing network traffic at the b
 ```mermaid
 graph TB
     subgraph "Linux Packet Capture Stack"
-        NIC["Network Interface<br/>(eth0, wlan0)"] -->|"raw frames"| PCAP["Packet Capture<br/>(AF_PACKET socket)"]
-        PCAP --> FILTER["BPF Filter<br/>(kernel-space filtering)"]
-        FILTER --> APP["Capture Application<br/>(tcpdump, tshark)"]
-        APP --> FILE["Capture File<br/>(.pcap, .pcapng)"]
-        FILE --> ANALYSIS["Analysis<br/>(Wireshark, tshark)"]
+        NIC["Network Interface<br>(eth0, wlan0)"] -->|"raw frames"| PCAP["Packet Capture<br>(AF_PACKET socket)"]
+        PCAP --> FILTER["BPF Filter<br>(kernel-space filtering)"]
+        FILTER --> APP["Capture Application<br>(tcpdump, tshark)"]
+        APP --> FILE["Capture File<br>(.pcap, .pcapng)"]
+        FILE --> ANALYSIS["Analysis<br>(Wireshark, tshark)"]
     end
 ```
 
@@ -90,11 +90,11 @@ BPF filters are applied in **kernel space**, making them very efficient — unin
 ```mermaid
 graph LR
     subgraph "BPF Filter Categories"
-        HOST["Host filters<br/>host, src, dst"]
-        NET["Network filters<br/>net, src net, dst net"]
-        PORT["Port filters<br/>port, src port, dst port"]
-        PROTO["Protocol filters<br/>tcp, udp, icmp, arp"]
-        COMPOUND["Compound<br/>and, or, not"]
+        HOST["Host filters<br>host, src, dst"]
+        NET["Network filters<br>net, src net, dst net"]
+        PORT["Port filters<br>port, src port, dst port"]
+        PROTO["Protocol filters<br>tcp, udp, icmp, arp"]
+        COMPOUND["Compound<br>and, or, not"]
     end
 ```
 
@@ -609,17 +609,17 @@ $ tshark -i eth0 -q -z io,stat,1
 
 ```mermaid
 graph TD
-    A["Problem reported:<br/>'App can't connect to DB'"] --> B["Step 1: Capture on app server"]
-    B --> C{"tcpdump -nn host db-server<br/>and port 3306"}
+    A["Problem reported:<br>'App can't connect to DB'"] --> B["Step 1: Capture on app server"]
+    B --> C{"tcpdump -nn host db-server<br>and port 3306"}
     C --> D{"Packets seen?"}
-    D -->|No| E["Check routing, firewall,<br/>or app config"]
+    D -->|No| E["Check routing, firewall,<br>or app config"]
     D -->|Yes| F["Analyze TCP handshake"]
     F --> G{"SYN-ACK received?"}
-    G -->|No| H["DB not listening,<br/>or firewall blocking"]
+    G -->|No| H["DB not listening,<br>or firewall blocking"]
     G -->|Yes| I["Analyze application layer"]
-    I --> J{"HTTP/MySQL protocol<br/>exchange OK?"}
-    J -->|No| K["Protocol error,<br/>auth failure, timeout"]
-    J -->|Yes| L["Problem is elsewhere<br/>(not network)"]
+    I --> J{"HTTP/MySQL protocol<br>exchange OK?"}
+    J -->|No| K["Protocol error,<br>auth failure, timeout"]
+    J -->|Yes| L["Problem is elsewhere<br>(not network)"]
 ```
 
 ## Further Reading

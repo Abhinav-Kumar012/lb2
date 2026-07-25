@@ -50,8 +50,8 @@ The sequence counter maintains a critical invariant:
 
 ```mermaid
 graph LR
-    E["sequence = N<br/>(even)<br/>STABLE"] -->|"write_seqlock()"| O["sequence = N+1<br/>(odd)<br/>UPDATING"]
-    O -->|"write_sequnlock()"| E2["sequence = N+2<br/>(even)<br/>STABLE"]
+    E["sequence = N<br>(even)<br>STABLE"] -->|"write_seqlock()"| O["sequence = N+1<br>(odd)<br>UPDATING"]
+    O -->|"write_sequnlock()"| E2["sequence = N+2<br>(even)<br>STABLE"]
 
     style E fill:#38a169,color:#fff
     style O fill:#e53e3e,color:#fff
@@ -396,10 +396,10 @@ Both seqlocks and RCU optimize for read-heavy workloads, but they have different
 
 ```mermaid
 graph TD
-    DATA{"What kind of data?"} --> SMALL["Small, fixed-size<br/>(counters, timestamps,<br/>struct snapshot)"]
-    DATA --> LARGE["Large, pointer-based<br/>(linked lists, trees,<br/>hash tables)"]
-    SMALL --> SEQ["Use seqlock<br/>Retry-based consistency"]
-    LARGE --> RCU["Use RCU<br/>Pointer-swap consistency"]
+    DATA{"What kind of data?"} --> SMALL["Small, fixed-size<br>(counters, timestamps,<br>struct snapshot)"]
+    DATA --> LARGE["Large, pointer-based<br>(linked lists, trees,<br>hash tables)"]
+    SMALL --> SEQ["Use seqlock<br>Retry-based consistency"]
+    LARGE --> RCU["Use RCU<br>Pointer-swap consistency"]
 
     style SEQ fill:#3182ce,color:#fff
     style RCU fill:#38a169,color:#fff
@@ -504,14 +504,14 @@ For typical read-mostly workloads (e.g., timekeeping: billions of reads per seco
 ```mermaid
 graph LR
     subgraph "Read Cost"
-        SEQ_R["Seqlock<br/>2 loads + compare<br/>(essentially free)"]
-        RW_R["rwlock<br/>atomic inc/dec<br/>(cache-line bounce)"]
-        MUTEX_R["Mutex<br/>lock/unlock<br/>(may block)"]
+        SEQ_R["Seqlock<br>2 loads + compare<br>(essentially free)"]
+        RW_R["rwlock<br>atomic inc/dec<br>(cache-line bounce)"]
+        MUTEX_R["Mutex<br>lock/unlock<br>(may block)"]
     end
     subgraph "Write Cost"
-        SEQ_W["Seqlock<br/>spinlock + 2 inc<br/>(light)"]
-        RW_W["rwlock<br/>spinlock<br/>(blocks readers)"]
-        MUTEX_W["Mutex<br/>lock/unlock<br/>(blocks everyone)"]
+        SEQ_W["Seqlock<br>spinlock + 2 inc<br>(light)"]
+        RW_W["rwlock<br>spinlock<br>(blocks readers)"]
+        MUTEX_W["Mutex<br>lock/unlock<br>(blocks everyone)"]
     end
 
     style SEQ_R fill:#38a169,color:#fff
@@ -545,13 +545,13 @@ This is used in the timekeeping subsystem where even the rare retry is too expen
 ```mermaid
 graph TD
     subgraph "Latch: Two Data Copies"
-        D0["data[0]<br/>Copy A"]
-        D1["data[1]<br/>Copy B"]
+        D0["data[0]<br>Copy A"]
+        D1["data[1]<br>Copy B"]
     end
-    W["Writer"] -->|"sequence is even<br/>update data[1]"| D1
-    W2["Writer"] -->|"sequence is odd<br/>update data[0]"| D0
-    R["Reader"] -->|"seq & 1 == 0<br/>read data[0]"| D0
-    R2["Reader"] -->|"seq & 1 == 1<br/>read data[1]"| D1
+    W["Writer"] -->|"sequence is even<br>update data[1]"| D1
+    W2["Writer"] -->|"sequence is odd<br>update data[0]"| D0
+    R["Reader"] -->|"seq &amp; 1 == 0<br>read data[0]"| D0
+    R2["Reader"] -->|"seq &amp; 1 == 1<br>read data[1]"| D1
 ```
 
 ### Latch Use Case: Timekeeping

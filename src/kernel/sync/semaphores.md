@@ -154,7 +154,7 @@ void up(struct semaphore *sem);
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Available: sema_init(&sem, 1)
+    [*] --> Available: sema_init(&amp;sem, 1)
     Available --> Acquired: down() [count: 1→0]
     Acquired --> Available: up() [count: 0→1]
     Acquired --> Waiting: down() [count=0]
@@ -294,12 +294,12 @@ Choosing the right primitive is critical. Here's a detailed comparison:
 ```mermaid
 graph TD
     Q1{"What are you doing?"}
-    Q1 -->|"Protecting shared data"| Q2{"Need sleeping<br/>in critical section?"}
-    Q1 -->|"Counting N resources"| SEM["Semaphore<br/>(count = N)"]
+    Q1 -->|"Protecting shared data"| Q2{"Need sleeping<br>in critical section?"}
+    Q1 -->|"Counting N resources"| SEM["Semaphore<br>(count = N)"]
     Q1 -->|"Signaling completion"| COMP["Completion"]
     Q2 -->|Yes| MUTEX["Mutex"]
-    Q2 -->|No| Q3{"Multiple readers,<br/>rare writers?"}
-    Q3 -->|Yes| RWRW["rw_semaphore<br/>or RCU"]
+    Q2 -->|No| Q3{"Multiple readers,<br>rare writers?"}
+    Q3 -->|Yes| RWRW["rw_semaphore<br>or RCU"]
     Q3 -->|No| SPIN["spinlock_t"]
     
     style SEM fill:#d69e2e,color:#fff

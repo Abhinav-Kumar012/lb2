@@ -134,14 +134,14 @@ graph TD
     subgraph "RAID 10"
         subgraph "Stripe 1"
             subgraph "Mirror A"
-                D1["Disk 1<br/>Data A"]
-                D2["Disk 2<br/>Data A (copy)"]
+                D1["Disk 1<br>Data A"]
+                D2["Disk 2<br>Data A (copy)"]
             end
         end
         subgraph "Stripe 2"
             subgraph "Mirror B"
-                D3["Disk 3<br/>Data B"]
-                D4["Disk 4<br/>Data B (copy)"]
+                D3["Disk 3<br>Data B"]
+                D4["Disk 4<br>Data B (copy)"]
             end
         end
     end
@@ -454,7 +454,7 @@ graph TD
         D4["/dev/sde"]
     end
     subgraph "RAID (mdadm)"
-        MD0["/dev/md0<br/>RAID 10"]
+        MD0["/dev/md0<br>RAID 10"]
     end
     subgraph "LVM"
         PV["PV: /dev/md0"]

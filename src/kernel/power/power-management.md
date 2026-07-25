@@ -20,11 +20,11 @@ flowchart TD
     end
 
     subgraph Kernel["Kernel PM Subsystem"]
-        CPUFREQ["cpufreq<br/>(frequency scaling)"]
-        CPUIDLE["cpuidle<br/>(idle state management)"]
-        SUSPEND["suspend/resume<br/>(system sleep)"]
-        RUNTIME["runtime PM<br/>(per-device)"]
-        THERMAL["thermal<br/>(temperature management)"]
+        CPUFREQ["cpufreq<br>(frequency scaling)"]
+        CPUIDLE["cpuidle<br>(idle state management)"]
+        SUSPEND["suspend/resume<br>(system sleep)"]
+        RUNTIME["runtime PM<br>(per-device)"]
+        THERMAL["thermal<br>(temperature management)"]
     end
 
     subgraph Hardware["Hardware"]

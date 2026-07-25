@@ -12,21 +12,21 @@ Secure Boot was introduced with Windows 8 (2012) and is now required for all sys
 graph TD
     subgraph "Secure Boot Chain"
         HW[Hardware / UEFI Firmware]
-        DB["db Database<br/>Allowed Signatures"]
-        DBX["dbx Database<br/>Forbidden Signatures"]
+        DB["db Database<br>Allowed Signatures"]
+        DBX["dbx Database<br>Forbidden Signatures"]
 
-        HW -->|"Verify signature"| SHIM["shim.efi<br/>First-stage bootloader"]
-        SHIM -->|"Verify signature"| GRUB["GRUB2 EFI<br/>Second-stage bootloader"]
-        GRUB -->|"Verify signature"| KERNEL["vmlinuz<br/>Linux Kernel"]
-        KERNEL -->|"dm-verity or<br/>signature check"| INITRAMFS[initramfs]
+        HW -->|"Verify signature"| SHIM["shim.efi<br>First-stage bootloader"]
+        SHIM -->|"Verify signature"| GRUB["GRUB2 EFI<br>Second-stage bootloader"]
+        GRUB -->|"Verify signature"| KERNEL["vmlinuz<br>Linux Kernel"]
+        KERNEL -->|"dm-verity or<br>signature check"| INITRAMFS[initramfs]
         INITRAMFS --> ROOT[Root Filesystem]
     end
 
     subgraph "Key Hierarchy"
-        PK["Platform Key PK<br/>OEM root of trust"]
-        KEK["Key Exchange Key KEK<br/>OS vendor key"]
-        DB2["db: Allowed Signatures<br/>Bootloader/kernel signing"]
-        DBX2["dbx: Forbidden Signatures<br/>Revoked signatures"]
+        PK["Platform Key PK<br>OEM root of trust"]
+        KEK["Key Exchange Key KEK<br>OS vendor key"]
+        DB2["db: Allowed Signatures<br>Bootloader/kernel signing"]
+        DBX2["dbx: Forbidden Signatures<br>Revoked signatures"]
     end
 
     PK --> KEK
@@ -143,18 +143,18 @@ Shim is a simple, signed EFI application that acts as a first-stage bootloader. 
 ```mermaid
 graph LR
     subgraph "Shim Architecture"
-        MS["Microsoft Key<br/>in UEFI db"]
-        SHIM["shim.efi<br/>Signed by Microsoft"]
-        DISTRO["Distro Key<br/>Built into shim"]
-        MOK["MOK Database<br/>User-enrolled keys"]
+        MS["Microsoft Key<br>in UEFI db"]
+        SHIM["shim.efi<br>Signed by Microsoft"]
+        DISTRO["Distro Key<br>Built into shim"]
+        MOK["MOK Database<br>User-enrolled keys"]
     end
 
     MS -->|signs| SHIM
     SHIM -->|contains| DISTRO
     SHIM -->|checks against| MOK
 
-    SHIM -->|verifies| GRUB["GRUB2.efi<br/>Signed by distro"]
-    SHIM -->|verifies| KERNEL["vmlinuz<br/>Signed by distro"]
+    SHIM -->|verifies| GRUB["GRUB2.efi<br>Signed by distro"]
+    SHIM -->|verifies| KERNEL["vmlinuz<br>Signed by distro"]
 
     style MS fill:#FF6347
     style SHIM fill:#FFD700

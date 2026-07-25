@@ -15,12 +15,12 @@ sched-ext is a Linux kernel feature that allows writing CPU schedulers as BPF pr
 ```mermaid
 flowchart TD
     subgraph UserSpace["Userspace"]
-        SCHED["sched-ext scheduler<br/>(BPF program)"]
+        SCHED["sched-ext scheduler<br>(BPF program)"]
         SCX["scx_utils (Rust library)"]
     end
 
     subgraph Kernel["Kernel"]
-        EXT["sched-ext core<br/>(kernel/sched/ext.c)"]
+        EXT["sched-ext core<br>(kernel/sched/ext.c)"]
         BPF["BPF subsystem"]
         RUNQUEUE["Per-CPU runqueues"]
         DSQ["Dispatch queues (DSQ)"]

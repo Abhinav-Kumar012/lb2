@@ -332,7 +332,7 @@ graph TD
     L --> M[do_basic_setup]
     M --> N[populate_rootfs]
     N --> O[prepare_namespace]
-    O --> P[kernel_init — run init]
+    O --> P[kernel_init -- run init]
 ```
 
 ### The rest_init() Function
@@ -522,7 +522,7 @@ systemd is the most common init system on modern Linux:
 
 ```mermaid
 graph TB
-    SYSTEMD[systemd — PID 1]
+    SYSTEMD[systemd -- PID 1]
     SYSTEMD --> LOCAL_FS[local-fs.target]
     SYSTEMD --> NETWORK[network.target]
     SYSTEMD --> BASIC[basic.target]

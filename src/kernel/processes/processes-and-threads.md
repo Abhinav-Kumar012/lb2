@@ -404,13 +404,13 @@ Rules for signal delivery to threads:
 
 ```mermaid
 flowchart TD
-    KILL["kill(pid, SIGTERM)"] --> CHECK{"Which thread<br/>doesn't block SIGTERM?"}
+    KILL["kill(pid, SIGTERM)"] --> CHECK{"Which thread<br>doesn't block SIGTERM?"}
     CHECK -->|"Thread 2"| T2["Deliver to Thread 2"]
     CHECK -->|"No thread available"| PEND["Signal remains pending"]
 
-    PT["pthread_kill(tid, SIGUSR1)"] --> SPECIFIC["Deliver to specific<br/>thread tid"]
+    PT["pthread_kill(tid, SIGUSR1)"] --> SPECIFIC["Deliver to specific<br>thread tid"]
 
-    SEGV["Thread 3: segfault"] --> T3["SIGSEGV → Thread 3<br/>(always the faulting thread)"]
+    SEGV["Thread 3: segfault"] --> T3["SIGSEGV → Thread 3<br>(always the faulting thread)"]
 ```
 
 ## Thread-Local Storage (TLS)

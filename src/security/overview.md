@@ -24,7 +24,7 @@ graph TB
         K1[Seccomp BPF]
         K2[Capabilities]
         K3[LSM - SELinux / AppArmor]
-        K4["Namespaces & Cgroups"]
+        K4["Namespaces &amp; Cgroups"]
         K5[Crypto Subsystem]
     end
 
@@ -586,12 +586,12 @@ The full boot security chain from firmware to userspace:
 
 ```mermaid
 graph TD
-    UEFI["UEFI Firmware<br/>Secure Boot"] --> SHIM["shim.efi<br/>First-stage bootloader"]
-    SHIM --> GRUB["GRUB2<br/>Second-stage"]
-    GRUB --> KERNEL["Linux Kernel<br/>Verified boot"]
-    KERNEL --> INITRAMFS["initramfs<br/>Verified modules"]
-    INITRAMFS --> ROOTFS["Root filesystem<br/>dm-verity"]
-    ROOTFS --> SYSTEMD["systemd<br/>Verified services"]
+    UEFI["UEFI Firmware<br>Secure Boot"] --> SHIM["shim.efi<br>First-stage bootloader"]
+    SHIM --> GRUB["GRUB2<br>Second-stage"]
+    GRUB --> KERNEL["Linux Kernel<br>Verified boot"]
+    KERNEL --> INITRAMFS["initramfs<br>Verified modules"]
+    INITRAMFS --> ROOTFS["Root filesystem<br>dm-verity"]
+    ROOTFS --> SYSTEMD["systemd<br>Verified services"]
 
     style UEFI fill:#e53e3e,color:#fff
     style SHIM fill:#dd6b20,color:#fff

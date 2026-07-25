@@ -14,9 +14,9 @@ Brendan Gregg's **USE method** (Utilization, Saturation, Errors) provides a syst
 graph TD
     subgraph "USE Method"
         RESOURCE["Resource"]
-        U["Utilization<br/>% time the resource is busy"]
-        S["Saturation<br/>Degree of queued work"]
-        E["Errors<br/>Count of error events"]
+        U["Utilization<br>% time the resource is busy"]
+        S["Saturation<br>Degree of queued work"]
+        E["Errors<br>Count of error events"]
         RESOURCE --> U
         RESOURCE --> S
         RESOURCE --> E
@@ -86,10 +86,10 @@ Before optimizing, you must understand the workload. Characterize it using these
 ```mermaid
 graph TD
     W["Workload Characterization"]
-    Q1["1. Who?<br/>Which processes, users, PIDs"]
-    Q2["2. Why?<br/>What triggers the I/O/CPU"]
-    Q3["3. What?<br/>I/O type, size, pattern"]
-    Q4["4. How much?<br/>Rate, IOPS, throughput"]
+    Q1["1. Who?<br>Which processes, users, PIDs"]
+    Q2["2. Why?<br>What triggers the I/O/CPU"]
+    Q3["3. What?<br>I/O type, size, pattern"]
+    Q4["4. How much?<br>Rate, IOPS, throughput"]
     W --> Q1
     W --> Q2
     W --> Q3
@@ -338,25 +338,25 @@ perf top
 graph TD
     subgraph "Observability Tools"
         subgraph "Counters"
-            VMSTAT["vmstat<br/>CPU, memory, I/O"]
-            MPSTAT["mpstat<br/>Per-CPU"]
-            IOSTAT["iostat<br/>Disk I/O"]
-            SAR["sar<br/>System activity"]
+            VMSTAT["vmstat<br>CPU, memory, I/O"]
+            MPSTAT["mpstat<br>Per-CPU"]
+            IOSTAT["iostat<br>Disk I/O"]
+            SAR["sar<br>System activity"]
         end
         subgraph "Profiling"
-            PERF["perf<br/>CPU profiling"]
-            FLAME["Flame graphs<br/>Visual profiling"]
-            BPFTRACE["bpftrace<br/>Custom tracing"]
+            PERF["perf<br>CPU profiling"]
+            FLAME["Flame graphs<br>Visual profiling"]
+            BPFTRACE["bpftrace<br>Custom tracing"]
         end
         subgraph "Tracing"
-            STRACE["strace<br/>Syscall tracing"]
-            BLKTRACE["blktrace<br/>Block I/O tracing"]
-            TCPDUMP["tcpdump<br/>Packet capture"]
+            STRACE["strace<br>Syscall tracing"]
+            BLKTRACE["blktrace<br>Block I/O tracing"]
+            TCPDUMP["tcpdump<br>Packet capture"]
         end
         subgraph "Benchmarking"
-            FIO["fio<br/>Disk I/O"]
-            SYSBENCH["sysbench<br/>Multi-purpose"]
-            IPERF3["iperf3<br/>Network"]
+            FIO["fio<br>Disk I/O"]
+            SYSBENCH["sysbench<br>Multi-purpose"]
+            IPERF3["iperf3<br>Network"]
         end
     end
 ```

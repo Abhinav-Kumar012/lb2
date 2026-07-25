@@ -49,12 +49,12 @@ graph LR
             D3["Block 3"]
         end
         subgraph "Disk 0"
-            S0["Stripe 0<br/>Block 0"]
-            S2["Stripe 1<br/>Block 2"]
+            S0["Stripe 0<br>Block 0"]
+            S2["Stripe 1<br>Block 2"]
         end
         subgraph "Disk 1"
-            S1["Stripe 0<br/>Block 1"]
-            S3["Stripe 1<br/>Block 3"]
+            S1["Stripe 0<br>Block 1"]
+            S3["Stripe 1<br>Block 3"]
         end
         D0 --> S0
         D1 --> S1
@@ -407,9 +407,9 @@ graph TD
     end
     subgraph "Erasure Coding"
         EC_ENCODER["Erasure Coding Encoder"]
-        NODE1["Storage Node 1<br/>Data Chunk 1"]
-        NODE2["Storage Node 2<br/>Data Chunk 2"]
-        NODE3["Storage Node 3<br/>Parity Chunk"]
+        NODE1["Storage Node 1<br>Data Chunk 1"]
+        NODE2["Storage Node 2<br>Data Chunk 2"]
+        NODE3["Storage Node 3<br>Parity Chunk"]
         EC_ENCODER --> NODE1
         EC_ENCODER --> NODE2
         EC_ENCODER --> NODE3

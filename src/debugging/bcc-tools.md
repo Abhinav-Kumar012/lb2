@@ -456,7 +456,7 @@ sudo /usr/share/bcc/tools/argdist -C 'p::do_sys_open(char *filename):char*:filen
 
 ```mermaid
 flowchart TB
-    subgraph Process["Process & Scheduling"]
+    subgraph Process["Process &amp; Scheduling"]
         E[execsnoop]
         EX[exitsnoop]
         RQ[runqlat]
@@ -464,7 +464,7 @@ flowchart TB
         CD[cpudist]
     end
     
-    subgraph Disk["Disk & Filesystem"]
+    subgraph Disk["Disk &amp; Filesystem"]
         BS[biosnoop]
         BL[biolatency]
         BT[biotop]
@@ -487,7 +487,7 @@ flowchart TB
         CT[cachetop]
     end
     
-    subgraph Prof["Tracing & Profiling"]
+    subgraph Prof["Tracing &amp; Profiling"]
         PR[profile]
         FC[funccount]
         FL[funclatency]

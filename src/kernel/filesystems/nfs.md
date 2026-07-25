@@ -13,13 +13,13 @@ NFS has been the workhorse of enterprise Unix storage for decades. It remains cr
 ```mermaid
 graph TB
     subgraph "NFSv3 Architecture"
-        N3C[NFS Client] -->|TCP/UDP:2049| N3S["NFS Server<br/>nfsd"]
+        N3C[NFS Client] -->|TCP/UDP:2049| N3S["NFS Server<br>nfsd"]
         N3C -->|TCP/UDP:111| PM3[Portmapper]
         N3C -->|TCP:various| M3[rpc.mountd]
         N3C -->|TCP:various| NL3[statd / lockd]
     end
     subgraph "NFSv4 Architecture"
-        N4C[NFS Client] -->|TCP:2049 only| N4S["NFS Server<br/>nfsd + idmapd"]
+        N4C[NFS Client] -->|TCP:2049 only| N4S["NFS Server<br>nfsd + idmapd"]
     end
 ```
 
@@ -231,8 +231,8 @@ graph TD
     A[NFS operation] --> B{Server responds?}
     B -->|Yes| C[Return result]
     B -->|No| D{hard or soft?}
-    D -->|hard| E["Retry forever<br/>Process blocks indefinitely<br/>Recommended for databases"]
-    D -->|soft| F["Return EIO after retrans retries<br/>Risk of data corruption<br/>Avoid for write workloads"]
+    D -->|hard| E["Retry forever<br>Process blocks indefinitely<br>Recommended for databases"]
+    D -->|soft| F["Return EIO after retrans retries<br>Risk of data corruption<br>Avoid for write workloads"]
     E --> G{Server recovered?}
     G -->|Yes| C
     G -->|No| E

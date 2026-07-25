@@ -33,7 +33,7 @@ graph TD
         SYSTEM --> POD
     end
     subgraph "Container View (cgroup ns)"
-        CONTAINER_ROOT["/<br/>(= docker-abc123.scope)"]
+        CONTAINER_ROOT["/<br>(= docker-abc123.scope)"]
     end
 
     DOCKER -.->|"cgroup namespace"| CONTAINER_ROOT
@@ -232,10 +232,10 @@ echo "50000 100000" > /sys/fs/cgroup/my-delegation/workload/cpu.max
 ```mermaid
 graph TD
     subgraph "Host Admin"
-        ADMIN["Creates cgroup subtree<br/>Sets ownership"]
+        ADMIN["Creates cgroup subtree<br>Sets ownership"]
     end
     subgraph "Delegated cgroup"
-        DELEGATE["Delegated owner<br/>(unprivileged)"]
+        DELEGATE["Delegated owner<br>(unprivileged)"]
         CHILD1["child-1"]
         CHILD2["child-2"]
         DELEGATE --> CHILD1
@@ -795,12 +795,10 @@ Cgroup namespaces reduce the attack surface by:
 ```mermaid
 flowchart TD
     subgraph "Without cgroup ns"
-        C1["Container"] -->|"sees all"| HOST_CGROUPS["Host cgroup tree
-(all workloads visible)"]
+        C1["Container"] -->|"sees all"| HOST_CGROUPS["Host cgroup tree<br>(all workloads visible)"]
     end
     subgraph "With cgroup ns"
-        C2["Container"] -->|"sees only self"| OWN_CGROUP["Own cgroup
-(isolated view)"]
+        C2["Container"] -->|"sees only self"| OWN_CGROUP["Own cgroup<br>(isolated view)"]
     end
 ```
 

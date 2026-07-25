@@ -26,12 +26,12 @@ Traditional read-only filesystems like SquashFS offer good compression but can s
 
 ```mermaid
 graph TD
-    SB["Super Block<br/>Block 0"] --> META["Metadata Area<br/>Inode/Dir blocks"]
-    SB --> DATA["Data Area<br/>File data blocks"]
-    SB --> XATTR["Extended Attributes<br/>(optional)"]
-    META --> INODES["Inode Table<br/>Fixed-size inodes"]
-    META --> DIRS["Directory Entries<br/>Variable-length names"]
-    DATA --> COMP["Compressed Blocks<br/>(LZ4/LZMA)"]
+    SB["Super Block<br>Block 0"] --> META["Metadata Area<br>Inode/Dir blocks"]
+    SB --> DATA["Data Area<br>File data blocks"]
+    SB --> XATTR["Extended Attributes<br>(optional)"]
+    META --> INODES["Inode Table<br>Fixed-size inodes"]
+    META --> DIRS["Directory Entries<br>Variable-length names"]
+    DATA --> COMP["Compressed Blocks<br>(LZ4/LZMA)"]
     DATA --> UNCOMP["Uncompressed Blocks"]
 
     style SB fill:#3182ce,color:#fff
@@ -50,9 +50,9 @@ EROFS supports two compression strategies:
 ```mermaid
 graph LR
     subgraph "Fixed-size Output Compression"
-        B1["Block 0"] -->|"compress"| C0["Cluster 0<br/>(fixed size)"]
-        B2["Block 1"] -->|"compress"| C1["Cluster 1<br/>(fixed size)"]
-        B3["Block 2"] -->|"compress"| C2["Cluster 2<br/>(fixed size)"]
+        B1["Block 0"] -->|"compress"| C0["Cluster 0<br>(fixed size)"]
+        B2["Block 1"] -->|"compress"| C1["Cluster 1<br>(fixed size)"]
+        B3["Block 2"] -->|"compress"| C2["Cluster 2<br>(fixed size)"]
     end
     subgraph "Random Access"
         REQ["Read Block 1"] -->|"direct index"| C1
@@ -175,11 +175,11 @@ Starting with Android 13, Google mandates EROFS for system, vendor, and product 
 ```mermaid
 graph TD
     subgraph "Android Device Storage"
-        BOOT["boot.img<br/>(kernel + ramdisk)"]
-        SYSTEM["system.img<br/>EROFS + LZ4"]
-        VENDOR["vendor.img<br/>EROFS + LZ4"]
-        PRODUCT["product.img<br/>EROFS + LZ4"]
-        USERDATA["userdata.img<br/>f2fs/ext4"]
+        BOOT["boot.img<br>(kernel + ramdisk)"]
+        SYSTEM["system.img<br>EROFS + LZ4"]
+        VENDOR["vendor.img<br>EROFS + LZ4"]
+        PRODUCT["product.img<br>EROFS + LZ4"]
+        USERDATA["userdata.img<br>f2fs/ext4"]
     end
     SYSTEM -->|"overlayfs"| MERGE["merged view"]
     VENDOR -->|"overlayfs"| MERGE
@@ -240,9 +240,9 @@ nydusd \
 ```mermaid
 graph TD
     REG["Container Registry"] --> PULL["Nydus Snapshotter"]
-    PULL --> BOOT["Bootstrap Files<br/>(metadata)"]
-    PULL --> BLOB["Blob Files<br/>(EROFS data)"]
-    BOOT --> MOUNT["FUSE Mount<br/>/merged/rootfs"]
+    PULL --> BOOT["Bootstrap Files<br>(metadata)"]
+    PULL --> BLOB["Blob Files<br>(EROFS data)"]
+    BOOT --> MOUNT["FUSE Mount<br>/merged/rootfs"]
     BLOB --> MOUNT
     MOUNT --> CONTAINER["Container Process"]
 

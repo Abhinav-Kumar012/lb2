@@ -485,13 +485,13 @@ sudo pmc -u -b 0 'SET GRANDMASTER_SETTINGS_NP clockClass 128'
 ```mermaid
 graph LR
     subgraph "PTP Grandmaster"
-        GM["GPS-disciplined clock<br/>/dev/ptp0"]
+        GM["GPS-disciplined clock<br>/dev/ptp0"]
     end
     subgraph "Switch (Boundary Clock)"
-        SW["PTP-aware switch<br/>Transparent clock"]
+        SW["PTP-aware switch<br>Transparent clock"]
     end
     subgraph "Slave Node"
-        SL["Linux server<br/>eth0 → /dev/ptp1"]
+        SL["Linux server<br>eth0 → /dev/ptp1"]
     end
     GM -->|"PTP Sync"| SW
     SW -->|"PTP Sync"| SL
@@ -609,15 +609,15 @@ PTP Hardware Clock: 0
 ```mermaid
 graph TB
     subgraph "NTP"
-        NTP_SRV["NTP Server<br/>Stratum 1-15"]
-        NTP_CLI["NTP Client<br/>chronyd/ntpd"]
-        NTP_ACC["Accuracy: 1-10ms<br/>(typical LAN)"]
+        NTP_SRV["NTP Server<br>Stratum 1-15"]
+        NTP_CLI["NTP Client<br>chronyd/ntpd"]
+        NTP_ACC["Accuracy: 1-10ms<br>(typical LAN)"]
     end
     subgraph "PTP"
-        PTP_GM["PTP Grandmaster<br/>GPS-disciplined"]
-        PTP_BC["Boundary Clock<br/>Switch"]
-        PTP_SL["PTP Slave<br/>ptp4l"]
-        PTP_ACC["Accuracy: <1μs<br/>(hardware timestamping)"]
+        PTP_GM["PTP Grandmaster<br>GPS-disciplined"]
+        PTP_BC["Boundary Clock<br>Switch"]
+        PTP_SL["PTP Slave<br>ptp4l"]
+        PTP_ACC["Accuracy: <1μs<br>(hardware timestamping)"]
     end
     NTP_SRV --> NTP_CLI
     NTP_CLI --> NTP_ACC

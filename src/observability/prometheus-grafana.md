@@ -11,19 +11,19 @@ Together, they form the observability backbone for everything from single server
 ```mermaid
 graph TD
     subgraph "Targets"
-        NE["node_exporter<br/>:9100"]
-        APP["Application<br/>:8080/metrics"]
-        MY["mysqld_exporter<br/>:9104"]
-        NG["nginx_exporter<br/>:9113"]
+        NE["node_exporter<br>:9100"]
+        APP["Application<br>:8080/metrics"]
+        MY["mysqld_exporter<br>:9104"]
+        NG["nginx_exporter<br>:9113"]
     end
     subgraph "Prometheus"
-        PROM["Prometheus Server<br/>:9090"]
+        PROM["Prometheus Server<br>:9090"]
         TSDB["TSDB Storage"]
         RULE["Alert Rules"]
-        AM["Alertmanager<br/>:9093"]
+        AM["Alertmanager<br>:9093"]
     end
     subgraph "Visualization"
-        GRAF["Grafana<br/>:3000"]
+        GRAF["Grafana<br>:3000"]
     end
     subgraph "Notification"
         SLACK["Slack"]
@@ -710,8 +710,8 @@ Prometheus stores data locally (default 15-90 days). For longer retention:
 
 ```mermaid
 graph TD
-    PROM1["Prometheus 1<br/>+ Thanos Sidecar"] --> OBJ["Object Storage<br/>(S3/GCS/MinIO)"]
-    PROM2["Prometheus 2<br/>+ Thanos Sidecar"] --> OBJ
+    PROM1["Prometheus 1<br>+ Thanos Sidecar"] --> OBJ["Object Storage<br>(S3/GCS/MinIO)"]
+    PROM2["Prometheus 2<br>+ Thanos Sidecar"] --> OBJ
     QUERY["Thanos Query"] --> PROM1
     QUERY --> PROM2
     QUERY --> STORE["Thanos Store Gateway"]

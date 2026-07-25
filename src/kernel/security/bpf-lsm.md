@@ -25,15 +25,15 @@ flowchart TD
     subgraph Kernel["Kernel"]
         LSM_CORE["LSM framework"]
         BPF_LSM["BPF LSM"]
-        HOOKS["LSM hooks<br/>(file_open, task_alloc, ...)"]
+        HOOKS["LSM hooks<br>(file_open, task_alloc, ...)"]
         VERIFIER["BPF Verifier"]
     end
 
     subgraph BPF["BPF Programs"]
-        PROG1["file_open_check<br/>(block unauthorized opens)"]
-        PROG2["task_create_check<br/>(limit fork)"]
-        PROG3["socket_connect_check<br/>(network policy)"]
-        MAPS["BPF maps<br/>(policy state)"]
+        PROG1["file_open_check<br>(block unauthorized opens)"]
+        PROG2["task_create_check<br>(limit fork)"]
+        PROG3["socket_connect_check<br>(network policy)"]
+        MAPS["BPF maps<br>(policy state)"]
     end
 
     LIBBPF -->|load BPF program| BPF_LSM

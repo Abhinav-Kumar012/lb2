@@ -259,8 +259,8 @@ block-beta
     columns 1
     block:slab_page["SLUB Slab Page (4 KiB)"]
         columns 4
-        A["Object 0<br/>(in use)"] B["Object 1<br/>(free)"] C["Object 2<br/>(in use)"] D["Object 3<br/>(free)"]
-        E["Object 4<br/>(in use)"] F["Object 5<br/>(free)"] G["Object 6<br/>(in use)"] H["Object 7<br/>(free)"]
+        A["Object 0<br>(in use)"] B["Object 1<br>(free)"] C["Object 2<br>(in use)"] D["Object 3<br>(free)"]
+        E["Object 4<br>(in use)"] F["Object 5<br>(free)"] G["Object 6<br>(in use)"] H["Object 7<br>(free)"]
     end
     space
     block:metadata["struct page metadata"]
@@ -383,7 +383,7 @@ block-beta
     columns 1
     block:huge["2 MiB HugeTLB Page (512 base pages)"]
         columns 8
-        P0["Head Page<br/>struct page"] P1["Tail 1"] P2["Tail 2"] P3["Tail 3"]
+        P0["Head Page<br>struct page"] P1["Tail 1"] P2["Tail 2"] P3["Tail 3"]
         P4["..."] P5["..."] P6["..."] P7["Tail 511"]
     end
     space
@@ -688,11 +688,11 @@ flowchart TD
         BA[Free page frames]
     end
 
-    BA -->|Allocate| ANON["Anonymous Pages<br/>(heap, stack, COW)"]
-    BA -->|Allocate| FILE["File-Backed Pages<br/>(page cache, mmap)"]
-    BA -->|Allocate| SLAB["Slab Pages<br/>(kernel objects)"]
-    BA -->|Reserve| HUGETLB["HugeTLB Pages<br/>(2MiB, 1GiB)"]
-    BA -->|Reserve| CMA["CMA Pages<br/>(contiguous DMA)"]
+    BA -->|Allocate| ANON["Anonymous Pages<br>(heap, stack, COW)"]
+    BA -->|Allocate| FILE["File-Backed Pages<br>(page cache, mmap)"]
+    BA -->|Allocate| SLAB["Slab Pages<br>(kernel objects)"]
+    BA -->|Reserve| HUGETLB["HugeTLB Pages<br>(2MiB, 1GiB)"]
+    BA -->|Reserve| CMA["CMA Pages<br>(contiguous DMA)"]
 
     ANON -->|COW| COW[Copy-on-Write duplicate]
     ANON -->|Swap out| SWAP[Swap cache]
@@ -738,7 +738,7 @@ __ClearPageDirty(struct page *page);
 
 ```mermaid
 flowchart TD
-    FLAGS["page->flags<br/>(unsigned long)"]
+    FLAGS["page->flags<br>(unsigned long)"]
     FLAGS --> LOCKED["PG_locked (0)"]
     FLAGS --> ERROR["PG_error (1)"]
     FLAGS --> REFERENCED["PG_referenced (2)"]

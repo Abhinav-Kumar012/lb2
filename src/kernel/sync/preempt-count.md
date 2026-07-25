@@ -35,11 +35,11 @@ Bit  25:    PREEMPT_NEED_RESCHED — Pending reschedule
 ```mermaid
 graph LR
     subgraph "Preempt Count (32-bit integer)"
-        B0["Bits 0-7<br/>PREEMPT_MASK<br/>Preempt disable count<br/>(0-255 nesting)"]
-        B8["Bits 8-15<br/>SOFTIRQ_MASK<br/>Softirq depth<br/>(0-255 nesting)"]
-        B16["Bits 16-23<br/>HARDIRQ_MASK<br/>Hardirq depth<br/>(0-255 nesting)"]
-        B24["Bit 24<br/>NMI_MASK<br/>In NMI flag"]
-        B25["Bit 25<br/>PREEMPT_NEED_RESCHED<br/>Reschedule pending"]
+        B0["Bits 0-7<br>PREEMPT_MASK<br>Preempt disable count<br>(0-255 nesting)"]
+        B8["Bits 8-15<br>SOFTIRQ_MASK<br>Softirq depth<br>(0-255 nesting)"]
+        B16["Bits 16-23<br>HARDIRQ_MASK<br>Hardirq depth<br>(0-255 nesting)"]
+        B24["Bit 24<br>NMI_MASK<br>In NMI flag"]
+        B25["Bit 25<br>PREEMPT_NEED_RESCHED<br>Reschedule pending"]
     end
     style B0 fill:#38a169,color:#fff
     style B8 fill:#3182ce,color:#fff
@@ -94,15 +94,15 @@ static __always_inline bool preemptible(void)
 
 ```mermaid
 graph TD
-    CHECK["Check preempt_count()"] --> NMI{"Bit 24 set?<br/>(NMI_MASK)"}
-    NMI -->|Yes| IN_NMI["In NMI context<br/>Cannot sleep, cannot preempt"]
-    NMI -->|No| HARD{"Bits 16-23 > 0?<br/>(HARDIRQ_MASK)"}
-    HARD -->|Yes| IN_HARD["In hardirq context<br/>Cannot sleep"]
-    HARD -->|No| SOFT{"Bits 8-15 > 0?<br/>(SOFTIRQ_MASK)"}
-    SOFT -->|Yes| IN_SOFT["In softirq context<br/>Cannot sleep"]
-    SOFT -->|No| PREEMPT{"Bits 0-7 > 0?<br/>(PREEMPT_MASK)"}
-    PREEMPT -->|Yes| NO_PREEMPT["Preemption disabled<br/>Can run but not preempted"]
-    PREEMPT -->|No| PREEMPTIBLE["Preemptible!<br/>Scheduler can preempt"]
+    CHECK["Check preempt_count()"] --> NMI{"Bit 24 set?<br>(NMI_MASK)"}
+    NMI -->|Yes| IN_NMI["In NMI context<br>Cannot sleep, cannot preempt"]
+    NMI -->|No| HARD{"Bits 16-23 > 0?<br>(HARDIRQ_MASK)"}
+    HARD -->|Yes| IN_HARD["In hardirq context<br>Cannot sleep"]
+    HARD -->|No| SOFT{"Bits 8-15 > 0?<br>(SOFTIRQ_MASK)"}
+    SOFT -->|Yes| IN_SOFT["In softirq context<br>Cannot sleep"]
+    SOFT -->|No| PREEMPT{"Bits 0-7 > 0?<br>(PREEMPT_MASK)"}
+    PREEMPT -->|Yes| NO_PREEMPT["Preemption disabled<br>Can run but not preempted"]
+    PREEMPT -->|No| PREEMPTIBLE["Preemptible!<br>Scheduler can preempt"]
 
     style IN_NMI fill:#e53e3e,color:#fff
     style IN_HARD fill:#dd6b20,color:#fff
@@ -277,10 +277,10 @@ Linux supports multiple preemption levels, configured at build time:
 
 ```mermaid
 graph TD
-    NONE["PREEMPT_NONE<br/>Best throughput<br/>No kernel preemption"]
-    VOL["PREEMPT_VOLUNTARY<br/>Balanced<br/>Explicit preemption points"]
-    FULL["PREEMPT<br/>Low latency<br/>Full kernel preemption"]
-    RT["PREEMPT_RT<br/>Hard real-time<br/>All locks preemptible"]
+    NONE["PREEMPT_NONE<br>Best throughput<br>No kernel preemption"]
+    VOL["PREEMPT_VOLUNTARY<br>Balanced<br>Explicit preemption points"]
+    FULL["PREEMPT<br>Low latency<br>Full kernel preemption"]
+    RT["PREEMPT_RT<br>Hard real-time<br>All locks preemptible"]
 
     NONE -->|"adds cond_resched()"| VOL
     VOL -->|"adds preempt_schedule() on IRQ return"| FULL
@@ -422,15 +422,15 @@ sequenceDiagram
     participant Softirq as Softirq
 
     Task->>IRQ1: Hardware interrupt
-    Note over IRQ1: preempt_count += HARDIRQ_OFFSET<br/>hardirq_count = 1
+    Note over IRQ1: preempt_count += HARDIRQ_OFFSET<br>hardirq_count = 1
     IRQ1->>IRQ2: Higher-priority interrupt
-    Note over IRQ2: preempt_count += HARDIRQ_OFFSET<br/>hardirq_count = 2
+    Note over IRQ2: preempt_count += HARDIRQ_OFFSET<br>hardirq_count = 2
     IRQ2->>IRQ2: Handle IRQ 2
     IRQ2-->>IRQ1: Return
     Note over IRQ1: hardirq_count = 1
     IRQ1->>IRQ1: Handle IRQ 1
     IRQ1-->>Task: irq_exit()
-    Note over Task: hardirq_count = 0<br/>Check softirq pending
+    Note over Task: hardirq_count = 0<br>Check softirq pending
     Task->>Softirq: invoke_softirq()
     Softirq-->>Task: Done
 ```
@@ -670,18 +670,18 @@ On `PREEMPT_RT`, spinlocks are converted to sleeping locks (rt_mutex), and preem
 ```mermaid
 graph TD
     subgraph "Regular Kernel (CONFIG_PREEMPT)"
-        SL["spin_lock()"] --> PD["preempt_disable()<br/>preempt_count++"]
-        PD --> CR["Critical section<br/>not preemptible"]
+        SL["spin_lock()"] --> PD["preempt_disable()<br>preempt_count++"]
+        PD --> CR["Critical section<br>not preemptible"]
         CR --> SU["spin_unlock()"]
-        SU --> PE["preempt_enable()<br/>preempt_count--"]
+        SU --> PE["preempt_enable()<br>preempt_count--"]
         PE --> RESCHED{"TIF_NEED_RESCHED?"}
         RESCHED -->|Yes| SCHED["preempt_schedule()"]
         RESCHED -->|No| CONT["Continue"]
     end
 
     subgraph "RT Kernel (PREEMPT_RT)"
-        SL2["spin_lock()"] --> RTM["rt_mutex_lock()<br/>may sleep!"]
-        RTM --> CS["Critical section<br/>preemptible"]
+        SL2["spin_lock()"] --> RTM["rt_mutex_lock()<br>may sleep!"]
+        RTM --> CS["Critical section<br>preemptible"]
         CS --> RTU["rt_mutex_unlock()"]
     end
 ```

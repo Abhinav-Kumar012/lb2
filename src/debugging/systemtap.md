@@ -25,8 +25,8 @@ Key capabilities:
 
 ```mermaid
 graph LR
-    SCRIPT["SystemTap Script<br/>(.stp)"] --> PARSER["Parser"]
-    PARSER --> TRANSLATOR["Translator<br/>(stap)"]
+    SCRIPT["SystemTap Script<br>(.stp)"] --> PARSER["Parser"]
+    PARSER --> TRANSLATOR["Translator<br>(stap)"]
     TRANSLATOR -->|"C code"| GCC["GCC"]
     GCC -->|"Kernel module"| LOADER["Module Loader"]
     LOADER -->|"kprobes, tracepoints"| KERNEL["Linux Kernel"]

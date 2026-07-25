@@ -41,7 +41,7 @@ graph TD
     D --> F["Lock B, then C, then D"]
     E --> G["Works if addresses are known"]
     F --> G
-    G --> H["But: address order ≠ creation order<br/>Tasks discover needed BOs at runtime"]
+    G --> H["But: address order ≠ creation order<br>Tasks discover needed BOs at runtime"]
     H --> I["ww_mutex solves this!"]
 
     style I fill:#38a169,color:#fff
@@ -137,15 +137,15 @@ struct ww_class {
 ```mermaid
 graph TD
     subgraph "ww_class (one per subsystem)"
-        CLS["ww_class<br/>stamp: atomic counter<br/>name: 'reservation'"]
+        CLS["ww_class<br>stamp: atomic counter<br>name: 'reservation'"]
     end
     subgraph "ww_acquire_ctx (one per transaction)"
-        CTX["ww_acquire_ctx<br/>stamp: 42 (from class counter)<br/>acquired: 3<br/>contending: 0"]
+        CTX["ww_acquire_ctx<br>stamp: 42 (from class counter)<br>acquired: 3<br>contending: 0"]
     end
     subgraph "ww_mutex instances"
-        L1["ww_mutex (BO A)<br/>ctx: &ctx"]
-        L2["ww_mutex (BO B)<br/>ctx: &ctx"]
-        L3["ww_mutex (BO C)<br/>ctx: NULL (free)"]
+        L1["ww_mutex (BO A)<br>ctx: &amp;ctx"]
+        L2["ww_mutex (BO B)<br>ctx: &amp;ctx"]
+        L3["ww_mutex (BO C)<br>ctx: NULL (free)"]
     end
     CLS -->|"stamp++"| CTX
     CTX -->|"owns"| L1
@@ -420,7 +420,7 @@ sequenceDiagram
     T2->>Lock: Release lock
     T2->>T2: Restart acquisition
 
-    T1->>Lock: ww_mutex_lock_slow() — acquires
+    T1->>Lock: ww_mutex_lock_slow() -- acquires
 ```
 
 ## Performance Considerations

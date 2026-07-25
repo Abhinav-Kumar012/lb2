@@ -43,10 +43,10 @@ In practice, the kernel uses a default of 95% to leave room for interrupts
 
 ```mermaid
 graph LR
-    A["Task A<br/>deadline: 5ms"] --> S{"EDF<br/>Scheduler"}
-    B["Task B<br/>deadline: 3ms"] --> S
-    C["Task C<br/>deadline: 8ms"] --> S
-    S --> D["Run Task B<br/>(nearest deadline)"]
+    A["Task A<br>deadline: 5ms"] --> S{"EDF<br>Scheduler"}
+    B["Task B<br>deadline: 3ms"] --> S
+    C["Task C<br>deadline: 8ms"] --> S
+    S --> D["Run Task B<br>(nearest deadline)"]
 
     style S fill:#e53e3e,color:#fff
     style D fill:#38a169,color:#fff
@@ -148,13 +148,13 @@ static struct task_struct *pick_next_task_dl(struct rq *rq)
 ```mermaid
 graph TD
     subgraph "Per-CPU Runqueue (struct rq)"
-        DLRQ["struct dl_rq<br/>root: rb_root_cached<br/>dl_nr_running: count<br/>running_bw: total BW"]
+        DLRQ["struct dl_rq<br>root: rb_root_cached<br>dl_nr_running: count<br>running_bw: total BW"]
     end
 
     subgraph "Deadline Entities"
-        DL1["sched_dl_entity (Task A)<br/>deadline=5ms, runtime=2ms<br/>rb_node → tree"]
-        DL2["sched_dl_entity (Task B)<br/>deadline=3ms, runtime=1ms<br/>rb_node → tree"]
-        DL3["sched_dl_entity (Task C)<br/>deadline=8ms, runtime=3ms<br/>rb_node → tree"]
+        DL1["sched_dl_entity (Task A)<br>deadline=5ms, runtime=2ms<br>rb_node → tree"]
+        DL2["sched_dl_entity (Task B)<br>deadline=3ms, runtime=1ms<br>rb_node → tree"]
+        DL3["sched_dl_entity (Task C)<br>deadline=8ms, runtime=3ms<br>rb_node → tree"]
     end
 
     DLRQ -->|"rb_root_cached"| DL2
@@ -372,9 +372,9 @@ The kernel enforces both per-CPU and global bandwidth limits:
 
 ```mermaid
 graph TD
-    SUBMIT["sched_setattr() called"] --> GLOBAL{"Global bandwidth check<br/>Sum across all CPUs ≤ capacity?"}
+    SUBMIT["sched_setattr() called"] --> GLOBAL{"Global bandwidth check<br>Sum across all CPUs ≤ capacity?"}
     GLOBAL -->|Fail| REJECT1["Return -EBUSY"]
-    GLOBAL -->|Pass| PERCPU{"Per-CPU check<br/>Target CPU BW ≤ capacity?"}
+    GLOBAL -->|Pass| PERCPU{"Per-CPU check<br>Target CPU BW ≤ capacity?"}
     PERCPU -->|Fail| REJECT2["Return -EBUSY"]
     PERCPU -->|Pass| ACCEPT["Task accepted"]
 
@@ -470,13 +470,13 @@ sequenceDiagram
     Task->>Sched: Enters CPU (runtime=4ms)
     Sched->>Task: Runs, runtime decrements
     Note over Task: runtime reaches 0
-    Sched->>CBS: throttle_dl() — task stops
+    Sched->>CBS: throttle_dl() -- task stops
     CBS->>Timer: Arm dl_task_timer for deadline
     Note over Timer: Time passes until deadline...
     Timer->>CBS: dl_task_timer fires
     CBS->>CBS: runtime = dl_runtime (replenish)
     CBS->>CBS: deadline += dl_period
-    CBS->>Task: Wake up — task can run again
+    CBS->>Task: Wake up -- task can run again
 ```
 
 ### Monitoring Deadline Tasks
@@ -541,13 +541,13 @@ struct sched_attr attr = {
 ```mermaid
 graph LR
     subgraph "Without GRUB"
-        TA1["Task A: 4ms runtime<br/>uses 2ms, 2ms WASTED"]
-        TA2["Task B: 3ms runtime<br/>needs 4ms, BLOCKED"]
+        TA1["Task A: 4ms runtime<br>uses 2ms, 2ms WASTED"]
+        TA2["Task B: 3ms runtime<br>needs 4ms, BLOCKED"]
     end
 
     subgraph "With GRUB"
-        TB1["Task A: 4ms runtime<br/>uses 2ms, 2ms reclaimed"]
-        TB2["Task B: 3ms runtime<br/>uses reclaimed 2ms → OK"]
+        TB1["Task A: 4ms runtime<br>uses 2ms, 2ms reclaimed"]
+        TB2["Task B: 3ms runtime<br>uses reclaimed 2ms → OK"]
     end
 ```
 
@@ -620,12 +620,12 @@ taskset -c 1 chrt --deadline 5000 20000 50000 ./data_logger
 ```mermaid
 graph TD
     subgraph "CPU 0"
-        IMU["IMU Reader<br/>period=1ms, runtime=0.2ms"]
-        LIDAR["Lidar Scanner<br/>period=10ms, runtime=3ms"]
+        IMU["IMU Reader<br>period=1ms, runtime=0.2ms"]
+        LIDAR["Lidar Scanner<br>period=10ms, runtime=3ms"]
     end
     subgraph "CPU 1"
-        CAM["Camera Frame<br/>period=33ms, runtime=15ms"]
-        FUSION["Sensor Fusion<br/>period=10ms, runtime=2ms"]
+        CAM["Camera Frame<br>period=33ms, runtime=15ms"]
+        FUSION["Sensor Fusion<br>period=10ms, runtime=2ms"]
     end
     IMU -->|"Data"| FUSION
     LIDAR -->|"Data"| FUSION

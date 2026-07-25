@@ -496,8 +496,8 @@ graph TB
     end
     subgraph "Portage Engine"
         RESOLVER[Dependency Resolver]
-        PHASES["Build Phases<br/>pkg_pretend → pkg_setup →<br/>src_unpack → src_prepare →<br/>src_configure → src_compile →<br/>src_install → pkg_preinst →<br/>pkg_postinst"]
-        VDB["(VDB<br/>/var/db/pkg/)"]
+        PHASES["Build Phases<br>pkg_pretend → pkg_setup →<br>src_unpack → src_prepare →<br>src_configure → src_compile →<br>src_install → pkg_preinst →<br>pkg_postinst"]
+        VDB["(VDB<br>/var/db/pkg/)"]
     end
     subgraph "Configuration"
         MAKE_CONF[make.conf]
@@ -506,7 +506,7 @@ graph TB
         REPOS_CONF[repos.conf]
     end
     subgraph "Repositories"
-        GENTOO["Gentoo Repository<br/>ebuilds"]
+        GENTOO["Gentoo Repository<br>ebuilds"]
         OVERLAYS[Overlays]
         BINPKGS[Binary Packages]
     end

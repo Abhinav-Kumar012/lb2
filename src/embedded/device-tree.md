@@ -12,9 +12,9 @@ Device trees are essential in ARM, RISC-V, and other embedded architectures wher
 
 ```mermaid
 graph LR
-    DTS["DTS (Source)<br/>board.dts<br/>Human-readable text"]
-    DTSI["DTSI (Include)<br/>soc.dtsi<br/>Reusable fragments"]
-    DTB["DTB (Blob)<br/>board.dtb<br/>Binary, kernel reads this"]
+    DTS["DTS (Source)<br>board.dts<br>Human-readable text"]
+    DTSI["DTSI (Include)<br>soc.dtsi<br>Reusable fragments"]
+    DTB["DTB (Blob)<br>board.dtb<br>Binary, kernel reads this"]
     DTS -->|cpp include| DTSI
     DTS -->|dtc compiler| DTB
 ```

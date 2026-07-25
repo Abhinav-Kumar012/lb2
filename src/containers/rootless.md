@@ -209,13 +209,13 @@ pasta (Pack A Subtle Tap Abstraction) is a newer, faster alternative:
 flowchart LR
     subgraph "slirp4netns"
         S_APP["Container"] --> S_TAP["TAP"]
-        S_TAP --> S_SLIRP["slirp4netns<br/>(userspace TCP/IP)"]
+        S_TAP --> S_SLIRP["slirp4netns<br>(userspace TCP/IP)"]
         S_SLIRP --> S_HOST["Host Network"]
     end
 
     subgraph "pasta"
         P_APP["Container"] --> P_TAP["TAP"]
-        P_TAP --> P_PASTA["pasta<br/>(pass-through)"]
+        P_TAP --> P_PASTA["pasta<br>(pass-through)"]
         P_PASTA --> P_HOST["Host Network"]
     end
 ```

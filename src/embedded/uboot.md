@@ -244,13 +244,13 @@ FIT (Flattened Image Tree) is U-Boot's image format that bundles kernel, device 
 ```mermaid
 graph TB
     subgraph FIT Image
-        FIT_HEADER["ITS Header<br/>Description, timestamps"]
-        KERNEL["Kernel Image<br/>Image.gz or Image"]
-        DTB1["Device Tree 1<br/>board-v1.dtb"]
-        DTB2["Device Tree 2<br/>board-v2.dtb"]
-        RAMDISK["Root Filesystem<br/>rootfs.cpio.gz"]
-        CONFIG["Configurations<br/>Select kernel + DTB + ramdisk"]
-        SIG["Digital Signatures<br/>SHA256 + RSA"]
+        FIT_HEADER["ITS Header<br>Description, timestamps"]
+        KERNEL["Kernel Image<br>Image.gz or Image"]
+        DTB1["Device Tree 1<br>board-v1.dtb"]
+        DTB2["Device Tree 2<br>board-v2.dtb"]
+        RAMDISK["Root Filesystem<br>rootfs.cpio.gz"]
+        CONFIG["Configurations<br>Select kernel + DTB + ramdisk"]
+        SIG["Digital Signatures<br>SHA256 + RSA"]
     end
 ```
 
@@ -422,7 +422,7 @@ mkimage -f image.its -K u-boot.dtb -k /path/to/keys -r fitImage
 ```mermaid
 graph TB
     subgraph Hardware Root of Trust
-        HAB["HAB (i.MX) / ATF (ARM64)<br/>ROM verifies SPL"]
+        HAB["HAB (i.MX) / ATF (ARM64)<br>ROM verifies SPL"]
     end
     subgraph SPL
         SPL_VER[SPL verifies U-Boot]

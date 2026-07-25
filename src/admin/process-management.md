@@ -689,14 +689,14 @@ Namespaces isolate process views of the system:
 ```mermaid
 graph TB
     subgraph Host
-        PID_NS["PID namespace<br/>Process IDs"]
-        NET_NS["NET namespace<br/>Network stack"]
-        MNT_NS["MNT namespace<br/>Mount points"]
-        USER_NS["USER namespace<br/>UID/GID mapping"]
-        UTS_NS["UTS namespace<br/>Hostname"]
-        IPC_NS["IPC namespace<br/>Shared memory, semaphores"]
-        CGROUP_NS["CGROUP namespace<br/>Cgroup root"]
-        TIME_NS["TIME namespace<br/>System clocks"]
+        PID_NS["PID namespace<br>Process IDs"]
+        NET_NS["NET namespace<br>Network stack"]
+        MNT_NS["MNT namespace<br>Mount points"]
+        USER_NS["USER namespace<br>UID/GID mapping"]
+        UTS_NS["UTS namespace<br>Hostname"]
+        IPC_NS["IPC namespace<br>Shared memory, semaphores"]
+        CGROUP_NS["CGROUP namespace<br>Cgroup root"]
+        TIME_NS["TIME namespace<br>System clocks"]
     end
 ```
 

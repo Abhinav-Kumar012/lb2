@@ -13,15 +13,15 @@ The zone system exists primarily because not all physical memory is equal. Some 
 ```mermaid
 graph TB
     subgraph "Physical Memory Layout (x86-64)"
-        Z0["Zone DMA<br/>0 - 16MB<br/>Legacy ISA DMA"]
-        Z1["Zone DMA32<br/>16MB - 4GB<br/>32-bit DMA devices"]
-        Z2["Zone Normal<br/>4GB - 64GB+<br/>General purpose"]
-        Z3["Zone Movable<br/>Variable<br/>For hotplug/compaction"]
+        Z0["Zone DMA<br>0 - 16MB<br>Legacy ISA DMA"]
+        Z1["Zone DMA32<br>16MB - 4GB<br>32-bit DMA devices"]
+        Z2["Zone Normal<br>4GB - 64GB+<br>General purpose"]
+        Z3["Zone Movable<br>Variable<br>For hotplug/compaction"]
     end
     subgraph "32-bit System"
-        Z4["Zone DMA<br/>0 - 16MB"]
-        Z5["Zone Normal<br/>16MB - 896MB"]
-        Z6["Zone Highmem<br/>896MB - 4GB+<br/>Not directly mapped"]
+        Z4["Zone DMA<br>0 - 16MB"]
+        Z5["Zone Normal<br>16MB - 896MB"]
+        Z6["Zone Highmem<br>896MB - 4GB+<br>Not directly mapped"]
     end
 ```
 
@@ -83,15 +83,15 @@ kunmap(highmem_page);
 ```mermaid
 graph TB
     subgraph "32-bit Kernel Virtual Address Space (1GB)"
-        KV["0xC0000000 - 0xFFFFFFFF<br/>Kernel Space"]
-        DM["Direct mapping<br/>0xC0000000 - 0xF8000000<br/>(896MB)"]
+        KV["0xC0000000 - 0xFFFFFFFF<br>Kernel Space"]
+        DM["Direct mapping<br>0xC0000000 - 0xF8000000<br>(896MB)"]
         VMALLOC["vmalloc area"]
-        PKMAP["Persistent kmap<br/>(4MB)"]
+        PKMAP["Persistent kmap<br>(4MB)"]
         FIXMAP["Fixmap area"]
     end
     subgraph "Physical Memory"
-        PM_LOW["0 - 896MB<br/>(ZONE_DMA + ZONE_NORMAL)"]
-        PM_HIGH["896MB - 4GB+<br/>(ZONE_HIGHMEM)"]
+        PM_LOW["0 - 896MB<br>(ZONE_DMA + ZONE_NORMAL)"]
+        PM_HIGH["896MB - 4GB+<br>(ZONE_HIGHMEM)"]
     end
     DM --> PM_LOW
     PKMAP -->|"kmap()"| PM_HIGH
@@ -156,7 +156,7 @@ struct zone {
 ```mermaid
 graph TD
     subgraph "Zone"
-        BUDDY["Buddy Allocator<br/>(order 0 to MAX_ORDER)"]
+        BUDDY["Buddy Allocator<br>(order 0 to MAX_ORDER)"]
     end
     subgraph "Per-CPU Pageset (PCP)"
         PCP0["CPU 0: hot/cold page lists"]
@@ -230,9 +230,9 @@ nr_mlock 0
 graph LR
     subgraph "Memory Zone"
         direction TB
-        HIGH["High watermark<br/>kswapd wakes up"]
-        LOW["Low watermark<br/>kswapd may not keep up"]
-        MIN["Min watermark<br/>Direct reclaim triggered"]
+        HIGH["High watermark<br>kswapd wakes up"]
+        LOW["Low watermark<br>kswapd may not keep up"]
+        MIN["Min watermark<br>Direct reclaim triggered"]
         FREE["Free pages"]
     end
 ```

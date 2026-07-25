@@ -506,9 +506,9 @@ device (`/dev/nvmeXnY`).
 ```mermaid
 graph TD
     subgraph "NVMe Controller"
-        NS1["Namespace 1<br/>/dev/nvme0n1<br/>1 TiB"]
-        NS2["Namespace 2<br/>/dev/nvme0n2<br/>512 GiB"]
-        NS3["Namespace 3<br/>/dev/nvme0n3<br/>ZNS"]
+        NS1["Namespace 1<br>/dev/nvme0n1<br>1 TiB"]
+        NS2["Namespace 2<br>/dev/nvme0n2<br>512 GiB"]
+        NS3["Namespace 3<br>/dev/nvme0n3<br>ZNS"]
     end
     subgraph "Block Layer"
         BD1["gendisk: nvme0n1"]
@@ -634,11 +634,11 @@ LUKS encryption, dm-crypt, dm-raid, and multipath.
 ```mermaid
 graph TD
     subgraph "Virtual Devices"
-        LVM["/dev/dm-0<br/>(LVM logical volume)"]
-        CRYPT["/dev/dm-1<br/>(dm-crypt)"]
+        LVM["/dev/dm-0<br>(LVM logical volume)"]
+        CRYPT["/dev/dm-1<br>(dm-crypt)"]
     end
     subgraph "Device-Mapper"
-        DM["dm_table<br/>target mapping"]
+        DM["dm_table<br>target mapping"]
     end
     subgraph "Physical Devices"
         SDA["/dev/sda"]

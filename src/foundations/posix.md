@@ -41,7 +41,7 @@ Systems that pass the SUS certification test suite can use the **UNIX®** tradem
 ```mermaid
 graph TD
     A[Single UNIX Specification] --> B[POSIX.1 - C API]
-    A --> C["POSIX.2 - Shell & Utilities"]
+    A --> C["POSIX.2 - Shell &amp; Utilities"]
     A --> D[POSIX.1b - Real-time]
     A --> E[POSIX.1c - Threads]
     A --> F[X/Open Curses]

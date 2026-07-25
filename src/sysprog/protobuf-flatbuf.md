@@ -43,13 +43,13 @@ graph TB
         FB_SCHEMA[".fbs schema"] --> FB_CODE["Generated code"]
         FB_CODE --> FB_BUILD["Build: construct in buffer"]
         FB_BUILD --> FB_WIRE["Buffer IS the data"]
-        FB_WIRE --> FB_ACCESS["Direct field access<br/>No parsing needed"]
+        FB_WIRE --> FB_ACCESS["Direct field access<br>No parsing needed"]
     end
     subgraph "Cap'n Proto"
         CP_SCHEMA[".capnp schema"] --> CP_CODE["Generated code"]
         CP_CODE --> CP_BUILD["Build: construct in buffer"]
         CP_BUILD --> CP_WIRE["Buffer IS the data"]
-        CP_WIRE --> CP_ACCESS["Direct field access<br/>Pointer-based"]
+        CP_WIRE --> CP_ACCESS["Direct field access<br>Pointer-based"]
     end
     style PB_WIRE fill:#3182ce,color:#fff
     style FB_WIRE fill:#38a169,color:#fff
@@ -261,8 +261,8 @@ Key properties:
 ```mermaid
 graph LR
     subgraph "FlatBuffer Memory Layout"
-        VT["vtable<br/>(offsets)"]
-        ROOT["root table<br/>offset to vtable + fields"]
+        VT["vtable<br>(offsets)"]
+        ROOT["root table<br>offset to vtable + fields"]
         STR["string data"]
         NEST["nested table"]
         VEC["vector data"]
@@ -271,7 +271,7 @@ graph LR
     ROOT --> STR
     ROOT --> NEST
     ROOT --> VEC
-    ACCESS["Reader: direct pointer<br/>into buffer"] --> ROOT
+    ACCESS["Reader: direct pointer<br>into buffer"] --> ROOT
     style ACCESS fill:#38a169,color:#fff
     style ROOT fill:#3182ce,color:#fff
 ```
@@ -595,10 +595,10 @@ Access single field from 10,000 deserialized objects:
 graph LR
     subgraph "Deserialization Time (ms)"
         direction TB
-        PB["Protobuf: 15.2ms<br/>████████████████"]
-        FB["FlatBuffers: 0.001ms<br/>▏"]
-        CP["Cap'n Proto: 0.001ms<br/>▏"]
-        JSON["JSON: 82.1ms<br/>████████████████████████████████████████"]
+        PB["Protobuf: 15.2ms<br>████████████████"]
+        FB["FlatBuffers: 0.001ms<br>▏"]
+        CP["Cap'n Proto: 0.001ms<br>▏"]
+        JSON["JSON: 82.1ms<br>████████████████████████████████████████"]
     end
     style PB fill:#3182ce,color:#fff
     style FB fill:#38a169,color:#fff
@@ -764,15 +764,15 @@ target_link_libraries(cp_demo CapnProto::capnp CapnProto::kj)
 
 ```mermaid
 graph TD
-    START["Need binary serialization?"] --> Q1{"Write once,<br/>read many?"}
-    Q1 -->|Yes| Q2{"Need random<br/>field access?"}
-    Q2 -->|Yes| Q3{"Need RPC<br/>framework?"}
+    START["Need binary serialization?"] --> Q1{"Write once,<br>read many?"}
+    Q1 -->|Yes| Q2{"Need random<br>field access?"}
+    Q2 -->|Yes| Q3{"Need RPC<br>framework?"}
     Q3 -->|Yes| CAPNP["Cap'n Proto"]
     Q3 -->|No| FLATBUF["FlatBuffers"]
     Q2 -->|No| PROTOBUF["Protocol Buffers"]
-    Q1 -->|No| Q4{"Wire size<br/>critical?"}
+    Q1 -->|No| Q4{"Wire size<br>critical?"}
     Q4 -->|Yes| PROTOBUF
-    Q4 -->|No| Q5{"Cross-language<br/>support?"}
+    Q4 -->|No| Q5{"Cross-language<br>support?"}
     Q5 -->|Yes| PROTOBUF
     Q5 -->|No| FLATBUF
 
@@ -824,16 +824,16 @@ sudo pacman -s protobuf flatbuffers capnproto
 ```mermaid
 graph TD
     subgraph "Protocol Buffers"
-        PB["Best wire size<br/>Broadest language support<br/>gRPC ecosystem"]
+        PB["Best wire size<br>Broadest language support<br>gRPC ecosystem"]
     end
     subgraph "FlatBuffers"
-        FB["Zero-copy reads<br/>mmap-friendly<br/>Game/real-time focus"]
+        FB["Zero-copy reads<br>mmap-friendly<br>Game/real-time focus"]
     end
     subgraph "Cap'n Proto"
-        CP["Zero-copy + RPC<br/>Promise pipelining<br/>Capability-based"]
+        CP["Zero-copy + RPC<br>Promise pipelining<br>Capability-based"]
     end
-    PB ---|"Trade parse speed<br/>for compact size"| FB
-    FB ---|"Trade features<br/>for built-in RPC"| CP
+    PB ---|"Trade parse speed<br>for compact size"| FB
+    FB ---|"Trade features<br>for built-in RPC"| CP
     style PB fill:#3182ce,color:#fff
     style FB fill:#38a169,color:#fff
     style CP fill:#d69e2e,color:#000

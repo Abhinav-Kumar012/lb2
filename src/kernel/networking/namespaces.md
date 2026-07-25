@@ -444,12 +444,12 @@ int join_netns(pid_t target_pid)
 ```mermaid
 graph TB
     subgraph "Per-Namespace Isolation"
-        NETDEV["Network devices<br/>(eth0, lo, veth, etc.)]
-        ROUTE["Routing tables<br/>(ip route)"]
-        IPTABLES["Firewall rules<br/>(iptables/nftables)"]
-        PROCNET["/proc/net<br/>netstat, tcp, udp"]
-        SOCK["Socket space<br/>(bind addresses)"]
-        SYSCTL["Per-ns sysctls<br/>(ip_forward, etc.)]
+        NETDEV["Network devices<br>(eth0, lo, veth, etc.)"]
+        ROUTE["Routing tables<br>(ip route)"]
+        IPTABLES["Firewall rules<br>(iptables/nftables)"]
+        PROCNET["/proc/net<br>netstat, tcp, udp"]
+        SOCK["Socket space<br>(bind addresses)"]
+        SYSCTL["Per-ns sysctls<br>(ip_forward, etc.)"]
         ARP["ARP/NDP tables"]
         XFRM["IPsec/XFRM state"]
     end

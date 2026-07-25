@@ -391,12 +391,12 @@ at the bio level.
 
 ```mermaid
 graph LR
-    A["Original bio<br/>page above 4G"] --> B{Exceeds DMA mask?}
-    B -- Yes --> C["Allocate bounce page<br/>below 4G"]
-    C --> D["Copy data to bounce page<br/>if write"]
+    A["Original bio<br>page above 4G"] --> B{Exceeds DMA mask?}
+    B -- Yes --> C["Allocate bounce page<br>below 4G"]
+    C --> D["Copy data to bounce page<br>if write"]
     D --> E[Remap bio to bounce page]
     E --> F[Submit to driver]
-    F --> G["Copy data from bounce page<br/>if read"]
+    F --> G["Copy data from bounce page<br>if read"]
     G --> H[Free bounce page]
     B -- No --> F
 ```
@@ -595,10 +595,10 @@ $ cat /sys/fs/cgroup/blkio/mygroup/blkio.throttle.io_service_bytes
 graph TD
     A[Task submits bio] --> B[blkcg_associate_bio]
     B --> C[bio tagged with blkg]
-    C --> D["Throttle check<br/>bps/iops limits"]
+    C --> D["Throttle check<br>bps/iops limits"]
     D -->|Exceeds limit| E[Throttle: wait]
     D -->|OK| F[Insert into scheduler]
-    F --> G["Scheduler uses blkg<br/>for fairness/weight"]
+    F --> G["Scheduler uses blkg<br>for fairness/weight"]
     G --> H[Dispatch to hardware]
     H --> I[Account I/O to blkg]
 ```

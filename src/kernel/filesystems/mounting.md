@@ -213,12 +213,12 @@ graph TB
         M5["/mnt/data"]
     end
     subgraph "New Namespace (container)"
-        N1["/ (rootfs — shared initially)"]
-        N2["/dev — devtmpfs"]
-        N3["/proc — procfs"]
-        N4["/sys — sysfs"]
-        N5["/mnt/data — private"]
-        N6["/app — overlayfs"]
+        N1["/ (rootfs -- shared initially)"]
+        N2["/dev -- devtmpfs"]
+        N3["/proc -- procfs"]
+        N4["/sys -- sysfs"]
+        N5["/mnt/data -- private"]
+        N6["/app -- overlayfs"]
     end
     M1 -.->|shared| N1
     N5 -.->|propagation: private| N5
@@ -231,10 +231,10 @@ Mount propagation controls how mount and unmount events are shared between names
 ```mermaid
 graph TD
     subgraph "Propagation Types"
-        SHARED["Shared<br/>Events propagate bidirectionally"]
-        PRIVATE["Private<br/>No propagation"]
-        SLAVE["Slave<br/>One-way: parent → child"]
-        UNBINDABLE["Unbindable<br/>Cannot be bind-mounted"]
+        SHARED["Shared<br>Events propagate bidirectionally"]
+        PRIVATE["Private<br>No propagation"]
+        SLAVE["Slave<br>One-way: parent → child"]
+        UNBINDABLE["Unbindable<br>Cannot be bind-mounted"]
     end
 ```
 

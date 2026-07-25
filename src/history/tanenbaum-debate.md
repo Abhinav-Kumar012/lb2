@@ -441,7 +441,7 @@ graph LR
         MK --> DRV_SERVER[Driver Server]
     end
     
-    EBPF -.->|"Similar concept:<br/>Safe extension"| FS_SERVER
+    EBPF -.->|"Similar concept:<br>Safe extension"| FS_SERVER
     
     style EBPF fill:#f96,stroke:#333,stroke-width:2px
     style MK fill:#9f9,stroke:#333,stroke-width:2px

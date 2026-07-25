@@ -887,7 +887,7 @@ static struct security_hook_list selinux_hooks[] = {
 flowchart LR
     PLAN["Plan domains<br>and types"] --> WRITE[Write .te/.fc/.if]
     WRITE --> COMPILE[Compile module]
-    COMPILE --> TEST["Install & test"]
+    COMPILE --> TEST["Install &amp; test"]
     TEST --> DENIALS{Denials?}
     DENIALS -->|Yes| DEBUG[audit2allow + review]
     DEBUG --> FIX{Fix type?}

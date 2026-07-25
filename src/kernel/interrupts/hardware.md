@@ -693,8 +693,8 @@ RISC-V uses the **Platform-Level Interrupt Controller** (PLIC) for external inte
 ```mermaid
 graph TD
     subgraph "RISC-V System"
-        CLINT["CLINT<br/>Timer + IPI"]
-        PLIC["PLIC<br/>External interrupts"]
+        CLINT["CLINT<br>Timer + IPI"]
+        PLIC["PLIC<br>External interrupts"]
         CORE0[Core 0]
         CORE1[Core 1]
     end

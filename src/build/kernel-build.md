@@ -105,15 +105,15 @@ string   — String value
 graph TD
     SRC[Source Code + Kconfig files] --> CONF[Configuration]
     
-    CONF --> DEF["make defconfig<br/>Default for your arch"]
-    CONF --> MENU["make menuconfig<br/>ncurses menu"]
-    CONF --> XCONFIG["make xconfig<br/>Qt GUI"]
-    CONF --> GCONFIG["make gconfig<br/>GTK GUI"]
-    CONF --> NCONFIG["make nconfig<br/>ncurses enhanced"]
-    CONF --> OLDCONFIG["make oldconfig<br/>Update existing .config"]
-    CONF --> ALLNO["make allyesconfig<br/>Enable everything"]
-    CONF --> ALLMOD["make allmodconfig<br/>All options as modules"]
-    CONF --> TINY["make tinyconfig<br/>Minimal kernel"]
+    CONF --> DEF["make defconfig<br>Default for your arch"]
+    CONF --> MENU["make menuconfig<br>ncurses menu"]
+    CONF --> XCONFIG["make xconfig<br>Qt GUI"]
+    CONF --> GCONFIG["make gconfig<br>GTK GUI"]
+    CONF --> NCONFIG["make nconfig<br>ncurses enhanced"]
+    CONF --> OLDCONFIG["make oldconfig<br>Update existing .config"]
+    CONF --> ALLNO["make allyesconfig<br>Enable everything"]
+    CONF --> ALLMOD["make allmodconfig<br>All options as modules"]
+    CONF --> TINY["make tinyconfig<br>Minimal kernel"]
     
     CONF --> DOTCONFIG[.config file]
     DOTCONFIG --> BUILD[Build System]
@@ -258,7 +258,7 @@ flowchart TD
     DOTCONFIG[".config"] --> KCONFIG["Kbuild Config Processing"]
     KCONFIG --> AUTOCONF["include/generated/autoconf.h"]
     
-    SRCS["Source Files<br/>(.c, .S)"] --> CC["Compiler (GCC/Clang)"]
+    SRCS["Source Files<br>(.c, .S)"] --> CC["Compiler (GCC/Clang)"]
     AUTOCONF --> CC
     
     CC --> OBJ["Object Files (.o)"]

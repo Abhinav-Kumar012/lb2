@@ -11,9 +11,9 @@ This chapter covers `node_exporter` for system metrics, the textfile collector f
 ```mermaid
 graph TB
     subgraph "Observability Pillars"
-        METRICS["Metrics<br/>Numerical measurements over time<br/>Dashboards, alerting, trends"]
-        LOGS["Logs<br/>Discrete event records<br/>Debugging, auditing, forensics"]
-        TRACES["Traces<br/>Request flow across services<br/>Latency analysis, dependency mapping"]
+        METRICS["Metrics<br>Numerical measurements over time<br>Dashboards, alerting, trends"]
+        LOGS["Logs<br>Discrete event records<br>Debugging, auditing, forensics"]
+        TRACES["Traces<br>Request flow across services<br>Latency analysis, dependency mapping"]
     end
 
     METRICS -->|"What's happening?"| SRE["SRE/Operations"]
@@ -36,10 +36,10 @@ graph TB
 ```mermaid
 graph LR
     subgraph "Prometheus Metric Types"
-        COUNTER["Counter<br/>Monotonically increasing<br/>e.g., requests_total"]
-        GAUGE["Gauge<br/>Goes up and down<br/>e.g., memory_bytes"]
-        HISTOGRAM["Histogram<br/>Distribution of values<br/>e.g., request_duration"]
-        SUMMARY["Summary<br/>Pre-calculated quantiles<br/>e.g., rpc_duration"]
+        COUNTER["Counter<br>Monotonically increasing<br>e.g., requests_total"]
+        GAUGE["Gauge<br>Goes up and down<br>e.g., memory_bytes"]
+        HISTOGRAM["Histogram<br>Distribution of values<br>e.g., request_duration"]
+        SUMMARY["Summary<br>Pre-calculated quantiles<br>e.g., rpc_duration"]
     end
 ```
 
@@ -519,21 +519,21 @@ groups:
 ```mermaid
 graph TB
     subgraph "Data Sources"
-        NE["node_exporter<br/>:9100"]
-        APP["Application<br/>:8080/metrics"]
-        CAD["cAdvisor<br/>:8080"]
-        TEXTFILE["Textfile collector<br/>custom_metrics.prom"]
+        NE["node_exporter<br>:9100"]
+        APP["Application<br>:8080/metrics"]
+        CAD["cAdvisor<br>:8080"]
+        TEXTFILE["Textfile collector<br>custom_metrics.prom"]
     end
 
     subgraph "Prometheus"
-        PROM["Prometheus Server<br/>:9090"]
-        TSDB["TSDB<br/>Time Series Database"]
+        PROM["Prometheus Server<br>:9090"]
+        TSDB["TSDB<br>Time Series Database"]
         RULES["Alert Rules"]
     end
 
     subgraph "Visualization & Alerting"
-        GRAFANA["Grafana<br/>:3000"]
-        ALERTMGR["Alertmanager<br/>:9093"]
+        GRAFANA["Grafana<br>:3000"]
+        ALERTMGR["Alertmanager<br>:9093"]
         PAGER["PagerDuty / Slack"]
     end
 

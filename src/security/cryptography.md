@@ -20,21 +20,21 @@ graph TB
     subgraph "Kernel Space"
         subgraph "Crypto API"
             MANAGER[Crypto Manager]
-            TEMPLATE["Template Layer<br/>ablkcipher, ahash, aead"]
-            ALGO["Algorithm Layer<br/>AES, SHA, RSA..."]
+            TEMPLATE["Template Layer<br>ablkcipher, ahash, aead"]
+            ALGO["Algorithm Layer<br>AES, SHA, RSA..."]
         end
 
         subgraph "Crypto Users"
-            DMCRYPT["dm-crypt<br/>Disk encryption"]
-            IPSEC["IPsec<br/>Network encryption"]
-            ECRYPTFS["eCryptfs<br/>Filesystem encryption"]
-            FS["ext4/f2fs Encryption<br/>fscrypt"]
-            WIRELESS["WPA/WPA2<br/>Wireless security"]
-            TLS_KERN["kTLS<br/>In-kernel TLS"]
+            DMCRYPT["dm-crypt<br>Disk encryption"]
+            IPSEC["IPsec<br>Network encryption"]
+            ECRYPTFS["eCryptfs<br>Filesystem encryption"]
+            FS["ext4/f2fs Encryption<br>fscrypt"]
+            WIRELESS["WPA/WPA2<br>Wireless security"]
+            TLS_KERN["kTLS<br>In-kernel TLS"]
         end
 
         subgraph "Hardware"
-            HWCRYPTO["Hardware Accelerators<br/>AES-NI, ARM CE"]
+            HWCRYPTO["Hardware Accelerators<br>AES-NI, ARM CE"]
             TPM[TPM Chip]
             HWRNG[Hardware RNG]
         end
@@ -158,7 +158,7 @@ LUKS is the standard for Linux disk encryption. It provides:
 graph TB
     subgraph "LUKS Volume Structure"
         HEADER[LUKS Header]
-        KEY["Key Slots<br/>0-7 LUKS1 / 0-31 LUKS2"]
+        KEY["Key Slots<br>0-7 LUKS1 / 0-31 LUKS2"]
         DATA[Encrypted Data Area]
     end
 
@@ -169,7 +169,7 @@ graph TB
     HEADER --> MKDIGEST[Master Key Digest]
     HEADER --> SALT[Salt]
     HEADER --> ITER[Iterations]
-    KEY --> SLOT0["Slot 0: Active<br/>Password → Key"]
+    KEY --> SLOT0["Slot 0: Active<br>Password → Key"]
     KEY --> SLOT1[Slot 1: Inactive]
     DATA --> BLOCKS[Encrypted Blocks]
 ```
@@ -378,7 +378,7 @@ graph LR
 
     subgraph "kTLS Offload"
         APP2[App] -->|setsockopt| KTLS[Kernel TLS] -->|encrypt in kernel| SOCK2[Socket]
-        KTLS --> HW["Hardware Offload<br/>NIC TLS"]
+        KTLS --> HW["Hardware Offload<br>NIC TLS"]
     end
 
     style KTLS fill:#87CEEB

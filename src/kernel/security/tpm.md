@@ -38,18 +38,18 @@ flowchart TD
     end
 
     subgraph Kernel["Kernel (drivers/char/tpm/)"]
-        TPM_CORE["tpm-chip.c<br/>(TPM subsystem)"]
+        TPM_CORE["tpm-chip.c<br>(TPM subsystem)"]
         TPM_DEV["/dev/tpm0, /dev/tpmrm0"]
-        TPM_CRB["tpm_crb<br/>(CRB interface)"]
-        TPM_TIS["tpm_tis<br/>(TIS interface)"]
-        TPM_VTPM["tpm_vtpm<br/>(virtual TPM)"]
-        TPMRM["tpmrm-dev.c<br/>(resource manager)"]
+        TPM_CRB["tpm_crb<br>(CRB interface)"]
+        TPM_TIS["tpm_tis<br>(TIS interface)"]
+        TPM_VTPM["tpm_vtpm<br>(virtual TPM)"]
+        TPMRM["tpmrm-dev.c<br>(resource manager)"]
     end
 
     subgraph Hardware["Hardware"]
-        HW_TPM["Physical TPM chip<br/>(Infineon, STM, Nuvoton)"]
-        FW_TPM["Firmware TPM<br/>(fTPM in ARM TrustZone)"]
-        SW_TPM["Software TPM<br/>(swtpm for VMs)"]
+        HW_TPM["Physical TPM chip<br>(Infineon, STM, Nuvoton)"]
+        FW_TPM["Firmware TPM<br>(fTPM in ARM TrustZone)"]
+        SW_TPM["Software TPM<br>(swtpm for VMs)"]
     end
 
     TSS --> TPM2TOOLS
@@ -191,11 +191,11 @@ tpm2_create -C primary.ctx -g sha256 -G rsa2048:rsassa \
 
 ```mermaid
 flowchart TD
-    SRK["Storage Root Key (SRK)<br/>Primary Key, Hierarchy: Owner"]
-    SK1["Sealed Key 1<br/>(LUKS passphrase)"]
-    SK2["Signing Key<br/>(TLS cert)"]
-    DK1["Data Key<br/>(Symmetric AES)"]
-    DK2["Attestation Key<br/>(EK-based)"]
+    SRK["Storage Root Key (SRK)<br>Primary Key, Hierarchy: Owner"]
+    SK1["Sealed Key 1<br>(LUKS passphrase)"]
+    SK2["Signing Key<br>(TLS cert)"]
+    DK1["Data Key<br>(Symmetric AES)"]
+    DK2["Attestation Key<br>(EK-based)"]
 
     SRK --> SK1
     SRK --> SK2
@@ -367,12 +367,12 @@ systemd-cryptenroll /dev/sda1 --tpm2-device=auto \
 ```mermaid
 flowchart TD
     subgraph Attacks["TPM Attack Surface"]
-        TIMING["Timing attacks<br/>(TPM-Fail, CVE-2019-11090)"]
-        LOCALITY["Locality attacks<br/>(TPM-TIS)"]
-        FTPM["fTPM vulnerabilities<br/>(AMD, Intel)"]
-        PHYSICAL["Physical attacks<br/>(bus sniffing, cold boot)"]
-        SW["Software stack bugs<br/>(TSS, tpm2-tools)"]
-        PCR["PCR manipulation<br/>(reset/extend races)"]
+        TIMING["Timing attacks<br>(TPM-Fail, CVE-2019-11090)"]
+        LOCALITY["Locality attacks<br>(TPM-TIS)"]
+        FTPM["fTPM vulnerabilities<br>(AMD, Intel)"]
+        PHYSICAL["Physical attacks<br>(bus sniffing, cold boot)"]
+        SW["Software stack bugs<br>(TSS, tpm2-tools)"]
+        PCR["PCR manipulation<br>(reset/extend races)"]
     end
 
     subgraph Mitigations["Mitigations"]

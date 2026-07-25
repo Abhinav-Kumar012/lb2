@@ -190,7 +190,7 @@ By the late 1980s, Unix had fragmented into dozens of incompatible variants:
 
 ```mermaid
 graph TD
-    U[Original Unix] --> ATT["AT&T System V"]
+    U[Original Unix] --> ATT["AT&amp;T System V"]
     U --> BSD[Berkeley BSD]
     ATT --> SVR4[System V Release 4]
     ATT --> HP[HP-UX]
@@ -335,7 +335,7 @@ Modern Linux incorporates elements from all major Unix traditions:
 
 ```mermaid
 graph LR
-    ATT["AT&T System V"] -->|IPC, ELF, init| L[Modern Linux]
+    ATT["AT&amp;T System V"] -->|IPC, ELF, init| L[Modern Linux]
     BSD[Berkeley BSD] -->|sockets, FFS concepts| L
     GNU[GNU Project] -->|userland tools, GPL| L
     MINIX[MINIX] -->|inspiration, POSIX| L
@@ -498,10 +498,10 @@ The fragmentation of Unix led to multiple competing standardization efforts:
 timeline
     title Unix Standardization
     1984 : X/Open formed (European portability)
-    1985 : SVID (AT&T System V Interface Definition)
+    1985 : SVID (AT&amp;T System V Interface Definition)
     1988 : POSIX (IEEE 1003.1)
-    1988 : OSF formed (anti-AT&T coalition)
-    1988 : Unix International (pro-AT&T)
+    1988 : OSF formed (anti-AT&amp;T coalition)
+    1988 : Unix International (pro-AT&amp;T)
     1993 : Single UNIX Spec (X/Open + POSIX merge)
     1997 : SUSv2 published
     2001 : Linux Standard Base (LSB)

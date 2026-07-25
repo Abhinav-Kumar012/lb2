@@ -11,9 +11,9 @@ This chapter covers Ceph's core architecture (RADOS), the CRUSH algorithm, RBD (
 ```mermaid
 graph TD
     subgraph "Client Interfaces"
-        RBD["RBD<br/>(Block)"]
-        CEPHFS["CephFS<br/>(File)"]
-        RGW["RGW<br/>(Object/S3)"]
+        RBD["RBD<br>(Block)"]
+        CEPHFS["CephFS<br>(File)"]
+        RGW["RGW<br>(Object/S3)"]
     end
     subgraph "RADOS (Reliable Autonomic Distributed Object Store)"
         LIBRADOS["librados"]
@@ -29,7 +29,7 @@ graph TD
         MGR["Manager (ceph-mgr)"]
     end
     subgraph "Metadata"
-        MDS["MDS<br/>(CephFS only)"]
+        MDS["MDS<br>(CephFS only)"]
     end
 
     RBD --> LIBRADOS
@@ -112,7 +112,7 @@ CRUSH (Controlled Replication Under Scalable Hashing) is Ceph's data placement a
 ```mermaid
 graph TD
     INPUT["Input: Pool ID + Object ID"] --> HASH["CRUSH Hash"]
-    HASH --> RULE["CRUSH Rule<br/>(replicated or erasure)"]
+    HASH --> RULE["CRUSH Rule<br>(replicated or erasure)"]
     RULE --> TREE["CRUSH Map Tree"]
     TREE --> ROOT["Root"]
     ROOT --> DC1["Datacenter 1"]
@@ -268,8 +268,8 @@ RBD provides block storage backed by RADOS. It's the most common way to use Ceph
 ```mermaid
 graph TD
     subgraph "Client"
-        APP[Application] --> RBD_KRBD["RBD Kernel Module<br/>(/dev/rbd0)"]
-        APP --> RBD_LIB["librbd<br/>(QEMU, KRBD)"]
+        APP[Application] --> RBD_KRBD["RBD Kernel Module<br>(/dev/rbd0)"]
+        APP --> RBD_LIB["librbd<br>(QEMU, KRBD)"]
     end
     subgraph "Ceph Cluster"
         MON[Monitors]

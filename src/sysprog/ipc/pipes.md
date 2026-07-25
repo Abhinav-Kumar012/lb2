@@ -80,9 +80,9 @@ graph LR
         READER["read(fd, buf, n)"]
     end
     subgraph "Kernel"
-        BUFFER["Pipe Buffer<br/>(64KB default)"]
-        WAIT_W["Writer waits<br/>if buffer full"]
-        WAIT_R["Reader waits<br/>if buffer empty"]
+        BUFFER["Pipe Buffer<br>(64KB default)"]
+        WAIT_W["Writer waits<br>if buffer full"]
+        WAIT_R["Reader waits<br>if buffer empty"]
     end
     WRITER -->|"copy_from_user()"| BUFFER
     BUFFER -->|"copy_to_user()"| READER

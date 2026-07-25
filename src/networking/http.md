@@ -108,11 +108,11 @@ Status codes indicate the result of a request. They are grouped into five classe
 ```mermaid
 graph TB
     subgraph "HTTP Status Code Classes"
-        A["<b>1xx Informational</b><br/>Request received, continue"]
-        B["<b>2xx Success</b><br/>Request accepted"]
-        C["<b>3xx Redirection</b><br/>Further action needed"]
-        D["<b>4xx Client Error</b><br/>Bad request"]
-        E["<b>5xx Server Error</b><br/>Server failed"]
+        A["<b>1xx Informational</b><br>Request received, continue"]
+        B["<b>2xx Success</b><br>Request accepted"]
+        C["<b>3xx Redirection</b><br>Further action needed"]
+        D["<b>4xx Client Error</b><br>Bad request"]
+        E["<b>5xx Server Error</b><br>Server failed"]
     end
 ```
 
@@ -208,9 +208,9 @@ sequenceDiagram
     participant Client
     participant Server
 
-    Client->>Server: ClientHello<br/>Supported TLS versions, cipher suites<br/>Key share (ECDHE)
-    Server->>Client: ServerHello<br/>Selected cipher suite, key share<br/>Certificate, CertificateVerify<br/>Finished
-    Note over Client: Verify certificate<br/>Derive session keys
+    Client->>Server: ClientHello<br>Supported TLS versions, cipher suites<br>Key share (ECDHE)
+    Server->>Client: ServerHello<br>Selected cipher suite, key share<br>Certificate, CertificateVerify<br>Finished
+    Note over Client: Verify certificate<br>Derive session keys
     Client->>Server: Finished
     Note over Client,Server: Encrypted HTTP traffic begins
 ```
@@ -305,13 +305,13 @@ Defined in RFC 9113, HTTP/2 was derived from Google's SPDY protocol. It addresse
 
 ```mermaid
 graph LR
-    subgraph "HTTP/1.1 — Multiple Connections"
-        C1["Connection 1<br/>GET /index.html"]
-        C2["Connection 2<br/>GET /style.css"]
-        C3["Connection 3<br/>GET /app.js"]
+    subgraph "HTTP/1.1 -- Multiple Connections"
+        C1["Connection 1<br>GET /index.html"]
+        C2["Connection 2<br>GET /style.css"]
+        C3["Connection 3<br>GET /app.js"]
     end
 
-    subgraph "HTTP/2 — Single Connection"
+    subgraph "HTTP/2 -- Single Connection"
         S["TCP Connection"]
         S --> F1["Stream 1: GET /index.html"]
         S --> F2["Stream 3: GET /style.css"]
@@ -358,7 +358,7 @@ graph TB
     end
 
     subgraph "HTTP/3 over QUIC"
-        H3["HTTP/3 Frames"] --> QUIC["QUIC<br/>(UDP-based, built-in TLS 1.3)"]
+        H3["HTTP/3 Frames"] --> QUIC["QUIC<br>(UDP-based, built-in TLS 1.3)"]
         QUIC --> UDP["UDP"]
         UDP --> IP3["IP"]
     end

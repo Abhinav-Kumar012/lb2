@@ -5,6 +5,9 @@ description = "A comprehensive, continuously growing reference for Linux, Unix i
 language = "en"
 src = "src"
 
+[preprocessor.mermaid]
+command = "mdbook-mermaid"
+
 [output.html]
 default-theme = "light"
 preferred-dark-theme = "navy"

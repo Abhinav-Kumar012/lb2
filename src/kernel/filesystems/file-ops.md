@@ -53,36 +53,36 @@ struct file_operations {
 ```mermaid
 graph TD
     subgraph "Read/Write Path"
-        READ[read — traditional buffered read]
-        WRITE[write — traditional buffered write]
-        READ_ITER[read_iter — vectored/iter read]
-        WRITE_ITER[write_iter — vectored/iter write]
-        SPLICE_READ[splice_read — zero-copy read to pipe]
-        SPLICE_WRITE[splice_write — zero-copy write from pipe]
-        COPY_FILE_RANGE[copy_file_range — server-side copy]
+        READ[read -- traditional buffered read]
+        WRITE[write -- traditional buffered write]
+        READ_ITER[read_iter -- vectored/iter read]
+        WRITE_ITER[write_iter -- vectored/iter write]
+        SPLICE_READ[splice_read -- zero-copy read to pipe]
+        SPLICE_WRITE[splice_write -- zero-copy write from pipe]
+        COPY_FILE_RANGE[copy_file_range -- server-side copy]
     end
     subgraph "File Lifecycle"
-        OPEN[open — file opened]
-        RELEASE[release — last close]
-        FLUSH[flush — each close]
+        OPEN[open -- file opened]
+        RELEASE[release -- last close]
+        FLUSH[flush -- each close]
     end
     subgraph "Position"
-        LLSEEK[llseek — change file position]
+        LLSEEK[llseek -- change file position]
     end
     subgraph "Synchronization"
-        FSYNC[fsync — flush data+metadata]
-        FDATASYNS[fdatasync — flush data only]
+        FSYNC[fsync -- flush data+metadata]
+        FDATASYNS[fdatasync -- flush data only]
     end
     subgraph "Locking"
-        LOCK[lock — POSIX/FL locks]
-        SETLEASE[setlease — delegation leases]
+        LOCK[lock -- POSIX/FL locks]
+        SETLEASE[setlease -- delegation leases]
     end
     subgraph "Memory Mapping"
-        MMAP[mmap — map file to virtual memory]
+        MMAP[mmap -- map file to virtual memory]
     end
     subgraph "Async I/O"
         READ_ITER["read_iter (with IOCB_NOWAIT)"]
-        IOPOLL[iopoll — completion polling]
+        IOPOLL[iopoll -- completion polling]
     end
 ```
 
@@ -102,7 +102,7 @@ sequenceDiagram
     VFS->>VFS: fdget() → struct file
     VFS->>VFS: Verify permissions
     VFS->>VFS: rw_verify_area(READ, pos, count)
-    VFS->>FS: file->f_op->read(file, buf, count, &pos)
+    VFS->>FS: file->f_op->read(file, buf, count, &amp;pos)
     FS->>PageCache: find/get pages in cache
     alt Cache hit
         PageCache-->>FS: Page data available
@@ -216,7 +216,7 @@ stateDiagram-v2
     [*] --> Allocated: open(2)
     Allocated --> InUse: fd installed in process
     InUse --> InUse: read/write/mmap/etc
-    InUse --> LastClose: close(2) — fd count → 0
+    InUse --> LastClose: close(2) -- fd count → 0
     LastClose --> [*]: release() called
 
     note right of Allocated
@@ -377,18 +377,18 @@ copy_file_range(src_fd, &src_off, dst_fd, &dst_off, len, 0);
 
 ```mermaid
 graph TD
-    subgraph "flock — Whole File Locks"
-        FL1[LOCK_SH — Shared lock]
-        FL2[LOCK_EX — Exclusive lock]
-        FL3[LOCK_UN — Unlock]
-        FL4[LOCK_NB — Non-blocking]
+    subgraph "flock -- Whole File Locks"
+        FL1[LOCK_SH -- Shared lock]
+        FL2[LOCK_EX -- Exclusive lock]
+        FL3[LOCK_UN -- Unlock]
+        FL4[LOCK_NB -- Non-blocking]
     end
-    subgraph "fcntl — POSIX Record Locks"
-        FC1[F_RDLCK — Read lock]
-        FC2[F_WRLCK — Write lock]
-        FC3[F_UNLCK — Unlock]
-        FC4[F_SETLK — Non-blocking]
-        FC5[F_SETLKW — Blocking]
+    subgraph "fcntl -- POSIX Record Locks"
+        FC1[F_RDLCK -- Read lock]
+        FC2[F_WRLCK -- Write lock]
+        FC3[F_UNLCK -- Unlock]
+        FC4[F_SETLK -- Non-blocking]
+        FC5[F_SETLKW -- Blocking]
     end
 ```
 

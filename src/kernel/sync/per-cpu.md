@@ -274,10 +274,10 @@ my_counter.batch = 1024;  /* Larger batch = less locking */
 ```mermaid
 graph TD
     subgraph "Atomic Counter (contention)"
-        A1["CPU 0: atomic_inc(&counter)"] --> CS1["Cache line bounces!"]
-        A2["CPU 1: atomic_inc(&counter)"] --> CS1
-        A3["CPU 2: atomic_inc(&counter)"] --> CS1
-        A4["CPU 3: atomic_inc(&counter)"] --> CS1
+        A1["CPU 0: atomic_inc(&amp;counter)"] --> CS1["Cache line bounces!"]
+        A2["CPU 1: atomic_inc(&amp;counter)"] --> CS1
+        A3["CPU 2: atomic_inc(&amp;counter)"] --> CS1
+        A4["CPU 3: atomic_inc(&amp;counter)"] --> CS1
     end
     
     subgraph "Per-CPU Counter (no contention)"

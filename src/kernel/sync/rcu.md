@@ -43,14 +43,14 @@ sequenceDiagram
     R1->>R1: rcu_read_lock()
     R1->>R1: Access old data
     W->>W: Remove old pointer, install new
-    W->>GP: call_rcu() — register callback
+    W->>GP: call_rcu() -- register callback
     R2->>R2: rcu_read_lock()
     R2->>R2: Access new data (already installed)
-    R1->>R1: rcu_read_unlock() — quiescent state on CPU 0
-    R2->>R2: rcu_read_unlock() — quiescent state on CPU 1
+    R1->>R1: rcu_read_unlock() -- quiescent state on CPU 0
+    R2->>R2: rcu_read_unlock() -- quiescent state on CPU 1
     Note over GP: All CPUs have passed quiescent states
     GP->>GP: Grace period complete
-    GP->>W: Invoke callback — free old data
+    GP->>W: Invoke callback -- free old data
 ```
 
 ### Quiescent States

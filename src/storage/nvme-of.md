@@ -20,7 +20,7 @@ The key motivation: traditional network storage protocols (iSCSI, NFS, SMB) add 
 graph TB
     subgraph "Initiator (Host)"
         APP["Application"]
-        FS["Filesystem<br/>(ext4, xfs, ...)"]
+        FS["Filesystem<br>(ext4, xfs, ...)"]
         BLK["Block Layer"]
         NVME_CLI["NVMe Core"]
         NVME_TCP["nvme-tcp (TCP transport)"]
@@ -28,12 +28,12 @@ graph TB
         NVME_FC["nvme-fc (FC transport)"]
     end
     subgraph "Fabric"
-        NET["TCP/IP Network<br/>or RDMA Fabric<br/>or Fibre Channel"]
+        NET["TCP/IP Network<br>or RDMA Fabric<br>or Fibre Channel"]
     end
     subgraph "Target (Storage Server)"
-        NVMET["NVMe Target Subsystem<br/>(nvmet)"]
+        NVMET["NVMe Target Subsystem<br>(nvmet)"]
         NS["Namespaces"]
-        BDEV["Block Devices<br/>(NVMe SSD, RAID, etc.)"]
+        BDEV["Block Devices<br>(NVMe SSD, RAID, etc.)"]
     end
 
     APP --> FS --> BLK --> NVME_CLI
@@ -73,12 +73,12 @@ graph TB
 graph LR
     subgraph "Latency Comparison"
         direction TB
-        LOCAL["Local NVMe<br/>2-10 μs"]
-        NVMEOF_RDMA["NVMe-oF/RDMA<br/>2-5 μs"]
-        NVMEOF_TCP["NVMe-oF/TCP<br/>5-15 μs"]
-        FC["Fibre Channel<br/>10-30 μs"]
-        ISCSI["iSCSI<br/>15-30 μs"]
-        NFS["NFS<br/>50-200 μs"]
+        LOCAL["Local NVMe<br>2-10 μs"]
+        NVMEOF_RDMA["NVMe-oF/RDMA<br>2-5 μs"]
+        NVMEOF_TCP["NVMe-oF/TCP<br>5-15 μs"]
+        FC["Fibre Channel<br>10-30 μs"]
+        ISCSI["iSCSI<br>15-30 μs"]
+        NFS["NFS<br>50-200 μs"]
     end
 
     LOCAL --> NVMEOF_RDMA --> NVMEOF_TCP --> FC --> ISCSI --> NFS

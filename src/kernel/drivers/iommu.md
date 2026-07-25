@@ -19,13 +19,13 @@ graph TD
     subgraph "Without IOMMU"
         DEV1["Device A"] -->|"DMA to phys addr X"| RAM1["Physical RAM"]
         DEV2["Device B"] -->|"DMA to phys addr Y"| RAM1
-        PROBLEM["❌ Device A can DMA<br/>to ANY physical address<br/>(security hole)"]
+        PROBLEM["❌ Device A can DMA<br>to ANY physical address<br>(security hole)"]
     end
     subgraph "With IOMMU"
         DEV3["Device A"] -->|"DMA to IOVA X"| IOMMU["IOMMU"]
         DEV4["Device B"] -->|"DMA to IOVA Y"| IOMMU
         IOMMU -->|"Translated"| RAM2["Physical RAM"]
-        SAFE["✅ IOMMU restricts<br/>each device to its<br/>own address space"]
+        SAFE["✅ IOMMU restricts<br>each device to its<br>own address space"]
     end
 
     style PROBLEM fill:#e53e3e,color:#fff
@@ -108,8 +108,8 @@ graph TD
     end
 
     subgraph "SMMU v3 Features"
-        S1["Stage 1: VA → IPA<br/>(like CPU MMU)"]
-        S2["Stage 2: IPA → PA<br/>(hypervisor control)"]
+        S1["Stage 1: VA → IPA<br>(like CPU MMU)"]
+        S2["Stage 2: IPA → PA<br>(hypervisor control)"]
     end
 
     ARM_SMMU --> S1
@@ -283,7 +283,7 @@ graph TD
     end
     subgraph "VM"
         GUEST["Guest OS"]
-        VDEV["Virtual Device<br/>(direct hardware access)"]
+        VDEV["Virtual Device<br>(direct hardware access)"]
     end
 
     KVM --> VFIO
@@ -358,10 +358,10 @@ done
 
 ```mermaid
 graph TD
-    ROOT["Root Table<br/>(256 entries, one per bus)"]
-    CT["Context Table<br/>(256 entries, one per device)"]
+    ROOT["Root Table<br>(256 entries, one per bus)"]
+    CT["Context Table<br>(256 entries, one per device)"]
     PML4["PML4 Table"]
-    PDPT["PDPT<br/>(Page Directory Pointer)"]
+    PDPT["PDPT<br>(Page Directory Pointer)"]
     PD["Page Directory"]
     PT["Page Table"]
     PAGE["4KB Page"]
@@ -398,13 +398,13 @@ For devices that cannot address all of physical memory (e.g., 32-bit PCI devices
 ```mermaid
 graph TD
     subgraph "Without IOMMU (bounce buffer needed)"
-        APP1["Application"] --> BOUNCE["Bounce Buffer<br/>(below 4GB)"]
-        BOUNCE --> DMA1["Device DMA<br/>(32-bit addresses only)"]
+        APP1["Application"] --> BOUNCE["Bounce Buffer<br>(below 4GB)"]
+        BOUNCE --> DMA1["Device DMA<br>(32-bit addresses only)"]
         COPY1["Extra copy! ❌"]
     end
     subgraph "With IOMMU (direct DMA)"
-        APP2["Application"] --> IOMMU2["IOMMU<br/>(maps IOVA to any PA)"]
-        IOMMU2 --> DMA2["Device DMA<br/>(IOVA < 4GB, PA anywhere)"]
+        APP2["Application"] --> IOMMU2["IOMMU<br>(maps IOVA to any PA)"]
+        IOMMU2 --> DMA2["Device DMA<br>(IOVA < 4GB, PA anywhere)"]
         NOCOPY["No copy needed! ✅"]
     end
 
@@ -432,11 +432,11 @@ dmesg | grep -i "interrupt remapping"
 
 ```mermaid
 graph TD
-    DEV["PCIe Device"] -->|"MSI/MSI-X"| IOMMU_IR["IOMMU<br/>Interrupt Remapping"]
+    DEV["PCIe Device"] -->|"MSI/MSI-X"| IOMMU_IR["IOMMU<br>Interrupt Remapping"]
     IOMMU_IR -->|"Validated & remapped"| IOAPIC["I/O APIC"]
     IOAPIC --> CPU["CPU"]
 
-    VALIDATE["Validate:<br/>Source ID<br/>Vector<br/>Redirection hint"]
+    VALIDATE["Validate:<br>Source ID<br>Vector<br>Redirection hint"]
 
     IOMMU_IR --> VALIDATE
 

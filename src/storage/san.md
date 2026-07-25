@@ -11,9 +11,9 @@ Linux supports two primary SAN transports: **Fibre Channel (FC)** and **iSCSI** 
 ```mermaid
 graph TD
     subgraph "Server Tier"
-        S1["Server 1<br/>FC/iSCSI HBA"]
-        S2["Server 2<br/>FC/iSCSI HBA"]
-        S3["Server 3<br/>FC/iSCSI HBA"]
+        S1["Server 1<br>FC/iSCSI HBA"]
+        S2["Server 2<br>FC/iSCSI HBA"]
+        S3["Server 3<br>FC/iSCSI HBA"]
     end
     subgraph "Network Tier"
         subgraph "FC Fabric"
@@ -26,8 +26,8 @@ graph TD
     end
     subgraph "Storage Tier"
         subgraph "Array Controller"
-            CTRL_A["Controller A<br/>Target Port 1,2"]
-            CTRL_B["Controller B<br/>Target Port 3,4"]
+            CTRL_A["Controller A<br>Target Port 1,2"]
+            CTRL_B["Controller B<br>Target Port 3,4"]
         end
         subgraph "Disk Shelf"
             DISKS["HDDs/SSDs"]
@@ -54,11 +54,11 @@ Fibre Channel is the traditional SAN transport, offering high bandwidth (16/32/6
 ```mermaid
 graph TD
     subgraph "FC Protocol Layers"
-        FC4["FC-4: Protocol Mapping<br/>(SCSI-FCP, IP, FICON)"]
-        FC3["FC-3: Common Services<br/>(Striping, Hunt Groups)"]
-        FC2["FC-2: Framing<br/>(Frames, Sequences, Exchanges)"]
-        FC1["FC-1: Encoding<br/>(8b/10b, 64b/66b)"]
-        FC0["FC-0: Physical<br/>(SFP, Cable, Optics)"]
+        FC4["FC-4: Protocol Mapping<br>(SCSI-FCP, IP, FICON)"]
+        FC3["FC-3: Common Services<br>(Striping, Hunt Groups)"]
+        FC2["FC-2: Framing<br>(Frames, Sequences, Exchanges)"]
+        FC1["FC-1: Encoding<br>(8b/10b, 64b/66b)"]
+        FC0["FC-0: Physical<br>(SFP, Cable, Optics)"]
     end
     FC4 --> FC3 --> FC2 --> FC1 --> FC0
 ```
@@ -152,14 +152,14 @@ graph LR
     subgraph "iSCSI Initiator (Client)"
         APP[Application] --> FS[Filesystem]
         FS --> SCSI[SCSI Layer]
-        SCSI --> ISCSI_INIT["iSCSI Initiator<br/>(open-iscsi)"]
+        SCSI --> ISCSI_INIT["iSCSI Initiator<br>(open-iscsi)"]
     end
     subgraph "IP Network"
         TCP[TCP/IP Stack]
-        NIC["NIC with<br/>offload (optional)"]
+        NIC["NIC with<br>offload (optional)"]
     end
     subgraph "iSCSI Target (Storage)"
-        ISCSI_TGT["iSCSI Target<br/>(LIO/targetcli)"]
+        ISCSI_TGT["iSCSI Target<br>(LIO/targetcli)"]
         BLK[Block Devices/LUNs]
     end
     ISCSI_INIT --> TCP --> NIC --> ISCSI_TGT --> BLK
@@ -447,15 +447,15 @@ NVMe-oF extends the NVMe protocol across network fabrics, allowing remote access
 graph LR
     subgraph "Host (Initiator)"
         APP[Application] --> FS[Filesystem]
-        FS --> NVME_INIT["nvme driver<br/>nvme-fabrics"]
+        FS --> NVME_INIT["nvme driver<br>nvme-fabrics"]
     end
     subgraph "Fabric"
-        NET["Network<br/>(Ethernet/FC/IB)"]
+        NET["Network<br>(Ethernet/FC/IB)"]
     end
     subgraph "Target (Subsystem)"
-        NVME_TGT["NVMe Target<br/>subsystem"]
-        NS1["Namespace 1<br/>NVMe SSD"]
-        NS2["Namespace 2<br/>NVMe SSD"]
+        NVME_TGT["NVMe Target<br>subsystem"]
+        NS1["Namespace 1<br>NVMe SSD"]
+        NS2["Namespace 2<br>NVMe SSD"]
     end
     NVME_INIT --> NET --> NVME_TGT
     NVME_TGT --> NS1
@@ -569,10 +569,10 @@ multipath -ll
 ```mermaid
 graph TD
     subgraph "Server"
-        HBA0["HBA 0<br/>Port 0"]
-        HBA1["HBA 0<br/>Port 1"]
-        HBA2["HBA 1<br/>Port 0"]
-        HBA3["HBA 1<br/>Port 1"]
+        HBA0["HBA 0<br>Port 0"]
+        HBA1["HBA 0<br>Port 1"]
+        HBA2["HBA 1<br>Port 0"]
+        HBA3["HBA 1<br>Port 1"]
     end
     subgraph "Fabric A"
         SWA1["Switch A1"]
@@ -583,8 +583,8 @@ graph TD
         SWB2["Switch B2"]
     end
     subgraph "Storage"
-        CA["Controller A<br/>Port 0,1"]
-        CB["Controller B<br/>Port 2,3"]
+        CA["Controller A<br>Port 0,1"]
+        CB["Controller B<br>Port 2,3"]
     end
     HBA0 --> SWA1
     HBA1 --> SWA2

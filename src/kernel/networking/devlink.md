@@ -470,7 +470,7 @@ graph TB
         DLK["devlink core"]
     end
     subgraph "Hardware"
-        ASIC["Switch ASIC<br/>(mlxsw, prestera, etc.)"]
+        ASIC["Switch ASIC<br>(mlxsw, prestera, etc.)"]
     end
     IP --> BR
     DL --> DLK

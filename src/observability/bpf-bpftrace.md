@@ -15,15 +15,15 @@ graph TD
     subgraph "User Space"
         BT["bpftrace scripts"]
         LIB["libbpf / BCC"]
-        APP["Custom BPF programs<br/>(C + libbpf)"]
-        BPFTOOL["bpftool<br/>(management)"]
+        APP["Custom BPF programs<br>(C + libbpf)"]
+        BPFTOOL["bpftool<br>(management)"]
     end
     subgraph "Kernel Space - BPF Runtime"
-        VER["BPF Verifier<br/>━━━━━━━━━━━━<br/>Safety checks:<br/>• No infinite loops<br/>• No null derefs<br/>• No out-of-bounds<br/>• All memory validated<br/>• Program size limits"]
-        JIT["BPF JIT Compiler<br/>━━━━━━━━━━━━<br/>Compiles bytecode<br/>to native x86/ARM"]
+        VER["BPF Verifier<br>━━━━━━━━━━━━<br>Safety checks:<br>• No infinite loops<br>• No null derefs<br>• No out-of-bounds<br>• All memory validated<br>• Program size limits"]
+        JIT["BPF JIT Compiler<br>━━━━━━━━━━━━<br>Compiles bytecode<br>to native x86/ARM"]
         PROG["BPF Programs"]
-        MAP["BPF Maps<br/>━━━━━━━━━━━━<br/>hash, array, ringbuf,<br/>percpu, lru, ..."]
-        HOOK["Hook Points<br/>━━━━━━━━━━━━<br/>kprobes, tracepoints,<br/>XDP, perf_events,<br/>fentry/fexit, LSM"]
+        MAP["BPF Maps<br>━━━━━━━━━━━━<br>hash, array, ringbuf,<br>percpu, lru, ..."]
+        HOOK["Hook Points<br>━━━━━━━━━━━━<br>kprobes, tracepoints,<br>XDP, perf_events,<br>fentry/fexit, LSM"]
     end
     BT --> LIB
     LIB --> VER
@@ -39,25 +39,25 @@ graph TD
 ```mermaid
 graph LR
     subgraph "1. Write"
-        SRC["C source<br/>or bpftrace"]
+        SRC["C source<br>or bpftrace"]
     end
     subgraph "2. Compile"
-        CLANG["clang/LLVM<br/>→ BPF bytecode"]
+        CLANG["clang/LLVM<br>→ BPF bytecode"]
     end
     subgraph "3. Load"
-        LOAD["bpf() syscall<br/>loads into kernel"]
+        LOAD["bpf() syscall<br>loads into kernel"]
     end
     subgraph "4. Verify"
-        CHECK["BPF verifier<br/>safety analysis"]
+        CHECK["BPF verifier<br>safety analysis"]
     end
     subgraph "5. JIT"
-        JIT2["Native code<br/>generation"]
+        JIT2["Native code<br>generation"]
     end
     subgraph "6. Attach"
-        ATTACH["Hook to kprobe,<br/>tracepoint, XDP, etc."]
+        ATTACH["Hook to kprobe,<br>tracepoint, XDP, etc."]
     end
     subgraph "7. Run"
-        RUN["Execute on<br/>every event"]
+        RUN["Execute on<br>every event"]
     end
     SRC --> CLANG --> LOAD --> CHECK --> JIT2 --> ATTACH --> RUN
 ```
@@ -583,14 +583,14 @@ The BPF verifier ensures programs are safe before they execute:
 
 ```mermaid
 graph TD
-    SRC["BPF Program Source<br/>(C or bpftrace)"] --> VER["BPF Verifier"]
-    VER --> C1["✓ No infinite loops<br/>(bounded back-edges)"]
-    VER --> C2["✓ No null pointer dereferences<br/>(map lookup checks)"]
-    VER --> C3["✓ No out-of-bounds access<br/>(array bounds checking)"]
-    VER --> C4["✓ All memory accesses validated<br/>(stack, packet, map)"]
-    VER --> C5["✓ Program size within limits<br/>(1M instructions)"]
-    VER --> C6["✓ Helper function args validated<br/>(correct types and ranges)"]
-    VER --> C7["✓ No uninitialized memory reads<br/>(stack initialization)"]
+    SRC["BPF Program Source<br>(C or bpftrace)"] --> VER["BPF Verifier"]
+    VER --> C1["✓ No infinite loops<br>(bounded back-edges)"]
+    VER --> C2["✓ No null pointer dereferences<br>(map lookup checks)"]
+    VER --> C3["✓ No out-of-bounds access<br>(array bounds checking)"]
+    VER --> C4["✓ All memory accesses validated<br>(stack, packet, map)"]
+    VER --> C5["✓ Program size within limits<br>(1M instructions)"]
+    VER --> C6["✓ Helper function args validated<br>(correct types and ranges)"]
+    VER --> C7["✓ No uninitialized memory reads<br>(stack initialization)"]
     C1 --> JIT
     C2 --> JIT
     C3 --> JIT

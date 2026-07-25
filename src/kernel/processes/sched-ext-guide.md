@@ -148,11 +148,11 @@ stateDiagram-v2
 ```mermaid
 graph TB
     subgraph "DSQ Hierarchy"
-        GLOBAL["Global DSQ (SCX_DSQ_GLOBAL)<br/>Shared across all CPUs"]
-        LOCAL0["Local DSQ CPU 0<br/>Highest priority"]
+        GLOBAL["Global DSQ (SCX_DSQ_GLOBAL)<br>Shared across all CPUs"]
+        LOCAL0["Local DSQ CPU 0<br>Highest priority"]
         LOCAL1["Local DSQ CPU 1"]
         LOCALN["Local DSQ CPU N"]
-        CUSTOM["Custom DSQ<br/>User-defined"]
+        CUSTOM["Custom DSQ<br>User-defined"]
     end
 
     subgraph "Task Flow"

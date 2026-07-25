@@ -504,7 +504,7 @@ sequenceDiagram
     participant BLK as Block Layer
 
     APP->>SQ: Post SQE (no syscall in SQPOLL mode)
-    Note over KT: SQ thread or io_uring_enter()<br/>dequeues SQE
+    Note over KT: SQ thread or io_uring_enter()<br>dequeues SQE
     KT->>KT: io_submit_sqe()<n    KT->>KT: io_issue_sqe()<n    alt Blocking I/O
         KT->>IOWQ: Queue to io-wq worker
         IOWQ->>BLK: Submit bio

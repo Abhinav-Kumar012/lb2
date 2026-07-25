@@ -24,15 +24,15 @@ graph LR
     subgraph "Intel PT Hardware"
         CPU["CPU Core"]
         PT["PT Encoder"]
-        TOPA["ToPA<br/>(Table of Physical<br/>Addresses)"]
+        TOPA["ToPA<br>(Table of Physical<br>Addresses)"]
         BUF["Memory Buffer"]
     end
     subgraph "Decoding"
-        DECODER["perf script<br/>(PT decoder)"]
-        OUTPUT["Instruction trace<br/>with timing"]
+        DECODER["perf script<br>(PT decoder)"]
+        OUTPUT["Instruction trace<br>with timing"]
     end
     
-    CPU -->|"branches,<br/>calls, returns"| PT
+    CPU -->|"branches,<br>calls, returns"| PT
     PT --> TOPA
     TOPA --> BUF
     BUF --> DECODER
@@ -170,16 +170,16 @@ hardware buffer.
 ```mermaid
 graph TD
     subgraph "Standard Sampling (with skid)"
-        EVT1["PMU Event<br/>(cache miss)"]
+        EVT1["PMU Event<br>(cache miss)"]
         INT1["Interrupt fires"]
-        REC1["Record IP<br/>(may be 10+<br/>instructions late)"]
+        REC1["Record IP<br>(may be 10+<br>instructions late)"]
         EVT1 -->|"~10-20 cycles"| INT1
         INT1 --> REC1
     end
     subgraph "PEBS (precise)"
-        EVT2["PMU Event<br/>(cache miss)"]
-        PEBS_B["PEBS buffer<br/>(hardware)"]
-        REC2["Precise IP<br/>(0-1 instructions<br/>of skid)"]
+        EVT2["PMU Event<br>(cache miss)"]
+        PEBS_B["PEBS buffer<br>(hardware)"]
+        REC2["Precise IP<br>(0-1 instructions<br>of skid)"]
         EVT2 --> PEBS_B
         PEBS_B --> REC2
     end

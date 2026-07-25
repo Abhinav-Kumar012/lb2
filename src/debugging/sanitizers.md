@@ -411,9 +411,9 @@ kfence.sample_interval=100   # Sample every 100ms (default)
 ```mermaid
 graph LR
     subgraph "KFENCE Pool"
-        GUARD1["Guard Page<br/>(unmapped)"]
-        OBJECT["KFENCE Object<br/>(one allocation)"]
-        GUARD2["Guard Page<br/>(unmapped)"]
+        GUARD1["Guard Page<br>(unmapped)"]
+        OBJECT["KFENCE Object<br>(one allocation)"]
+        GUARD2["Guard Page<br>(unmapped)"]
     end
 
     subgraph "Detection"

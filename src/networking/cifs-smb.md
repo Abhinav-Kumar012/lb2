@@ -36,7 +36,7 @@ graph TB
         NET_CLI["TCP/IP Stack"]
     end
     subgraph "Network"
-        TCP["TCP Port 445<br/>(or 139 for NetBIOS)"]
+        TCP["TCP Port 445<br>(or 139 for NetBIOS)"]
     end
     subgraph "SMB Server (Linux)"
         NET_SRV["TCP/IP Stack"]
@@ -50,7 +50,7 @@ graph TB
             WINBINDD["winbindd"]
         end
         VFS_SRV["VFS Layer"]
-        FS["Local Filesystem<br/>(ext4, xfs, btrfs)"]
+        FS["Local Filesystem<br>(ext4, xfs, btrfs)"]
     end
 
     APP_CLI --> VFS --> CIFS_CLI --> NET_CLI --> TCP --> NET_SRV
@@ -65,18 +65,18 @@ graph TB
 ```mermaid
 graph TB
     subgraph "Samba Stack"
-        SMBD["smbd<br/>(SMB/CIFS server)"]
-        NMBD["nmbd<br/>(NetBIOS name service)"]
-        WINBINDD["winbindd<br/>(Windows domain integration)"]
+        SMBD["smbd<br>(SMB/CIFS server)"]
+        NMBD["nmbd<br>(NetBIOS name service)"]
+        WINBINDD["winbindd<br>(Windows domain integration)"]
         LIBSMB["libsmb / libsmbclient"]
-        TDB["tdb<br/>(Trivial Database)"]
-        TALLOC["talloc<br/>(Memory allocator)"]
-        TEVENT["tevent<br/>(Event system)"]
-        VFS_MOD["VFS Modules<br/>(vfs_recycle, vfs_shadow_copy2, ...)"]
+        TDB["tdb<br>(Trivial Database)"]
+        TALLOC["talloc<br>(Memory allocator)"]
+        TEVENT["tevent<br>(Event system)"]
+        VFS_MOD["VFS Modules<br>(vfs_recycle, vfs_shadow_copy2, ...)"]
     end
     subgraph "Configuration"
         SMB_CONF["smb.conf"]
-        SECRETS["secrets.tdb<br/>(machine account)"]
+        SECRETS["secrets.tdb<br>(machine account)"]
     end
 
     SMBD --> LIBSMB

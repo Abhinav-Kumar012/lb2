@@ -313,7 +313,7 @@ flowchart TB
     F --> G["handle_mm_fault()"]
     G --> H["VMA found via find_vma()"]
     H --> I["->fault() called"]
-    I --> J["Page allocated & mapped"]
+    I --> J["Page allocated &amp; mapped"]
 
     K["munmap() syscall"] --> L["do_munmap()"]
     L --> M["unmap_region()"]

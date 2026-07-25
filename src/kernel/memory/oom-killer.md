@@ -645,7 +645,7 @@ flowchart TB
     E -->|No| F[Page freed, marked poisoned]
     E -->|Yes| G{Page type?}
     G -->|Clean file page| H[Read from disk, recover]
-    G -->|Dirty page| I[Data loss — kill process]
+    G -->|Dirty page| I[Data loss -- kill process]
     G -->|Anonymous page| J[Kill process with SIGBUS]
 ```
 

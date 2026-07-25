@@ -11,13 +11,13 @@ Understanding the OSI model is critical for Linux networking because the kernel'
 ```mermaid
 graph TB
     subgraph "OSI Reference Model"
-        L7["<b>Layer 7 — Application</b><br/>User-facing protocols<br/>HTTP, DNS, SSH, SMTP"]
-        L6["<b>Layer 6 — Presentation</b><br/>Data formatting, encryption<br/>TLS, JPEG, ASCII, XDR"]
-        L5["<b>Layer 5 — Session</b><br/>Connection management<br/>RPC, NetBIOS, SIP"]
-        L4["<b>Layer 4 — Transport</b><br/>End-to-end delivery<br/>TCP, UDP, SCTP, QUIC"]
-        L3["<b>Layer 3 — Network</b><br/>Logical addressing, routing<br/>IPv4, IPv6, ICMP, IPsec"]
-        L2["<b>Layer 2 — Data Link</b><br/>Framing, MAC addressing<br/>Ethernet, Wi-Fi, PPP, VLAN"]
-        L1["<b>Layer 1 — Physical</b><br/>Bit transmission<br/>Cables, fiber, radio, hubs"]
+        L7["<b>Layer 7 -- Application</b><br>User-facing protocols<br>HTTP, DNS, SSH, SMTP"]
+        L6["<b>Layer 6 -- Presentation</b><br>Data formatting, encryption<br>TLS, JPEG, ASCII, XDR"]
+        L5["<b>Layer 5 -- Session</b><br>Connection management<br>RPC, NetBIOS, SIP"]
+        L4["<b>Layer 4 -- Transport</b><br>End-to-end delivery<br>TCP, UDP, SCTP, QUIC"]
+        L3["<b>Layer 3 -- Network</b><br>Logical addressing, routing<br>IPv4, IPv6, ICMP, IPsec"]
+        L2["<b>Layer 2 -- Data Link</b><br>Framing, MAC addressing<br>Ethernet, Wi-Fi, PPP, VLAN"]
+        L1["<b>Layer 1 -- Physical</b><br>Bit transmission<br>Cables, fiber, radio, hubs"]
     end
 
     L7 --> L6 --> L5 --> L4 --> L3 --> L2 --> L1
@@ -666,7 +666,7 @@ As data travels down the OSI stack from sender to receiver, each layer **adds it
 
 ```mermaid
 graph TB
-    subgraph "Sender — Encapsulation"
+    subgraph "Sender -- Encapsulation"
         A1["Application Data"] --> A2["+ Layer 6 Header"]
         A2 --> A3["+ Layer 5 Header"]
         A3 --> A4["+ TCP Header = Segment"]
@@ -675,7 +675,7 @@ graph TB
         A6 --> A7["Convert to Bits"]
     end
 
-    subgraph "Receiver — Decapsulation"
+    subgraph "Receiver -- Decapsulation"
         B7["Bits received"] --> B6["Parse Ethernet Header"]
         B6 --> B5["Parse IP Header"]
         B5 --> B4["Parse TCP Header"]
@@ -711,20 +711,20 @@ Each layer only needs to understand its own header. The rest is opaque payload. 
 ```mermaid
 graph LR
     subgraph "OSI Model"
-        O7["Layer 7<br/>Application"]
-        O6["Layer 6<br/>Presentation"]
-        O5["Layer 5<br/>Session"]
-        O4["Layer 4<br/>Transport"]
-        O3["Layer 3<br/>Network"]
-        O2["Layer 2<br/>Data Link"]
-        O1["Layer 1<br/>Physical"]
+        O7["Layer 7<br>Application"]
+        O6["Layer 6<br>Presentation"]
+        O5["Layer 5<br>Session"]
+        O4["Layer 4<br>Transport"]
+        O3["Layer 3<br>Network"]
+        O2["Layer 2<br>Data Link"]
+        O1["Layer 1<br>Physical"]
     end
 
     subgraph "TCP/IP Model"
-        T4["Application<br/>(Layers 5-7)"]
-        T3["Transport<br/>(Layer 4)"]
-        T2["Internet<br/>(Layer 3)"]
-        T1["Network Access<br/>(Layers 1-2)"]
+        T4["Application<br>(Layers 5-7)"]
+        T3["Transport<br>(Layer 4)"]
+        T2["Internet<br>(Layer 3)"]
+        T1["Network Access<br>(Layers 1-2)"]
     end
 
     O7 --> T4
@@ -754,8 +754,8 @@ The Linux kernel networking stack doesn't perfectly mirror the OSI model, but th
 ```mermaid
 graph LR
     subgraph "Userspace"
-        APP["Application<br/>(curl, nginx)"]
-        SOCK["Socket API<br/>(glibc)"]
+        APP["Application<br>(curl, nginx)"]
+        SOCK["Socket API<br>(glibc)"]
     end
 
     subgraph "Kernel Space"
@@ -763,22 +763,22 @@ graph LR
             SK["struct sock"]
         end
         subgraph "L4 - Transport"
-            TCP["tcp_v4_rcv()<br/>tcp_sendmsg()"]
-            UDP["udp_rcv()<br/>udp_sendmsg()"]
+            TCP["tcp_v4_rcv()<br>tcp_sendmsg()"]
+            UDP["udp_rcv()<br>udp_sendmsg()"]
         end
         subgraph "L3 - Network"
-            IP["ip_rcv()<br/>ip_output()"]
-            IP6["ip6_rcv()<br/>ip6_output()"]
-            RT["Routing<br/>FIB"]
-            NF["Netfilter<br/>(iptables/nftables)"]
+            IP["ip_rcv()<br>ip_output()"]
+            IP6["ip6_rcv()<br>ip6_output()"]
+            RT["Routing<br>FIB"]
+            NF["Netfilter<br>(iptables/nftables)"]
         end
         subgraph "L2 - Link"
-            BR["Bridge<br/>net/bridge/"]
-            ARP["ARP<br/>neigh subsystem"]
+            BR["Bridge<br>net/bridge/"]
+            ARP["ARP<br>neigh subsystem"]
             DEV["struct net_device"]
         end
         subgraph "L1 - Physical"
-            DRV["NIC Driver<br/>(e1000e, ixgbe)"]
+            DRV["NIC Driver<br>(e1000e, ixgbe)"]
             NAPI["NAPI poll"]
         end
     end
@@ -821,15 +821,15 @@ When diagnosing network issues, the OSI model provides a systematic approach:
 
 ```mermaid
 flowchart TB
-    START["Network Problem"] --> L1_CHECK{"Layer 1<br/>Physical OK?"}
-    L1_CHECK -->|"No"| L1_FIX["Check cable, link, speed<br/>ethtool, ip link"]
-    L1_CHECK -->|"Yes"| L2_CHECK{"Layer 2<br/>Frames OK?"}
-    L2_CHECK -->|"No"| L2_FIX["Check MAC, VLAN, bridge<br/>bridge, tcpdump"]
-    L2_CHECK -->|"Yes"| L3_CHECK{"Layer 3<br/>Routing OK?"}
-    L3_CHECK -->|"No"| L3_FIX["Check IP, routes, ARP<br/>ip route, ping, traceroute"]
-    L3_CHECK -->|"Yes"| L4_CHECK{"Layer 4<br/>Transport OK?"}
-    L4_CHECK -->|"No"| L4_FIX["Check ports, firewall<br/>ss, nftables, conntrack"]
-    L4_CHECK -->|"Yes"| L7_FIX["Application issue<br/>logs, curl, dig, openssl"]
+    START["Network Problem"] --> L1_CHECK{"Layer 1<br>Physical OK?"}
+    L1_CHECK -->|"No"| L1_FIX["Check cable, link, speed<br>ethtool, ip link"]
+    L1_CHECK -->|"Yes"| L2_CHECK{"Layer 2<br>Frames OK?"}
+    L2_CHECK -->|"No"| L2_FIX["Check MAC, VLAN, bridge<br>bridge, tcpdump"]
+    L2_CHECK -->|"Yes"| L3_CHECK{"Layer 3<br>Routing OK?"}
+    L3_CHECK -->|"No"| L3_FIX["Check IP, routes, ARP<br>ip route, ping, traceroute"]
+    L3_CHECK -->|"Yes"| L4_CHECK{"Layer 4<br>Transport OK?"}
+    L4_CHECK -->|"No"| L4_FIX["Check ports, firewall<br>ss, nftables, conntrack"]
+    L4_CHECK -->|"Yes"| L7_FIX["Application issue<br>logs, curl, dig, openssl"]
 ```
 
 **Layer-by-layer troubleshooting commands:**

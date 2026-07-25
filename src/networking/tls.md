@@ -53,16 +53,16 @@ sequenceDiagram
     participant S as Server
 
     C->>S: ClientHello
-    Note right of C: Supported TLS versions<br/>Cipher suites<br/>Random number<br/>Extensions
+    Note right of C: Supported TLS versions<br>Cipher suites<br>Random number<br>Extensions
 
     S->>C: ServerHello
-    Note left of S: Selected TLS version<br/>Selected cipher suite<br/>Random number<br/>Session ID
+    Note left of S: Selected TLS version<br>Selected cipher suite<br>Random number<br>Session ID
 
     S->>C: Certificate
     Note left of S: Server's X.509 certificate chain
 
     S->>C: ServerKeyExchange
-    Note left of S: DH/ECDH parameters<br/>Signed with server key
+    Note left of S: DH/ECDH parameters<br>Signed with server key
 
     S->>C: ServerHelloDone
 
@@ -70,7 +70,7 @@ sequenceDiagram
     C->>C: Generate pre-master secret
 
     C->>S: ClientKeyExchange
-    Note right of C: Pre-master secret<br/>encrypted with server's<br/>public key
+    Note right of C: Pre-master secret<br>encrypted with server's<br>public key
 
     C->>S: ChangeCipherSpec
     C->>S: Finished (encrypted)
@@ -94,10 +94,10 @@ sequenceDiagram
     participant S as Server
 
     C->>S: ClientHello
-    Note right of C: Supported cipher suites<br/>Key share (ECDHE)<br/>Supported versions<br/>PSK identity (optional)
+    Note right of C: Supported cipher suites<br>Key share (ECDHE)<br>Supported versions<br>PSK identity (optional)
 
     S->>C: ServerHello
-    Note left of S: Selected cipher suite<br/>Key share<br/>Supported version
+    Note left of S: Selected cipher suite<br>Key share<br>Supported version
 
     S->>C: EncryptedExtensions
     S->>C: Certificate

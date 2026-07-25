@@ -13,22 +13,22 @@ graph TD
     subgraph "User Space"
         BPFT["bpftrace / BCC / libbpf"]
         FTRACE["ftrace (debugfs)"]
-        MODULE["Kernel module<br/>register_kprobe()"]
+        MODULE["Kernel module<br>register_kprobe()"]
     end
     subgraph "Kernel Space - Kprobe Infrastructure"
-        KP_CORE["kprobe core<br/>(kernel/kprobes.c)"]
-        OPT["kprobes optimizer<br/>(text_poke)"]
-        AGG["kprobe aggregator<br/>(shared pages)"]
+        KP_CORE["kprobe core<br>(kernel/kprobes.c)"]
+        OPT["kprobes optimizer<br>(text_poke)"]
+        AGG["kprobe aggregator<br>(shared pages)"]
     end
     subgraph "Hook Points"
-        ENTRY["Function Entry<br/>(kprobe)"]
-        RETURN["Function Return<br/>(kretprobe)"]
-        USER["User Function<br/>(uprobe)"]
+        ENTRY["Function Entry<br>(kprobe)"]
+        RETURN["Function Return<br>(kretprobe)"]
+        USER["User Function<br>(uprobe)"]
     end
     subgraph "Handlers"
-        PRE["pre_handler<br/>(before function)"]
-        POST["post_handler<br/>(after function)"]
-        FAULT["fault_handler<br/>(on page fault)"]
+        PRE["pre_handler<br>(before function)"]
+        POST["post_handler<br>(after function)"]
+        FAULT["fault_handler<br>(on page fault)"]
     end
     BPFT --> KP_CORE
     FTRACE --> KP_CORE
@@ -62,13 +62,13 @@ For **optimized kprobes** (when the instruction at the probe point is a `nop` or
 ```mermaid
 graph TD
     subgraph "Kprobe Family"
-        KP["kprobe<br/>━━━━━━━━━━━━━━<br/>Intercept function entry<br/>Access: args, registers<br/>Cost: low (optimized)"]
-        KRP["kretprobe<br/>━━━━━━━━━━━━━━<br/>Intercept function entry + return<br/>Access: args, return value<br/>Cost: medium"]
-        UP["uprobe<br/>━━━━━━━━━━━━━━<br/>Intercept user-space function entry<br/>Access: args, registers<br/>Cost: medium-high"]
-        URP["uretprobe<br/>━━━━━━━━━━━━━━<br/>Intercept user-space function return<br/>Access: args, return value<br/>Cost: medium-high"]
+        KP["kprobe<br>━━━━━━━━━━━━━━<br>Intercept function entry<br>Access: args, registers<br>Cost: low (optimized)"]
+        KRP["kretprobe<br>━━━━━━━━━━━━━━<br>Intercept function entry + return<br>Access: args, return value<br>Cost: medium"]
+        UP["uprobe<br>━━━━━━━━━━━━━━<br>Intercept user-space function entry<br>Access: args, registers<br>Cost: medium-high"]
+        URP["uretprobe<br>━━━━━━━━━━━━━━<br>Intercept user-space function return<br>Access: args, return value<br>Cost: medium-high"]
     end
     subgraph "Legacy (deprecated)"
-        JP["jprobe<br/>━━━━━━━━━━━━━━<br/>Intercept with full args<br/>Deprecated since 4.14"]
+        JP["jprobe<br>━━━━━━━━━━━━━━<br>Intercept with full args<br>Deprecated since 4.14"]
     end
     KP --> KRP
     UP --> URP
@@ -521,11 +521,11 @@ funclatency-bpfcc -i 1 vfs_read
 
 ```mermaid
 graph TD
-    START["Need to trace<br/>kernel function?"] --> Q1{"Function has<br/>tracepoint?"}
-    Q1 -->|Yes| TP["Use tracepoint<br/>(stable, low overhead)"]
+    START["Need to trace<br>kernel function?"] --> Q1{"Function has<br>tracepoint?"}
+    Q1 -->|Yes| TP["Use tracepoint<br>(stable, low overhead)"]
     Q1 -->|No| Q2{"Using eBPF?"}
-    Q2 -->|Yes| FENTRY["Use fentry/fexit<br/>(fastest, typed args)"]
-    Q2 -->|No| KP["Use kprobe/kretprobe<br/>(traditional, works everywhere)"]
+    Q2 -->|Yes| FENTRY["Use fentry/fexit<br>(fastest, typed args)"]
+    Q2 -->|No| KP["Use kprobe/kretprobe<br>(traditional, works everywhere)"]
     KP -->|"Need return value?"| KRP["Use kretprobe"]
     KP -->|"Just entry?"| KP_ONLY["Use kprobe"]
 ```

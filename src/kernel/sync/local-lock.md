@@ -126,7 +126,7 @@ void update_per_cpu_data(void) {
 
 ```mermaid
 graph TD
-    A["What context will you access<br/>per-CPU data from?"] --> B["Process context only"]
+    A["What context will you access<br>per-CPU data from?"] --> B["Process context only"]
     A --> C["May be called from softirq"]
     A --> D["May be called from hardirq"]
 

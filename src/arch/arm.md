@@ -42,10 +42,10 @@ AArch64 uses **Exception Levels (EL)** instead of x86 rings:
 ```mermaid
 graph TB
     subgraph "AArch64 Exception Levels"
-        EL3["EL3 (Secure Monitor)<br/>TrustZone secure world<br/>Firmware / ATF"]
-        EL2["EL2 (Hypervisor)<br/>KVM / Xen hypervisor<br/>Stage 2 translation"]
-        EL1["EL1 (Kernel)<br/>Linux kernel<br/>Device drivers"]
-        EL0["EL0 (User)<br/>Applications<br/>Shared libraries"]
+        EL3["EL3 (Secure Monitor)<br>TrustZone secure world<br>Firmware / ATF"]
+        EL2["EL2 (Hypervisor)<br>KVM / Xen hypervisor<br>Stage 2 translation"]
+        EL1["EL1 (Kernel)<br>Linux kernel<br>Device drivers"]
+        EL0["EL0 (User)<br>Applications<br>Shared libraries"]
     end
     
     EL3 --> EL2 --> EL1 --> EL0
@@ -113,14 +113,14 @@ WZR      — 32-bit zero register
 ```mermaid
 graph LR
     subgraph "Argument / Return"
-        X0["X0<br/>Arg 1 / Return"]
-        X1["X1<br/>Arg 2"]
-        X2["X2<br/>Arg 3"]
-        X3["X3<br/>Arg 4"]
-        X4["X4<br/>Arg 5"]
-        X5["X5<br/>Arg 6"]
-        X6["X6<br/>Arg 7"]
-        X7["X7<br/>Arg 8"]
+        X0["X0<br>Arg 1 / Return"]
+        X1["X1<br>Arg 2"]
+        X2["X2<br>Arg 3"]
+        X3["X3<br>Arg 4"]
+        X4["X4<br>Arg 5"]
+        X5["X5<br>Arg 6"]
+        X6["X6<br>Arg 7"]
+        X7["X7<br>Arg 8"]
     end
     
     subgraph "Callee-saved"
@@ -133,9 +133,9 @@ graph LR
     end
     
     subgraph "Special"
-        SP["SP<br/>Stack Pointer"]
-        PC["PC<br/>Program Counter<br/>(not directly accessible)"]
-        PSTATE["PSTATE<br/>Processor State"]
+        SP["SP<br>Stack Pointer"]
+        PC["PC<br>Program Counter<br>(not directly accessible)"]
+        PSTATE["PSTATE<br>Processor State"]
     end
     
     style X0 fill:#f96,stroke:#333
@@ -210,14 +210,14 @@ STR     Q2, [X2]        ; Store result to address in X2
 
 ```mermaid
 graph TD
-    VA["Virtual Address<br/>(48-bit)"]
-    VA --> TTBR0{TTBR0_EL1<br/>User space}
-    VA --> TTBR1{TTBR1_EL1<br/>Kernel space}
+    VA["Virtual Address<br>(48-bit)"]
+    VA --> TTBR0{TTBR0_EL1<br>User space}
+    VA --> TTBR1{TTBR1_EL1<br>Kernel space}
     
-    TTBR0 --> L0U["Level 0<br/>(512GB entries)"]
-    L0U --> L1U["Level 1<br/>(1GB entries)"]
-    L1U --> L2U["Level 2<br/>(2MB entries)"]
-    L2U --> L3U["Level 3<br/>(4KB entries)"]
+    TTBR0 --> L0U["Level 0<br>(512GB entries)"]
+    L0U --> L1U["Level 1<br>(1GB entries)"]
+    L1U --> L2U["Level 2<br>(2MB entries)"]
+    L2U --> L3U["Level 3<br>(4KB entries)"]
     L3U --> PAGE["4KB Page"]
     
     TTBR1 --> L0K["Level 0"]
@@ -315,18 +315,18 @@ my_function:
 ```mermaid
 graph TB
     subgraph "Secure World"
-        SEC_OS["Secure OS<br/>(OP-TEE, Trusty)"]
-        SEC_APP["Secure Applications<br/>(Trusted Apps)"]
+        SEC_OS["Secure OS<br>(OP-TEE, Trusty)"]
+        SEC_APP["Secure Applications<br>(Trusted Apps)"]
         SEC_DRV[Secure Drivers]
     end
     
     subgraph "Normal World"
-        HYPER["Hypervisor<br/>(EL2)"]
-        KERNEL["Linux Kernel<br/>(EL1)"]
-        USER["Applications<br/>(EL0)"]
+        HYPER["Hypervisor<br>(EL2)"]
+        KERNEL["Linux Kernel<br>(EL1)"]
+        USER["Applications<br>(EL0)"]
     end
     
-    SEC_OS --> SEC_MONITOR["Secure Monitor<br/>ARM Trusted Firmware<br/>(EL3)"]
+    SEC_OS --> SEC_MONITOR["Secure Monitor<br>ARM Trusted Firmware<br>(EL3)"]
     HYPER --> SEC_MONITOR
     
     SEC_MONITOR -->|"SMC call"| SEC_OS
@@ -381,12 +381,12 @@ $ dmesg | grep -i op-tee
 graph TB
     subgraph "big.LITTLE / DynamIQ"
         subgraph "Performance Cores (big)"
-            BIG1["Cortex-A78<br/>High performance"]
+            BIG1["Cortex-A78<br>High performance"]
             BIG2["Cortex-A78"]
-            BIG3["Cortex-X2<br/>Prime core"]
+            BIG3["Cortex-X2<br>Prime core"]
         end
         subgraph "Efficiency Cores (LITTLE)"
-            LITTLE1["Cortex-A55<br/>Power efficient"]
+            LITTLE1["Cortex-A55<br>Power efficient"]
             LITTLE2["Cortex-A55"]
             LITTLE3["Cortex-A55"]
             LITTLE4["Cortex-A55"]
@@ -401,8 +401,8 @@ graph TB
     SCHED --> LITTLE3
     SCHED --> LITTLE4
     
-    TASK_LIGHT["Light tasks<br/>→ LITTLE cores"] --> SCHED
-    TASK_HEAVY["Heavy tasks<br/>→ big cores"] --> SCHED
+    TASK_LIGHT["Light tasks<br>→ LITTLE cores"] --> SCHED
+    TASK_HEAVY["Heavy tasks<br>→ big cores"] --> SCHED
     
     style BIG3 fill:#f96,stroke:#333
     style LITTLE1 fill:#9f9,stroke:#333

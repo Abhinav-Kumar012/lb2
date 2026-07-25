@@ -348,13 +348,13 @@ crun is an OCI runtime written in C, focused on performance and low memory usage
 ```mermaid
 graph TB
     subgraph "crun"
-        MAIN[main.c — CLI parsing]
-        CONTAINER[container.c — lifecycle]
-        LINUX[linux.c — namespace/cgroup setup]
-        CGROUP[cgroup.c — cgroup management]
-        SECCOMP_C[seccomp.c — seccomp filter]
-        SPEC[spec.c — config.json parsing]
-        STATUS[status.c — container state]
+        MAIN[main.c -- CLI parsing]
+        CONTAINER[container.c -- lifecycle]
+        LINUX[linux.c -- namespace/cgroup setup]
+        CGROUP[cgroup.c -- cgroup management]
+        SECCOMP_C[seccomp.c -- seccomp filter]
+        SPEC[spec.c -- config.json parsing]
+        STATUS[status.c -- container state]
     end
 
     MAIN --> CONTAINER
@@ -422,14 +422,14 @@ youki is an OCI runtime written in Rust, offering memory safety guarantees along
 ```mermaid
 graph TB
     subgraph "youki (Rust)"
-        CLI[cli.rs — Command parsing]
-        CONTAINER_MGR[container/ — Container lifecycle]
-        NAMESPACES[namespaces/ — Namespace setup]
-        CGROUPS[cgroups/ — Cgroup management]
-        ROOTFS["rootfs/ — Rootfs setup & pivot_root"]
-        SECCOMP_Y[seccomp/ — Seccomp BPF filter]
-        USERNS[user_namespace.rs — UID/GID mapping]
-        TTY[tty.rs — Terminal handling]
+        CLI[cli.rs -- Command parsing]
+        CONTAINER_MGR[container/ -- Container lifecycle]
+        NAMESPACES[namespaces/ -- Namespace setup]
+        CGROUPS[cgroups/ -- Cgroup management]
+        ROOTFS["rootfs/ -- Rootfs setup &amp; pivot_root"]
+        SECCOMP_Y[seccomp/ -- Seccomp BPF filter]
+        USERNS[user_namespace.rs -- UID/GID mapping]
+        TTY[tty.rs -- Terminal handling]
     end
 
     CLI --> CONTAINER_MGR
@@ -532,15 +532,15 @@ pub fn prepare_rootfs(spec: &Spec, rootfs: &Path) -> Result<()> {
 ```mermaid
 graph TB
     subgraph "libcontainer Components"
-        CTN[Container — lifecycle management]
-        FACTORY[Factory — container creation]
-        PROCESS[Process — process execution]
-        NS[Namespaces — namespace config]
-        CG[Configs — cgroup/resource config]
-        CGROUPS[Cgroups — cgroup operations]
-        CAPS[Capabilities — capability management]
-        SECCOMP_L[Seccomp — syscall filtering]
-        CONSOLE[Console — terminal handling]
+        CTN[Container -- lifecycle management]
+        FACTORY[Factory -- container creation]
+        PROCESS[Process -- process execution]
+        NS[Namespaces -- namespace config]
+        CG[Configs -- cgroup/resource config]
+        CGROUPS[Cgroups -- cgroup operations]
+        CAPS[Capabilities -- capability management]
+        SECCOMP_L[Seccomp -- syscall filtering]
+        CONSOLE[Console -- terminal handling]
     end
 
     FACTORY --> CTN

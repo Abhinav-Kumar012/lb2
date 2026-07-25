@@ -140,10 +140,10 @@ While Torvalds is best known for Linux, his technical contributions extend furth
 
 ```mermaid
 graph LR
-    LT[Linus Torvalds] --> LINUX["Linux Kernel<br/>1991-present"]
-    LT --> GIT["Git VCS<br/>2005"]
-    LT --> SUBSURFACE["Subsurface<br/>Dive log software<br/>2011"]
-    LT --> SPARSE["Sparse<br/>Static analysis tool"]
+    LT[Linus Torvalds] --> LINUX["Linux Kernel<br>1991-present"]
+    LT --> GIT["Git VCS<br>2005"]
+    LT --> SUBSURFACE["Subsurface<br>Dive log software<br>2011"]
+    LT --> SPARSE["Sparse<br>Static analysis tool"]
     
     LINUX -->|powers| ANDROID[Android]
     LINUX -->|powers| CLOUD[Cloud Computing]

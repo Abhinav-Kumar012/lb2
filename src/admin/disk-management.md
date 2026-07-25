@@ -430,18 +430,18 @@ LVM adds a flexible abstraction layer between physical disks and filesystems, en
 ```mermaid
 graph TB
     subgraph Physical
-        P1["/dev/sda1<br/>PV"]
-        P2["/dev/sdb1<br/>PV"]
-        P3["/dev/nvme0n1p1<br/>PV"]
+        P1["/dev/sda1<br>PV"]
+        P2["/dev/sdb1<br>PV"]
+        P3["/dev/nvme0n1p1<br>PV"]
     end
     subgraph Volume_Group["Volume Group: vg0"]
-        VG["Physical Extents<br/>4MB each"]
+        VG["Physical Extents<br>4MB each"]
     end
     subgraph Logical_Volumes
-        LV1["lv_root<br/>50G / "]
-        LV2["lv_home<br/>200G /home"]
-        LV3["lv_swap<br/>8G"]
-        LV4["lv_data<br/>500G /data"]
+        LV1["lv_root<br>50G / "]
+        LV2["lv_home<br>200G /home"]
+        LV3["lv_swap<br>8G"]
+        LV4["lv_data<br>500G /data"]
     end
     P1 --> VG
     P2 --> VG
@@ -699,13 +699,13 @@ edquota -t
 
 ```mermaid
 graph TD
-    A["1. Discover devices<br/>lsblk, blkid"] --> B["2. Partition disk<br/>fdisk / parted"]
-    B --> C["3. Create filesystem<br/>mkfs.ext4 / mkfs.xfs"]
-    C --> D["4. Create mount point<br/>mkdir /mnt/data"]
-    D --> E["5. Mount filesystem<br/>mount /dev/sdb1 /mnt/data"]
-    E --> F["6. Add to fstab<br/>UUID → /etc/fstab"]
-    F --> G["7. Verify<br/>mount -a, df -h"]
-    G --> H["8. Monitor<br/>smartctl, df, iostat"]
+    A["1. Discover devices<br>lsblk, blkid"] --> B["2. Partition disk<br>fdisk / parted"]
+    B --> C["3. Create filesystem<br>mkfs.ext4 / mkfs.xfs"]
+    C --> D["4. Create mount point<br>mkdir /mnt/data"]
+    D --> E["5. Mount filesystem<br>mount /dev/sdb1 /mnt/data"]
+    E --> F["6. Add to fstab<br>UUID → /etc/fstab"]
+    F --> G["7. Verify<br>mount -a, df -h"]
+    G --> H["8. Monitor<br>smartctl, df, iostat"]
     
     style A fill:#3182ce,color:#fff
     style C fill:#38a169,color:#fff

@@ -29,12 +29,12 @@ EEVDF extends the concept of virtual runtime with two new ideas:
 ```mermaid
 graph LR
     subgraph "CFS"
-        C1["Pick task with<br/>lowest vruntime"]
+        C1["Pick task with<br>lowest vruntime"]
     end
 
     subgraph "EEVDF"
-        E1["Find eligible tasks<br/>vruntime ≤ fair_share"]
-        E2["Among eligible,<br/>pick earliest deadline"]
+        E1["Find eligible tasks<br>vruntime ≤ fair_share"]
+        E2["Among eligible,<br>pick earliest deadline"]
         E1 --> E2
     end
 ```
@@ -489,9 +489,9 @@ Linux has multiple scheduling classes with strict priority ordering:
 
 ```mermaid
 graph TD
-    DL["SCHED_DEADLINE<br/>Highest priority"] --> RT["SCHED_FIFO / SCHED_RR<br/>Real-time classes"]
-    RT --> EEVDF["SCHED_NORMAL (EEVDF)<br/>Fair scheduling"]
-    EEVDF --> IDLE["SCHED_IDLE<br/>Lowest priority"]
+    DL["SCHED_DEADLINE<br>Highest priority"] --> RT["SCHED_FIFO / SCHED_RR<br>Real-time classes"]
+    RT --> EEVDF["SCHED_NORMAL (EEVDF)<br>Fair scheduling"]
+    EEVDF --> IDLE["SCHED_IDLE<br>Lowest priority"]
 ```
 
 ### Priority Between Classes

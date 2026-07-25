@@ -17,22 +17,22 @@ and the security considerations that have shaped its evolution.
 ```mermaid
 graph TD
     subgraph "User Space (mmap'd)"
-        SQ_RING["Submission Queue Ring<br/>io_sq_ring"]
-        SQE_ARRAY["SQE Array<br/>io_uring_sqe[n]"]
-        CQ_RING["Completion Queue Ring<br/>io_cq_ring"]
+        SQ_RING["Submission Queue Ring<br>io_sq_ring"]
+        SQE_ARRAY["SQE Array<br>io_uring_sqe[n]"]
+        CQ_RING["Completion Queue Ring<br>io_cq_ring"]
     end
 
     subgraph "Kernel Space"
-        CTX["io_ring_ctx<br/>(per-ring state)"]
-        IO_WQ["io-wq<br/>(async worker pool)"]
-        POLL_LIST["io_poll_wq<br/>(polling waitqueue)"]
-        FILE_TABLE["Fixed file table<br/>(registered fds)"]
-        BUF_TABLE["Registered buffer rings<br/>(provided buffers)"]
+        CTX["io_ring_ctx<br>(per-ring state)"]
+        IO_WQ["io-wq<br>(async worker pool)"]
+        POLL_LIST["io_poll_wq<br>(polling waitqueue)"]
+        FILE_TABLE["Fixed file table<br>(registered fds)"]
+        BUF_TABLE["Registered buffer rings<br>(provided buffers)"]
     end
 
-    APP["Application"] -->|"write SQE index<br/>advance SQ tail"| SQ_RING
+    APP["Application"] -->|"write SQE index<br>advance SQ tail"| SQ_RING
     SQ_RING -->|"sq_array[] indexes"| SQE_ARRAY
-    APP -->|"io_uring_enter()<br/>or SQPOLL"| CTX
+    APP -->|"io_uring_enter()<br>or SQPOLL"| CTX
     SQE_ARRAY -->|"io_submit_sqes()"| CTX
     CTX -->|"async path"| IO_WQ
     CTX -->|"sync path"| KERNEL_IO["VFS / Net / ..."]
@@ -205,7 +205,7 @@ sequenceDiagram
     App->>Sys: io_uring_enter(fd, to_submit, ...)
     Sys->>Sub: io_submit_sqes(ctx, to_submit)
     loop For each new SQE
-        Sub->>Sub: io_get_sqe(ctx) — read SQE
+        Sub->>Sub: io_get_sqe(ctx) -- read SQE
         Sub->>Sub: io_init_req(ctx, req, sqe)
         alt IOSQE_ASYNC flag or non-blockable
             Sub->>Sub: io_queue_async_work(req)
@@ -353,7 +353,7 @@ application expects sequential consistency.
 ```mermaid
 graph LR
     subgraph "User Space"
-        BR["Buffer Ring<br/>struct io_uring_buf_ring"]
+        BR["Buffer Ring<br>struct io_uring_buf_ring"]
         B1["Buffer 0"]
         B2["Buffer 1"]
         B3["Buffer N"]
@@ -367,7 +367,7 @@ graph LR
     BR -->|"buf_group=1"| BG
     BG -->|"io_buffer_select()"| REQ
     REQ -->|"consume ring entry"| BR
-    B1 & B2 & B3 -.->|"kernel picks<br/>next available"| REQ
+    B1 & B2 & B3 -.->|"kernel picks<br>next available"| REQ
 ```
 
 Applications register a buffer ring with `IORING_REGISTER_PBUF_RING`,

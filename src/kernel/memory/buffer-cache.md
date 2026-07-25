@@ -111,14 +111,14 @@ stateDiagram-v2
 ```mermaid
 graph TB
     subgraph "Page Cache"
-        PAGE["struct page<br/>4096 bytes of data"]
+        PAGE["struct page<br>4096 bytes of data"]
         PC["page->mapping → address_space"]
     end
     subgraph "Buffer Heads (metadata)"
-        BH1["buffer_head 1<br/>block 100, size 1024"]
-        BH2["buffer_head 2<br/>block 101, size 1024"]
-        BH3["buffer_head 3<br/>block 102, size 1024"]
-        BH4["buffer_head 4<br/>block 103, size 1024"]
+        BH1["buffer_head 1<br>block 100, size 1024"]
+        BH2["buffer_head 2<br>block 101, size 1024"]
+        BH3["buffer_head 3<br>block 102, size 1024"]
+        BH4["buffer_head 4<br>block 103, size 1024"]
     end
     subgraph "Block Device"
         BD["/dev/sda"]
@@ -305,13 +305,13 @@ static void end_buffer_async_read(struct buffer_head *bh, int uptodate)
 ```mermaid
 graph LR
     subgraph "Linux 2.0-2.4"
-        BDF["bdflush<br/>(/sbin/bdflush)"]
+        BDF["bdflush<br>(/sbin/bdflush)"]
     end
     subgraph "Linux 2.6-3.0"
-        PDF["pdflush<br/>(kernel threads)"]
+        PDF["pdflush<br>(kernel threads)"]
     end
     subgraph "Linux 3.0+"
-        WB["Per-BDI writeback<br/>(bdi_writeback)"]
+        WB["Per-BDI writeback<br>(bdi_writeback)"]
     end
     BDF --> PDF --> WB
 ```

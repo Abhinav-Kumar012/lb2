@@ -9,18 +9,18 @@ NUMA (Non-Uniform Memory Access) is a memory architecture used in multi-socket s
 ```mermaid
 graph TD
     subgraph "NUMA Node 0"
-        CPU0["CPU Socket 0<br/>Cores 0-15"]
-        MEM0["Local Memory<br/>64 GB"]
-        PCIE0["PCIe Devices<br/>NVMe, NIC"]
+        CPU0["CPU Socket 0<br>Cores 0-15"]
+        MEM0["Local Memory<br>64 GB"]
+        PCIE0["PCIe Devices<br>NVMe, NIC"]
         CPU0 --> MEM0
     end
     subgraph "NUMA Node 1"
-        CPU1["CPU Socket 1<br/>Cores 16-31"]
-        MEM1["Local Memory<br/>64 GB"]
-        PCIE1["PCIe Devices<br/>NVMe, NIC"]
+        CPU1["CPU Socket 1<br>Cores 16-31"]
+        MEM1["Local Memory<br>64 GB"]
+        PCIE1["PCIe Devices<br>NVMe, NIC"]
         CPU1 --> MEM1
     end
-    CPU0 <--"Interconnect (QPI/UPI)<br/>~120ns latency"--> CPU1
+    CPU0 <--"Interconnect (QPI/UPI)<br>~120ns latency"--> CPU1
 ```
 
 ## NUMA Topology Discovery
@@ -125,11 +125,11 @@ cat /etc/numad.conf
 ```mermaid
 graph TD
     subgraph "NUMA Policies"
-        DEFAULT["default<br/>Allocate on local node"]
-        BIND["bind<br/>Allocate on specific node(s)"]
-        INTERLEAVE["interleave<br/>Round-robin across nodes"]
-        PREFERRED["preferred<br/>Prefer specific node, fallback OK"]
-        LOCAL["local<br/>Always allocate on local node"]
+        DEFAULT["default<br>Allocate on local node"]
+        BIND["bind<br>Allocate on specific node(s)"]
+        INTERLEAVE["interleave<br>Round-robin across nodes"]
+        PREFERRED["preferred<br>Prefer specific node, fallback OK"]
+        LOCAL["local<br>Always allocate on local node"]
     end
 ```
 

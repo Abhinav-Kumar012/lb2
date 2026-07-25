@@ -18,26 +18,26 @@ graph TD
     end
 
     subgraph "Kernel Keyring Subsystem"
-        KR_SUBSYS["Keyring Subsystem<br/>security/keys/"]
-        KEY_TYPES["Key Types<br/>user | logon | encrypted | trusted | asymmetric"]
-        KEYRINGS["Keyrings<br/>thread | process | session | user"]
+        KR_SUBSYS["Keyring Subsystem<br>security/keys/"]
+        KEY_TYPES["Key Types<br>user | logon | encrypted | trusted | asymmetric"]
+        KEYRINGS["Keyrings<br>thread | process | session | user"]
     end
 
     subgraph "Key Storage Backends"
-        ENCRYPTED["Encrypted Keys<br/>(AES-256, kernel memory)"]
-        TRUSTED["Trusted Keys<br/>(TPM-sealed)"]
-        BIG_KEY["Big Keys<br/>(tmpfs or encrypted)"]
+        ENCRYPTED["Encrypted Keys<br>(AES-256, kernel memory)"]
+        TRUSTED["Trusted Keys<br>(TPM-sealed)"]
+        BIG_KEY["Big Keys<br>(tmpfs or encrypted)"]
     end
 
     subgraph "Hardware Security"
-        TPM["TPM 1.2 / 2.0<br/>Hardware Security Module"]
+        TPM["TPM 1.2 / 2.0<br>Hardware Security Module"]
         TPM_STORE["TPM NV Storage"]
     end
 
     subgraph "Storage Encryption"
-        DM_CRYPT["dm-crypt<br/>(Full Disk Encryption)"]
-        EVM["EVM (Extended<br/>Verification Module)"]
-        IMA["IMA (Integrity<br/>Measurement)"]
+        DM_CRYPT["dm-crypt<br>(Full Disk Encryption)"]
+        EVM["EVM (Extended<br>Verification Module)"]
+        IMA["IMA (Integrity<br>Measurement)"]
     end
 
     APP --> KEYCTL
@@ -125,7 +125,7 @@ sequenceDiagram
     Kernel->>Kernel: Store encrypted blob + IV + master desc
     Kernel-->>App: key_serial_t
 
-    Note over App,Kernel: Key material is encrypted at rest<br/>Only decrypted when used
+    Note over App,Kernel: Key material is encrypted at rest<br>Only decrypted when used
 
     App->>Kernel: keyctl_read(key_id)
     Kernel->>Master: Get master key
@@ -198,7 +198,7 @@ sequenceDiagram
     Kernel->>TPM: TPM2_CreatePrimary (SRK)
     TPM-->>Kernel: primary_handle
     Kernel->>TPM: TPM2_Create(primary_handle, key_data)
-    Note over TPM: TPM seals key with SRK<br/>Optionally binds to PCRs
+    Note over TPM: TPM seals key with SRK<br>Optionally binds to PCRs
     TPM-->>Kernel: sealed_blob
     Kernel->>Kernel: Store blob in keyring
     Kernel-->>App: key_serial_t
@@ -237,11 +237,11 @@ keyctl padd asymmetric my_cert @u < cert.der
 ```mermaid
 graph TD
     subgraph "TPM 2.0 Key Hierarchy"
-        EK["Endorsement Key (EK)<br/>Hardware-bound identity"]
-        SRK["Storage Root Key (SRK)<br/>Primary key for sealing"]
-        KEY1["Sealed Key 1<br/>(disk encryption)"]
-        KEY2["Sealed Key 2<br/>(EVM key)"]
-        KEY3["Sealed Key 3<br/>(custom application)"]
+        EK["Endorsement Key (EK)<br>Hardware-bound identity"]
+        SRK["Storage Root Key (SRK)<br>Primary key for sealing"]
+        KEY1["Sealed Key 1<br>(disk encryption)"]
+        KEY2["Sealed Key 2<br>(EVM key)"]
+        KEY3["Sealed Key 3<br>(custom application)"]
     end
 
     subgraph "PCR Banks"
@@ -336,9 +336,9 @@ graph TD
     end
 
     subgraph "Key Management"
-        TPM_KEY["TPM-sealed key<br/>(trusted key)"]
-        ENC_KEY["Encrypted key<br/>(encrypted by TPM key)"]
-        PASSPHRASE["User passphrase<br/>(fallback)"]
+        TPM_KEY["TPM-sealed key<br>(trusted key)"]
+        ENC_KEY["Encrypted key<br>(encrypted by TPM key)"]
+        PASSPHRASE["User passphrase<br>(fallback)"]
     end
 
     subgraph "Storage"
@@ -442,9 +442,9 @@ echo 1 > /sys/kernel/security/evm
 graph LR
     subgraph "EVM Sign/Verify Flow"
         FILE["File inode"]
-        METADATA["uid, gid, mode,<br/>security xattrs"]
-        HMAC["EVM HMAC<br/>(trusted key)"]
-        SIG["EVM signature<br/>(stored as xattr)"]
+        METADATA["uid, gid, mode,<br>security xattrs"]
+        HMAC["EVM HMAC<br>(trusted key)"]
+        SIG["EVM signature<br>(stored as xattr)"]
     end
 
     FILE --> METADATA
@@ -641,8 +641,8 @@ key_serial_t share_key_across_containers(const char *key_desc,
 graph TD
     subgraph "Key Lifecycle"
         CREATE["Key Created"]
-        ACTIVE["Key Active<br/>(in use)"]
-        TIMEOUT["Auto-expire<br/>(timeout set)"]
+        ACTIVE["Key Active<br>(in use)"]
+        TIMEOUT["Auto-expire<br>(timeout set)"]
         REVOKE["Key Revoked"]
         GARBAGE["Garbage Collected"]
     end

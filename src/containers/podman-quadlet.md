@@ -25,13 +25,13 @@ declarative, container-native syntax.
 ```mermaid
 flowchart LR
     subgraph "Before Quadlet"
-        MANUAL["Manual .service file<br/>ExecStart=podman run ...<br/>ExecStop=podman stop ..."]
-        ISSUES["Issues:<br/>- Imperative<br/>- Container lifecycle management<br/>- Type=notify complexity"]
+        MANUAL["Manual .service file<br>ExecStart=podman run ...<br>ExecStop=podman stop ..."]
+        ISSUES["Issues:<br>- Imperative<br>- Container lifecycle management<br>- Type=notify complexity"]
     end
 
     subgraph "After Quadlet"
-        QUADLET[".container file<br/>Declarative syntax<br/>Native systemd integration"]
-        BENEFITS["Benefits:<br/>- Declarative<br/>- Auto lifecycle<br/>- Native journald logging"]
+        QUADLET[".container file<br>Declarative syntax<br>Native systemd integration"]
+        BENEFITS["Benefits:<br>- Declarative<br>- Auto lifecycle<br>- Native journald logging"]
     end
 
     MANUAL --> ISSUES
@@ -79,7 +79,7 @@ flowchart TB
     end
 
     subgraph "Output"
-        SERVICE[".service files<br/>/run/systemd/generator/"]
+        SERVICE[".service files<br>/run/systemd/generator/"]
         SYSTEMD["systemd"]
     end
 

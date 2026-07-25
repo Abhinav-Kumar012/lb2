@@ -14,22 +14,22 @@ ASLR was first implemented in Linux in 2005 (kernel 2.6.12) and is now enabled b
 graph TB
     subgraph "Without ASLR (Fixed Layout)"
         direction TB
-        F_HIGH["0x7fff_ffff_f000 — Stack top"]
+        F_HIGH["0x7fff_ffff_f000 -- Stack top"]
         F_STACK["Stack (fixed base)"]
         F_MMAP["Shared libraries (fixed at 0x7f...)"]
         F_HEAP["Heap (fixed after .bss)"]
         F_TEXT[".text (fixed at 0x400000)"]
-        F_LOW["0x0040_0000 — Text base"]
+        F_LOW["0x0040_0000 -- Text base"]
     end
 
     subgraph "With ASLR (Randomized)"
         direction TB
-        R_HIGH["0x7fff_????_???? — Stack top (random)"]
+        R_HIGH["0x7fff_????_???? -- Stack top (random)"]
         R_STACK["Stack (random offset)"]
         R_MMAP["Shared libraries (random base)"]
         R_HEAP["Heap (random offset)"]
         R_TEXT[".text (random if PIE)"]
-        R_LOW["0x????_???? — Text base (if PIE)"]
+        R_LOW["0x????_???? -- Text base (if PIE)"]
     end
 ```
 
@@ -550,10 +550,10 @@ Full RELRO      Canary found      NX enabled    PIE enabled
 ```mermaid
 graph TD
     subgraph "Protection Level"
-        P1["Non-PIE + No RELRO + No NX<br/>WEAKEST"]
-        P2["PIE + Partial RELRO + NX<br/>MODERATE"]
-        P3["PIE + Full RELRO + NX + Stack Canaries<br/>STRONG"]
-        P4["PIE + Full RELRO + NX + CFI + Shadow Stack<br/>STRONGEST"]
+        P1["Non-PIE + No RELRO + No NX<br>WEAKEST"]
+        P2["PIE + Partial RELRO + NX<br>MODERATE"]
+        P3["PIE + Full RELRO + NX + Stack Canaries<br>STRONG"]
+        P4["PIE + Full RELRO + NX + CFI + Shadow Stack<br>STRONGEST"]
     end
     P1 --> P2 --> P3 --> P4
 ```

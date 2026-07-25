@@ -475,8 +475,8 @@ graph TD
     B -->|Yes| C["Edit GRUB: add 'single'"]
     B -->|No| D["Boot from rescue USB"]
     C --> E{"Root mounts?"}
-    E -->|Yes| F["Single-user mode<br/>Fix from root shell"]
-    E -->|No| G["Initramfs shell<br/>Fix mount/LVM/RAID"]
+    E -->|Yes| F["Single-user mode<br>Fix from root shell"]
+    E -->|No| G["Initramfs shell<br>Fix mount/LVM/RAID"]
     D --> H["Mount root partition"]
     H --> I["chroot /mnt"]
     I --> J{"What's broken?"}

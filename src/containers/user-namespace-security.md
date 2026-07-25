@@ -156,11 +156,11 @@ sysctl user.max_user_namespaces
 ```mermaid
 flowchart TB
     START["Unprivileged User (UID 1000)"] --> CLONE["clone(CLONE_NEWUSER ...)"]
-    CLONE --> WRITE_MAP["Write /proc/pid/uid_map<br/>'0 1000 1'"]
-    WRITE_MAP --> WRITE_GID["Write /proc/pid/gid_map<br/>'0 1000 1'"]
+    CLONE --> WRITE_MAP["Write /proc/pid/uid_map<br>'0 1000 1'"]
+    WRITE_MAP --> WRITE_GID["Write /proc/pid/gid_map<br>'0 1000 1'"]
     WRITE_GID --> NS_CREATED["User namespace created"]
     NS_CREATED --> CAPS["Capabilities scoped to namespace"]
-    CAPS --> NS_PROC["Process runs as UID 0 inside<br/>UID 1000 on host"]
+    CAPS --> NS_PROC["Process runs as UID 0 inside<br>UID 1000 on host"]
 ```
 
 ## CVE History
@@ -243,9 +243,9 @@ The pattern is:
 
 ```mermaid
 flowchart LR
-    A["1. overlayfs requires<br/>CAP_SYS_ADMIN in<br/>initial user ns"] --> B["2. User namespace gives<br/>CAP_SYS_ADMIN to<br/>unprivileged user"]
-    B --> C["3. overlayfs checks<br/>fail to distinguish<br/>initial vs child ns"]
-    C --> D["4. Unprivileged mount<br/>with crafted dirs<br/>→ privilege escalation"]
+    A["1. overlayfs requires<br>CAP_SYS_ADMIN in<br>initial user ns"] --> B["2. User namespace gives<br>CAP_SYS_ADMIN to<br>unprivileged user"]
+    B --> C["3. overlayfs checks<br>fail to distinguish<br>initial vs child ns"]
+    C --> D["4. Unprivileged mount<br>with crafted dirs<br>→ privilege escalation"]
 ```
 
 1. `overlayfs` requires `CAP_SYS_ADMIN` in the **initial** (host) user namespace
@@ -312,10 +312,10 @@ User namespaces expose the following kernel subsystems to unprivileged code:
 ```mermaid
 flowchart TB
     subgraph "Common Attack Patterns"
-        P1["Capability Confusion<br/>Code checks capability but<br/>fails to verify initial ns"]
-        P2["UID Translation Bug<br/>Incorrect mapping between<br/>ns and host UIDs"]
-        P3["Mount Namespace Abuse<br/>Crafted mount configs<br/>confuse permission checks"]
-        P4["Network Namespace Exploitation<br/>Raw sockets or netfilter<br/>attack other namespaces"]
+        P1["Capability Confusion<br>Code checks capability but<br>fails to verify initial ns"]
+        P2["UID Translation Bug<br>Incorrect mapping between<br>ns and host UIDs"]
+        P3["Mount Namespace Abuse<br>Crafted mount configs<br>confuse permission checks"]
+        P4["Network Namespace Exploitation<br>Raw sockets or netfilter<br>attack other namespaces"]
     end
 
     P1 -->|"Exploits"| OVERLAYFS["overlayfs CVEs"]
@@ -504,12 +504,12 @@ Container runtimes implement multiple layers of defense:
 ```mermaid
 flowchart TB
     subgraph "Defense in Depth"
-        L1["Layer 1: Namespace Creation<br/>Controlled by runtime"]
-        L2["Layer 2: Capability Dropping<br/>Remove all except needed"]
-        L3["Layer 3: Seccomp Profiles<br/>Restrict syscalls"]
-        L4["Layer 4: AppArmor/SELinux<br/>Mandatory access control"]
-        L5["Layer 5: Read-only rootfs<br/>Immutable containers"]
-        L6["Layer 6: no_new_privs<br/>Prevent escalation"]
+        L1["Layer 1: Namespace Creation<br>Controlled by runtime"]
+        L2["Layer 2: Capability Dropping<br>Remove all except needed"]
+        L3["Layer 3: Seccomp Profiles<br>Restrict syscalls"]
+        L4["Layer 4: AppArmor/SELinux<br>Mandatory access control"]
+        L5["Layer 5: Read-only rootfs<br>Immutable containers"]
+        L6["Layer 6: no_new_privs<br>Prevent escalation"]
     end
 
     L1 --> L2 --> L3 --> L4 --> L5 --> L6

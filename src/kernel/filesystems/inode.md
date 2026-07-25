@@ -121,34 +121,34 @@ struct inode_operations {
 ```mermaid
 graph TD
     subgraph "Lookup & Creation"
-        LOOKUP[lookup — find entry in directory]
-        CREATE[create — create regular file]
-        MKDIR[mkdir — create directory]
-        MKNOD[mknod — create device/special file]
-        SYMLINK[symlink — create symbolic link]
-        TMPFILE[tmpfile — create unnamed temporary file]
-        ATOMIC_OPEN[atomic_open — lookup+open in one step]
+        LOOKUP[lookup -- find entry in directory]
+        CREATE[create -- create regular file]
+        MKDIR[mkdir -- create directory]
+        MKNOD[mknod -- create device/special file]
+        SYMLINK[symlink -- create symbolic link]
+        TMPFILE[tmpfile -- create unnamed temporary file]
+        ATOMIC_OPEN[atomic_open -- lookup+open in one step]
     end
     subgraph "Link Management"
-        LINK[link — create hard link]
-        UNLINK[unlink — remove link]
-        RENAME[rename — move/rename entry]
-        RMDIR[rmdir — remove directory]
+        LINK[link -- create hard link]
+        UNLINK[unlink -- remove link]
+        RENAME[rename -- move/rename entry]
+        RMDIR[rmdir -- remove directory]
     end
     subgraph "Attributes"
-        GETATTR[getattr — read inode attributes]
-        SETATTR[setattr — change inode attributes]
-        PERMISSION[permission — check access permissions]
-        UPDATE_TIME[update_time — update timestamps]
+        GETATTR[getattr -- read inode attributes]
+        SETATTR[setattr -- change inode attributes]
+        PERMISSION[permission -- check access permissions]
+        UPDATE_TIME[update_time -- update timestamps]
     end
     subgraph "Extended Attributes"
-        LISTXATTR[listxattr — list xattrs]
-        GETXATTR[getxattr — read xattr]
-        SETXATTR[setxattr — write xattr]
+        LISTXATTR[listxattr -- list xattrs]
+        GETXATTR[getxattr -- read xattr]
+        SETXATTR[setxattr -- write xattr]
     end
     subgraph "Other"
-        READLINK[readlink — read symlink target]
-        FIEMAP[fiemap — file extent mapping]
+        READLINK[readlink -- read symlink target]
+        FIEMAP[fiemap -- file extent mapping]
     end
 ```
 
@@ -167,9 +167,9 @@ graph TB
         I99 --> I1[inode #1]
     end
     subgraph "LRU List (for reclaim)"
-        LRU_HEAD --> I_OLD["inode with i_count=0<br/>oldest access"]
+        LRU_HEAD --> I_OLD["inode with i_count=0<br>oldest access"]
         I_OLD --> I_MID[inode with i_count=0]
-        I_MID --> I_NEW["inode with i_count=0<br/>newest access"]
+        I_MID --> I_NEW["inode with i_count=0<br>newest access"]
     end
     subgraph "Superblock List"
         SB["super_block"] --> |s_inodes| I1
@@ -298,7 +298,7 @@ sequenceDiagram
     VFS->>IC: iget() → i_count++ (now 1)
     U->>VFS: unlink("file.txt")
     VFS->>IC: i_nlink-- (now 0)
-    Note over IC: Data still on disk!<br/>i_count > 0 prevents deletion
+    Note over IC: Data still on disk!<br>i_count > 0 prevents deletion
     U->>VFS: close(fd)
     VFS->>IC: iput() → i_count-- (now 0)
     Note over IC: Both i_count=0 and i_nlink=0

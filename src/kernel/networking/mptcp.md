@@ -50,13 +50,13 @@ Total bandwidth: ~1.15 Gbps (aggregated)
 ```mermaid
 graph TB
     subgraph "Smartphone"
-        WIFI["WiFi<br/>100 Mbps"]
-        CELL["5G/LTE<br/>200 Mbps"]
+        WIFI["WiFi<br>100 Mbps"]
+        CELL["5G/LTE<br>200 Mbps"]
     end
     subgraph "Data Center"
-        ETH1["NIC 1<br/>10 Gbps"]
-        ETH2["NIC 2<br/>10 Gbps"]
-        ETH3["NIC 3<br/>10 Gbps"]
+        ETH1["NIC 1<br>10 Gbps"]
+        ETH2["NIC 2<br>10 Gbps"]
+        ETH3["NIC 3<br>10 Gbps"]
     end
     subgraph "Edge Server"
         WAN1["WAN Link 1"]
@@ -79,11 +79,11 @@ graph TB
 ```mermaid
 graph TB
     subgraph "MPTCP Architecture"
-        APP["Application Layer<br/>(unchanged)"]
-        MPTCP["MPTCP Connection Manager<br/>(path manager, scheduler)"]
-        SUB1["Subflow 1<br/>10.0.0.1 → 10.0.0.2"]
-        SUB2["Subflow 2<br/>10.0.0.3 → 10.0.0.4"]
-        SUB3["Subflow 3<br/>10.0.0.5 → 10.0.0.6"]
+        APP["Application Layer<br>(unchanged)"]
+        MPTCP["MPTCP Connection Manager<br>(path manager, scheduler)"]
+        SUB1["Subflow 1<br>10.0.0.1 → 10.0.0.2"]
+        SUB2["Subflow 2<br>10.0.0.3 → 10.0.0.4"]
+        SUB3["Subflow 3<br>10.0.0.5 → 10.0.0.6"]
         TCP1["TCP Socket 1"]
         TCP2["TCP Socket 2"]
         TCP3["TCP Socket 3"]
@@ -277,9 +277,9 @@ sudo sysctl -w net.mptcp.scheduler=roundrobin
 ```mermaid
 graph TD
     subgraph "MPTCP Schedulers"
-        DEFAULT["default<br/>Lowest RTT first<br/>Congestion-aware"]
-        RR["roundrobin<br/>Round-robin<br/>Simple distribution"]
-        RED["redundant<br/>Send on ALL paths<br/>Maximum reliability"]
+        DEFAULT["default<br>Lowest RTT first<br>Congestion-aware"]
+        RR["roundrobin<br>Round-robin<br>Simple distribution"]
+        RED["redundant<br>Send on ALL paths<br>Maximum reliability"]
     end
     DEFAULT -->|"Use when"| USE1["General purpose"]
     RR -->|"Use when"| USE2["Even distribution"]

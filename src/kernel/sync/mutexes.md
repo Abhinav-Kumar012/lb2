@@ -165,15 +165,15 @@ graph TD
     A[mutex_lock called] --> B{Fast path: atomic cmpxchg}
     B -->|Success| C[Lock acquired]
     B -->|Fail: contended| D[mutex_lock_slow]
-    D --> E["spin_lock(&wait_lock)"]
+    D --> E["spin_lock(&amp;wait_lock)"]
     E --> F[Add to wait_list]
     F --> G[Set task state to TASK_UNINTERRUPTIBLE]
-    G --> H["spin_unlock(&wait_lock)"]
-    H --> I[schedule — sleep]
+    G --> H["spin_unlock(&amp;wait_lock)"]
+    H --> I[schedule -- sleep]
     I --> J[Woken up]
     J --> K{Acquired lock?}
     K -->|Yes| C
-    K -->|No — spurious| D
+    K -->|No -- spurious| D
 ```
 
 ### Unlock
@@ -222,8 +222,8 @@ graph TD
     B -->|No| C[Sleep in wait_list]
     B -->|Yes| D[Spin waiting for owner to release]
     D --> E{Owner released lock?}
-    E -->|Yes| F[Acquire lock — no context switch!]
-    E -->|No — owner scheduled out| C
+    E -->|Yes| F[Acquire lock -- no context switch!]
+    E -->|No -- owner scheduled out| C
     D --> G{need_resched set?}
     G -->|Yes| C
 ```

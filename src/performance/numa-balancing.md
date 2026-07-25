@@ -18,12 +18,12 @@ Key properties:
 ```mermaid
 graph TD
     subgraph "NUMA Node 0"
-        CPU0["CPU 0-7"] --> LOCAL0["Local RAM<br/>32 GB"]
-        CPU0 -->|"slow"| REMOTE1["Node 1 RAM<br/>32 GB"]
+        CPU0["CPU 0-7"] --> LOCAL0["Local RAM<br>32 GB"]
+        CPU0 -->|"slow"| REMOTE1["Node 1 RAM<br>32 GB"]
     end
     subgraph "NUMA Node 1"
-        CPU1["CPU 8-15"] --> LOCAL1["Local RAM<br/>32 GB"]
-        CPU1 -->|"slow"| REMOTE0["Node 0 RAM<br/>32 GB"]
+        CPU1["CPU 8-15"] --> LOCAL1["Local RAM<br>32 GB"]
+        CPU1 -->|"slow"| REMOTE0["Node 0 RAM<br>32 GB"]
     end
 
     style LOCAL0 fill:#38a169,color:#fff
@@ -89,11 +89,11 @@ sequenceDiagram
 ```mermaid
 flowchart TD
     START["NUMA scan triggered"] --> PICK["Pick next task to scan"]
-    PICK --> RANGE["Scan task's address range<br/>(scan_size_mb per scan)"]
-    RANGE --> CLEAR["Clear PTE accessed bits<br/>(set NUMA hint)"]
+    PICK --> RANGE["Scan task's address range<br>(scan_size_mb per scan)"]
+    RANGE --> CLEAR["Clear PTE accessed bits<br>(set NUMA hint)"]
     CLEAR --> WAIT["Wait for hint faults"]
-    WAIT --> COLLECT["Collect fault statistics<br/>(which node accessed)"]
-    COLLECT --> DECIDE{"Enough data to<br/>migrate?"}
+    WAIT --> COLLECT["Collect fault statistics<br>(which node accessed)"]
+    COLLECT --> DECIDE{"Enough data to<br>migrate?"}
     DECIDE -->|"Yes, hot on different node"| MIGRATE["Migrate page"]
     DECIDE -->|"No, or already local"| NEXT["Move to next range"]
     MIGRATE --> NEXT
@@ -163,15 +163,15 @@ echo 512 > /proc/sys/kernel/numa_balancing_scan_size_mb
 ```mermaid
 graph TD
     subgraph "THP + NUMA Balancing"
-        SMALL["4KB pages<br/>easier to migrate"]
-        HUGE["2MB huge pages<br/>harder to migrate"]
-        DEMOTE["THP demotion<br/>split huge → small"]
+        SMALL["4KB pages<br>easier to migrate"]
+        HUGE["2MB huge pages<br>harder to migrate"]
+        DEMOTE["THP demotion<br>split huge → small"]
     end
 
-    HUGE -->|"Accessed from<br/>remote node"| DEMOTE
-    DEMOTE -->|"Split into 512<br/>4KB pages"| SMALL
-    SMALL -->|"Migrate hot pages"| MIGRATE["Migrate to<br/>accessing node"]
-    MIGRATE -->|"Reassemble"| HUGE2["2MB huge page<br/>on correct node"]
+    HUGE -->|"Accessed from<br>remote node"| DEMOTE
+    DEMOTE -->|"Split into 512<br>4KB pages"| SMALL
+    SMALL -->|"Migrate hot pages"| MIGRATE["Migrate to<br>accessing node"]
+    MIGRATE -->|"Reassemble"| HUGE2["2MB huge page<br>on correct node"]
 
     style HUGE fill:#d69e2e,color:#000
     style MIGRATE fill:#38a169,color:#fff
@@ -350,13 +350,13 @@ numastat -c
 
 ```mermaid
 graph TD
-    GOOD["Good candidates for NUMA balancing"] --> LONG["Long-running processes<br/>(databases, JVMs)"]
-    GOOD --> STABLE["Stable access patterns<br/>(gradually converges)"]
-    GOOD --> UNAWARE["NUMA-unaware apps<br/>(don't use libnuma)"]
+    GOOD["Good candidates for NUMA balancing"] --> LONG["Long-running processes<br>(databases, JVMs)"]
+    GOOD --> STABLE["Stable access patterns<br>(gradually converges)"]
+    GOOD --> UNAWARE["NUMA-unaware apps<br>(don't use libnuma)"]
 
-    BAD["Poor candidates"] --> SHORT["Short-lived processes<br/>(scanning overhead)"]
-    BAD --> RANDOM["Random access patterns<br/>(constant migration)"]
-    BAD --> PINNED["Already NUMA-pinned<br/>(numactl --membind)"]
+    BAD["Poor candidates"] --> SHORT["Short-lived processes<br>(scanning overhead)"]
+    BAD --> RANDOM["Random access patterns<br>(constant migration)"]
+    BAD --> PINNED["Already NUMA-pinned<br>(numactl --membind)"]
 
     style GOOD fill:#38a169,color:#fff
     style BAD fill:#e53e3e,color:#fff

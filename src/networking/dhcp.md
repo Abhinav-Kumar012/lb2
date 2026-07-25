@@ -13,19 +13,19 @@ sequenceDiagram
     participant Client
     participant Server
 
-    Note over Client: No IP address yet<br/>Uses 0.0.0.0
+    Note over Client: No IP address yet<br>Uses 0.0.0.0
 
-    Client->>Server: 1. DISCOVER (broadcast)<br/>UDP 0.0.0.0:68 → 255.255.255.255:67<br/>"I need an IP address"
+    Client->>Server: 1. DISCOVER (broadcast)<br>UDP 0.0.0.0:68 → 255.255.255.255:67<br>"I need an IP address"
     Note over Server: Selects an IP from pool
 
-    Server->>Client: 2. OFFER (broadcast/unicast)<br/>UDP :67 → 255.255.255.255:68<br/>"Here's 192.168.1.100"
+    Server->>Client: 2. OFFER (broadcast/unicast)<br>UDP :67 → 255.255.255.255:68<br>"Here's 192.168.1.100"
     Note over Client: May receive multiple offers
 
-    Client->>Server: 3. REQUEST (broadcast)<br/>"I accept 192.168.1.100"
+    Client->>Server: 3. REQUEST (broadcast)<br>"I accept 192.168.1.100"
     Note over Server: Marks IP as allocated
 
-    Server->>Client: 4. ACKNOWLEDGE (broadcast/unicast)<br/>"Confirmed. Lease = 86400s"
-    Note over Client: Configures interface:<br/>IP, mask, gateway, DNS
+    Server->>Client: 4. ACKNOWLEDGE (broadcast/unicast)<br>"Confirmed. Lease = 86400s"
+    Note over Client: Configures interface:<br>IP, mask, gateway, DNS
 ```
 
 **Packet details:**
@@ -45,10 +45,10 @@ sequenceDiagram
 graph LR
     A["INIT"] -->|"DISCOVER"| B["SELECTING"]
     B -->|"OFFER received"| C["REQUESTING"]
-    C -->|"ACK received"| D["BOUND<br/>(lease active)"]
-    D -->|"T1 (50%) elapsed"| E["RENEWING<br/>(unicast to server)"]
+    C -->|"ACK received"| D["BOUND<br>(lease active)"]
+    D -->|"T1 (50%) elapsed"| E["RENEWING<br>(unicast to server)"]
     E -->|"ACK received"| D
-    E -->|"T2 (87.5%) elapsed"| F["REBINDING<br/>(broadcast)"]
+    E -->|"T2 (87.5%) elapsed"| F["REBINDING<br>(broadcast)"]
     F -->|"ACK received"| D
     F -->|"Lease expired"| A
 ```
@@ -374,7 +374,7 @@ sequenceDiagram
     participant DHCP Server
 
     Client->>Relay: DISCOVER (broadcast)
-    Note over Relay: Adds giaddr=10.0.1.1<br/>Relays to 10.0.0.5 (unicast)
+    Note over Relay: Adds giaddr=10.0.1.1<br>Relays to 10.0.0.5 (unicast)
     Relay->>DHCP Server: DISCOVER (unicast)
     DHCP Server->>Relay: OFFER (unicast to giaddr)
     Relay->>Client: OFFER (broadcast on VLAN 10)

@@ -502,15 +502,15 @@ graph TB
         RPM_CLI[rpm CLI]
     end
     subgraph "DNF Layer"
-        LIBSOLV["libsolv<br/>Dependency Resolution"]
+        LIBSOLV["libsolv<br>Dependency Resolution"]
         DNF_CORE[DNF Core]
         PLUGINS[DNF Plugins]
-        CACHE2["(dnf cache<br/>/var/cache/dnf/)"]
+        CACHE2["(dnf cache<br>/var/cache/dnf/)"]
     end
     subgraph "RPM Layer"
         RPM[rpm]
-        RPMDB["(RPM Database<br/>/var/lib/rpm/)"]
-        SCRIPTS["RPM Scripts<br/>%pre, %post, %preun, %postun"]
+        RPMDB["(RPM Database<br>/var/lib/rpm/)"]
+        SCRIPTS["RPM Scripts<br>%pre, %post, %preun, %postun"]
     end
     subgraph "Repositories"
         BASEOS[BaseOS / AppStream]

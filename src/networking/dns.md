@@ -700,13 +700,9 @@ DNSSEC creates a chain of trust from the root zone to individual domains:
 
 ```mermaid
 flowchart TD
-    ROOT["Root Zone
-(.)"] -->|"DS record"| TLD["TLD Zone
-(.com)"]
-    TLD -->|"DS record"| DOMAIN["Domain Zone
-(example.com)"]
-    DOMAIN -->|"RRSIG"| A["A record
-example.com"]
+    ROOT["Root Zone<br>(.)"] -->|"DS record"| TLD["TLD Zone<br>(.com)"]
+    TLD -->|"DS record"| DOMAIN["Domain Zone<br>(example.com)"]
+    DOMAIN -->|"RRSIG"| A["A record<br>example.com"]
 ```
 
 Each zone signs its records with a private key and publishes:

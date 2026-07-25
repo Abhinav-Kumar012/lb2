@@ -25,10 +25,10 @@ flowchart TD
     end
 
     subgraph Conntrack["conntrack"]
-        CT_IN["conntrack_in<br/>(NEW/ESTABLISHED detection)"]
-        CT_CONFIRM["conntrack_confirm<br/>(confirm entry)"]
-        CT_HELPER["conntrack_helper<br/>(ALG support)"]
-        CT_NAT["NAT integration<br/>(SNAT/DNAT)"]
+        CT_IN["conntrack_in<br>(NEW/ESTABLISHED detection)"]
+        CT_CONFIRM["conntrack_confirm<br>(confirm entry)"]
+        CT_HELPER["conntrack_helper<br>(ALG support)"]
+        CT_NAT["NAT integration<br>(SNAT/DNAT)"]
     end
 
     subgraph HashTable["nf_conn Hash Table"]

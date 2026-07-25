@@ -331,7 +331,7 @@ Pacman uses GPG signatures to verify package authenticity. Every package is sign
 
 ```mermaid
 graph TD
-    ROOT["Arch Linux Master Keys<br/>(5 Trusted Key holders)"] --> DEV["Developer / TU Keys"]
+    ROOT["Arch Linux Master Keys<br>(5 Trusted Key holders)"] --> DEV["Developer / TU Keys"]
     DEV --> PKG["Package Signatures"]
     PKG --> VERIFY["pacman verifies on install"]
     KEYRING["archlinux-keyring package"] --> DEV
@@ -723,13 +723,13 @@ graph TB
         CORE[core]
         EXTRA[extra]
         MULTILIB[multilib]
-        AUR["AUR<br/>(PKGBUILDs)"]
+        AUR["AUR<br>(PKGBUILDs)"]
     end
     subgraph "Local System"
-        DB["(Package DB<br/>/var/lib/pacman/)"]
-        CACHE["(Package Cache<br/>/var/cache/pacman/pkg/)"]
+        DB["(Package DB<br>/var/lib/pacman/)"]
+        CACHE["(Package Cache<br>/var/cache/pacman/pkg/)"]
         INSTALLED[(Installed Files)]
-        HOOKS["Hooks<br/>/etc/pacman.d/hooks/"]
+        HOOKS["Hooks<br>/etc/pacman.d/hooks/"]
     end
     subgraph "Build System"
         PKGBUILD[PKGBUILD]

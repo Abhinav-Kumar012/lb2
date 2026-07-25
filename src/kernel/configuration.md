@@ -254,14 +254,14 @@ Understanding configuration dependencies is essential:
 
 ```mermaid
 graph TD
-    CONFIG_NET[CONFIG_NET — Networking support]
-    CONFIG_INET[CONFIG_INET — TCP/IP networking]
-    CONFIG_IPV6[CONFIG_IPV6 — IPv6]
-    CONFIG_TCP_CONG[CONFIG_TCP_CONG_CUBIC — default congestion]
-    CONFIG_BBR[CONFIG_TCP_CONG_BBR — BBR congestion]
-    CONFIG_NETFILTER[CONFIG_NETFILTER — Netfilter framework]
-    CONFIG_NF_CONNTRACK[CONFIG_NF_CONNTRACK — Connection tracking]
-    CONFIG_IPTABLES[CONFIG_NETFILTER_XTABLES — iptables]
+    CONFIG_NET[CONFIG_NET -- Networking support]
+    CONFIG_INET[CONFIG_INET -- TCP/IP networking]
+    CONFIG_IPV6[CONFIG_IPV6 -- IPv6]
+    CONFIG_TCP_CONG[CONFIG_TCP_CONG_CUBIC -- default congestion]
+    CONFIG_BBR[CONFIG_TCP_CONG_BBR -- BBR congestion]
+    CONFIG_NETFILTER[CONFIG_NETFILTER -- Netfilter framework]
+    CONFIG_NF_CONNTRACK[CONFIG_NF_CONNTRACK -- Connection tracking]
+    CONFIG_IPTABLES[CONFIG_NETFILTER_XTABLES -- iptables]
 
     CONFIG_NET --> CONFIG_INET
     CONFIG_INET --> CONFIG_IPV6

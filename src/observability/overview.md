@@ -15,19 +15,19 @@ Observability is conventionally built on three pillars: **metrics**, **logs**, a
 ```mermaid
 graph TD
     subgraph "Observability Three Pillars"
-        M["📊 Metrics<br/>Numerical measurements over time"]
-        L["📝 Logs<br/>Discrete events with context"]
-        T["🔍 Traces<br/>Request flow through the system"]
+        M["📊 Metrics<br>Numerical measurements over time"]
+        L["📝 Logs<br>Discrete events with context"]
+        T["🔍 Traces<br>Request flow through the system"]
     end
     subgraph "Examples"
-        ME["CPU usage, IOPS, memory, latency,<br/>error rates, throughput"]
-        LE["Error messages, access logs,<br/>audit trails, kernel messages"]
-        TE["Request path, span timing,<br/>distributed dependencies"]
+        ME["CPU usage, IOPS, memory, latency,<br>error rates, throughput"]
+        LE["Error messages, access logs,<br>audit trails, kernel messages"]
+        TE["Request path, span timing,<br>distributed dependencies"]
     end
     subgraph "Storage Systems"
-        MS["Prometheus, InfluxDB,<br/>Graphite, VictoriaMetrics"]
-        LS["Elasticsearch, Loki,<br/>Splunk, Graylog"]
-        TS["Jaeger, Zipkin,<br/>Tempo, Honeycomb"]
+        MS["Prometheus, InfluxDB,<br>Graphite, VictoriaMetrics"]
+        LS["Elasticsearch, Loki,<br>Splunk, Graylog"]
+        TS["Jaeger, Zipkin,<br>Tempo, Honeycomb"]
     end
     M --> ME --> MS
     L --> LE --> LS
@@ -359,12 +359,12 @@ Traces follow a request as it flows through distributed services. They are essen
 
 ```mermaid
 graph LR
-    CLIENT["Client<br/>trace: abc123"] --> API["API Gateway<br/>span: api-gw<br/>200ms"]
-    API --> AUTH["Auth Service<br/>span: auth<br/>15ms"]
-    API --> DB["Database<br/>span: db-query<br/>150ms"]
-    API --> CACHE["Cache<br/>span: cache-get<br/>5ms"]
-    DB --> DISK["Disk I/O<br/>span: disk-read<br/>100ms"]
-    API --> EXT["External API<br/>span: ext-call<br/>80ms"]
+    CLIENT["Client<br>trace: abc123"] --> API["API Gateway<br>span: api-gw<br>200ms"]
+    API --> AUTH["Auth Service<br>span: auth<br>15ms"]
+    API --> DB["Database<br>span: db-query<br>150ms"]
+    API --> CACHE["Cache<br>span: cache-get<br>5ms"]
+    DB --> DISK["Disk I/O<br>span: disk-read<br>100ms"]
+    API --> EXT["External API<br>span: ext-call<br>80ms"]
 ```
 
 ### Trace Example (Jaeger/OpenTelemetry Format)
@@ -512,33 +512,33 @@ Fluentd / Vector           # Log collection and routing
 ```mermaid
 graph TD
     subgraph "Data Sources"
-        SRC1["/proc, /sys<br/>Kernel virtual filesystems"]
-        SRC2["Tracepoints, kprobes<br/>Kernel instrumentation"]
-        SRC3["Application metrics<br/>Prometheus client libs"]
-        SRC4["Application logs<br/>stdout, files, syslog"]
-        SRC5["Network capture<br/>tcpdump, eBPF"]
+        SRC1["/proc, /sys<br>Kernel virtual filesystems"]
+        SRC2["Tracepoints, kprobes<br>Kernel instrumentation"]
+        SRC3["Application metrics<br>Prometheus client libs"]
+        SRC4["Application logs<br>stdout, files, syslog"]
+        SRC5["Network capture<br>tcpdump, eBPF"]
     end
     subgraph "Collection Layer"
-        COL1["node_exporter<br/>System metrics"]
-        COL2["OpenTelemetry SDK<br/>Application telemetry"]
-        COL3["journald / rsyslog<br/>Log collection"]
-        COL4["eBPF agents<br/>Kernel events"]
+        COL1["node_exporter<br>System metrics"]
+        COL2["OpenTelemetry SDK<br>Application telemetry"]
+        COL3["journald / rsyslog<br>Log collection"]
+        COL4["eBPF agents<br>Kernel events"]
     end
     subgraph "Processing Layer"
-        PRO1["Aggregation<br/>sum, avg, percentiles"]
-        PRO2["Filtering<br/>drop noise, sample"]
-        PRO3["Enrichment<br/>add labels, geo-IP"]
-        PRO4["Correlation<br/>link metrics ↔ traces ↔ logs"]
+        PRO1["Aggregation<br>sum, avg, percentiles"]
+        PRO2["Filtering<br>drop noise, sample"]
+        PRO3["Enrichment<br>add labels, geo-IP"]
+        PRO4["Correlation<br>link metrics ↔ traces ↔ logs"]
     end
     subgraph "Storage Layer"
-        STO1["Prometheus / VM<br/>Time-series (metrics)"]
-        STO2["Elasticsearch / Loki<br/>Full-text (logs)"]
-        STO3["Jaeger / Tempo<br/>Trace storage"]
+        STO1["Prometheus / VM<br>Time-series (metrics)"]
+        STO2["Elasticsearch / Loki<br>Full-text (logs)"]
+        STO3["Jaeger / Tempo<br>Trace storage"]
     end
     subgraph "Visualization & Alerting"
-        VIS1["Grafana Dashboards<br/>Metrics + Logs + Traces"]
-        VIS2["Prometheus Alertmanager<br/>Alert routing"]
-        VIS3["PagerDuty / Opsgenie<br/>Incident management"]
+        VIS1["Grafana Dashboards<br>Metrics + Logs + Traces"]
+        VIS2["Prometheus Alertmanager<br>Alert routing"]
+        VIS3["PagerDuty / Opsgenie<br>Incident management"]
     end
     SRC1 --> COL1
     SRC2 --> COL4
@@ -743,16 +743,16 @@ Every request should get a unique trace ID that propagates through all services,
 ```mermaid
 graph LR
     subgraph "Level 0: Reactive"
-        L0["Manual checks<br/>ssh + top + tail logs<br/>No dashboards"]
+        L0["Manual checks<br>ssh + top + tail logs<br>No dashboards"]
     end
     subgraph "Level 1: Basic Monitoring"
-        L1["Basic dashboards<br/>CPU/memory/disk alerts<br/>Centralized logs"]
+        L1["Basic dashboards<br>CPU/memory/disk alerts<br>Centralized logs"]
     end
     subgraph "Level 2: Observability"
-        L2["Three pillars integrated<br/>Correlation IDs<br/>SLO-based alerting"]
+        L2["Three pillars integrated<br>Correlation IDs<br>SLO-based alerting"]
     end
     subgraph "Level 3: Advanced"
-        L3["eBPF-based tracing<br/>Automated anomaly detection<br/>Chaos engineering"]
+        L3["eBPF-based tracing<br>Automated anomaly detection<br>Chaos engineering"]
     end
     L0 --> L1 --> L2 --> L3
 ```

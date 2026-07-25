@@ -19,16 +19,16 @@ eBPF programs can attach to kprobes through several program types:
 ```mermaid
 graph TD
     subgraph "BPF Program Types"
-        KPROBE["BPF_PROG_TYPE_KPROBE<br/>(kprobe/kretprobe)"]
-        RAW_TP["BPF_PROG_TYPE_RAW_TRACEPOINT<br/>(raw tracepoint)"]
-        TRACING["BPF_PROG_TYPE_TRACING<br/>(fentry/fexit/fmod_ret)"]
-        LSM["BPF_PROG_TYPE_LSM<br/>(LSM hooks)"]
+        KPROBE["BPF_PROG_TYPE_KPROBE<br>(kprobe/kretprobe)"]
+        RAW_TP["BPF_PROG_TYPE_RAW_TRACEPOINT<br>(raw tracepoint)"]
+        TRACING["BPF_PROG_TYPE_TRACING<br>(fentry/fexit/fmod_ret)"]
+        LSM["BPF_PROG_TYPE_LSM<br>(LSM hooks)"]
     end
     subgraph "Kernel Functions"
-        FUNC["kernel function<br/>(any exported or<br/>internal function)"]
+        FUNC["kernel function<br>(any exported or<br>internal function)"]
     end
     
-    KPROBE -->|"breakpoint<br/>trap"| FUNC
+    KPROBE -->|"breakpoint<br>trap"| FUNC
     RAW_TP -->|"direct call"| FUNC
     TRACING -->|"fentry/fexit"| FUNC
     LSM -->|"LSM hook"| FUNC

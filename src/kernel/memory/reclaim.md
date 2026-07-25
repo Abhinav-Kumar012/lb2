@@ -69,12 +69,12 @@ __alloc_pages_direct_reclaim(gfp_t gfp_mask, unsigned int order,
 ```mermaid
 flowchart TD
     A[Memory allocation request] --> B{Free pages above high watermark?}
-    B -->|Yes| C[Direct allocation — no reclaim]
+    B -->|Yes| C[Direct allocation -- no reclaim]
     B -->|No| D{Free pages above low watermark?}
-    D -->|Yes| E[Wake kswapd — background reclaim]
+    D -->|Yes| E[Wake kswapd -- background reclaim]
     D -->|No| F{Free pages above min watermark?}
     F -->|Yes| G[kswapd reclaim + allocation proceeds]
-    F -->|No| H[Direct reclaim — synchronous]
+    F -->|No| H[Direct reclaim -- synchronous]
     H --> I{Enough pages freed?}
     I -->|Yes| J[Allocation succeeds]
     I -->|No| K[OOM killer invoked]
@@ -171,7 +171,7 @@ Pages move between active and inactive lists based on access patterns:
 
 ```mermaid
 flowchart LR
-    ALLOC["New allocation"] --> IL["Inactive List<br/>(young, protected)"]
+    ALLOC["New allocation"] --> IL["Inactive List<br>(young, protected)"]
     IL -->|Accessed again| AL["Active List"]
     AL -->|Not accessed for a while| IL
     IL -->|Reclaim scan| FREE["Free page"]
@@ -317,10 +317,10 @@ flowchart TD
     A[shrink_node] --> B[Calculate scan targets per LRU]
     B --> C[Scan inactive LRU lists]
     C --> D{Page is mapped?}
-    D -->|Yes| E[try_to_unmap — remove page table entries]
+    D -->|Yes| E[try_to_unmap -- remove page table entries]
     E --> F{Page dirty?}
     D -->|No| F
-    F -->|Yes| G[pageout — write to swap/disk]
+    F -->|Yes| G[pageout -- write to swap/disk]
     F -->|No| H[Free page immediately]
     G --> I{Write succeeded?}
     I -->|Yes| H

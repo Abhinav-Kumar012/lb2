@@ -83,7 +83,7 @@ sequenceDiagram
     IRQ->>CPU: Interrupt → process packet
     NIC->>IRQ: Packet 3 arrives
     IRQ->>CPU: Interrupt → process packet
-    Note over CPU: CPU stuck processing interrupts!<br/>No time for protocol stack work
+    Note over CPU: CPU stuck processing interrupts!<br>No time for protocol stack work
 
     Note over NIC,CPU: With NAPI (interrupt + poll)
 
@@ -142,11 +142,11 @@ struct napi_struct {
 stateDiagram-v2
     [*] --> IDLE: napi_enable()
 
-    IDLE --> SCHED: napi_schedule()<br/>(IRQ or busy poll)
-    SCHED --> POLLING: __napi_poll()<br/>(softirq context)
+    IDLE --> SCHED: napi_schedule()<br>(IRQ or busy poll)
+    SCHED --> POLLING: __napi_poll()<br>(softirq context)
 
-    POLLING --> IDLE: poll() returns < budget<br/>(all packets processed)
-    POLLING --> SCHED: poll() returns budget<br/>(more packets pending)
+    POLLING --> IDLE: poll() returns < budget<br>(all packets processed)
+    POLLING --> SCHED: poll() returns budget<br>(more packets pending)
 
     IDLE --> DISABLE: napi_disable()
     SCHED --> DISABLE: napi_disable() (waits)
@@ -720,16 +720,16 @@ int sk_busy_loop(struct sock *sk, int nonblock)
 ```mermaid
 graph LR
     subgraph "NIC"
-        PKTS["Small packets<br/>(1500B each)"]
+        PKTS["Small packets<br>(1500B each)"]
     end
 
     subgraph "GRO Processing"
         GRO_MERGE["GRO merge engine"]
-        COALESCE["Coalesce into large<br/>super-packets"]
+        COALESCE["Coalesce into large<br>super-packets"]
     end
 
     subgraph "Protocol Stack"
-        LARGE["Large packet<br/>(64KB) → single path"]
+        LARGE["Large packet<br>(64KB) → single path"]
     end
 
     PKTS --> GRO_MERGE
@@ -860,9 +860,9 @@ struct sk_buff {
 graph LR
     subgraph "sk_buff memory layout"
         HEAD["head"]
-        HEADROOM["headroom<br/>(headers added by stack)"]
+        HEADROOM["headroom<br>(headers added by stack)"]
         DATA["data"]
-        PAYLOAD["payload<br/>(TCP/IP headers + data)"]
+        PAYLOAD["payload<br>(TCP/IP headers + data)"]
         TAIL["tail"]
         TAILROOM["tailroom"]
         END["end"]

@@ -13,16 +13,16 @@ Most modern multi-socket servers are NUMA systems. Even single-socket CPUs with 
 ```mermaid
 graph TB
     subgraph "NUMA Node 0"
-        CPU0["CPU 0<br/>(Local access: ~100ns)"]
-        RAM0["RAM 0<br/>(8 DIMMs)"]
+        CPU0["CPU 0<br>(Local access: ~100ns)"]
+        RAM0["RAM 0<br>(8 DIMMs)"]
         CPU0 --- RAM0
     end
     subgraph "NUMA Node 1"
-        CPU1["CPU 1<br/>(Local access: ~100ns)"]
-        RAM1["RAM 1<br/>(8 DIMMs)"]
+        CPU1["CPU 1<br>(Local access: ~100ns)"]
+        RAM1["RAM 1<br>(8 DIMMs)"]
         CPU1 --- RAM1
     end
-    CPU0 <-->|"Interconnect<br/>(Remote access: ~150-300ns)"| CPU1
+    CPU0 <-->|"Interconnect<br>(Remote access: ~150-300ns)"| CPU1
 ```
 
 ### Node Distances

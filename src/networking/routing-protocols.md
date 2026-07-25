@@ -11,11 +11,11 @@ Every router maintains a **routing table** — a list of known networks and the 
 ```mermaid
 graph TB
     subgraph "Routing Decision Process"
-        A["Packet arrives"] --> B{"Route lookup<br/>Longest prefix match"}
+        A["Packet arrives"] --> B{"Route lookup<br>Longest prefix match"}
         B -->|"Match found"| C["Forward to next hop"]
-        B -->|"No match"| D{"Default route<br/>0.0.0.0/0?"}
+        B -->|"No match"| D{"Default route<br>0.0.0.0/0?"}
         D -->|"Yes"| E["Forward to default gateway"]
-        D -->|"No"| F["Drop packet<br/>Send ICMP Unreachable"]
+        D -->|"No"| F["Drop packet<br>Send ICMP Unreachable"]
     end
 ```
 
@@ -71,18 +71,18 @@ $ ip route get 8.8.8.8
 ```mermaid
 graph TB
     subgraph "Area 0 (Backbone)"
-        ABR1["ABR 1<br/>Router ID: 1.1.1.1"]
-        ABR2["ABR 2<br/>Router ID: 2.2.2.2"]
+        ABR1["ABR 1<br>Router ID: 1.1.1.1"]
+        ABR2["ABR 2<br>Router ID: 2.2.2.2"]
     end
 
     subgraph "Area 1 (Stub)"
-        R1["Router<br/>10.1.1.0/24"]
-        R2["Router<br/>10.1.2.0/24"]
+        R1["Router<br>10.1.1.0/24"]
+        R2["Router<br>10.1.2.0/24"]
     end
 
     subgraph "Area 2 (NSSA)"
-        R3["Router<br/>10.2.1.0/24"]
-        ASBR["ASBR<br/>Redistributing<br/>static routes"]
+        R3["Router<br>10.2.1.0/24"]
+        ASBR["ASBR<br>Redistributing<br>static routes"]
     end
 
     ABR1 --- R1
@@ -630,23 +630,15 @@ follows a daemon-based model:
 ```mermaid
 flowchart TB
     subgraph "FRR Daemons"
-        ZEBRA["Zebra
-(RIB manager)"]
-        OSPFD["ospfd
-(OSPF daemon)\]
-        BGPD["bgpd
+        ZEBRA["Zebra<br>(RIB manager)"]
+        OSPFD["ospfd<br>(OSPF daemon)\]<br>BGPD["bgpd
 (BGP daemon)\]
-        ISISD["isisd
-(IS-IS daemon)\]
-    end
-    subgraph "Kernel"
-        FIB["FIB (routing table)
-via netlink")
+        ISISD["isisd<br>(IS-IS daemon)\]<br>end<br>subgraph "Kernel"
+        FIB["FIB (routing table)<br>via netlink")
         NTF["Nftables/iptables")
     end
     subgraph "CLI"
-        VTSH["vtysh
-(unified CLI)")
+        VTSH["vtysh<br>(unified CLI)")
     end
 
     OSPFD --> ZEBRA

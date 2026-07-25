@@ -17,19 +17,19 @@ SquashFS stores everything in a single file (the "squashfs image") that can be l
 ```mermaid
 flowchart TD
     subgraph Mount["squashfs_mount()"]
-        SUPER["Superblock<br/>(magic, flags, compression)"]
-        INODE["Inode table<br/>(compressed blocks)"]
-        DIR["Directory table<br/>(compressed entries)"]
-        FRAG["Fragment table<br/>(tail-end packing)"]
-        ID["ID table<br/>(UID/GID mapping)"]
-        XATTR["Xattr table<br/>(extended attributes)"]
+        SUPER["Superblock<br>(magic, flags, compression)"]
+        INODE["Inode table<br>(compressed blocks)"]
+        DIR["Directory table<br>(compressed entries)"]
+        FRAG["Fragment table<br>(tail-end packing)"]
+        ID["ID table<br>(UID/GID mapping)"]
+        XATTR["Xattr table<br>(extended attributes)"]
     end
 
     subgraph Data["Data Blocks"]
-        BLOCK1["Compressed block 1<br/>(up to 1MB)"]
+        BLOCK1["Compressed block 1<br>(up to 1MB)"]
         BLOCK2["Compressed block 2"]
         BLOCK3["..."]
-        FRAG_BLOCK["Fragment blocks<br/>(small files packed)"]
+        FRAG_BLOCK["Fragment blocks<br>(small files packed)"]
     end
 
     SUPER --> INODE
@@ -95,8 +95,8 @@ SquashFS has specialized inodes for different file types:
 ```mermaid
 flowchart TD
     A[File data] --> B{Size > fragment threshold?}
-    B -->|Yes| C["Store in data blocks<br/>(compressed, up to 1MB each)"]
-    B -->|No| D["Store in fragment block<br/>(packed with other small files)"]
+    B -->|Yes| C["Store in data blocks<br>(compressed, up to 1MB each)"]
+    B -->|No| D["Store in fragment block<br>(packed with other small files)"]
     C --> E[Block index stored in inode]
     D --> F[Fragment block + offset stored in inode]
 ```
@@ -234,8 +234,8 @@ block-beta
     columns 1
     block:frag["Fragment Block (128KB)"]
         columns 4
-        F1["File A<br/>512 bytes"] F2["File B<br/>2KB"] F3["File C<br/>8KB"] F4["File D<br/>1KB"]
-        F5["Free space<br/>116KB"] F6[" "] F7[" "] F8[" "]
+        F1["File A<br>512 bytes"] F2["File B<br>2KB"] F3["File C<br>8KB"] F4["File D<br>1KB"]
+        F5["Free space<br>116KB"] F6[" "] F7[" "] F8[" "]
     end
 ```
 
@@ -454,12 +454,12 @@ SquashFS stores extended attributes in a dedicated table, shared across inodes t
 ```mermaid
 flowchart LR
     subgraph XattrTable["Xattr Table"]
-        IDX["Xattr ID table<br/>(index by ID)"]
-        BLK["Xattr entry blocks<br/>(compressed)"]
+        IDX["Xattr ID table<br>(index by ID)"]
+        BLK["Xattr entry blocks<br>(compressed)"]
     end
 
     subgraph XattrEntry["Xattr Entry"]
-        PREFIX["Type prefix<br/>(user/system/security)"]
+        PREFIX["Type prefix<br>(user/system/security)"]
         NAME["Attribute name"]
         VALUE["Attribute value"]
     end

@@ -456,11 +456,11 @@ SMMUv3 is ARM's next-generation IOMMU with several advanced features:
 ```mermaid
 graph TD
     subgraph "SMMUv3 Architecture"
-        CMDQ["Command Queue<br/>Configuration"]
-        EVTQ["Event Queue<br/>Fault reporting"]
-        PRIQ["PRI Queue<br/>Page requests"]
-        STE["Stream Table<br/>Device mapping"]
-        CD["Context Descriptor<br/>Page tables"]
+        CMDQ["Command Queue<br>Configuration"]
+        EVTQ["Event Queue<br>Fault reporting"]
+        PRIQ["PRI Queue<br>Page requests"]
+        STE["Stream Table<br>Device mapping"]
+        CD["Context Descriptor<br>Page tables"]
     end
     DEV["PCIe Device"] -->|"Stream ID"| STE
     STE --> CD
@@ -617,8 +617,7 @@ graph LR
         APP["Application buffer"]
     end
     subgraph "SWIOTLB Bounce Pool"
-        BOUNCE["Bounce buffer
-    (below 4G)"]
+        BOUNCE["Bounce buffer<br>(below 4G)"]
     end
     subgraph "Device"
         DEV["32-bit DMA device"]

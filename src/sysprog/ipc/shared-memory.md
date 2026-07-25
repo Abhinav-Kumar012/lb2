@@ -522,8 +522,8 @@ When a process modifies shared memory, other processes' TLB entries may be stale
 
 ```mermaid
 sequenceDiagram
-    participant CPU0 as CPU 0<br/>(Process A)
-    participant CPU1 as CPU 1<br/>(Process B)
+    participant CPU0 as CPU 0<br>(Process A)
+    participant CPU1 as CPU 1<br>(Process B)
     participant K as Kernel
 
     CPU0->>CPU0: Modify shared page P

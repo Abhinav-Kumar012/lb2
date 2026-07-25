@@ -288,9 +288,9 @@ $ cat /sys/kernel/mm/ksm/stable_node_dups
 
 ```mermaid
 graph TD
-    A["Before KSM: 10 processes, 10 physical pages<br/>(each has its own copy of libc)"] --> B["After KSM: 10 processes, 1 physical page<br/>(all point to same libc page)"]
-    B --> C["Benefits:<br/>- More memory available<br/>- Better cache utilization<br/>(same data, more cache hits)"]
-    B --> D["Costs:<br/>- COW on write (page fault)<br/>- TLB may need flush on unmerge<br/>- ksmd CPU usage"]
+    A["Before KSM: 10 processes, 10 physical pages<br>(each has its own copy of libc)"] --> B["After KSM: 10 processes, 1 physical page<br>(all point to same libc page)"]
+    B --> C["Benefits:<br>- More memory available<br>- Better cache utilization<br>(same data, more cache hits)"]
+    B --> D["Costs:<br>- COW on write (page fault)<br>- TLB may need flush on unmerge<br>- ksmd CPU usage"]
 ```
 
 ## Security Considerations
@@ -305,8 +305,8 @@ graph TD
     B --> C["Calls madvise(MADV_MERGEABLE)"]
     C --> D[Times write to page]
     D --> E{Fast write?}
-    E -->|"Yes (no COW fault)"| F["Page was merged<br/>→ victim has identical content"]
-    E -->|"No (COW fault)"| G["Page was not merged<br/>→ victim has different content"]
+    E -->|"Yes (no COW fault)"| F["Page was merged<br>→ victim has identical content"]
+    E -->|"No (COW fault)"| G["Page was not merged<br>→ victim has different content"]
 ```
 
 This can be used to:
@@ -352,12 +352,12 @@ graph TD
         ST_ROOT[root] --> ST1["Page A (checksum 0x1234)"]
         ST_ROOT --> ST2["Page B (checksum 0x5678)"]
         ST1 --> ST1A["Page C (checksum 0x1234)"]
-        Note1["Pages are identical<br/>Shared via COW"]
+        Note1["Pages are identical<br>Shared via COW"]
     end
     subgraph "Unstable Tree"
         UT_ROOT[root] --> UT1["Page D (checksum 0x9abc)"]
         UT_ROOT --> UT2["Page E (checksum 0x9abc)"]
-        Note2["Candidates for merging<br/>Verified on next scan"]
+        Note2["Candidates for merging<br>Verified on next scan"]
     end
 ```
 

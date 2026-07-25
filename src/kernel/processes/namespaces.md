@@ -932,7 +932,7 @@ sequenceDiagram
     participant FS as Filesystem
     participant NET as Network
 
-    RT->>NS: clone(CLONE_NEWPID|CLONE_NEWNET|CLONE_NEWNS|<br/>CLONE_NEWUTS|CLONE_NEWIPC|CLONE_NEWUSER|CLONE_NEWCGROUP)
+    RT->>NS: clone(CLONE_NEWPID|CLONE_NEWNET|CLONE_NEWNS|<br>CLONE_NEWUTS|CLONE_NEWIPC|CLONE_NEWUSER|CLONE_NEWCGROUP)
     RT->>NS: Write UID/GID maps
     RT->>FS: Mount rootfs, pivot_root
     RT->>NET: Setup veth, bridge

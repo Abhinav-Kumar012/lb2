@@ -347,16 +347,12 @@ may be merged with others before becoming a request:
 flowchart TD
     A["read() syscall"] --> B["Filesystem creates bio"]
     B --> C["submit_bio()"]
-    C --> D{"Merge with
-existing request?"}
+    C --> D{"Merge with<br>existing request?"}
     D -->|Yes| E["Extend existing request"]
-    D -->|No| F["Allocate new request
-from tag set"]
-    E --> G["Insert into
-software queue"]
+    D -->|No| F["Allocate new request<br>from tag set"]
+    E --> G["Insert into<br>software queue"]
     F --> G
-    G --> H{"I/O scheduler
-enabled?"}
+    G --> H{"I/O scheduler<br>enabled?"}
     H -->|Yes| I["Scheduler reorders"]
     H -->|No| J["Direct dispatch"]
     I --> K["blk_mq_dispatch_rq_list()"]
@@ -366,8 +362,7 @@ enabled?"}
     M --> N["Completion IRQ"]
     N --> O["blk_mq_complete_request()"]
     O --> P["bio_endio() callback"]
-    P --> Q["Unlock pages,
-wake waiters"]
+    P --> Q["Unlock pages,<br>wake waiters"]
 ```
 
 ### Request Merging
@@ -513,11 +508,8 @@ scatter-gather segments), the block layer automatically splits it:
 
 ```mermaid
 flowchart LR
-    A["Large bio
-(256 sectors)"] --> B{"Exceeds
-max_sectors?"}
-    B -->|Yes| C["Split into
-multiple bios"]
+    A["Large bio<br>(256 sectors)"] --> B{"Exceeds<br>max_sectors?"}
+    B -->|Yes| C["Split into<br>multiple bios"]
     C --> D["bio 1 (128 sectors)"]
     C --> E["bio 2 (128 sectors)"]
     D --> F["Submit to queue"]
@@ -566,12 +558,9 @@ device has 64+ hardware submission queues, each with deep queue depth:
 ```mermaid
 graph TD
     subgraph "NVMe Device"
-        SQ0["Submission Queue 0
-(CPU 0)"]
-        SQ1["Submission Queue 1
-(CPU 1)"]
-        SQ2["Submission Queue N
-(CPU N)"]
+        SQ0["Submission Queue 0<br>(CPU 0)"]
+        SQ1["Submission Queue 1<br>(CPU 1)"]
+        SQ2["Submission Queue N<br>(CPU N)"]
         CQ0["Completion Queue 0"]
         CQ1["Completion Queue 1"]
     end
@@ -639,8 +628,7 @@ $ sudo dmsetup status encrypted_vol
 flowchart TB
     APP["Application"] --> FS["Filesystem"]
     FS --> BL["Block Layer"]
-    BL --> DM["Device Mapper
-(dm-crypt)"]
+    BL --> DM["Device Mapper<br>(dm-crypt)"]
     DM -->|"encrypt"| BL2["Block Layer"]
     BL2 --> DEV["Physical Device"]
 ```

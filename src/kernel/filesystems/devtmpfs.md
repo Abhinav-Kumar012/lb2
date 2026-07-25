@@ -21,9 +21,9 @@ sequenceDiagram
 
     Driver->>DM: device_add()
     DM->>DT: devtmpfs_create_node(dev)
-    Note over DT: Creates /dev/<name><br/>with correct major/minor<br/>permissions, uid, gid
+    Note over DT: Creates /dev/<name><br>with correct major/minor<br>permissions, uid, gid
     DM->>UE: kobject_uevent(KOBJ_ADD)
-    Note over UE: Udev receives uevent,<br/>applies rules,<br/>may rename/symlink
+    Note over UE: Udev receives uevent,<br>applies rules,<br>may rename/symlink
     UE->>UE: Apply udev rules
 ```
 
@@ -154,11 +154,11 @@ sequenceDiagram
 
     Driver->>Core: device_add()
     Core->>Queue: enqueue request
-    Core->>Thread: wake_up(&request)
+    Core->>Thread: wake_up(&amp;request)
     Thread->>Queue: dequeue request
     Thread->>VFS: vfs_mknod() or vfs_unlink()
     VFS->>Thread: result
-    Thread->>Core: complete(&done)
+    Thread->>Core: complete(&amp;done)
     Core->>Driver: continue
 ```
 

@@ -472,13 +472,13 @@ resolvectl statistics
 
 ```mermaid
 graph TD
-    A["1. Identify interfaces<br/>ip link show"] --> B["2. Choose management tool<br/>nmcli | networkd | /etc/network"]
-    B --> C["3. Configure IP<br/>Static or DHCP"]
-    C --> D["4. Set gateway/routing<br/>ip route"]
-    D --> E["5. Configure DNS<br/>/etc/resolv.conf"]
-    E --> F["6. Set hostname<br/>hostnamectl"]
-    F --> G["7. Apply & test<br/>ping, curl, ss"]
-    G --> H["8. Make persistent<br/>Save config files"]
+    A["1. Identify interfaces<br>ip link show"] --> B["2. Choose management tool<br>nmcli | networkd | /etc/network"]
+    B --> C["3. Configure IP<br>Static or DHCP"]
+    C --> D["4. Set gateway/routing<br>ip route"]
+    D --> E["5. Configure DNS<br>/etc/resolv.conf"]
+    E --> F["6. Set hostname<br>hostnamectl"]
+    F --> G["7. Apply &amp; test<br>ping, curl, ss"]
+    G --> H["8. Make persistent<br>Save config files"]
     
     style A fill:#3182ce,color:#fff
     style C fill:#38a169,color:#fff

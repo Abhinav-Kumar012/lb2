@@ -24,7 +24,7 @@ graph LR
     R1 --> R2
 
     Note1["Expected: if flag==1, then data==42"]
-    Note2["Reality: CPU 1 may see flag==1 but data==0!<br/>(store buffer forwarding, cache coherence delay)"]
+    Note2["Reality: CPU 1 may see flag==1 but data==0!<br>(store buffer forwarding, cache coherence delay)"]
 ```
 
 ### CPU Reordering
@@ -142,7 +142,7 @@ graph TB
         G1["Loads are not reordered with loads"]
         G2["Stores are not reordered with stores"]
         G3["Stores are not reordered with older loads"]
-        G4["Loads may be reordered with older stores<br/>to different addresses"]
+        G4["Loads may be reordered with older stores<br>to different addresses"]
     end
 ```
 

@@ -192,9 +192,9 @@ echo bfq > /sys/block/sda/queue/scheduler
 ```mermaid
 graph LR
     subgraph "mq-deadline"
-        RQ["Read Queue<br/>Sorted by LBA"]
-        WQ["Write Queue<br/>Sorted by LBA"]
-        BATCH["Batch Dispatch<br/>Starved?"]
+        RQ["Read Queue<br>Sorted by LBA"]
+        WQ["Write Queue<br>Sorted by LBA"]
+        BATCH["Batch Dispatch<br>Starved?"]
         RQ --> BATCH
         WQ --> BATCH
     end
@@ -417,14 +417,14 @@ The blk-mq architecture maps software queues to hardware queues:
 ```mermaid
 graph TD
     subgraph "Per-CPU Software Queues"
-        SQ0["SW Queue 0<br/>CPU 0"]
-        SQ1["SW Queue 1<br/>CPU 1"]
-        SQ2["SW Queue 2<br/>CPU 2"]
-        SQ3["SW Queue 3<br/>CPU 3"]
+        SQ0["SW Queue 0<br>CPU 0"]
+        SQ1["SW Queue 1<br>CPU 1"]
+        SQ2["SW Queue 2<br>CPU 2"]
+        SQ3["SW Queue 3<br>CPU 3"]
     end
     subgraph "Hardware Dispatch Queues"
-        HWQ0["HW Queue 0<br/>NVMe queue pair 0"]
-        HWQ1["HW Queue 1<br/>NVMe queue pair 1"]
+        HWQ0["HW Queue 0<br>NVMe queue pair 0"]
+        HWQ1["HW Queue 1<br>NVMe queue pair 1"]
     end
     SQ0 --> HWQ0
     SQ1 --> HWQ0
