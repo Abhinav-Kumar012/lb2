@@ -524,10 +524,8 @@ flowchart TD
     B -->|VirtIO RAPL?| C[paravirtualized driver]
     B -->|MSR passthrough?| D[direct access]
     B -->|No support| E[rapl unavailable]
-    D --> F[Security risk: guest
-         can cap host power]
-    C --> G[Safe: hypervisor
-         controls limits]
+    D --> F["Security risk: guest can cap host power"]
+    C --> G["Safe: hypervisor controls limits"]
 ```
 
 - **KVM**: RAPL MSRs are not typically exposed to guests. The `intel_rapl_msr`
@@ -576,10 +574,8 @@ graph TD
     D[CPU capacity] --> A
     E[Thermal pressure] --> B
     B --> F{Task placement}
-    F -->|Energy efficient| G[Little cores
-         for background tasks]
-    F -->|Performance| H[Big cores
-         for latency-critical tasks]
+    F -->|Energy efficient| G["Little cores for background tasks"]
+    F -->|Performance| H["Big cores for latency-critical tasks"]
 ```
 
 ### Per-Core Energy Estimation
@@ -748,15 +744,11 @@ ARM servers (Ampere Altra, AWS Graviton) do not have RAPL. Alternatives:
 
 ```mermaid
 flowchart LR
-    A[Total rack power budget
-         10 kW] --> B[Per-server allocation
-         300W each]
-    B --> C[RAPL: PL1=200W
-         PL2=300W]
+    A["Total rack power budget 10 kW"] --> B["Per-server allocation 300W each"]
+    B --> C["RAPL: PL1=200W, PL2=300W"]
     B --> D[DRAM: 50W]
     B --> E[Other: 50W]
-    C --> F[Dynamic adjustment
-         based on workload]
+    C --> F["Dynamic adjustment based on workload"]
 ```
 
 ### Green Computing: Energy-Per-Request

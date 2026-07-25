@@ -517,9 +517,7 @@ flowchart TD
     E --> F{Wide ancestor frame?}
     F -->|Yes| G[Can you reduce calls to it?]
     F -->|No| H[Check for unexpected patterns]
-    H --> I[Look for: recursive towers,
-         thin-wide plateaus,
-         scattered small frames]
+    H --> I["Look for: recursive towers, thin-wide plateaus, scattered small frames"]
     G --> D
     D --> J[Re-profile and compare]
     I --> J
@@ -555,12 +553,9 @@ flowchart LR
     B[After profile] --> C
     C --> D[Differential SVG]
     D --> E{Color analysis}
-    E --> F[Red = regression
-         more samples in 'after']
-    E --> G[Blue = improvement
-         fewer samples in 'after']
-    E --> H[White/neutral
-         unchanged]
+    E --> F["Red = regression, more samples in 'after'"]
+    E --> G["Blue = improvement, fewer samples in 'after'"]
+    E --> H["White/neutral, unchanged"]
 ```
 
 When analyzing differentials:
@@ -655,11 +650,8 @@ historical comparison and regression detection.
 ```mermaid
 flowchart TD
     A[Production Servers] -->|pprof/perf| B[Agent/Collector]
-    B --> C[Storage Backend
-         (S3, GCS, local)]
-    C --> D[Continuous Profiling UI
-         (Pyroscope, Parca,
-          Grafana Phlare)]
+    B --> C["Storage Backend (S3, GCS, local)"]
+    C --> D["Continuous Profiling UI (Pyroscope, Parca, Grafana Phlare)"]
     D --> E[Diff views]
     D --> F[Flame graph timeline]
     D --> G[Function-level trends]

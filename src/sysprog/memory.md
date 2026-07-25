@@ -352,7 +352,7 @@ graph TD
     subgraph "Thread Cache (tcache)"
         TC[Per-thread, no locking]
     end
-    subbin "Arena"
+    subgraph "Arena"
         A1[Arena 0]
         A2[Arena 1]
         A3[Arena N]

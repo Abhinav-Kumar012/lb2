@@ -92,7 +92,7 @@ sequenceDiagram
     KEXEC->>Capture: Boot capture kernel
     Capture->>Capture: Mount rootfs from initramfs
     Capture->>Capture: Read /proc/vmcore
-    Capture->>Disk: makedumpfile: compress & write
+    Capture->>Disk: makedumpfile: compress and write
     Capture->>Capture: Reboot into normal kernel
 ```
 

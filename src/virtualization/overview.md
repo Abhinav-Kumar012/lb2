@@ -551,12 +551,8 @@ guest virtual addresses to host physical addresses:
 
 ```mermaid
 flowchart LR
-    GVA[Guest Virtual
-Address] -->|Guest Page Table| GPA[Guest Physical
-Address]
-    GPA -->|EPT/NPT
-(Shadow Page Table)| HPA[Host Physical
-Address]
+    GVA[Guest Virtual Address] -->|Guest Page Table| GPA[Guest Physical Address]
+    GPA -->|EPT/NPT (Shadow Page Table)| HPA[Host Physical Address]
 ```
 
 ### EPT/NPT Performance Impact
