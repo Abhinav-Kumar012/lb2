@@ -5,3 +5,4 @@ token.txt
 *.swo
 *~
 .DS_Store
+mdbook-mermaid

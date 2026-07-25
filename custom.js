@@ -1,42 +1,21 @@
-document.addEventListener("DOMContentLoaded", () => {
-    const script = document.createElement("script");
-    script.src = "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js";
-    script.async = true;
+// Custom JS for The Linux Encyclopedia
 
-    script.onerror = () => {
-        console.error("[mermaid] Failed to load mermaid.js from CDN");
-    };
+document.addEventListener('DOMContentLoaded', function() {
+    // Add copy buttons to code blocks (excluding mermaid blocks)
+    var codeBlocks = document.querySelectorAll('pre code:not(.language-mermaid)');
+    codeBlocks.forEach(function(block) {
+        var button = document.createElement('button');
+        button.className = 'copy-button';
+        button.textContent = 'Copy';
+        button.style.cssText = 'position:absolute;top:4px;right:4px;padding:2px 8px;font-size:12px;cursor:pointer;background:#f0f0f0;border:1px solid #ccc;border-radius:3px;';
+        block.parentElement.style.position = 'relative';
+        block.parentElement.appendChild(button);
 
-    script.onload = async () => {
-        try {
-            mermaid.initialize({
-                startOnLoad: false,
-                theme: "default",
-                securityLevel: "loose",
+        button.addEventListener('click', function() {
+            navigator.clipboard.writeText(block.textContent).then(function() {
+                button.textContent = 'Copied!';
+                setTimeout(function() { button.textContent = 'Copy'; }, 2000);
             });
-
-            // Convert <pre><code class="language-mermaid"> to <div class="mermaid">
-            const codeBlocks = document.querySelectorAll("pre code.language-mermaid");
-            codeBlocks.forEach(code => {
-                const pre = code.closest("pre");
-                const div = document.createElement("div");
-                div.className = "mermaid";
-                div.textContent = code.textContent;
-                if (pre) {
-                    pre.replaceWith(div);
-                } else {
-                    code.replaceWith(div);
-                }
-            });
-
-            // Run mermaid on all converted blocks
-            if (document.querySelectorAll(".mermaid").length > 0) {
-                await mermaid.run();
-            }
-        } catch (e) {
-            console.error("[mermaid] Rendering error:", e);
-        }
-    };
-
-    document.head.appendChild(script);
+        });
+    });
 });
