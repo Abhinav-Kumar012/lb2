@@ -22,7 +22,6 @@ jobs:
             | tar -xz
           sudo mv mdbook-mermaid /usr/local/bin/
           mdbook-mermaid --version
-          mdbook-mermaid install .
 
       - name: Build book
         run: mdbook build
