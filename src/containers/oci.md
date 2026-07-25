@@ -333,19 +333,19 @@ sequenceDiagram
     Client->>Registry: GET /v2/
     Registry-->>Client: 200 OK
 
-    Client->>Registry: GET /v2/<name>/manifests/<tag>
+    Client->>Registry: GET /v2/{name}/manifests/{tag}
     Registry-->>Client: Manifest (JSON)
 
-    Client->>Registry: GET /v2/<name>/blobs/<digest>
+    Client->>Registry: GET /v2/{name}/blobs/{digest}
     Registry-->>Client: Layer blob (tarball)
 
     Note over Client,Registry: Upload flow
-    Client->>Registry: POST /v2/<name>/blobs/uploads/
+    Client->>Registry: POST /v2/{name}/blobs/uploads/
     Registry-->>Client: 202 Accepted (Location header)
-    Client->>Registry: PUT <location>&digest=<digest>
+    Client->>Registry: PUT {location}&digest={digest}
     Registry-->>Client: 201 Created
 
-    Client->>Registry: PUT /v2/<name>/manifests/<tag>
+    Client->>Registry: PUT /v2/{name}/manifests/{tag}
     Registry-->>Client: 201 Created
 ```
 

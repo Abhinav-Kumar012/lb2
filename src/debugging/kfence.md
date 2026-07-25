@@ -489,7 +489,7 @@ kunit_test_suite(my_kfence_suite);
 
 ```mermaid
 flowchart TD
-    A["Deploy KFENCE in Production"] --> B{"Kernel version ≥ 5.12?"}
+    A["Deploy KFENCE in Production"] --> B{"Kernel version >= 5.12?"}
     B -->|No| C["Upgrade kernel first"]
     B -->|Yes| D{"Memory budget available?"}
     D -->|No| E["Reduce num_objects"]
