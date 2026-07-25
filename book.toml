@@ -5,12 +5,6 @@ description = "A comprehensive, continuously growing reference for Linux, Unix i
 language = "en"
 src = "src"
 
-
-
-[build]
-build-dir = "book"
-create-missing = true
-
 [output.html]
 default-theme = "light"
 preferred-dark-theme = "navy"
