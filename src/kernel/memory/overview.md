@@ -453,7 +453,7 @@ flowchart TB
         subgraph "Kernel Virtual"
             VMALLOC["vmalloc()"]
         end
-        subgraph "Reclaim & Swap"
+        subgraph "Reclaim and Swap"
             KSWAPD["kswapd"]
             LRU["LRU Lists"]
             SWAP["Swap Subsystem"]

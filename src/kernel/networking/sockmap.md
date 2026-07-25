@@ -52,7 +52,7 @@ flowchart TB
         end
     end
 
-    PROG -->|"load & attach"| MAP
+    PROG -->|"load and attach"| MAP
     PROG -->|"load"| SK_SKB
     PROG -->|"load"| SK_MSG
     APP_A --> SK_A
