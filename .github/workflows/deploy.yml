@@ -33,6 +33,15 @@ jobs:
           sudo mv mdbook-mermaid /usr/local/bin/
           mdbook-mermaid --version
 
+      - name: Debug
+        run: |
+          echo "=== book.toml ==="
+          cat book.toml
+          echo "=== custom.js ==="
+          ls -la custom.js
+          echo "=== mdbook version ==="
+          mdbook --version
+
       - name: Build
         run: mdbook build
 
