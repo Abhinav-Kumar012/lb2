@@ -13,4 +13,4 @@ default-theme = "light"
 preferred-dark-theme = "navy"
 git-repository-url = "https://github.com/Abhinav-Kumar012/lb2"
 additional-css = ["custom.css"]
-additional-js = ["custom.js"]
+additional-js = ["custom.js","mermaid-init.js"]
